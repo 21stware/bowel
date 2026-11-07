@@ -1,0 +1,11 @@
+{
+  "name": "bowel",
+  "identifier": "dev.moho.app",
+  "version": "0.1.0",
+  "out": "build",
+  "macos": {
+    "infoPlist": {
+      "NSCameraUsageDescription": "bowel 用摄像头扫描订阅或节点的二维码。"
+    }
+  }
+}

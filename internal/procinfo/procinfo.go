@@ -1,0 +1,78 @@
+// Package procinfo names the process behind a local socket.
+//
+// mihomo does this itself, but on macOS 27 it cannot when Moho starts it:
+// the kernel's socket list (net.inet.tcp.pcblist_n) comes back empty to a
+// process whose parent is an ad-hoc signed app, and Moho's core is such a
+// child. Moho itself, opened like any app, still gets the full list, so
+// the monitor asks here for connections the core could not name.
+package procinfo
+
+import (
+	"net/netip"
+	"sync"
+	"time"
+)
+
+// Finder looks sockets up in a snapshot of the kernel's list, taken again
+// when older than maxAge, so that the lookups of one poll share one read.
+type Finder struct {
+	mu     sync.Mutex
+	maxAge time.Duration
+	at     map[string]time.Time
+	socks  map[string]map[netip.AddrPort]int32 // network -> local address -> pid
+	paths  map[int32]string
+}
+
+// New returns a Finder whose snapshots live for 250 ms.
+func New() *Finder {
+	return &Finder{
+		maxAge: 250 * time.Millisecond,
+		at:     map[string]time.Time{},
+		socks:  map[string]map[netip.AddrPort]int32{},
+		paths:  map[int32]string{},
+	}
+}
+
+// Find returns the executable path of the process that owns the local
+// socket at src ("tcp" or "udp"), or "" if it can't tell.
+func (f *Finder) Find(network string, src netip.AddrPort) string {
+	if network != "tcp" && network != "udp" || !src.IsValid() {
+		return ""
+	}
+	src = netip.AddrPortFrom(src.Addr().Unmap(), src.Port())
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	now := time.Now()
+	if now.Sub(f.at[network]) > f.maxAge {
+		socks, err := list(network)
+		if err != nil {
+			return ""
+		}
+		f.socks[network], f.at[network] = socks, now
+	}
+	socks := f.socks[network]
+	pid, ok := socks[src]
+	if !ok && network == "udp" {
+		// a UDP socket bound to the wildcard address
+		pid, ok = socks[netip.AddrPortFrom(unspecified(src.Addr()), src.Port())]
+	}
+	if !ok || pid <= 0 {
+		return ""
+	}
+	if p, ok := f.paths[pid]; ok {
+		return p
+	}
+	p := pidPath(pid)
+	if len(f.paths) > 2000 { // pids get reused; keep the cache small
+		clear(f.paths)
+	}
+	f.paths[pid] = p
+	return p
+}
+
+func unspecified(a netip.Addr) netip.Addr {
+	if a.Is4() {
+		return netip.IPv4Unspecified()
+	}
+	return netip.IPv6Unspecified()
+}

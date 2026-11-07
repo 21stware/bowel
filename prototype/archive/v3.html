@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>Moho · L0 菜单栏 + L1 首屏</title>
+<style>
+/* ------------------------------------------------------------------
+   Tokens. Color has two jobs only:
+   - status & health: green / amber / red (nothing else uses them)
+   - route identity: blue / violet / rose / teal / gray (nothing else uses them)
+------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+  --win: #ffffff; --titlebar: #f3f3f4;
+  --fg: #1d1d1f; --fg-2: #48484a; --muted: #86868b; --faint: #b8b8bd;
+  --line: rgba(0,0,0,.08); --line-2: rgba(0,0,0,.05); --hover: rgba(0,0,0,.035);
+  --good: #28a745; --warn: #e08a00; --bad: #e5484d; --off: #a1a1a6;
+  --r-default: #4f7cff; --r-ai: #9b6bff; --r-media: #f0567a; --r-dev: #1fb3c9; --r-direct: #a7adb6;
+  --up: #9b6bff; --accent: #0a84ff;
+  --panel: rgba(246,246,248,.82); --panel-line: rgba(0,0,0,.1);
+  --menubar: rgba(255,255,255,.55);
+  --wall: radial-gradient(120% 90% at 20% 10%, #c9d6ff 0%, #e2c9f2 45%, #f6d7c3 100%);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+:root.dark {
+  color-scheme: dark;
+  --win: #1e1e20; --titlebar: #2a2a2d;
+  --fg: #f2f2f4; --fg-2: #c7c7cc; --muted: #8e8e93; --faint: #5a5a5f;
+  --line: rgba(255,255,255,.09); --line-2: rgba(255,255,255,.05); --hover: rgba(255,255,255,.045);
+  --good: #32d74b; --warn: #ffb020; --bad: #ff5a5f; --off: #6e6e73;
+  --r-direct: #6f747c;
+  --panel: rgba(40,40,44,.78); --panel-line: rgba(255,255,255,.12);
+  --menubar: rgba(30,30,32,.5);
+  --wall: radial-gradient(120% 90% at 20% 10%, #263a6b 0%, #3d2550 50%, #1b1d2b 100%);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--wall); color: var(--fg); overflow: hidden; }
+button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: default; }
+.num { font-variant-numeric: tabular-nums; }
+.stage { position: absolute; inset: 0; transform-origin: 0 0; width: 1440px; height: 900px; }
+
+/* ------------------------------------------------------------------ menu bar */
+.menubar { position: absolute; top: 0; left: 0; right: 0; height: 26px; background: var(--menubar); backdrop-filter: blur(30px) saturate(1.6); display: flex; align-items: center; padding: 0 10px; gap: 18px; font-size: 13px; color: var(--fg); }
+.menubar b { font-weight: 700; }
+.menubar .right { margin-left: auto; display: flex; gap: 16px; align-items: center; }
+.mb-item { display: flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 5px; height: 22px; }
+.mb-item.on { background: rgba(127,127,127,.25); }
+.mb-item svg { width: 16px; height: 16px; }
+.mb-speed { font: 9.5px/1 -apple-system, "SF Pro Text"; font-variant-numeric: tabular-nums; display: grid; gap: 1px; text-align: right; }
+
+/* ------------------------------------------------------------------ L0 panel */
+.l0 { position: absolute; top: 31px; width: 320px; background: var(--panel); backdrop-filter: blur(40px) saturate(1.8); border: .5px solid var(--panel-line); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.25), 0 0 0 .5px rgba(0,0,0,.1); padding: 6px; font-size: 13px; }
+.l0[hidden] { display: none; }
+.l0-head { display: flex; align-items: center; gap: 10px; padding: 8px 8px 10px; }
+.l0-head .st { flex: 1; min-width: 0; }
+.l0-head .st b { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
+.l0-head .st small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.l0-speed { display: flex; gap: 14px; padding: 0 8px 8px; font-size: 11.5px; color: var(--muted); }
+.l0-speed b { color: var(--fg); font-weight: 600; }
+.l0 hr { border: 0; border-top: .5px solid var(--panel-line); margin: 4px 8px; }
+.l0-label { font-size: 11px; color: var(--muted); padding: 4px 8px 2px; font-weight: 500; }
+.l0-row { display: grid; grid-template-columns: 8px 58px 1fr auto 10px; gap: 8px; align-items: center; padding: 5px 8px; border-radius: 6px; width: 100%; text-align: left; }
+.l0-row:hover, .l0-row.open { background: var(--accent); color: #fff; }
+.l0-row:hover .lat, .l0-row.open .lat { color: rgba(255,255,255,.9); }
+.l0-row .name { font-weight: 500; }
+.l0-row .node { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.l0-row .lat { font-size: 11.5px; }
+.l0-row .chev { color: var(--faint); font-size: 11px; }
+.l0-row:hover .chev, .l0-row.open .chev { color: #fff; }
+.l0-row.dim { opacity: .45; }
+.l0-nodes { margin: 2px 0 4px 22px; display: grid; }
+.l0-node { display: grid; grid-template-columns: 14px 18px 1fr auto; gap: 6px; align-items: center; padding: 4px 8px; border-radius: 6px; text-align: left; }
+.l0-node:hover { background: var(--accent); color: #fff; }
+.l0-node:hover .lat { color: #fff; }
+.l0-node .ck { color: var(--accent); font-size: 11px; }
+.l0-node:hover .ck { color: #fff; }
+.l0-node.more { color: var(--muted); grid-template-columns: 14px 1fr; }
+.l0-mode { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; }
+.l0-cmd { display: flex; justify-content: space-between; padding: 5px 8px; border-radius: 6px; width: 100%; text-align: left; }
+.l0-cmd:hover { background: var(--accent); color: #fff; }
+.l0-cmd kbd { font: inherit; color: var(--muted); }
+.l0-cmd:hover kbd { color: rgba(255,255,255,.8); }
+.l0-issue { margin: 0 4px 6px; padding: 7px 9px; border-radius: 8px; font-size: 12px; display: flex; gap: 8px; align-items: flex-start; }
+.l0-issue .a { margin-left: auto; font-weight: 600; white-space: nowrap; }
+
+/* ------------------------------------------------------------------ shared controls */
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--off); }
+.dot.ok { background: var(--good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 18%, transparent); }
+.dot.degraded { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 18%, transparent); }
+.dot.error { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 18%, transparent); }
+.switch { width: 38px; height: 22px; border-radius: 11px; background: color-mix(in srgb, var(--fg) 14%, transparent); position: relative; flex: none; transition: background .2s; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: left .2s; }
+.switch.on { background: var(--good); }
+.switch.on::after { left: 18px; }
+.switch.sm { width: 32px; height: 19px; } .switch.sm::after { width: 15px; height: 15px; } .switch.sm.on::after { left: 15px; }
+.seg { display: inline-flex; background: color-mix(in srgb, var(--fg) 7%, transparent); border-radius: 7px; padding: 2px; }
+.seg button { padding: 2px 10px; border-radius: 5px; font-size: 12px; color: var(--fg-2); }
+.seg button.on { background: var(--win); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.15), 0 0 0 .5px rgba(0,0,0,.05); font-weight: 500; }
+.good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); } .muted { color: var(--muted); }
+
+/* ------------------------------------------------------------------ L1 window */
+.window { position: absolute; left: 110px; top: 92px; width: 920px; height: 640px; background: var(--win); border-radius: 12px; box-shadow: 0 30px 80px rgba(0,0,0,.28), 0 0 0 .5px rgba(0,0,0,.18); overflow: hidden; display: flex; flex-direction: column; }
+.titlebar { height: 52px; flex: none; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 14px 0 18px; background: var(--titlebar); border-bottom: .5px solid var(--line); }
+.lights { display: flex; gap: 8px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; }
+.tb-right { display: flex; justify-content: flex-end; gap: 4px; }
+.tb-btn { width: 30px; height: 26px; border-radius: 6px; display: grid; place-items: center; color: var(--fg-2); }
+.tb-btn:hover { background: var(--hover); }
+.tb-btn svg { width: 16px; height: 16px; }
+.nav { display: inline-flex; background: color-mix(in srgb, var(--fg) 6%, transparent); border-radius: 8px; padding: 2px; }
+.nav button { padding: 3px 16px; border-radius: 6px; font-size: 12.5px; color: var(--fg-2); }
+.nav button.on { background: var(--win); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.14), 0 0 0 .5px rgba(0,0,0,.05); font-weight: 500; }
+
+.content { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.section { padding: 0 28px; }
+.kicker { font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: .02em; }
+
+/* status */
+.status { display: grid; grid-template-columns: 1fr auto; gap: 6px 24px; align-items: center; padding-top: 22px; padding-bottom: 18px; }
+.status-word { display: flex; align-items: center; gap: 10px; }
+.status-word .dot { width: 10px; height: 10px; }
+.status-word h1 { margin: 0; font-size: 24px; font-weight: 650; letter-spacing: -.015em; }
+.status-word .tag { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); display: inline-flex; gap: 6px; align-items: center; }
+.status-word .tag button { color: inherit; text-decoration: underline; text-underline-offset: 2px; font-weight: 500; cursor: pointer; }
+.status-line { grid-column: 1; font-size: 13px; color: var(--fg-2); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.status-line .flag { font-size: 15px; }
+.status-line .sep { color: var(--faint); }
+.takeover { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 10px; justify-self: end; font-weight: 500; }
+.entries { grid-column: 2; grid-row: 2; display: flex; gap: 14px; justify-self: end; font-size: 11.5px; color: var(--muted); }
+.entry { display: inline-flex; align-items: center; gap: 5px; }
+.entry i { width: 6px; height: 6px; border-radius: 50%; background: var(--off); }
+.entry.ok i { background: var(--good); } .entry.bad i { background: var(--bad); } .entry.bad { color: var(--bad); }
+.entry b { font-weight: 500; color: var(--fg-2); }
+.entry.bad b { color: var(--bad); }
+
+.issue { margin: 0 28px 14px; padding: 10px 14px; border-radius: 10px; display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
+.issue.degraded { background: color-mix(in srgb, var(--warn) 10%, transparent); color: color-mix(in srgb, var(--warn) 75%, var(--fg)); }
+.issue.error { background: color-mix(in srgb, var(--bad) 10%, transparent); color: color-mix(in srgb, var(--bad) 80%, var(--fg)); }
+.issue .ic { font-size: 14px; }
+.issue .act { margin-left: auto; font-weight: 600; padding: 4px 12px; border-radius: 6px; background: var(--win); box-shadow: 0 0 0 .5px var(--line), 0 1px 2px rgba(0,0,0,.06); color: var(--fg); white-space: nowrap; cursor: pointer; }
+
+/* traffic */
+.traffic { display: grid; grid-template-columns: 200px 1fr; gap: 24px; padding-top: 16px; padding-bottom: 20px; border-top: .5px solid var(--line); }
+.rate-down { font-size: 34px; font-weight: 650; letter-spacing: -.03em; line-height: 1; margin-top: 8px; }
+.rate-down small, .rate-up small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-left: 4px; }
+.rate-up { font-size: 17px; font-weight: 600; letter-spacing: -.01em; margin-top: 8px; color: var(--fg-2); }
+.arrow { font-size: 12px; font-weight: 600; margin-right: 4px; color: var(--muted); }
+.today { margin-top: 14px; font-size: 11.5px; color: var(--muted); display: grid; gap: 2px; }
+.today b { color: var(--fg-2); font-weight: 500; }
+.chart { position: relative; }
+.chart canvas { width: 100%; height: 132px; display: block; }
+.chart .axis { position: absolute; right: 0; bottom: -4px; font-size: 10.5px; color: var(--faint); }
+.chart .axis.top { top: -2px; bottom: auto; }
+.chart .axis.l { left: 0; right: auto; }
+
+/* routes */
+.routes { border-top: .5px solid var(--line); padding-top: 14px; flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.routes-h { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.routes-h .right { margin-left: auto; display: flex; gap: 14px; font-size: 12px; }
+.link { color: var(--accent); cursor: pointer; }
+.rt { display: grid; grid-template-columns: 3px 64px minmax(120px, 1fr) 16px 200px 124px 120px 12px; gap: 0 14px; align-items: center; }
+.rt-head { font-size: 11px; color: var(--muted); padding: 0 6px 6px; }
+.rt-row { height: 46px; padding: 0 6px; border-radius: 8px; position: relative; }
+.rt-row + .rt-row::before { content: ""; position: absolute; left: 23px; right: 6px; top: 0; border-top: .5px solid var(--line-2); }
+.rt-row:hover { background: var(--hover); }
+.rt-row.dim { opacity: .38; }
+.rt-row .bar { width: 3px; height: 22px; border-radius: 2px; }
+.rt-row .name { font-weight: 600; }
+.rt-row .match { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rt-row .to { color: var(--faint); text-align: center; }
+.rt-row .exit { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.rt-row .exit .flag { font-size: 16px; }
+.rt-row .exit .n { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.pill.auto { color: var(--muted); background: color-mix(in srgb, var(--fg) 7%, transparent); }
+.pill.switched { color: var(--warn); background: color-mix(in srgb, var(--warn) 13%, transparent); }
+.health { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.spark { display: flex; gap: 2px; align-items: flex-end; height: 14px; }
+.spark i { width: 3px; border-radius: 1px; }
+.health .ms { width: 48px; text-align: right; font-size: 12.5px; font-weight: 500; }
+.share { display: grid; grid-template-columns: 1fr 32px; gap: 8px; align-items: center; font-size: 12px; color: var(--fg-2); }
+.share .track { height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--fg) 7%, transparent); overflow: hidden; }
+.share .track i { display: block; height: 100%; border-radius: 2px; }
+.share span { text-align: right; }
+.rt-row .go { color: var(--faint); opacity: 0; font-size: 13px; }
+.rt-row:hover .go { opacity: 1; }
+.mode-note { font-size: 12px; color: var(--muted); padding: 8px 6px 0; }
+
+/* ------------------------------------------------------------------ demo controls (not product) */
+.demo { position: absolute; left: 110px; top: 752px; width: 920px; background: rgba(20,20,22,.86); color: #f2f2f4; border-radius: 12px; padding: 12px 16px; font-size: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.3); backdrop-filter: blur(20px); display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px; }
+.demo h4 { margin: 0; font-size: 11px; font-weight: 600; color: #a1a1a6; letter-spacing: .03em; }
+.demo .row { display: flex; align-items: center; gap: 8px; }
+.demo .seg { background: rgba(255,255,255,.1); }
+.demo .seg button { color: #c7c7cc; padding: 2px 8px; }
+.demo .seg button.on { background: #48484a; color: #fff; box-shadow: none; }
+.demo p { margin: 0; flex-basis: 100%; color: #8e8e93; line-height: 1.5; font-size: 11.5px; }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="menubar">
+    <b></b><b>Moho</b><span>文件</span><span>编辑</span><span>显示</span><span>窗口</span><span>帮助</span>
+    <div class="right">
+      <button class="mb-item" id="mb" title="Moho"></button>
+      <span>Wi-Fi</span><span class="num">11月7日 周六 19:42</span>
+    </div>
+  </div>
+
+  <div class="window">
+    <div class="titlebar">
+      <div class="lights"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+      <div class="nav"><button class="on">概览</button><button>活动</button><button>Provider</button></div>
+      <div class="tb-right">
+        <button class="tb-btn" title="搜索 ⌘K"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+      </div>
+    </div>
+    <div class="content" id="l1"></div>
+  </div>
+
+  <div class="l0" id="l0"></div>
+
+  <div class="demo">
+    <h4>演示控制 · 不属于产品</h4>
+    <div class="row"><span>总状态</span><div class="seg" id="d-state"></div></div>
+    <div class="row"><span>模式</span><div class="seg" id="d-mode"></div></div>
+    <div class="row"><span>外观</span><div class="seg" id="d-theme"></div></div>
+    <div class="row"><span>菜单栏面板 (L0)</span><div class="seg" id="d-l0"></div></div>
+    <p>切换总状态，看同一套界面在四种状态下怎么变化：正常时安静，降级 / 异常时只多出一条说明和一个动作。点菜单栏里的 Moho 图标也能打开或收起 L0。</p>
+  </div>
+</div>
+
+<script>
+// ==================================================================
+// Data (fake)
+// ==================================================================
+const ROUTES = [
+  { id: "default", name: "默认", color: "var(--r-default)", hex: ["#4f7cff", "#5b84ff"], match: "其他所有流量", auto: true, node: ["🇭🇰", "香港 03 IPLC"], ms: 41, share: .31 },
+  { id: "ai", name: "AI 服务", color: "var(--r-ai)", hex: ["#9b6bff", "#a07bff"], match: "OpenAI · Claude · Gemini 等 12 条", auto: false, node: ["🇺🇸", "洛杉矶 VPS"], ms: 168, share: .08 },
+  { id: "media", name: "流媒体", color: "var(--r-media)", hex: ["#f0567a", "#f0567a"], match: "YouTube · Netflix · Spotify 等 24 条", auto: false, node: ["🇸🇬", "新加坡 01"], ms: 143, share: .52 },
+  { id: "dev", name: "开发", color: "var(--r-dev)", hex: ["#1fb3c9", "#1fb3c9"], match: "GitHub · npm · Docker 等 9 条", auto: true, node: ["🇯🇵", "东京 01"], ms: 118, share: .04 },
+  { id: "direct", name: "直连", color: "var(--r-direct)", hex: ["#a7adb6", "#6f747c"], match: "国内网站 · 局域网", direct: true, share: .05 },
+];
+const NODES = [["🇭🇰", "香港 03 IPLC", 41], ["🇭🇰", "香港 02", 64], ["🇭🇰", "香港 01", 72], ["🇯🇵", "东京 01", 118], ["🇯🇵", "大阪 01", 131], ["🇸🇬", "新加坡 01", 143], ["🇺🇸", "洛杉矶 VPS", 168]];
+
+const S = { state: "ok", mode: "rule", dark: false, l0: true, openRoute: "default" };
+
+// Per-route traffic history, bytes/s, oldest first.
+const T = 90;
+let tick = 0;
+const hist = Array.from({ length: T }, () => sample(tick++));
+function sample(i) {
+  const wave = (p, a) => Math.max(0, 1 + Math.sin(i / p) * a + (Math.random() - .5) * .18);
+  return {
+    down: { default: 4.2e5 * wave(9, .5), ai: 1.1e5 * wave(4, .9), media: 7.4e5 * wave(13, .45), dev: 6e4 * wave(3, 1.2), direct: 7e4 * wave(6, .6) },
+    up: { default: 2.1e4 * wave(7, .6), ai: 1.6e4 * wave(4, .8), media: 9e3 * wave(10, .5), dev: 5e3 * wave(3, 1), direct: 6e3 * wave(5, .7) },
+  };
+}
+
+// ==================================================================
+// Derived view state
+// ==================================================================
+const $ = (id) => document.getElementById(id);
+const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0);
+const tone = (ms) => (ms <= 0 ? "bad" : ms < 120 ? "good" : ms < 250 ? "warn" : "bad");
+function unit(b) { const u = ["B", "KB", "MB", "GB"]; let i = 0; while (b >= 1000 && i < 3) { b /= 1024; i++; } return [i === 0 ? Math.round(b) : b < 10 ? b.toFixed(2) : b < 100 ? b.toFixed(1) : Math.round(b), u[i]]; }
+const activeIn = (id) => !(S.mode === "global" && id !== "default") && !(S.mode === "direct" && id !== "direct");
+
+function view() {
+  const off = S.state === "off";
+  const routes = ROUTES.map((r) => ({ ...r }));
+  if (S.state === "degraded") Object.assign(routes.find((r) => r.id === "dev"), { node: ["🇯🇵", "大阪 01"], ms: 131, switched: "东京 01" });
+  return {
+    off,
+    routes,
+    word: { ok: "正常", degraded: "降级", error: "异常", off: "未接管" }[S.state],
+    issue: {
+      degraded: { text: "「开发」的东京 01 连续 3 次超时，已自动换到大阪 01。", act: "查看" },
+      error: { text: "系统代理被其他程序改掉了，网页流量现在没有经过 Moho。", act: "重新接管" },
+    }[S.state],
+    entries: [
+      { name: "系统代理", v: off ? "未使用" : S.state === "error" ? "已被改动" : "生效中", cls: off ? "" : S.state === "error" ? "bad" : "ok" },
+      { name: "TUN", v: "未使用", cls: "" },
+      { name: "端口", v: "7899", cls: off ? "" : "ok" },
+    ],
+  };
+}
+
+// ==================================================================
+// L1
+// ==================================================================
+function rates() {
+  if (S.state === "off") return [["0", "KB"], ["0", "KB"]];
+  const last = hist.at(-1);
+  const pick = (dir) => Object.entries(last[dir]).reduce((a, [id, v]) => a + (activeIn(id) ? v : 0), 0);
+  return [unit(pick("down")), unit(pick("up"))];
+}
+
+function renderL1() {
+  const v = view();
+  const [[dv, du], [uv, uu]] = rates();
+  const modeTag = S.mode === "rule" || v.off ? "" :
+    `<span class="tag">${S.mode === "global" ? "全局模式" : "直连模式"}<button data-mode="rule">恢复规则</button></span>`;
+  const exitLine = v.off
+    ? `<span>流量直接连接互联网，不经过 Moho</span>`
+    : S.mode === "direct"
+    ? `<span>所有流量直接连接，规则暂停</span>`
+    : `<span class="flag">🇭🇰</span><span>经香港出口</span><span class="sep">·</span><span class="num">103.152.x.12</span><span class="sep">·</span><span>HKBN</span>`;
+
+  $("l1").innerHTML = `
+    <div class="section status">
+      <div class="status-word"><span class="dot ${S.state}"></span><h1>${v.word}</h1>${modeTag}</div>
+      <div class="status-line">${exitLine}</div>
+      <label class="takeover">接管<button class="switch ${v.off ? "" : "on"}" data-takeover></button></label>
+      <div class="entries">${v.entries.map((e) => `<span class="entry ${e.cls}"><i></i>${e.name} <b>${e.v}</b></span>`).join("")}</div>
+    </div>
+    ${v.issue ? `<div class="issue ${S.state}"><span class="ic">${S.state === "error" ? "⚠︎" : "↻"}</span><span>${v.issue.text}</span><button class="act">${v.issue.act}</button></div>` : ""}
+
+    <div class="section traffic">
+      <div>
+        <div class="kicker">实时速度</div>
+        <div class="rate-down num" id="rd"><span class="arrow">↓</span>${dv}<small>${du}/s</small></div>
+        <div class="rate-up num" id="ru"><span class="arrow">↑</span>${uv}<small>${uu}/s</small></div>
+        <div class="today num"><span>今日 <b>↓ 2.31 GB</b> · <b>↑ 186 MB</b></span><span>本月 <b>↓ 48.6 GB</b></span></div>
+      </div>
+      <div class="chart"><canvas id="chart"></canvas><span class="axis top" id="axis-top"></span><span class="axis l">下载 ↑ · 上传 ↓</span><span class="axis">最近 90 秒</span></div>
+    </div>
+
+    <div class="section routes">
+      <div class="routes-h"><span class="kicker">路由</span><span class="muted" style="font-size:12px">每类流量走哪个出口 · 颜色与上方流量图对应</span>
+        <div class="right"><span class="link">全部测速</span></div></div>
+      <div class="rt rt-head"><span></span><span>路由</span><span>匹配</span><span></span><span>出口</span><span style="text-align:right">稳定性 · 延迟</span><span>流量占比</span><span></span></div>
+      ${v.routes.map((r) => routeRow(r, v)).join("")}
+      ${S.mode !== "rule" && !v.off ? `<div class="mode-note">${S.mode === "global" ? "全局模式：所有流量都走「默认」，其他路由暂不生效。" : "直连模式：所有流量直接连接，路由暂不生效。"}</div>` : ""}
+    </div>`;
+  drawChart();
+}
+
+function routeRow(r, v) {
+  const inactive = v.off || !activeIn(r.id);
+  const exit = r.direct
+    ? `<span class="exit"><span class="n muted">直接连接</span></span>`
+    : `<span class="exit"><span class="flag">${r.node[0]}</span><span class="n">${r.node[1]}</span>${r.switched ? `<span class="pill switched">已自动换</span>` : r.auto ? `<span class="pill auto">自动</span>` : ""}</span>`;
+  const bars = r.direct ? "" : Array.from({ length: 12 }, (_, i) => {
+    const failed = r.switched && i >= 7 && i <= 9;
+    const ms = failed ? 0 : r.ms * (0.8 + Math.random() * .45);
+    return `<i style="height:${failed ? 14 : Math.max(4, 14 - ms / 22)}px;background:var(--${failed ? "bad" : tone(ms)});opacity:${failed ? .9 : .5}"></i>`;
+  }).join("");
+  return `<div class="rt rt-row ${inactive ? "dim" : ""}">
+    <span class="bar" style="background:${r.color}"></span>
+    <span class="name">${r.name}</span>
+    <span class="match">${r.match}</span>
+    <span class="to">→</span>
+    ${exit}
+    <span class="health">${r.direct ? `<span class="ms muted">—</span>` : `<span class="spark">${bars}</span><span class="ms num ${tone(r.ms)}">${r.ms} ms</span>`}</span>
+    <span class="share num"><span class="track"><i style="width:${inactive ? 0 : r.share * 100}%;background:${r.color}"></i></span><span>${inactive ? "—" : Math.round(r.share * 100) + "%"}</span></span>
+    <span class="go">›</span>
+  </div>`;
+}
+
+// Download stacked by route above the axis, upload mirrored below. The
+// colors are the routes', so the chart also answers "where is it going".
+function drawChart() {
+  const c = $("chart"); if (!c) return;
+  const dpr = devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  const g = c.getContext("2d"); g.scale(dpr, dpr);
+  const dark = S.dark ? 1 : 0;
+  // A 3-sample moving average: the chart shows a trend, the numbers show "now".
+  const raw = hist.slice(-T);
+  const data = raw.map((p, i) => {
+    const win = raw.slice(Math.max(0, i - 2), i + 1);
+    const avg = (dir) => Object.fromEntries(Object.keys(p[dir]).map((k) => [k, win.reduce((a, q) => a + q[dir][k], 0) / win.length]));
+    return { down: avg("down"), up: avg("up") };
+  });
+  const order = ["direct", "dev", "ai", "default", "media"];
+  const mid = h * 0.74;
+  const X = (i) => (i / (data.length - 1)) * w;
+  const fwd = (ys) => { g.moveTo(X(0), ys[0]); for (let i = 1; i < ys.length; i++) { const xm = (X(i - 1) + X(i)) / 2; g.bezierCurveTo(xm, ys[i - 1], xm, ys[i], X(i), ys[i]); } };
+  const rev = (ys) => { g.lineTo(X(ys.length - 1), ys.at(-1)); for (let i = ys.length - 1; i > 0; i--) { const xm = (X(i - 1) + X(i)) / 2; g.bezierCurveTo(xm, ys[i], xm, ys[i - 1], X(i - 1), ys[i - 1]); } };
+
+  g.strokeStyle = S.dark ? "rgba(255,255,255,.07)" : "rgba(0,0,0,.06)"; g.lineWidth = 1;
+  g.setLineDash([2, 4]); [0.33, 0.66].forEach((f) => { g.beginPath(); g.moveTo(0, Math.round(mid * f) + .5); g.lineTo(w, Math.round(mid * f) + .5); g.stroke(); }); g.setLineDash([]);
+
+  if (S.state === "off") {
+    g.beginPath(); g.moveTo(0, mid + .5); g.lineTo(w, mid + .5); g.strokeStyle = S.dark ? "rgba(255,255,255,.15)" : "rgba(0,0,0,.12)"; g.stroke();
+    $("axis-top").textContent = ""; return;
+  }
+  const tot = (p, dir) => order.reduce((a, id) => a + (activeIn(id) ? p[dir][id] : 0), 0);
+  const maxD = Math.max(...data.map((p) => tot(p, "down"))) * 1.08;
+  const maxU = Math.max(...data.map((p) => tot(p, "up"))) * 1.15;
+  for (const [dir, scale, sign] of [["down", (mid - 8) / maxD, -1], ["up", (h - mid - 2) / maxU, 1]]) {
+    let acc = data.map(() => 0);
+    for (const id of order) {
+      if (!activeIn(id)) continue;
+      const r = ROUTES.find((x) => x.id === id);
+      const lower = acc.map((a) => mid + sign * a * scale);
+      acc = acc.map((a, i) => a + data[i][dir][id]);
+      const upper = acc.map((a) => mid + sign * a * scale);
+      g.beginPath(); fwd(upper); rev(lower); g.closePath();
+      g.fillStyle = r.hex[dark]; g.globalAlpha = dir === "down" ? .78 : .4; g.fill(); g.globalAlpha = 1;
+      g.beginPath(); fwd(upper); g.strokeStyle = S.dark ? "rgba(30,30,32,.6)" : "rgba(255,255,255,.7)"; g.lineWidth = .75; g.stroke();
+    }
+  }
+  g.beginPath(); g.moveTo(0, mid + .5); g.lineTo(w, mid + .5); g.strokeStyle = S.dark ? "#1e1e20" : "#fff"; g.lineWidth = 2; g.stroke();
+  const [pv, pu] = unit(maxD / 1.08);
+  $("axis-top").textContent = `峰值 ${pv} ${pu}/s`;
+}
+
+// ==================================================================
+// L0
+// ==================================================================
+const ICON = (state) => {
+  // Template-style: one ink; the shape tells the state.
+  const ring = `<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/>`;
+  return `<svg viewBox="0 0 16 16">${ring}${
+    state === "off" ? "" :
+    state === "error" ? `<path d="M8 4.6v4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="8" cy="11.2" r="1" fill="currentColor"/>` :
+    `<circle cx="8" cy="8" r="2.6" fill="currentColor"/>${state === "degraded" ? `<circle cx="13.2" cy="2.8" r="2.4" fill="currentColor"/>` : ""}`}</svg>`;
+};
+
+function renderMenubar() {
+  const off = S.state === "off";
+  const [[dv, du], [uv, uu]] = rates();
+  $("mb").className = `mb-item ${S.l0 ? "on" : ""}`;
+  $("mb").style.opacity = off ? .55 : 1;
+  $("mb").innerHTML = ICON(S.state) + (off ? "" : `<span class="mb-speed"><span>${uv} ${uu[0]}/s ↑</span><span>${dv} ${du[0]}/s ↓</span></span>`);
+}
+
+function renderL0() {
+  const el = $("l0"); el.hidden = !S.l0; if (!S.l0) return;
+  const v = view();
+  const [[dv, du], [uv, uu]] = rates();
+  el.style.left = "1090px";
+  el.innerHTML = `
+    <div class="l0-head">
+      <span class="dot ${S.state}"></span>
+      <div class="st"><b>${v.word}${S.mode !== "rule" && !v.off ? `<span class="muted" style="font-weight:500">· ${S.mode === "global" ? "全局" : "直连"}模式</span>` : ""}</b>
+        <small>${v.off ? "流量不经过 Moho" : "🇭🇰 经香港出口 · 103.152.x.12"}</small></div>
+      <button class="switch sm ${v.off ? "" : "on"}" data-takeover></button>
+    </div>
+    ${v.issue ? `<div class="l0-issue ${S.state === "error" ? "bad" : "warn"}" style="background:color-mix(in srgb, var(--${S.state === "error" ? "bad" : "warn"}) 12%, transparent)"><span>${v.issue.text}</span><span class="a">${v.issue.act}</span></div>` : ""}
+    ${v.off ? "" : `<div class="l0-speed num"><span>↓ <b>${dv} ${du}/s</b></span><span>↑ <b>${uv} ${uu}/s</b></span><span style="margin-left:auto">今日 2.31 GB</span></div>`}
+    <hr>
+    <div class="l0-label">路由</div>
+    ${v.routes.filter((x) => !x.direct).map((x) => {
+      const dim = v.off || !activeIn(x.id);
+      const open = S.openRoute === x.id && !dim;
+      return `<button class="l0-row ${open ? "open" : ""} ${dim ? "dim" : ""}" data-l0route="${x.id}">
+        <span class="dot" style="width:7px;height:7px;background:${x.color};box-shadow:none"></span>
+        <span class="name">${x.name}</span>
+        <span class="node">${x.node[0]} ${x.node[1]}</span>
+        <span class="lat num ${tone(x.ms)}">${x.ms} ms</span>
+        <span class="chev">${open ? "⌄" : "›"}</span>
+      </button>${open ? `<div class="l0-nodes">
+        <button class="l0-node"><span class="ck">${x.auto ? "✓" : ""}</span><span></span><span>自动</span><span class="muted" style="font-size:11px">最快 + 故障转移</span></button>
+        ${NODES.slice(0, 5).map((n) => `<button class="l0-node"><span class="ck">${!x.auto && n[1] === x.node[1] ? "✓" : ""}</span><span>${n[0]}</span><span>${n[1]}${x.auto && n[1] === x.node[1] ? ' <span class="muted" style="font-size:11px">当前</span>' : ""}</span><span class="lat num ${tone(n[2])}" style="font-size:11.5px">${n[2]} ms</span></button>`).join("")}
+        <button class="l0-node more"><span></span><span>全部 42 个节点…</span></button>
+      </div>` : ""}`;
+    }).join("")}
+    <hr>
+    <div class="l0-mode"><span>模式</span><div class="seg">${[["rule", "规则"], ["global", "全局"], ["direct", "直连"]].map(([id, l]) => `<button class="${S.mode === id ? "on" : ""}" data-mode="${id}">${l}</button>`).join("")}</div></div>
+    <hr>
+    <button class="l0-cmd"><span>打开 Moho</span><kbd>⌘O</kbd></button>
+    <button class="l0-cmd"><span>设置…</span><kbd>⌘,</kbd></button>
+    <button class="l0-cmd"><span>退出</span><kbd>⌘Q</kbd></button>`;
+}
+
+// ==================================================================
+// Demo controls & events
+// ==================================================================
+function seg(id, items, key) {
+  $(id).innerHTML = items.map(([v, l]) => `<button class="${S[key] === v ? "on" : ""}" data-set="${key}|${v}">${l}</button>`).join("");
+}
+function renderDemo() {
+  seg("d-state", [["ok", "正常"], ["degraded", "降级"], ["error", "异常"], ["off", "未接管"]], "state");
+  seg("d-mode", [["rule", "规则"], ["global", "全局"], ["direct", "直连"]], "mode");
+  seg("d-theme", [[false, "浅色"], [true, "深色"]], "dark");
+  seg("d-l0", [[true, "显示"], [false, "隐藏"]], "l0");
+}
+function render() {
+  document.documentElement.classList.toggle("dark", S.dark);
+  renderMenubar(); renderL1(); renderL0(); renderDemo();
+}
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-set],[data-takeover],[data-mode],[data-l0route],#mb");
+  if (!t) return;
+  if (t.id === "mb") S.l0 = !S.l0;
+  if (t.dataset.set) { const [k, v] = t.dataset.set.split("|"); S[k] = v === "true" ? true : v === "false" ? false : v; }
+  if (t.dataset.takeover !== undefined) S.state = S.state === "off" ? "ok" : "off";
+  if (t.dataset.mode) S.mode = t.dataset.mode;
+  if (t.dataset.l0route) S.openRoute = S.openRoute === t.dataset.l0route ? null : t.dataset.l0route;
+  render();
+});
+
+// Fit the 1440×900 desktop into the viewport.
+function fit() { const z = Math.min(innerWidth / 1440, innerHeight / 900); $("stage").style.transform = `scale(${z})`; }
+addEventListener("resize", fit);
+
+setInterval(() => {
+  hist.push(sample(tick++)); hist.shift();
+  renderMenubar();
+  if (S.state === "off") return;
+  const [[dv, du], [uv, uu]] = rates();
+  $("rd").innerHTML = `<span class="arrow">↓</span>${dv}<small>${du}/s</small>`;
+  $("ru").innerHTML = `<span class="arrow">↑</span>${uv}<small>${uu}/s</small>`;
+  drawChart();
+  const sp = document.querySelector(".l0-speed");
+  if (sp) sp.innerHTML = `<span>↓ <b>${dv} ${du}/s</b></span><span>↑ <b>${uv} ${uu}/s</b></span><span style="margin-left:auto">今日 2.31 GB</span>`;
+}, 1000);
+
+fit();
+render();
+</script>
+</body>
+</html>

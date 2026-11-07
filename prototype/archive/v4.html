@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>Moho · 杂志式首屏</title>
+<style>
+/* ------------------------------------------------------------------
+   Editorial system
+   - Paper and ink. One signal color (vermilion) for news / trouble.
+   - Serif (宋) for headlines, sans for interface, tabular numbers.
+   - Route colors appear only on the map and as small marks.
+------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+  --paper: #f6f4ef; --paper-2: #efece5; --card: #fbfaf7;
+  --ink: #151413; --ink-2: #3b3936; --mute: #8b877e; --faint: #bdb8ad;
+  --hair: rgba(21,20,19,.12); --rule: #151413;
+  --signal: #e2462b; --good: #2c9a5a; --warn: #cf8a12;
+  --r-default: #2f5bea; --r-ai: #7a4de0; --r-media: #e0457b; --r-dev: #0e9db1; --r-direct: #9a968c;
+  --serif: "Songti SC", "STSongti-SC-Regular", "New York", ui-serif, Georgia, serif;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+  --desk: radial-gradient(120% 100% at 30% 0%, #d8d3c8 0%, #b9b3a6 100%);
+  font: 13px/1.45 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+:root.dark {
+  color-scheme: dark;
+  --paper: #141413; --paper-2: #1b1a19; --card: #1d1c1a;
+  --ink: #f1eee7; --ink-2: #cfcbc2; --mute: #8e8a81; --faint: #55524c;
+  --hair: rgba(241,238,231,.12); --rule: #f1eee7;
+  --signal: #ff5a3c; --good: #3fc07a; --warn: #f0a630;
+  --r-default: #5b80ff; --r-ai: #9a74ff; --r-media: #ff5f93; --r-dev: #22c3d6; --r-direct: #77736b;
+  --desk: radial-gradient(120% 100% at 30% 0%, #34312c 0%, #191816 100%);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--desk); color: var(--ink); overflow: hidden; }
+button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; }
+.num { font-variant-numeric: tabular-nums; }
+.stage { position: absolute; inset: 0; width: 1440px; height: 900px; transform-origin: 0 0; }
+.serif { font-family: var(--serif); }
+.kicker { font-size: 10.5px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
+.kicker b { color: var(--ink); font-weight: 700; }
+
+/* ------------------------------------------------------------------ window */
+.window { position: absolute; left: 190px; top: 56px; width: 1060px; height: 716px; background: var(--paper); border-radius: 12px; overflow: hidden; box-shadow: 0 40px 90px rgba(0,0,0,.28), 0 0 0 .5px rgba(0,0,0,.2); display: flex; flex-direction: column; }
+
+/* masthead = title bar */
+.mast { height: 54px; flex: none; display: grid; grid-template-columns: 120px 1fr auto; align-items: center; padding: 0 22px 0 18px; border-bottom: 2px solid var(--rule); margin: 0 0 0; }
+.lights { display: flex; gap: 8px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; }
+.brand { display: flex; align-items: baseline; gap: 14px; }
+.brand .logo { font: italic 700 22px/1 var(--serif); letter-spacing: -.01em; }
+.brand .issue { font-size: 11px; color: var(--mute); letter-spacing: .04em; }
+.mast-r { display: flex; align-items: center; gap: 22px; font-size: 13px; }
+.tab { color: var(--mute); padding: 4px 0; border-bottom: 1.5px solid transparent; }
+.tab.on { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
+.prov-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border: 1px solid var(--hair); border-radius: 999px; font-size: 12px; }
+.prov-btn:hover { border-color: var(--ink); }
+.prov-btn .badge { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+
+/* breaking news line: only when degraded / broken */
+.breaking { display: flex; align-items: center; gap: 14px; padding: 9px 28px; border-bottom: 1px solid var(--hair); font-size: 13px; }
+.breaking .label { font-size: 10.5px; font-weight: 800; letter-spacing: .14em; color: #fff; background: var(--signal); padding: 2px 7px; }
+.breaking.warn .label { background: var(--warn); }
+.breaking .act { margin-left: auto; font-weight: 600; border-bottom: 1.5px solid currentColor; }
+
+.page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* ------------------------------------------------------------------ hero: the exit */
+.hero { display: grid; grid-template-columns: 430px 1fr; min-height: 0; flex: none; height: 330px; border-bottom: 1px solid var(--hair); }
+.hero-text { padding: 26px 28px 22px; display: flex; flex-direction: column; border-right: 1px solid var(--hair); position: relative; }
+.headline { margin: 14px 0 0; font: 700 50px/1.04 var(--serif); letter-spacing: -.02em; }
+.headline .flag { font-size: 38px; vertical-align: 4px; margin-right: 6px; }
+.deck { margin-top: 12px; font-size: 14px; color: var(--ink-2); line-height: 1.6; }
+.deck b { color: var(--ink); font-weight: 600; }
+.lat-big { display: flex; align-items: baseline; gap: 18px; margin-top: auto; }
+.lat-big .v { font: 600 40px/1 var(--sans); letter-spacing: -.03em; }
+.lat-big .v small { font-size: 14px; color: var(--mute); font-weight: 500; letter-spacing: 0; margin-left: 3px; }
+.lat-big .stab { display: grid; gap: 4px; }
+.lat-big .stab span { font-size: 10.5px; color: var(--mute); letter-spacing: .08em; }
+.bars { display: flex; gap: 3px; align-items: flex-end; height: 22px; }
+.bars i { width: 5px; background: var(--ink); opacity: .75; }
+.hero-actions { display: flex; gap: 10px; margin-top: 18px; align-items: center; }
+.pillbtn { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; background: var(--ink); color: var(--paper); font-weight: 600; font-size: 13px; }
+.pillbtn.ghost { background: none; color: var(--ink); box-shadow: inset 0 0 0 1px var(--hair); font-weight: 500; }
+.pillbtn.ghost.on { box-shadow: inset 0 0 0 1.5px var(--ink); }
+.auto-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); }
+
+.mapwrap { position: relative; }
+.mapwrap canvas { width: 100%; height: 100%; display: block; }
+.map-cap { position: absolute; left: 22px; top: 18px; font-size: 11px; color: var(--mute); max-width: 360px; line-height: 1.5; }
+.map-cap b { color: var(--ink); }
+.map-legend { position: absolute; right: 22px; bottom: 16px; display: grid; gap: 4px; font-size: 11px; color: var(--ink-2); text-align: right; }
+.map-legend span { display: inline-flex; gap: 6px; align-items: center; justify-content: flex-end; }
+.map-legend i { width: 14px; height: 2px; border-radius: 1px; }
+
+/* node picker popover */
+.picker { position: absolute; left: 28px; top: 238px; width: 380px; max-height: 360px; overflow: auto; background: var(--card); border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.25), 0 0 0 .5px var(--hair); z-index: 5; padding: 8px; }
+.picker[hidden] { display: none; }
+.picker h5 { margin: 6px 8px 8px; font-size: 10.5px; letter-spacing: .12em; color: var(--mute); font-weight: 600; display: flex; justify-content: space-between; }
+.pick { display: grid; grid-template-columns: 22px 1fr 90px 52px; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 8px; width: 100%; text-align: left; }
+.pick:hover { background: var(--paper-2); }
+.pick.on { background: var(--ink); color: var(--paper); }
+.pick.on .lb i { background: var(--paper) !important; }
+.pick .lb { height: 4px; background: var(--hair); border-radius: 2px; overflow: hidden; }
+.pick .lb i { display: block; height: 100%; background: var(--ink); }
+.pick .ms { text-align: right; font-size: 12px; }
+.pick.auto { grid-template-columns: 22px 1fr auto; }
+
+/* ------------------------------------------------------------------ the three controls */
+.controls { display: grid; grid-template-columns: 1.15fr 1fr 1.25fr; flex: none; border-bottom: 1px solid var(--hair); }
+.ctl { padding: 18px 28px 20px; }
+.ctl + .ctl { border-left: 1px solid var(--hair); }
+.words { display: flex; gap: 18px; align-items: baseline; margin-top: 10px; }
+.word { font: 600 26px/1.1 var(--serif); color: var(--faint); transition: color .15s; position: relative; }
+.word:hover { color: var(--ink-2); }
+.word.on { color: var(--ink); }
+.word.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -6px; height: 3px; background: var(--ink); }
+.ctl p { margin: 14px 0 0; font-size: 12px; color: var(--mute); line-height: 1.55; }
+.ctl p b { color: var(--ink-2); font-weight: 600; }
+.entry { display: grid; grid-template-columns: 1fr auto; align-items: baseline; padding: 6px 0; }
+.entry + .entry { border-top: 1px dashed var(--hair); }
+.entry .w { font: 600 20px/1.2 var(--serif); color: var(--faint); }
+.entry.on .w { color: var(--ink); }
+.entry .s { font-size: 11.5px; color: var(--mute); display: inline-flex; gap: 6px; align-items: center; }
+.entry .s i { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+.entry.on .s i { background: var(--good); }
+.entry.bad .w { color: var(--ink); } .entry.bad .s { color: var(--signal); } .entry.bad .s i { background: var(--signal); }
+.entries { margin-top: 6px; }
+.route { display: grid; grid-template-columns: 8px 62px 1fr auto; gap: 10px; align-items: center; padding: 5px 0; width: 100%; text-align: left; }
+.route + .route { border-top: 1px dashed var(--hair); }
+.route .sw { width: 8px; height: 8px; border-radius: 2px; }
+.route .rn { font-weight: 600; font-size: 12.5px; }
+.route .ex { font: 600 15px/1.2 var(--serif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.route .ms { font-size: 11.5px; color: var(--mute); }
+.route:hover .ex { text-decoration: underline; text-underline-offset: 3px; }
+.route.dim { opacity: .35; }
+.routes { margin-top: 6px; }
+
+/* ------------------------------------------------------------------ now: status, monitoring */
+.now { flex: 1; min-height: 0; display: grid; grid-template-columns: 1.15fr 1fr 1.25fr; }
+.now > div { padding: 16px 28px 0; min-width: 0; }
+.now > div + div { border-left: 1px solid var(--hair); }
+.speed { display: flex; gap: 22px; align-items: baseline; margin-top: 8px; }
+.speed .v { font: 600 24px/1 var(--sans); letter-spacing: -.02em; }
+.speed .v small { font-size: 11.5px; color: var(--mute); font-weight: 500; margin-left: 2px; letter-spacing: 0; }
+.speed .v.u { font-size: 16px; color: var(--ink-2); }
+.spark { width: 100%; height: 46px; display: block; margin-top: 10px; }
+.foot { font-size: 11px; color: var(--mute); margin-top: 6px; display: flex; justify-content: space-between; }
+.apps { margin-top: 8px; display: grid; gap: 4px; }
+.app { display: grid; grid-template-columns: 1fr 70px 64px; gap: 10px; align-items: center; font-size: 12px; }
+.app .an { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app .an small { color: var(--mute); margin-left: 6px; }
+.app .ab { height: 3px; background: var(--hair); border-radius: 2px; overflow: hidden; }
+.app .ab i { display: block; height: 100%; }
+.app .av { text-align: right; color: var(--ink-2); }
+.ticker { margin-top: 8px; display: grid; gap: 5px; font-size: 11.5px; }
+.tk { display: grid; grid-template-columns: 44px 1fr; gap: 8px; color: var(--ink-2); }
+.tk.new { animation: tkin .4s ease; }
+.tk span:first-child { color: var(--faint); }
+.tk.bad { color: var(--signal); }
+@keyframes tkin { from { opacity: 0; transform: translateY(-4px); } }
+.more { font-size: 12px; font-weight: 600; border-bottom: 1.5px solid var(--ink); }
+
+/* ------------------------------------------------------------------ activity page */
+.act-head { padding: 22px 28px 14px; display: grid; grid-template-columns: 1fr auto; align-items: end; border-bottom: 1px solid var(--hair); }
+.act-head h2 { margin: 6px 0 0; font: 700 40px/1 var(--serif); letter-spacing: -.02em; }
+.act-head h2 small { font: 500 14px var(--sans); color: var(--mute); margin-left: 12px; letter-spacing: 0; }
+.act-tabs { display: flex; gap: 18px; }
+.filters { display: flex; gap: 16px; padding: 12px 28px; border-bottom: 1px solid var(--hair); align-items: center; font-size: 12.5px; }
+.filters button { color: var(--mute); display: inline-flex; align-items: center; gap: 6px; }
+.filters button.on { color: var(--ink); font-weight: 600; }
+.filters button i { width: 7px; height: 7px; border-radius: 2px; }
+.filters input { margin-left: auto; border: 0; border-bottom: 1px solid var(--hair); background: none; padding: 4px 2px; width: 220px; font: inherit; outline: none; }
+.tbl { overflow: auto; flex: 1; padding: 0 28px; }
+.row { display: grid; grid-template-columns: 70px 1.6fr 1.3fr 1.2fr 76px 76px 56px 44px; gap: 12px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--hair); font-size: 12.5px; }
+.row.h { font-size: 10.5px; letter-spacing: .1em; color: var(--mute); font-weight: 600; position: sticky; top: 0; background: var(--paper); }
+.row .host { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .host small { color: var(--faint); font-weight: 400; }
+.row .rule { color: var(--mute); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .via { display: flex; gap: 6px; align-items: center; white-space: nowrap; overflow: hidden; }
+.row .via i { width: 7px; height: 7px; border-radius: 2px; flex: none; }
+.row .x { color: var(--mute); text-align: right; font-size: 15px; }
+.row .x:hover { color: var(--signal); }
+.row.bad .via span, .row.bad .t { color: var(--signal); }
+.logl { display: grid; grid-template-columns: 64px 40px 1fr; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--hair); font: 11.5px/1.5 ui-monospace, Menlo, monospace; }
+.logl .lv { font-weight: 700; } .logl .lv.w { color: var(--warn); } .logl .lv.e { color: var(--signal); } .logl .lv.i { color: var(--mute); }
+
+/* ------------------------------------------------------------------ provider modal */
+.scrim { position: absolute; inset: 0; background: rgba(20,18,15,.28); display: grid; place-items: center; z-index: 10; }
+.scrim[hidden] { display: none; }
+.modal { width: 640px; max-height: 600px; background: var(--paper); border-radius: 14px; box-shadow: 0 30px 80px rgba(0,0,0,.35), 0 0 0 .5px var(--hair); display: flex; flex-direction: column; overflow: hidden; }
+.modal-h { padding: 20px 24px 14px; border-bottom: 2px solid var(--rule); display: flex; align-items: baseline; gap: 12px; }
+.modal-h h3 { margin: 0; font: 700 26px/1 var(--serif); }
+.modal-h .x { margin-left: auto; font-size: 18px; color: var(--mute); }
+.add { padding: 16px 24px; border-bottom: 1px solid var(--hair); display: grid; gap: 10px; }
+.add-tabs { display: flex; gap: 18px; font-size: 12.5px; }
+.add-row { display: flex; gap: 10px; }
+.add-row input { flex: 1; border: 1px solid var(--hair); background: var(--card); border-radius: 10px; padding: 11px 13px; font: 13px var(--sans); color: var(--ink); outline: none; }
+.add-row input:focus { border-color: var(--ink); }
+.detect { font-size: 12px; color: var(--mute); min-height: 18px; }
+.detect b { color: var(--ink); }
+.plist { overflow: auto; padding: 4px 24px 18px; }
+.prow { display: grid; grid-template-columns: 1fr 120px 92px 50px; gap: 14px; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--hair); }
+.prow .pn b { font: 600 16px/1.2 var(--serif); display: block; }
+.prow .pn small { font-size: 11px; color: var(--mute); }
+.prow .q { display: grid; gap: 4px; font-size: 11px; color: var(--mute); }
+.prow .q .tr { height: 3px; background: var(--hair); border-radius: 2px; overflow: hidden; }
+.prow .q .tr i { display: block; height: 100%; background: var(--ink); }
+.prow .q.warn, .prow .q.warn b { color: var(--warn); } .prow .q.warn .tr i { background: var(--warn); }
+.prow .hl { display: flex; gap: 1.5px; align-items: flex-end; height: 18px; }
+.prow .hl i { flex: 1; background: var(--ink); opacity: .55; }
+.prow .op { text-align: right; font-size: 12px; font-weight: 600; border-bottom: 0; }
+.prow.off { opacity: .45; }
+
+/* ------------------------------------------------------------------ demo (not product) */
+.demo { position: absolute; left: 190px; top: 790px; width: 1060px; display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: center; padding: 11px 16px; border-radius: 12px; background: rgba(20,20,20,.82); color: #eee; font-size: 12px; backdrop-filter: blur(20px); }
+.demo h4 { margin: 0; font-size: 10.5px; letter-spacing: .1em; color: #999; }
+.demo .g { display: flex; gap: 8px; align-items: center; }
+.demo .seg { display: inline-flex; background: rgba(255,255,255,.1); border-radius: 7px; padding: 2px; }
+.demo .seg button { padding: 2px 9px; border-radius: 5px; color: #bbb; cursor: pointer; }
+.demo .seg button.on { background: #555; color: #fff; }
+.demo p { flex-basis: 100%; margin: 0; color: #8f8f8f; font-size: 11.5px; }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="window">
+    <header class="mast">
+      <div class="lights"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+      <div class="brand"><span class="logo">Moho</span><span class="issue" id="issue"></span></div>
+      <div class="mast-r">
+        <button class="tab" data-page="home">今日</button>
+        <button class="tab" data-page="activity">活动</button>
+        <button class="prov-btn" data-modal><span class="badge"></span>Provider · 5</button>
+      </div>
+    </header>
+    <div id="breaking"></div>
+    <div class="page" id="page"></div>
+    <div class="scrim" id="scrim" hidden><div class="modal" id="modal"></div></div>
+  </div>
+
+  <div class="demo">
+    <h4>演示控制 · 不属于产品</h4>
+    <div class="g">状态<div class="seg" id="d-state"></div></div>
+    <div class="g">外观<div class="seg" id="d-theme"></div></div>
+    <p>首屏分三层：① 出口 / 模式 / 接管（标题级）→ ② 就地切换（点节点名、点模式字、点接管方式）→ ③ 现在的速度、谁在用、刚发生了什么。右上角「Provider」打开弹窗，可以加订阅或节点链接。</p>
+  </div>
+</div>
+
+<script>
+// ==================================================================
+// Fake data
+// ==================================================================
+const PLACES = {
+  you: { name: "你 · 上海", lon: 121.5, lat: 31.2 },
+  HK: { name: "香港", lon: 114.2, lat: 22.3, flag: "🇭🇰" },
+  JP: { name: "东京", lon: 139.7, lat: 35.7, flag: "🇯🇵" },
+  OS: { name: "大阪", lon: 135.5, lat: 34.7, flag: "🇯🇵" },
+  SG: { name: "新加坡", lon: 103.8, lat: 1.3, flag: "🇸🇬" },
+  US: { name: "洛杉矶", lon: -118.2, lat: 34.1, flag: "🇺🇸" },
+};
+const NODES = [
+  { id: "hk3", name: "香港 03 IPLC", place: "HK", ms: 41, proto: "Shadowsocks", prov: "机场 A" },
+  { id: "hk2", name: "香港 02", place: "HK", ms: 64, proto: "Trojan", prov: "机场 A" },
+  { id: "hk1", name: "香港 01", place: "HK", ms: 72, proto: "Trojan", prov: "机场 B" },
+  { id: "jp1", name: "东京 01", place: "JP", ms: 118, proto: "VMess", prov: "机场 A" },
+  { id: "os1", name: "大阪 01", place: "OS", ms: 131, proto: "Trojan", prov: "机场 B" },
+  { id: "sg1", name: "新加坡 01", place: "SG", ms: 143, proto: "Shadowsocks", prov: "机场 A" },
+  { id: "la", name: "洛杉矶 VPS", place: "US", ms: 168, proto: "Hysteria2", prov: "自建" },
+];
+const ROUTES = [
+  { id: "default", name: "默认", color: "--r-default", node: "hk3", auto: true, share: .31 },
+  { id: "ai", name: "AI 服务", color: "--r-ai", node: "la", auto: false, share: .08 },
+  { id: "media", name: "流媒体", color: "--r-media", node: "sg1", auto: false, share: .52 },
+  { id: "dev", name: "开发", color: "--r-dev", node: "jp1", auto: true, share: .04 },
+  { id: "direct", name: "直连", color: "--r-direct", direct: true, share: .05 },
+];
+const APPS = [["Arc", "youtube.com", "media", 1.21e6], ["Claude", "api.anthropic.com", "ai", 8.4e4], ["Docker", "docker.io", "dev", 2.1e5], ["Slack", "slack.com", "default", 1.2e4]];
+const EVENTS = [
+  ["Arc → rr3.googlevideo.com", "流媒体 · 新加坡 01"], ["Claude → api.anthropic.com", "AI 服务 · 洛杉矶 VPS"], ["git → github.com:22", "开发 · 东京 01"],
+  ["WeChat → weixin.qq.com", "直连"], ["Slack → wss.slack.com", "默认 · 香港 03 IPLC"], ["Arc → x.com", "默认 · 香港 03 IPLC"], ["npm → registry.npmjs.org", "开发 · 东京 01"],
+];
+const CONNS = [
+  ["Arc", "www.youtube.com", 443, "GEOSITE youtube", "media", "48.3 MB", "620 KB", "3 分"],
+  ["Arc", "rr3---sn-i3b7kn.googlevideo.com", 443, "GEOSITE youtube", "media", "112 MB", "1.1 MB", "1 分"],
+  ["Claude", "api.anthropic.com", 443, "DOMAIN-SUFFIX anthropic.com", "ai", "2.1 MB", "840 KB", "12 秒"],
+  ["Docker", "registry-1.docker.io", 443, "DOMAIN-SUFFIX docker.io", "dev", "380 MB", "1.2 MB", "40 秒"],
+  ["git", "github.com", 22, "DOMAIN-SUFFIX github.com", "dev", "1.2 MB", "96 KB", "5 秒"],
+  ["Slack", "wss-primary.slack.com", 443, "MATCH", "default", "420 KB", "58 KB", "2 时"],
+  ["WeChat", "szshort.weixin.qq.com", 443, "GEOSITE cn", "direct", "36 KB", "12 KB", "8 分"],
+  ["Arc", "x.com", 443, "MATCH", "default", "0 B", "0 B", "失败"],
+];
+const PROVIDERS = [
+  { name: "机场 A", kind: "订阅", nodes: 42, used: 31, total: 100, expire: "1 月 1 日到期", upd: "10 分钟前更新", hl: 42 },
+  { name: "机场 B", kind: "订阅", nodes: 18, used: 188, total: 200, expire: "28 天后到期", upd: "3 天前更新", hl: 18, warn: true },
+  { name: "自建 · 洛杉矶 VPS", kind: "节点链接 · hysteria2", nodes: 1, hl: 1 },
+  { name: "朋友分享的节点", kind: "节点链接 · vless", nodes: 1, hl: 1, off: true },
+  { name: "公司内网.yaml", kind: "本地文件", nodes: 3, hl: 3 },
+];
+
+const S = { page: "home", state: "ok", mode: "rule", entries: { sys: true, tun: false }, dark: false, picker: null, modal: false, actTab: "conn", actFilter: "all" };
+let hist = Array.from({ length: 80 }, (_, i) => sample(i));
+let tickN = 80;
+function sample(i) {
+  const w = (p, a) => Math.max(0.05, 1 + Math.sin(i / p) * a + (Math.random() - .5) * .2);
+  return { default: 4e5 * w(9, .5), ai: 1e5 * w(4, .8), media: 7.2e5 * w(13, .45), dev: 6e4 * w(3, 1), direct: 7e4 * w(6, .5), up: 6e4 * w(5, .5) };
+}
+
+// ==================================================================
+// Helpers
+// ==================================================================
+const $ = (id) => document.getElementById(id);
+const node = (id) => NODES.find((n) => n.id === id);
+const route = (id) => ROUTES.find((r) => r.id === id);
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const tone = (ms) => (ms < 120 ? "var(--good)" : ms < 250 ? "var(--warn)" : "var(--signal)");
+const takeoverOn = () => S.state !== "off" && (S.entries.sys || S.entries.tun);
+const active = (id) => takeoverOn() && (S.mode === "rule" || (S.mode === "global" && id === "default") || (S.mode === "direct" && id === "direct"));
+function unit(b) { const u = ["B", "KB", "MB", "GB"]; let i = 0; while (b >= 1000 && i < 3) { b /= 1024; i++; } return [i === 0 ? Math.round(b) : b < 10 ? b.toFixed(2) : b < 100 ? b.toFixed(1) : Math.round(b), u[i]]; }
+const down = (p) => ROUTES.reduce((a, r) => a + (active(r.id) ? p[r.id] : 0), 0);
+
+// The headline exit: what traffic actually goes out through right now.
+function exitNow() {
+  if (!takeoverOn()) return null;
+  if (S.mode === "direct") return null;
+  return node(route("default").node);
+}
+
+// ==================================================================
+// Render
+// ==================================================================
+function render() {
+  document.documentElement.classList.toggle("dark", S.dark);
+  if (S.state === "degraded") route("dev").node = "os1"; else route("dev").node = "jp1";
+  $("issue").textContent = "2026 年 11 月 7 日 · 周六";
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", t.dataset.page === S.page));
+  $("breaking").innerHTML = S.state === "error"
+    ? `<div class="breaking"><span class="label">异常</span><span>系统代理被其他程序改掉了，网页流量现在没有经过 Moho。</span><button class="act" data-fix>重新接管</button></div>`
+    : S.state === "degraded"
+    ? `<div class="breaking warn"><span class="label">已处理</span><span>「开发」的东京 01 连续 3 次超时，已自动换到大阪 01。</span><button class="act">查看</button></div>`
+    : "";
+  $("page").innerHTML = S.page === "home" ? home() : activity();
+  if (S.page === "home") { drawSpark(); startMap(); } else stopMap();
+  renderModal();
+  renderDemo();
+}
+
+function home() {
+  const ex = exitNow();
+  const r0 = route("default");
+  const off = !takeoverOn();
+  const headline = off ? "未接管" : S.mode === "direct" ? "直接连接" : ex.name;
+  const flag = off || S.mode === "direct" ? "" : `<span class="flag">${PLACES[ex.place].flag}</span>`;
+  const deck = off
+    ? `Moho 现在没有接管任何流量，所有应用都<b>直接连接</b>互联网。在下方「接管」里选择一种方式即可开始。`
+    : S.mode === "direct"
+    ? `直连模式：所有流量<b>不经过任何节点</b>，规则暂停。适合排查网络问题。`
+    : `${PLACES[ex.place].name} · ${ex.proto} · 来自 <b>${ex.prov}</b>。${S.mode === "global" ? "全局模式下，<b>所有流量</b>都从这里出去。" : `没有命中其他规则的流量都从这里出去，约占 <b>${Math.round(r0.share * 100)}%</b>。`}`;
+  const stab = ex ? Array.from({ length: 14 }, () => `<i style="height:${Math.max(5, 22 - ex.ms * (0.8 + Math.random() * .4) / 6)}px"></i>`).join("") : "";
+  const last = hist.at(-1); const [dv, du] = off ? ["0", "KB"] : unit(down(last)); const [uv, uu] = off ? ["0", "KB"] : unit(last.up);
+  const maxApp = Math.max(...APPS.map((a) => a[3]));
+
+  return `
+  <section class="hero">
+    <div class="hero-text">
+      <div class="kicker">当前出口 · <b>${S.mode === "global" ? "全局" : "默认路由"}</b></div>
+      <h1 class="headline">${flag}${headline}</h1>
+      <div class="deck">${deck}</div>
+      ${ex ? `<div class="lat-big"><span class="v num" style="color:${tone(ex.ms)}">${ex.ms}<small>ms</small></span>
+        <span class="stab"><span>最近 14 次测速</span><span class="bars">${stab}</span></span></div>
+      <div class="hero-actions">
+        <button class="pillbtn" data-picker="default">换节点 ▾</button>
+        <button class="pillbtn ghost ${r0.auto ? "on" : ""}" data-auto="default">${r0.auto ? `<span class="auto-dot"></span>自动选最快` : "自动选最快"}</button>
+      </div>` : ""}
+      <div class="picker" id="picker" hidden></div>
+    </div>
+    <div class="mapwrap"><canvas id="map"></canvas>
+      <div class="map-legend">${ROUTES.filter((r) => !r.direct).map((r) => `<span style="opacity:${active(r.id) ? 1 : .35}">${r.name}<i style="background:var(${r.color})"></i></span>`).join("")}</div>
+      <div class="map-cap">${off ? "未接管：没有流量经过 Moho。" : `<b>从你出发的 ${ROUTES.filter((r) => !r.direct && active(r.id)).length} 条线路</b>，线越粗流量越大；光点是正在传输的数据。`}</div>
+    </div>
+  </section>
+
+  <section class="controls">
+    <div class="ctl">
+      <div class="kicker">模式</div>
+      <div class="words">${[["rule", "规则"], ["global", "全局"], ["direct", "直连"]].map(([id, l]) => `<button class="word ${S.mode === id ? "on" : ""}" data-mode="${id}">${l}</button>`).join("")}</div>
+      <p>${{ rule: "按 <b>45 条规则</b>把流量分到 5 条路由；没命中的走默认出口。", global: "<b>所有流量</b>都走当前出口，规则暂不生效。", direct: "<b>所有流量直接连接</b>，不经过任何节点。" }[S.mode]}</p>
+    </div>
+    <div class="ctl">
+      <div class="kicker">接管</div>
+      <div class="entries">
+        ${entry("sys", "系统代理", S.state === "error" && S.entries.sys ? ["bad", "被其他程序改掉了"] : S.entries.sys && S.state !== "off" ? ["on", "生效中 · 浏览器和大多数应用"] : ["", "未使用"])}
+        ${entry("tun", "TUN", S.entries.tun && S.state !== "off" ? ["on", "生效中 · 全部应用"] : ["", "接管所有应用 · 需安装一次服务"])}
+      </div>
+    </div>
+    <div class="ctl">
+      <div class="kicker">其他路由</div>
+      <div class="routes">${ROUTES.filter((r) => r.id !== "default").map((r) => { const n = r.direct ? null : node(r.node); return `
+        <button class="route ${active(r.id) ? "" : "dim"}" ${r.direct ? "" : `data-picker="${r.id}"`}>
+          <span class="sw" style="background:var(${r.color})"></span><span class="rn">${r.name}</span>
+          <span class="ex">${n ? `${PLACES[n.place].flag} ${n.name}` : "直接连接"}</span>
+          <span class="ms num">${n ? (S.state === "degraded" && r.id === "dev" ? `<span style="color:var(--warn)">已换 · </span>` : "") + n.ms + " ms" : "国内 · 局域网"}</span></button>`; }).join("")}</div>
+    </div>
+  </section>
+
+  <section class="now">
+    <div>
+      <div class="kicker">此刻速度</div>
+      <div class="speed"><span class="v num">↓ ${dv}<small>${du}/s</small></span><span class="v u num">↑ ${uv}<small>${uu}/s</small></span></div>
+      <canvas class="spark" id="spark"></canvas>
+      <div class="foot num"><span>今日 2.31 GB · 本月 48.6 GB</span><span>颜色 = 路由</span></div>
+    </div>
+    <div>
+      <div class="kicker">谁在用</div>
+      <div class="apps">${APPS.map(([n, h, r, v]) => { const [a, b] = unit(v); return `<div class="app" style="opacity:${active(r) ? 1 : .35}"><span class="an">${n}<small>${h}</small></span><span class="ab"><i style="width:${(v / maxApp) * 100}%;background:var(${route(r).color})"></i></span><span class="av num">${active(r) ? `${a} ${b}/s` : "—"}</span></div>`; }).join("")}</div>
+      <div class="foot"><span>61 个连接</span><button class="more" data-page="activity">全部活动 →</button></div>
+    </div>
+    <div>
+      <div class="kicker">刚刚</div>
+      <div class="ticker" id="ticker">${tickerHTML()}</div>
+    </div>
+  </section>`;
+}
+
+function entry(id, word, [cls, text]) {
+  return `<button class="entry ${cls}" data-entry="${id}" style="width:100%;text-align:left"><span class="w">${word}</span><span class="s"><i></i>${text}</span></button>`;
+}
+
+let tickerItems = [];
+function tickerHTML() {
+  if (!takeoverOn()) return `<div class="tk"><span></span><span class="muted">没有经过 Moho 的流量</span></div>`;
+  return tickerItems.slice(0, 5).map(([t, a, b, bad], i) => `<div class="tk ${i === 0 ? "new" : ""} ${bad ? "bad" : ""}"><span class="num">${t}</span><span>${a} <span style="color:var(--mute)">· ${b}</span></span></div>`).join("");
+}
+function pushTicker() {
+  const d = new Date();
+  const t = `${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  const e = S.state === "degraded" && Math.random() < .2 ? ["Arc → x.com", "开发 · 东京 01 超时", true] : EVENTS[Math.floor(Math.random() * EVENTS.length)];
+  tickerItems.unshift([t, e[0], e[1], e[2]]);
+  tickerItems = tickerItems.slice(0, 5);
+}
+for (let i = 0; i < 5; i++) pushTicker();
+
+// ------------------------------------------------------------------ picker
+function renderPicker() {
+  const el = $("picker"); if (!el) return;
+  if (!S.picker) { el.hidden = true; return; }
+  const r = route(S.picker);
+  const sorted = [...NODES].sort((a, b) => a.ms - b.ms);
+  const max = Math.max(...NODES.map((n) => n.ms));
+  el.hidden = false;
+  el.style.top = S.picker === "default" ? "238px" : "auto";
+  el.innerHTML = `<h5><span>${r.name} · 选择出口</span><span>按延迟排序</span></h5>
+    <button class="pick auto ${r.auto ? "on" : ""}" data-pick="${r.id}|auto"><span>✦</span><span><b>自动</b>　最快的可用节点，坏了自动换</span><span class="ms">${node(sorted[0].id).ms} ms</span></button>
+    ${sorted.map((n) => `<button class="pick ${!r.auto && r.node === n.id ? "on" : ""}" data-pick="${r.id}|${n.id}"><span>${PLACES[n.place].flag}</span><span>${n.name}${r.auto && r.node === n.id ? ' <small style="opacity:.6">当前</small>' : ""}</span><span class="lb"><i style="width:${100 - (n.ms / max) * 80}%"></i></span><span class="ms num">${n.ms} ms</span></button>`).join("")}`;
+}
+
+// ------------------------------------------------------------------ map
+let mapRAF = 0, particles = [];
+function project(lon, lat, w, h) {
+  // East Asia crop. Places across the Pacific sit on the right edge, with
+  // an arrow: the map is about direction, not distance.
+  const x0 = 96, x1 = 150, y0 = 46, y1 = -4;
+  if (lon < 0) return [w - 26, ((lat - y0) / (y1 - y0)) * h];
+  return [((lon - x0) / (x1 - x0)) * w, ((lat - y0) / (y1 - y0)) * h];
+}
+function arc(a, b) {
+  const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+  const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy);
+  return [a, [mx - dy * .22 - (dx > 0 ? 0 : 0), my - Math.abs(len) * .28], b];
+}
+const qp = ([a, c, b], t) => [(1 - t) ** 2 * a[0] + 2 * (1 - t) * t * c[0] + t * t * b[0], (1 - t) ** 2 * a[1] + 2 * (1 - t) * t * c[1] + t * t * b[1]];
+
+function startMap() {
+  cancelAnimationFrame(mapRAF);
+  const c = $("map"); if (!c) return;
+  const dpr = devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  const g = c.getContext("2d"); g.scale(dpr, dpr);
+  const P = (k) => project(PLACES[k].lon, PLACES[k].lat, w, h);
+  const you = P("you");
+  const lines = ROUTES.filter((r) => !r.direct).map((r) => ({ r, n: node(r.node), path: arc(you, P(node(r.node).place)) }));
+  particles = [];
+  const frame = () => {
+    g.clearRect(0, 0, w, h);
+    const ink = css("--ink"), faint = css("--faint"), hair = css("--hair");
+    // graticule
+    g.strokeStyle = hair; g.lineWidth = 1; g.globalAlpha = .6;
+    for (let lon = 100; lon <= 150; lon += 10) { const [x] = project(lon, 0, w, h); g.beginPath(); g.moveTo(x + .5, 0); g.lineTo(x + .5, h); g.stroke(); }
+    for (let lat = 0; lat <= 40; lat += 10) { const [, y] = project(100, lat, w, h); g.beginPath(); g.moveTo(0, y + .5); g.lineTo(w, y + .5); g.stroke(); }
+    g.globalAlpha = 1; g.fillStyle = faint; g.font = "10px -apple-system";
+    [[0, "赤道"], [20, "北纬 20°"], [40, "40°"]].forEach(([lat, l]) => { const [, y] = project(100, lat, w, h); g.fillText(l, 6, y - 4); });
+
+    // routes
+    for (const { r, n, path } of lines) {
+      const on = active(r.id);
+      const col = css(r.color);
+      g.beginPath(); g.moveTo(...path[0]); g.quadraticCurveTo(...path[1], ...path[2]);
+      g.strokeStyle = on ? col : faint; g.globalAlpha = on ? .9 : .35;
+      g.lineWidth = on ? 1 + r.share * 9 : 1; g.lineCap = "round"; g.stroke(); g.globalAlpha = 1;
+      if (on && Math.random() < r.share * .5 + .03) particles.push({ path, t: 0, v: .006 + Math.random() * .004, col });
+    }
+    // particles
+    particles = particles.filter((p) => (p.t += p.v) < 1);
+    for (const p of particles) { const [x, y] = qp(p.path, p.t); g.beginPath(); g.arc(x, y, 2, 0, 7); g.fillStyle = "#fff"; g.fill(); g.beginPath(); g.arc(x, y, 1.3, 0, 7); g.fillStyle = p.col; g.fill(); }
+
+    // places
+    const ex = exitNow();
+    const seen = new Set();
+    for (const { r, n } of lines) {
+      if (seen.has(n.place)) continue; seen.add(n.place);
+      const [x, y] = P(n.place); const head = ex && ex.place === n.place;
+      g.beginPath(); g.arc(x, y, head ? 6 : 4, 0, 7); g.fillStyle = css("--paper"); g.fill();
+      g.lineWidth = head ? 2.5 : 1.5; g.strokeStyle = ink; g.stroke();
+      g.fillStyle = ink; g.font = `${head ? "700 13px" : "500 11.5px"} ${css("--serif")}`;
+      const label = PLACES[n.place].lon < 0 ? `${PLACES[n.place].name} →` : `${PLACES[n.place].name}`;
+      const right = x > w - 90;
+      g.textAlign = right ? "right" : "left";
+      g.fillText(label, x + (right ? -10 : 10), y + 4);
+      g.textAlign = "left";
+    }
+    g.beginPath(); g.arc(...you, 5, 0, 7); g.fillStyle = ink; g.fill();
+    g.beginPath(); g.arc(...you, 10 + (Date.now() / 60 % 10), 0, 7); g.strokeStyle = ink; g.globalAlpha = .25 - (Date.now() / 60 % 10) / 50; g.lineWidth = 1; g.stroke(); g.globalAlpha = 1;
+    g.font = `700 13px ${css("--serif")}`; g.fillStyle = ink; g.fillText("你", you[0] + 10, you[1] - 8);
+    if (takeoverOn()) mapRAF = requestAnimationFrame(frame);
+  };
+  frame();
+}
+function stopMap() { cancelAnimationFrame(mapRAF); }
+
+// ------------------------------------------------------------------ sparkline: stacked by route
+function drawSpark() {
+  const c = $("spark"); if (!c) return;
+  const dpr = devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  const g = c.getContext("2d"); g.scale(dpr, dpr);
+  if (!takeoverOn()) { g.fillStyle = css("--hair"); g.fillRect(0, h - 1, w, 1); return; }
+  const data = hist.slice(-60), order = ["direct", "dev", "ai", "default", "media"];
+  const max = Math.max(...data.map(down)) * 1.05;
+  const bw = w / data.length;
+  data.forEach((p, i) => {
+    let y = h;
+    for (const id of order) {
+      if (!active(id)) continue;
+      const bh = (p[id] / max) * h;
+      g.fillStyle = css(route(id).color); g.globalAlpha = .85;
+      g.fillRect(i * bw + .5, y - bh, bw - 1.2, bh); y -= bh;
+    }
+  });
+  g.globalAlpha = 1;
+}
+
+// ------------------------------------------------------------------ activity
+function activity() {
+  const rows = CONNS.filter((c) => S.actFilter === "all" || (S.actFilter === "fail" ? c[7] === "失败" : c[4] === S.actFilter));
+  const filters = [["all", "全部", null], ["fail", "失败 1", "--signal"], ...ROUTES.map((r) => [r.id, r.name, r.color])];
+  return `<div class="act-head">
+      <div><div class="kicker">活动</div><h2>61 个连接<small class="num">↓ 1.31 MB/s · ↑ 48 KB/s</small></h2></div>
+      <div class="act-tabs">${[["conn", "连接"], ["log", "日志"]].map(([id, l]) => `<button class="tab ${S.actTab === id ? "on" : ""}" data-act="${id}">${l}</button>`).join("")}</div>
+    </div>
+    <div class="filters">${filters.map(([id, l, c]) => `<button class="${S.actFilter === id ? "on" : ""}" data-filter="${id}">${c ? `<i style="background:var(${c})"></i>` : ""}${l}</button>`).join("")}<input placeholder="搜索域名、应用、节点" /></div>
+    <div class="tbl">${S.actTab === "conn" ? `
+      <div class="row h"><span>应用</span><span>目标</span><span>命中规则</span><span>路由 · 出口</span><span>下载</span><span>上传</span><span>时长</span><span></span></div>
+      ${rows.map((c) => { const r = route(c[4]); const n = r.direct ? null : node(r.node); const bad = c[7] === "失败"; return `<div class="row ${bad ? "bad" : ""}">
+        <span>${c[0]}</span><span class="host">${c[1]}<small>:${c[2]}</small></span><span class="rule">${c[3]}</span>
+        <span class="via"><i style="background:var(${r.color})"></i><span>${r.name} · ${bad ? "东京 02 超时" : n ? n.name : "直连"}</span></span>
+        <span class="num">${c[5]}</span><span class="num">${c[6]}</span><span class="t">${c[7]}</span><button class="x" title="${bad ? "改路由" : "断开"}">${bad ? "↪" : "×"}</button></div>`; }).join("")}`
+      : [["19:24:10", "i", "Arc → www.youtube.com:443 命中 GEOSITE(youtube) → 流媒体 · 新加坡 01"], ["19:24:12", "w", "东京 02 健康检查超时（连续第 3 次）"], ["19:24:12", "e", "Arc → x.com:443 拨号失败：东京 02 i/o timeout"], ["19:24:13", "i", "默认 自动切换：东京 02 → 香港 03 IPLC（41 ms）"], ["19:24:20", "i", "Provider「机场 A」已更新：42 个节点（+2）"]]
+        .map(([t, l, m]) => `<div class="logl"><span style="color:var(--faint)">${t}</span><span class="lv ${l}">${{ i: "INFO", w: "WARN", e: "ERR" }[l]}</span><span>${m}</span></div>`).join("")}
+    </div>`;
+}
+
+// ------------------------------------------------------------------ provider modal
+function renderModal() {
+  $("scrim").hidden = !S.modal; if (!S.modal) return;
+  $("modal").innerHTML = `
+    <div class="modal-h"><h3>Provider</h3><span class="kicker">节点从哪里来 · 5 个</span><button class="x" data-close>×</button></div>
+    <div class="add">
+      <div class="add-row"><input id="addp" placeholder="粘贴订阅链接，或 vmess:// trojan:// hysteria2:// 等节点链接" /><button class="pillbtn">添加</button></div>
+      <div class="detect" id="detect">支持 Clash / mihomo 订阅、Base64 订阅、单个节点链接；也可以 <u>选择本地文件</u>。在主窗口任何地方按 ⌘V 粘贴链接也会打开这里。</div>
+    </div>
+    <div class="plist">${PROVIDERS.map((p) => `
+      <div class="prow ${p.off ? "off" : ""}">
+        <div class="pn"><b>${p.name}</b><small>${p.kind} · ${p.nodes} 个节点${p.upd ? " · " + p.upd : ""}${p.off ? " · 已停用" : ""}</small></div>
+        ${p.total ? `<div class="q ${p.warn ? "warn" : ""}"><span class="num">已用 <b>${p.used}</b> / ${p.total} GB · ${p.expire}</span><span class="tr"><i style="width:${(p.used / p.total) * 100}%"></i></span></div>` : `<div class="q"><span>不限流量</span></div>`}
+        <div class="hl" title="各节点延迟分布">${Array.from({ length: Math.min(p.hl, 24) }, () => `<i style="height:${4 + Math.random() * 14}px"></i>`).join("")}</div>
+        <button class="op">${p.total ? "更新" : p.off ? "启用" : "编辑"}</button>
+      </div>`).join("")}</div>`;
+}
+
+// ------------------------------------------------------------------ demo
+function renderDemo() {
+  const seg = (id, items, key) => $(id).innerHTML = items.map(([v, l]) => `<button class="${S[key] === v ? "on" : ""}" data-set="${key}|${v}">${l}</button>`).join("");
+  seg("d-state", [["ok", "正常"], ["degraded", "降级"], ["error", "异常"], ["off", "未接管"]], "state");
+  seg("d-theme", [[false, "浅色"], [true, "深色"]], "dark");
+}
+
+// ==================================================================
+// Events
+// ==================================================================
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-set],[data-page],[data-mode],[data-entry],[data-picker],[data-pick],[data-auto],[data-modal],[data-close],[data-filter],[data-act],[data-fix],#scrim");
+  if (!t) { if (S.picker && !e.target.closest("#picker")) { S.picker = null; renderPicker(); } return; }
+  const d = t.dataset;
+  if (t.id === "scrim" && e.target === t) { S.modal = false; return render(); }
+  if (d.set) { const [k, v] = d.set.split("|"); S[k] = v === "true" ? true : v === "false" ? false : v; if (k === "state" && v !== "off" && !S.entries.sys && !S.entries.tun) S.entries.sys = true; }
+  if (d.page) S.page = d.page;
+  if (d.mode) S.mode = d.mode;
+  if (d.entry) { S.entries[d.entry] = !(S.entries[d.entry] && S.state !== "off"); if (S.state === "off") S.state = "ok"; if (!S.entries.sys && !S.entries.tun) S.state = "off"; }
+  if (d.fix) S.state = "ok";
+  if (d.picker) { S.picker = S.picker === d.picker ? null : d.picker; render(); return renderPicker(); }
+  if (d.pick) { const [r, n] = d.pick.split("|"); const ro = route(r); if (n === "auto") { ro.auto = true; ro.node = [...NODES].sort((a, b) => a.ms - b.ms)[0].id; } else { ro.auto = false; ro.node = n; } S.picker = null; }
+  if (d.auto) { const ro = route(d.auto); ro.auto = !ro.auto; if (ro.auto) ro.node = "hk3"; }
+  if (d.modal !== undefined) S.modal = true;
+  if (d.close !== undefined) S.modal = false;
+  if (d.filter) S.actFilter = d.filter;
+  if (d.act) S.actTab = d.act;
+  render();
+});
+document.addEventListener("input", (e) => {
+  if (e.target.id !== "addp") return;
+  const v = e.target.value.trim();
+  const m = /^(vmess|vless|trojan|ss|ssr|hysteria2?|hy2|tuic|wireguard|anytls):\/\//i.exec(v);
+  $("detect").innerHTML = !v ? "支持 Clash / mihomo 订阅、Base64 订阅、单个节点链接；也可以 <u>选择本地文件</u>。" :
+    m ? `识别为 <b>节点链接 · ${m[1].toUpperCase()}</b>，会作为一个单独的 Provider 加入。` :
+    /^https?:\/\//.test(v) ? `识别为 <b>订阅</b>，添加后会读取节点、流量和到期时间，默认每 12 小时更新。` : `无法识别，请检查内容。`;
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { S.modal = false; S.picker = null; render(); } });
+
+function fit() { $("stage").style.transform = `scale(${Math.min(innerWidth / 1440, innerHeight / 900)})`; }
+addEventListener("resize", () => { fit(); render(); });
+
+setInterval(() => {
+  hist.push(sample(tickN++)); hist.shift();
+  if (S.page !== "home" || S.modal) return;
+  pushTicker();
+  const tk = $("ticker"); if (tk) tk.innerHTML = tickerHTML();
+  const sp = document.querySelector(".speed");
+  if (sp && takeoverOn()) { const last = hist.at(-1); const [dv, du] = unit(down(last)), [uv, uu] = unit(last.up); sp.innerHTML = `<span class="v num">↓ ${dv}<small>${du}/s</small></span><span class="v u num">↑ ${uv}<small>${uu}/s</small></span>`; }
+  drawSpark();
+}, 1000);
+
+fit();
+render();
+</script>
+</body>
+</html>

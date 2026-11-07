@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>Moho · 界面原型 v2</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --accent: #3b82f6;
+    --bg: #f4f5f7; --rail: #e9ebef; --surface: #fff; --surface-2: #f1f2f5; --hover: rgba(0,0,0,.04);
+    --line: rgba(0,0,0,.07); --fg: #15171c; --muted: #6b7280; --faint: #9ca3af;
+    --good: #16a34a; --ok: #d97706; --bad: #e11d48;
+    --down: #0ea5e9; --up: #a855f7;
+    --note: #fff7d6; --note-line: #f0d77a;
+    font: 12.5px/1.45 system-ui, -apple-system, "PingFang SC", sans-serif;
+  }
+  :root.dark {
+    --bg: #131417; --rail: #18191d; --surface: #1c1d22; --surface-2: #24262c; --hover: rgba(255,255,255,.04);
+    --line: rgba(255,255,255,.07); --fg: #e9eaee; --muted: #9298a2; --faint: #5f646d;
+    --note: #332d1b; --note-line: #6b5a24;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #8a9099; min-height: 100vh; display: grid; place-items: center; padding: 28px; color: var(--fg); }
+  :root.dark body { background: #3a3d44; }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  .num { font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); } .faint { color: var(--faint); }
+  .good { color: var(--good); } .ok { color: var(--ok); } .bad { color: var(--bad); }
+
+  /* ---------- Window ---------- */
+  .window { width: 1120px; height: 720px; border-radius: 12px; overflow: hidden; box-shadow: 0 24px 70px rgba(0,0,0,.35); display: grid; grid-template-columns: 64px 1fr; background: var(--bg); }
+  .rail { background: var(--rail); border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 4px; }
+  .lights { display: grid; grid-template-columns: repeat(3, 10px); gap: 6px; margin-bottom: 18px; }
+  .lights i { width: 10px; height: 10px; border-radius: 50%; }
+  .rail button { width: 50px; border: 0; background: none; border-radius: 10px; padding: 7px 0 5px; display: grid; justify-items: center; gap: 2px; color: var(--muted); font-size: 10.5px; position: relative; }
+  .rail button svg { width: 19px; height: 19px; }
+  .rail button:hover { background: var(--hover); color: var(--fg); }
+  .rail button.on { background: var(--surface); color: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .rail .badge { position: absolute; top: 4px; right: 8px; min-width: 15px; height: 15px; border-radius: 8px; background: var(--bad); color: #fff; font-size: 9.5px; line-height: 15px; padding: 0 4px; }
+  .rail .spacer { flex: 1; }
+  .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+  /* ---------- Status bar: the one line that answers "is it working" ---------- */
+  .status { display: flex; align-items: center; gap: 14px; height: 54px; padding: 0 18px; border-bottom: 1px solid var(--line); flex: none; }
+  .power { display: flex; align-items: center; gap: 10px; }
+  .orb { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); color: var(--faint); border: 0; transition: .2s; }
+  .orb.on { background: var(--good); color: #fff; box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 22%, transparent); }
+  .orb svg { width: 15px; height: 15px; }
+  .seg { display: inline-flex; background: var(--surface-2); border-radius: 8px; padding: 2px; gap: 1px; }
+  .seg button { border: 0; background: none; padding: 3px 10px; border-radius: 6px; color: var(--muted); white-space: nowrap; }
+  .seg button.on { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.12); font-weight: 600; }
+  .vsep { width: 1px; height: 22px; background: var(--line); }
+  .exit { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .exit .flag { font-size: 20px; }
+  .exit b { font-size: 13px; }
+  .exit small { display: block; color: var(--muted); font-size: 11px; }
+  .search { margin-left: auto; display: flex; align-items: center; gap: 8px; background: var(--surface-2); border: 0; border-radius: 8px; padding: 6px 10px; width: 210px; color: var(--faint); }
+  .search kbd { margin-left: auto; font: 10.5px ui-monospace, Menlo, monospace; background: var(--surface); padding: 1px 5px; border-radius: 4px; color: var(--muted); }
+
+  .page { flex: 1; overflow: auto; padding: 14px 18px 18px; display: grid; gap: 12px; align-content: start; min-height: 0; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+  .card-h { display: flex; align-items: center; gap: 10px; padding: 10px 14px 0; }
+  .card-h h3 { margin: 0; font-size: 12px; font-weight: 600; }
+  .card-h .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .btn { border: 1px solid var(--line); background: var(--surface); padding: 4px 10px; border-radius: 7px; white-space: nowrap; }
+  .btn:hover { background: var(--surface-2); }
+  .btn.primary { background: var(--accent); border-color: transparent; color: #fff; }
+  .btn.ghost { border-color: transparent; background: none; color: var(--muted); }
+  .btn.ghost:hover { background: var(--hover); color: var(--fg); }
+  .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); background: var(--surface-2); padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
+  .sw { width: 9px; height: 9px; border-radius: 3px; flex: none; display: inline-block; }
+
+  /* ---------- Home: traffic ---------- */
+  .top-grid { display: grid; grid-template-columns: 1fr 330px; gap: 12px; }
+  .traffic { display: grid; grid-template-columns: 170px 1fr; padding: 12px 14px 12px; gap: 6px 14px; }
+  .rates { display: grid; gap: 10px; align-content: start; }
+  .rate small { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; }
+  .rate .v { font-size: 26px; font-weight: 650; letter-spacing: -.02em; line-height: 1.1; }
+  .rate .v span { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 3px; }
+  .rate.down .v { color: var(--down); } .rate.up .v { color: var(--up); }
+  .totals { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; font-size: 11px; color: var(--muted); padding-top: 6px; border-top: 1px dashed var(--line); }
+  .totals b { color: var(--fg); font-weight: 600; display: block; font-size: 12.5px; }
+  .chart-wrap { position: relative; min-width: 0; display: flex; }
+  .chart-wrap canvas { width: 100%; height: 100%; min-height: 150px; display: block; }
+  .chart-tools { position: absolute; top: -2px; right: 0; }
+  .share { grid-column: 1 / -1; }
+  .share-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; margin: 6px 0 6px; }
+  .share-bar i { display: block; height: 100%; transition: flex-grow .6s; }
+  .share-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+  .share-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .share-legend b { color: var(--fg); font-weight: 600; }
+
+  /* ---------- Home: live apps ---------- */
+  .live { display: flex; flex-direction: column; }
+  .live-list { padding: 6px 8px 8px; display: grid; gap: 1px; }
+  .app { display: grid; grid-template-columns: 22px 1fr auto; gap: 2px 8px; align-items: center; padding: 5px 6px; border-radius: 8px; }
+  .app:hover { background: var(--hover); }
+  .app .ic { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 11px; grid-row: span 2; }
+  .app .name { font-weight: 550; display: flex; gap: 6px; align-items: center; min-width: 0; }
+  .app .host { font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .app .r { text-align: right; font-size: 11.5px; grid-row: span 2; }
+  .app .r small { display: block; color: var(--faint); font-size: 10px; }
+  .app .bar { grid-column: 2 / 4; height: 2px; border-radius: 1px; background: var(--surface-2); overflow: hidden; }
+  .app .bar i { display: block; height: 100%; }
+  .alert { margin: 0 8px 8px; padding: 7px 10px; border-radius: 8px; background: color-mix(in srgb, var(--bad) 9%, transparent); color: var(--bad); font-size: 11.5px; display: flex; gap: 8px; align-items: center; }
+  .alert button { margin-left: auto; border: 0; background: none; color: inherit; font-weight: 600; }
+  .warn { margin: 0 8px 8px; padding: 7px 10px; border-radius: 8px; background: color-mix(in srgb, var(--ok) 11%, transparent); color: var(--ok); font-size: 11.5px; display: flex; gap: 8px; align-items: center; }
+
+  /* ---------- Home: routes ---------- */
+  .routes { padding: 4px 6px 6px; }
+  .route { border-radius: 10px; }
+  .route + .route { border-top: 1px solid var(--line); }
+  .route.open { background: var(--bg); border-top-color: transparent; }
+  .route.open + .route { border-top-color: transparent; }
+  .r-head { display: grid; grid-template-columns: 4px 150px 1fr 230px 120px 18px; gap: 12px; align-items: center; padding: 9px 10px; cursor: pointer; }
+  .r-head .stripe { width: 4px; height: 28px; border-radius: 2px; }
+  .r-head .rn b { display: block; font-size: 13px; }
+  .r-head .rn small { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .r-head .rules { display: flex; gap: 4px; flex-wrap: nowrap; overflow: hidden; }
+  .cur { display: flex; align-items: center; gap: 8px; background: var(--surface-2); border-radius: 8px; padding: 4px 9px; min-width: 0; }
+  .route.open .cur { background: var(--surface); }
+  .cur .f { font-size: 15px; }
+  .cur .nm { font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cur .auto { font-size: 10px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 4px; padding: 0 4px; }
+  .cur .d { margin-left: auto; font-size: 11.5px; }
+  .r-stat { display: grid; gap: 3px; font-size: 11px; color: var(--muted); }
+  .r-stat .mini { height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+  .r-stat .mini i { display: block; height: 100%; }
+  .chev { color: var(--faint); transition: transform .15s; }
+  .route.open .chev { transform: rotate(90deg); }
+
+  .r-body { padding: 0 12px 12px 26px; }
+  .r-tools { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .r-tools .policy { display: flex; gap: 6px; align-items: center; }
+  .region { margin-top: 8px; }
+  .region-h { font-size: 11px; color: var(--muted); display: flex; gap: 8px; align-items: center; margin-bottom: 5px; }
+  .nodes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .node { border: 1px solid var(--line); background: var(--surface); border-radius: 9px; padding: 6px 9px; text-align: left; display: grid; gap: 3px; }
+  .node:hover { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+  .node.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .node.dead { opacity: .5; }
+  .node .t { display: flex; justify-content: space-between; gap: 6px; }
+  .node .t span:first-child { font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .node .b { display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; color: var(--faint); }
+  .hist { display: flex; gap: 2px; align-items: flex-end; height: 10px; }
+  .hist i { width: 3px; border-radius: 1px; }
+
+  /* ---------- Activity ---------- */
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); padding: 0 6px; }
+  .tabs button { border: 0; background: none; padding: 9px 12px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tabs button.on { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+  .filters { display: flex; gap: 6px; align-items: center; padding: 10px 12px; flex-wrap: wrap; }
+  .filters input { border: 1px solid var(--line); background: var(--bg); border-radius: 7px; padding: 4px 9px; width: 220px; }
+  .fchip { border: 1px solid var(--line); background: none; border-radius: 999px; padding: 2px 9px; font-size: 11px; color: var(--muted); display: inline-flex; gap: 5px; align-items: center; }
+  .fchip.on { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; padding: 6px 10px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--surface); }
+  td { padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  tr:hover td { background: var(--hover); }
+  td .host { font-weight: 550; }
+  td .sub { color: var(--faint); font-size: 10.5px; }
+  .logline { display: grid; grid-template-columns: 62px 44px 1fr; gap: 10px; padding: 3px 12px; font: 11px/1.6 ui-monospace, Menlo, monospace; }
+  .logline:hover { background: var(--hover); }
+  .lv { font-weight: 600; } .lv.info { color: var(--down); } .lv.warn { color: var(--ok); } .lv.err { color: var(--bad); }
+
+  /* ---------- Providers ---------- */
+  .add { padding: 14px; display: grid; gap: 8px; }
+  .add-row { display: flex; gap: 8px; }
+  .add-row input { flex: 1; border: 1px solid var(--line); background: var(--bg); border-radius: 9px; padding: 9px 12px; font-size: 13px; }
+  .detect { font-size: 11.5px; color: var(--muted); display: flex; gap: 8px; align-items: center; min-height: 18px; }
+  .detect b { color: var(--accent); }
+  .plist { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .prov { padding: 12px 14px; display: grid; gap: 10px; }
+  .prov.off { opacity: .55; }
+  .prov-h { display: flex; gap: 10px; align-items: center; }
+  .prov-ic { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; background: var(--surface-2); font-size: 15px; }
+  .prov-h b { font-size: 13px; display: block; }
+  .prov-h small { color: var(--muted); font-size: 11px; }
+  .prov-h .right { margin-left: auto; }
+  .prov-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .prov-stats div { background: var(--bg); border-radius: 8px; padding: 6px 8px; }
+  .prov-stats small { display: block; color: var(--muted); font-size: 10.5px; }
+  .prov-stats b { font-size: 13px; }
+  .quota { height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+  .quota i { display: block; height: 100%; }
+  .health { display: flex; gap: 2px; height: 18px; align-items: flex-end; }
+  .health i { flex: 1; border-radius: 1px; }
+  .prov-foot { display: flex; gap: 6px; align-items: center; font-size: 11px; color: var(--muted); }
+  .prov-foot .right { margin-left: auto; display: flex; gap: 4px; }
+  .toggle { width: 32px; height: 18px; border-radius: 9px; background: var(--surface-2); border: 1px solid var(--line); position: relative; flex: none; }
+  .toggle::after { content: ""; position: absolute; top: 1px; left: 1px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: left .15s; }
+  .toggle.on { background: var(--accent); } .toggle.on::after { left: 15px; }
+
+  /* ---------- Settings ---------- */
+  .set { padding: 4px 14px; }
+  .set-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .set-row:last-child { border-bottom: 0; }
+  .set-row small { display: block; color: var(--muted); font-size: 11px; }
+  .set-row input.v { border: 1px solid var(--line); background: var(--bg); border-radius: 7px; padding: 4px 8px; width: 90px; }
+
+  /* ---------- Command palette ---------- */
+  .palette-bg { position: fixed; inset: 0; background: rgba(0,0,0,.25); display: grid; justify-items: center; align-items: start; padding-top: 140px; }
+  .palette-bg[hidden] { display: none; }
+  .palette { width: 520px; background: var(--surface); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.35); overflow: hidden; border: 1px solid var(--line); }
+  .palette input { width: 100%; border: 0; border-bottom: 1px solid var(--line); background: none; padding: 14px 16px; font-size: 15px; outline: none; }
+  .palette .res { max-height: 320px; overflow: auto; padding: 6px; }
+  .palette .it { display: flex; gap: 10px; align-items: center; padding: 7px 10px; border-radius: 8px; }
+  .palette .it:hover, .palette .it.sel { background: var(--hover); }
+  .palette .it .k { margin-left: auto; font-size: 11px; color: var(--faint); }
+  .palette .grp { font-size: 10.5px; color: var(--faint); padding: 8px 10px 3px; }
+
+  /* ---------- Notes (not part of the product) ---------- */
+  .note { background: var(--note); border: 1px dashed var(--note-line); border-radius: 10px; padding: 10px 14px; font-size: 12px; }
+  .note b { display: block; margin-bottom: 4px; }
+  .note ul { margin: 0; padding-left: 18px; }
+  .note .q { margin-top: 6px; }
+  body.no-notes .note { display: none; }
+  .toolbar { position: fixed; top: 10px; right: 10px; display: flex; gap: 8px; }
+  .toolbar button { background: #fff; color: #111; border: 0; border-radius: 8px; padding: 5px 11px; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+</style>
+</head>
+<body>
+<div class="toolbar"><button id="t-notes">隐藏设计说明</button><button id="t-dark">深色</button></div>
+
+<div class="window">
+  <aside class="rail">
+    <div class="lights"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+    <div id="rail"></div>
+    <div class="spacer"></div>
+  </aside>
+  <div class="main">
+    <header class="status" id="status"></header>
+    <section class="page" id="page"></section>
+  </div>
+</div>
+
+<div class="palette-bg" id="palette" hidden>
+  <div class="palette"><input id="pq" placeholder="搜索节点、应用、Provider，或输入命令…" /><div class="res" id="pres"></div></div>
+</div>
+
+<script>
+// ===================================================================
+// Fake data. Nothing here talks to a real core.
+// ===================================================================
+const ICON = {
+  home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>',
+  activity: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
+  providers: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>',
+  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+  power: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3v8M6.3 7.3a8 8 0 1 0 11.4 0"/></svg>',
+};
+
+const PROVIDERS = [
+  { id: "a", name: "机场 A", kind: "sub", ic: "☁", url: "https://sub.example-a.com/api/v1/…", nodes: 42, used: 31.2, total: 100, expire: "2027-01-01", days: 55, updated: "10 分钟前", auto: "12h", on: true },
+  { id: "b", name: "机场 B", kind: "sub", ic: "☁", url: "https://b.example.net/link/…", nodes: 18, used: 188, total: 200, expire: "2026-12-05", days: 28, updated: "3 天前", auto: "关", on: true },
+  { id: "c", name: "自建 · 洛杉矶 VPS", kind: "node", ic: "◆", url: "hysteria2://••••@la.my.vps:443", nodes: 1, updated: "—", on: true },
+  { id: "d", name: "朋友分享的节点", kind: "node", ic: "◆", url: "vless://••••@sg.example.org:443", nodes: 1, updated: "—", on: false },
+  { id: "e", name: "公司内网.yaml", kind: "file", ic: "▤", url: "~/Documents/office.yaml", nodes: 3, updated: "上周", on: true },
+];
+
+const REGIONS = [["HK", "🇭🇰", "香港"], ["JP", "🇯🇵", "日本"], ["SG", "🇸🇬", "新加坡"], ["US", "🇺🇸", "美国"], ["KR", "🇰🇷", "韩国"]];
+const hist = (base) => Array.from({ length: 10 }, () => (base <= 0 ? (Math.random() < .3 ? 0 : 400 + Math.random() * 300) : Math.max(20, base + (Math.random() - .5) * base * .5)));
+const N = (name, r, type, d, prov) => ({ name, r, type, d, prov, hist: hist(d) });
+const NODES = [
+  N("香港 01", "HK", "Trojan", 72, "a"), N("香港 02", "HK", "Trojan", 64, "a"), N("香港 03 IPLC", "HK", "SS", 41, "a"), N("香港 04", "HK", "VMess", 0, "b"),
+  N("东京 01", "JP", "VMess", 118, "a"), N("东京 02", "JP", "VMess", 0, "a"), N("大阪 01", "JP", "Trojan", 131, "b"),
+  N("新加坡 01", "SG", "SS", 143, "a"), N("新加坡 02", "SG", "VLESS", 156, "d"),
+  N("洛杉矶 VPS", "US", "Hysteria2", 168, "c"), N("洛杉矶 01", "US", "Trojan", 211, "a"), N("圣何塞 01", "US", "SS", 196, "b"),
+  N("首尔 01", "KR", "Trojan", 88, "a"), N("办公室出口", "HK", "SOCKS5", 12, "e"),
+];
+const flag = (r) => REGIONS.find((x) => x[0] === r)[1];
+
+// A route is "a kind of traffic → where it goes": the user's mental model,
+// not mihomo's "proxy group".
+const ROUTES = [
+  { id: "default", name: "默认出口", desc: "没有命中其他规则的流量", color: "#3b82f6", rules: ["其余所有"], now: "香港 03 IPLC", policy: "auto", filter: "全部", conns: 23, share: 0.31 },
+  { id: "ai", name: "AI 服务", desc: "OpenAI · Claude · Gemini", color: "#a855f7", rules: ["openai.com", "anthropic.com", "gemini.google.com", "+9"], now: "洛杉矶 VPS", policy: "manual", filter: "US", conns: 6, share: 0.08 },
+  { id: "media", name: "流媒体", desc: "YouTube · Netflix · Spotify", color: "#f43f5e", rules: ["youtube", "netflix", "spotify", "+21"], now: "新加坡 01", policy: "manual", filter: "全部", conns: 9, share: 0.52 },
+  { id: "dev", name: "开发", desc: "GitHub · npm · Docker Hub", color: "#f59e0b", rules: ["github.com", "npmjs.org", "docker.io", "+6"], now: "东京 01", policy: "fallback", filter: "JP", conns: 7, share: 0.04 },
+  { id: "direct", name: "直连", desc: "国内网站和局域网", color: "#10b981", rules: ["geosite:cn", "geoip:CN", "局域网"], now: "DIRECT", policy: "direct", conns: 31, share: 0.05 },
+];
+
+const APPS = [
+  { name: "Arc", c: "#5b5bd6", host: "www.youtube.com", route: "media", down: 1.62e6, up: 3.1e4 },
+  { name: "Claude", c: "#d97757", host: "api.anthropic.com", route: "ai", down: 8.4e4, up: 4.2e4 },
+  { name: "Docker", c: "#1d63ed", host: "registry-1.docker.io", route: "dev", down: 2.1e5, up: 2e3 },
+  { name: "Slack", c: "#611f69", host: "wss-primary.slack.com", route: "default", down: 1.2e4, up: 3e3 },
+  { name: "WeChat", c: "#07c160", host: "szshort.weixin.qq.com", route: "direct", down: 9e3, up: 2e3 },
+];
+
+const CONNS = [
+  ["Arc", "www.youtube.com", 443, "GEOSITE youtube", "media", "新加坡 01", "48.3 MB", "620 KB", "3 分"],
+  ["Arc", "rr3---sn-i3b7kn.googlevideo.com", 443, "GEOSITE youtube", "media", "新加坡 01", "112 MB", "1.1 MB", "1 分"],
+  ["Claude", "api.anthropic.com", 443, "DOMAIN-SUFFIX anthropic.com", "ai", "洛杉矶 VPS", "2.1 MB", "840 KB", "12 秒"],
+  ["Docker", "registry-1.docker.io", 443, "DOMAIN-SUFFIX docker.io", "dev", "东京 01", "380 MB", "1.2 MB", "40 秒"],
+  ["git", "github.com", 22, "DOMAIN-SUFFIX github.com", "dev", "东京 01", "1.2 MB", "96 KB", "5 秒"],
+  ["Slack", "wss-primary.slack.com", 443, "MATCH", "default", "香港 03 IPLC", "420 KB", "58 KB", "2 时"],
+  ["WeChat", "szshort.weixin.qq.com", 443, "GEOSITE cn", "direct", "DIRECT", "36 KB", "12 KB", "8 分"],
+  ["Arc", "x.com", 443, "MATCH", "default", "东京 02 → 失败", "0 B", "0 B", "失败"],
+];
+
+const LOGS = [
+  ["19:24:10", "info", "Arc → www.youtube.com:443 命中 GEOSITE(youtube) → 流媒体[新加坡 01]"],
+  ["19:24:11", "info", "Claude → api.anthropic.com:443 命中 DOMAIN-SUFFIX(anthropic.com) → AI 服务[洛杉矶 VPS]"],
+  ["19:24:12", "warn", "东京 02 健康检查超时（连续第 3 次）"],
+  ["19:24:12", "err", "Arc → x.com:443 拨号失败：东京 02 i/o timeout"],
+  ["19:24:13", "info", "默认出口 自动切换：东京 02 → 香港 03 IPLC（41 ms）"],
+  ["19:24:15", "info", "git → github.com:22 命中 DOMAIN-SUFFIX(github.com) → 开发[东京 01]"],
+  ["19:24:20", "info", "Provider「机场 A」已更新：42 个节点（+2）"],
+];
+
+const S = {
+  page: "home", takeover: "sys", mode: "rule", open: new Set(["default"]), actTab: "conn", actFilter: "all",
+  win: "60s",
+  hist: Array.from({ length: 90 }, (_, i) => ({ d: 1.3e6 + Math.sin(i / 7) * 7e5 + Math.random() * 4e5, u: 6e4 + Math.sin(i / 5) * 3e4 + Math.random() * 3e4 })),
+};
+
+// ===================================================================
+// Rendering
+// ===================================================================
+const $ = (id) => document.getElementById(id);
+const route = (id) => ROUTES.find((r) => r.id === id);
+const tone = (d) => (d <= 0 ? "bad" : d < 120 ? "good" : d < 250 ? "ok" : "bad");
+const ms = (d) => (d > 0 ? Math.round(d) + "<small class='faint'> ms</small>" : "超时");
+function unit(b) {
+  const u = ["B", "KB", "MB", "GB"]; let i = 0;
+  while (b >= 1024 && i < 3) { b /= 1024; i++; }
+  return [b < 10 && i ? b.toFixed(2) : b < 100 && i ? b.toFixed(1) : Math.round(b), u[i]];
+}
+const fmt = (b, per = "") => { const [v, u] = unit(b); return `${v} ${u}${per}`; };
+
+const NOTES = {
+  home: {
+    why: [
+      "首页回答三个问题：<b>通不通</b>（顶栏：接管方式 + 出口 IP + 延迟）、<b>快不快</b>（流量图 + 流量去向）、<b>谁在用</b>（活跃应用 + 异常）。",
+      "「代理组」改叫<b>路由</b>：按「一类流量 → 走哪个节点」来呈现，每条路由显示它命中的规则、当前节点、在用的连接数和流量占比。展开后在原地换节点，不用跳页面。",
+      "节点卡片上的小柱子是最近 10 次测速的结果，能看出节点<b>稳不稳</b>，比只显示一个延迟数字信息量大。",
+      "选节点的方式由路由决定：手动 / 自动最快 / 故障转移 / 直连。比如「默认出口」选了自动，坏掉的节点会被自动换掉（见活动日志）。",
+    ],
+    q: ["接管方式（关 / 系统代理 / TUN）合成一个开关，你觉得清楚吗？", "路由要不要允许用户自己新建（比如「游戏」「公司」），还是只用订阅里带的？", "⌘K 搜索要覆盖哪些操作？"],
+  },
+  activity: {
+    why: ["连接、日志、规则命中本质上是同一件事（一个请求走了哪里），所以放在一个页面里用 Tab 切换。上面共用一套筛选：按应用、按路由、只看失败的。", "连接表里每行都标出应用、命中的规则和最终走的节点，用来排查「为什么这个网站打不开」。"],
+    q: ["要不要在连接上右键 →「这个域名以后走 XX 路由」，直接生成规则？"],
+  },
+  providers: {
+    why: ["<b>Provider = 节点的来源</b>：订阅链接、单个节点链接（vmess:// hysteria2:// …）、本地文件都算。粘贴进来自动识别类型。", "每个 Provider 显示：节点数、平均延迟、可用率、用量和到期时间。下面那排柱子是它所有节点的延迟分布，一眼能看出这个机场好不好用。", "Provider 可以单独停用（比如「朋友分享的节点」），它的节点就不再参与路由。"],
+    q: ["<b>关键决定</b>：节点来源和路由规则要不要分开？即 Provider 只负责提供节点，规则和路由用 Moho 自带的模板（或用户自己的），而不是整份照搬某个订阅里的规则。这样多个机场的节点能在同一套路由里混用。", "到期或流量快用完时，提前几天提醒？"],
+  },
+  settings: { why: ["设置只放不常改的东西；常用开关都在顶栏和托盘里。"], q: ["TUN 第一次打开时引导安装提权服务，可以吗？"] },
+};
+
+function note(id) {
+  const n = NOTES[id]; if (!n) return "";
+  return `<div class="note"><b>✎ 设计说明</b><ul>${n.why.map((x) => `<li>${x}</li>`).join("")}</ul>
+    <div class="q"><b>💬 想和你确认</b><ul>${n.q.map((x) => `<li>${x}</li>`).join("")}</ul></div></div>`;
+}
+
+function renderRail() {
+  const items = [["home", "主页"], ["activity", "活动"], ["providers", "Provider"], ["settings", "设置"]];
+  $("rail").innerHTML = items.map(([id, l]) => `<button class="${S.page === id ? "on" : ""}" data-go="${id}">${ICON[id]}${l}${id === "activity" ? '<span class="badge">1</span>' : ""}</button>`).join("");
+}
+
+function renderStatus() {
+  const on = S.takeover !== "off";
+  const ex = on ? NODES.find((n) => n.name === route("default").now) : null;
+  $("status").innerHTML = `
+    <div class="power">
+      <button class="orb ${on ? "on" : ""}" data-power title="开 / 关">${ICON.power}</button>
+      <div class="seg">${[["sys", "系统代理"], ["tun", "TUN"]].map(([id, l]) => `<button class="${S.takeover === id ? "on" : ""}" data-take="${id}">${l}</button>`).join("")}</div>
+    </div>
+    <div class="vsep"></div>
+    <div class="seg">${[["rule", "规则"], ["global", "全局"], ["direct", "直连"]].map(([id, l]) => `<button class="${S.mode === id ? "on" : ""}" data-mode="${id}">${l}</button>`).join("")}</div>
+    <div class="vsep"></div>
+    ${on ? `<div class="exit"><span class="flag">${flag(ex.r)}</span><div><b>103.152.x.12 · 香港</b><small>默认出口 · ${ex.name} · <span class="${tone(ex.d)}">${ex.d} ms</span></small></div></div>`
+         : `<div class="exit"><div><b class="muted">未接管</b><small>流量不经过 Moho</small></div></div>`}
+    <button class="search" data-palette>⌕ 搜索节点、应用… <kbd>⌘K</kbd></button>`;
+}
+
+function render() {
+  renderRail();
+  renderStatus();
+  $("page").innerHTML = VIEW[S.page]() + note(S.page);
+  if (S.page === "home") drawChart();
+}
+
+const VIEW = {
+  home() {
+    const last = S.hist.at(-1);
+    const [dv, du] = unit(last.d), [uv, uu] = unit(last.u);
+    const shares = ROUTES.map((r) => `<i style="flex-grow:${r.share};background:${r.color}"></i>`).join("");
+    const legend = ROUTES.map((r) => `<span><i class="sw" style="background:${r.color}"></i>${r.name} <b class="num">${Math.round(r.share * 100)}%</b></span>`).join("");
+    const maxApp = Math.max(...APPS.map((a) => a.down + a.up));
+    return `
+    <div class="top-grid">
+      <div class="card traffic">
+        <div class="rates">
+          <div class="rate down"><small>↓ 下载</small><div class="v num" id="rd">${dv}<span>${du}/s</span></div></div>
+          <div class="rate up"><small>↑ 上传</small><div class="v num" id="ru">${uv}<span>${uu}/s</span></div></div>
+          <div class="totals num"><div>今日<b>↓ 2.31 GB</b></div><div>&nbsp;<b>↑ 186 MB</b></div><div>本月<b>↓ 48.6 GB</b></div><div>&nbsp;<b>↑ 3.9 GB</b></div></div>
+        </div>
+        <div class="chart-wrap">
+          <div class="chart-tools"><div class="seg">${["60s", "10m", "1h", "24h"].map((w) => `<button class="${S.win === w ? "on" : ""}" data-win="${w}">${w}</button>`).join("")}</div></div>
+          <canvas id="chart"></canvas>
+        </div>
+        <div class="share"><div class="share-bar">${shares}</div><div class="share-legend">${legend}</div></div>
+      </div>
+      <div class="card live">
+        <div class="card-h"><h3>正在使用</h3><div class="right"><button class="btn ghost" data-go="activity">全部 61 个连接 →</button></div></div>
+        <div class="live-list">${APPS.map((a) => { const r = route(a.route); return `
+          <div class="app"><span class="ic" style="background:${a.c}">${a.name[0]}</span>
+            <span class="name">${a.name}<span class="chip"><i class="sw" style="background:${r.color}"></i>${r.name}</span></span>
+            <span class="r num">${fmt(a.down, "/s")}<small>↑ ${fmt(a.up, "/s")}</small></span>
+            <span class="host">${a.host}</span>
+            <span class="bar"><i style="width:${((a.down + a.up) / maxApp) * 100}%;background:${r.color}"></i></span></div>`; }).join("")}
+        </div>
+        <div class="alert">⚠ 东京 02 连续超时，已从默认出口移除<button data-go="activity">查看</button></div>
+        <div class="warn">◔ 机场 B 流量剩 6%，28 天后到期<button class="btn ghost" style="margin-left:auto;color:inherit;padding:0" data-go="providers">处理</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h3>路由</h3><span class="muted" style="font-size:11px">每一类流量走哪里 · 点开换节点</span>
+        <div class="right"><button class="btn ghost">全部测速</button><button class="btn ghost">＋ 新建路由</button></div></div>
+      <div class="routes">${ROUTES.map(routeRow).join("")}</div>
+    </div>`;
+  },
+
+  activity() {
+    const chips = [["all", "全部", null], ["fail", "失败 1", "var(--bad)"], ...ROUTES.map((r) => [r.id, r.name, r.color])];
+    const rows = CONNS.filter((c) => S.actFilter === "all" || (S.actFilter === "fail" ? c[8] === "失败" : c[4] === S.actFilter));
+    const body = S.actTab === "conn"
+      ? `<table><tr><th>应用</th><th>目标</th><th>命中规则</th><th>路由 → 节点</th><th>↓</th><th>↑</th><th>时长</th><th></th></tr>
+        ${rows.map((c) => { const r = route(c[4]); const fail = c[8] === "失败"; return `<tr>
+          <td>${c[0]}</td><td><span class="host">${c[1]}</span><span class="sub">:${c[2]}</span></td><td class="muted">${c[3]}</td>
+          <td><span class="chip"><i class="sw" style="background:${r.color}"></i>${r.name}</span> <span class="${fail ? "bad" : ""}">${c[5]}</span></td>
+          <td class="num">${c[6]}</td><td class="num">${c[7]}</td><td class="${fail ? "bad" : "muted"}">${c[8]}</td><td><button class="btn ghost">${fail ? "改路由…" : "断开"}</button></td></tr>`; }).join("")}</table>`
+      : S.actTab === "log"
+      ? LOGS.filter((l) => S.actFilter !== "fail" || l[1] !== "info").map((l) => `<div class="logline"><span class="faint">${l[0]}</span><span class="lv ${l[1]}">${{ info: "INFO", warn: "WARN", err: "ERR" }[l[1]]}</span><span>${l[2]}</span></div>`).join("")
+      : `<table><tr><th>#</th><th>规则</th><th>路由</th><th>今日命中</th><th>流量</th></tr>
+        ${[["GEOSITE youtube", "media", 1284, "1.6 GB"], ["DOMAIN-SUFFIX anthropic.com", "ai", 312, "48 MB"], ["DOMAIN-SUFFIX github.com", "dev", 208, "412 MB"], ["GEOSITE cn", "direct", 5120, "220 MB"], ["MATCH", "default", 1903, "96 MB"]].map((x, i) => { const r = route(x[1]); return `<tr><td class="faint">${i + 1}</td><td>${x[0]}</td><td><span class="chip"><i class="sw" style="background:${r.color}"></i>${r.name}</span></td><td class="num">${x[2]}</td><td class="num">${x[3]}</td></tr>`; }).join("")}</table>`;
+    return `<div class="card">
+      <div class="tabs">${[["conn", "连接 61"], ["log", "日志"], ["rule", "规则命中"]].map(([id, l]) => `<button class="${S.actTab === id ? "on" : ""}" data-tab="${id}">${l}</button>`).join("")}</div>
+      <div class="filters"><input placeholder="搜索域名、应用、节点…" />${chips.map(([id, l, c]) => `<button class="fchip ${S.actFilter === id ? "on" : ""}" data-filter="${id}">${c ? `<i class="sw" style="background:${c}"></i>` : ""}${l}</button>`).join("")}
+        <span style="margin-left:auto" class="right"><button class="btn ghost">${S.actTab === "conn" ? "全部断开" : "导出"}</button></span></div>
+      ${body}
+    </div>`;
+  },
+
+  providers() {
+    return `
+    <div class="card add">
+      <div class="add-row"><input id="addp" placeholder="粘贴订阅链接、节点链接（vmess:// trojan:// hysteria2:// …）或配置文件内容" /><button class="btn">选择文件…</button><button class="btn primary">添加</button></div>
+      <div class="detect" id="detect"><span class="faint">支持：Clash/mihomo 订阅 · 通用 Base64 订阅 · 单节点链接 · YAML 配置</span></div>
+    </div>
+    <div class="plist">${PROVIDERS.map(provCard).join("")}</div>`;
+  },
+
+  settings() {
+    const t = (on) => `<button class="toggle ${on ? "on" : ""}"></button>`;
+    return `<div class="card set">
+      <div class="set-row"><span>混合代理端口<small>HTTP 和 SOCKS5 共用</small></span><input class="v" value="7899" /></div>
+      <div class="set-row"><span>允许局域网设备使用<small>手机连上同一 Wi-Fi 后可以用这台电脑的代理</small></span>${t(false)}</div>
+      <div class="set-row"><span>TUN 提权服务<small>开启 TUN 前需要安装一次</small></span><span class="good">已安装 ✓</span></div>
+      <div class="set-row"><span>测速地址<small>判断节点是否可用</small></span><input class="v" style="width:260px" value="https://www.gstatic.com/generate_204" /></div>
+    </div>
+    <div class="card set">
+      <div class="set-row"><span>开机启动，只显示在菜单栏</span>${t(true)}</div>
+      <div class="set-row"><span>菜单栏显示网速</span>${t(true)}</div>
+      <div class="set-row"><span>外观</span><div class="seg"><button class="on">跟随系统</button><button>浅色</button><button>深色</button></div></div>
+      <div class="set-row"><span>内核<small>mihomo v1.19.33 · 已是最新</small></span><button class="btn">检查更新</button></div>
+    </div>`;
+  },
+};
+
+function routeRow(r) {
+  const open = S.open.has(r.id);
+  const cur = NODES.find((n) => n.name === r.now);
+  const policyLabel = { auto: "自动最快", manual: "手动", fallback: "故障转移", direct: "直连" }[r.policy];
+  const head = `<div class="r-head" data-route="${r.id}">
+      <span class="stripe" style="background:${r.color}"></span>
+      <span class="rn"><b>${r.name}</b><small>${r.desc}</small></span>
+      <span class="rules">${r.rules.map((x) => `<span class="chip">${x}</span>`).join("")}</span>
+      <span class="cur">${cur ? `<span class="f">${flag(cur.r)}</span><span class="nm">${cur.name}</span>` : `<span class="nm">直接连接</span>`}
+        ${r.policy !== "manual" ? `<span class="auto">${policyLabel}</span>` : ""}<span class="d num ${cur ? tone(cur.d) : ""}">${cur ? ms(cur.d) : ""}</span></span>
+      <span class="r-stat num"><span>${r.conns} 连接 · ${Math.round(r.share * 100)}%</span><span class="mini"><i style="width:${r.share * 100}%;background:${r.color}"></i></span></span>
+      <span class="chev">›</span>
+    </div>`;
+  if (!open || r.policy === "direct") return `<div class="route ${open ? "open" : ""}">${head}</div>`;
+  const regions = r.filter === "全部" ? REGIONS : REGIONS.filter((x) => x[0] === r.filter);
+  return `<div class="route open">${head}<div class="r-body">
+    <div class="r-tools">
+      <div class="policy"><span class="muted">选择方式</span><div class="seg">${[["manual", "手动"], ["auto", "自动最快"], ["fallback", "故障转移"]].map(([id, l]) => `<button class="${r.policy === id ? "on" : ""}" data-policy="${r.id}|${id}">${l}</button>`).join("")}</div></div>
+      <div class="policy"><span class="muted">节点范围</span><div class="seg">${["全部", ...REGIONS.map((x) => x[0])].map((f) => `<button class="${r.filter === f ? "on" : ""}" data-rfilter="${r.id}|${f}">${f === "全部" ? f : flag(f)}</button>`).join("")}</div></div>
+      <span style="margin-left:auto"></span><button class="btn">测速</button>
+    </div>
+    ${regions.map(([code, fl, name]) => { const ns = NODES.filter((n) => n.r === code).sort((a, b) => (a.d || 9999) - (b.d || 9999)); if (!ns.length) return ""; return `
+      <div class="region"><div class="region-h">${fl} ${name}<span class="faint">${ns.length} 个 · 最快 ${ns[0].d || "—"} ms</span></div>
+      <div class="nodes">${ns.map((n) => `<button class="node ${n.name === r.now ? "on" : ""} ${n.d <= 0 ? "dead" : ""}" data-pick="${r.id}|${n.name}">
+        <span class="t"><span>${n.name}</span><span class="num ${tone(n.d)}">${ms(n.d)}</span></span>
+        <span class="b"><span>${n.type} · ${PROVIDERS.find((p) => p.id === n.prov).name}</span><span class="hist">${n.hist.map((h) => `<i style="height:${h <= 0 ? 10 : Math.min(10, 2 + h / 40)}px;background:${h <= 0 ? "var(--bad)" : `var(--${tone(h)})`}"></i>`).join("")}</span></span>
+      </button>`).join("")}</div></div>`; }).join("")}
+  </div></div>`;
+}
+
+function provCard(p) {
+  const nodes = NODES.filter((n) => n.prov === p.id);
+  const alive = nodes.filter((n) => n.d > 0);
+  const avg = alive.length ? Math.round(alive.reduce((s, n) => s + n.d, 0) / alive.length) : 0;
+  const kind = { sub: "订阅", node: "单节点", file: "本地文件" }[p.kind];
+  const pct = p.total ? p.used / p.total : 0;
+  const health = (p.kind === "sub" ? Array.from({ length: Math.min(p.nodes, 40) }, (_, i) => nodes[i % Math.max(1, nodes.length)]?.d * (0.8 + Math.random() * .5) || (Math.random() < .1 ? 0 : 60 + Math.random() * 200)) : nodes.map((n) => n.d))
+    .sort((a, b) => (a || 9999) - (b || 9999));
+  return `<div class="card prov ${p.on ? "" : "off"}">
+    <div class="prov-h"><span class="prov-ic">${p.ic}</span><div><b>${p.name}</b><small>${kind} · ${p.url}</small></div><span class="right"><button class="toggle ${p.on ? "on" : ""}" data-prov="${p.id}"></button></span></div>
+    <div class="prov-stats num">
+      <div><small>节点</small><b>${p.nodes}</b></div>
+      <div><small>平均延迟</small><b class="${tone(avg)}">${avg || "—"} ms</b></div>
+      <div><small>可用</small><b>${p.kind === "sub" ? Math.round(p.nodes * .92) + "/" + p.nodes : alive.length + "/" + nodes.length}</b></div>
+    </div>
+    <div class="health" title="各节点延迟，从快到慢">${health.map((d) => `<i style="height:${d <= 0 ? 18 : Math.max(3, 18 - d / 16)}px;background:${d <= 0 ? "var(--bad)" : `var(--${tone(d)})`};opacity:.75"></i>`).join("")}</div>
+    ${p.total ? `<div><div class="prov-foot num" style="margin-bottom:4px"><span>已用 ${p.used} / ${p.total} GB</span><span class="right ${p.days < 30 || pct > .9 ? "bad" : ""}">${p.expire} 到期 · 剩 ${p.days} 天</span></div>
+      <div class="quota"><i style="width:${pct * 100}%;background:${pct > .9 ? "var(--bad)" : "var(--accent)"}"></i></div></div>` : ""}
+    <div class="prov-foot"><span>${p.kind === "sub" ? `更新于 ${p.updated} · 自动更新 ${p.auto}` : p.kind === "node" ? "手动添加的节点" : `读取于 ${p.updated}`}</span>
+      <span class="right">${p.kind === "sub" ? `<button class="btn ghost">更新</button>` : ""}<button class="btn ghost">编辑</button><button class="btn ghost">⋯</button></span></div>
+  </div>`;
+}
+
+// ---- Mirrored traffic chart: download above the axis, upload below. ----
+function drawChart() {
+  const c = $("chart"); if (!c) return;
+  const dpr = devicePixelRatio, w = c.clientWidth, h = c.clientHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  const g = c.getContext("2d"); g.scale(dpr, dpr);
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const data = S.hist.slice(-60);
+  const mid = h * 0.68; // download gets more room: it is usually larger
+  const maxD = Math.max(...data.map((p) => p.d)) * 1.15, maxU = Math.max(...data.map((p) => p.u)) * 1.25;
+  const X = (i) => (i / (data.length - 1)) * w;
+  const curve = (ys) => { g.moveTo(X(0), ys[0]); for (let i = 1; i < ys.length; i++) { const xm = (X(i - 1) + X(i)) / 2; g.bezierCurveTo(xm, ys[i - 1], xm, ys[i], X(i), ys[i]); } };
+  const area = (ys, base, color, top) => {
+    const grad = g.createLinearGradient(0, top ? 0 : h, 0, base);
+    grad.addColorStop(0, color + "66"); grad.addColorStop(1, color + "05");
+    g.beginPath(); curve(ys); g.lineTo(w, base); g.lineTo(0, base); g.closePath(); g.fillStyle = grad; g.fill();
+    g.beginPath(); curve(ys); g.strokeStyle = color; g.lineWidth = 1.6; g.stroke();
+    const lx = X(ys.length - 1), ly = ys.at(-1);
+    g.beginPath(); g.arc(lx - 2, ly, 3, 0, 7); g.fillStyle = color; g.fill();
+  };
+  // grid
+  g.strokeStyle = css("--line"); g.lineWidth = 1;
+  for (const f of [0.25, 0.5, 0.75]) { g.beginPath(); g.moveTo(0, mid * (1 - f) + 0.5); g.lineTo(w, mid * (1 - f) + 0.5); g.setLineDash([2, 3]); g.stroke(); }
+  g.setLineDash([]);
+  area(data.map((p) => mid - (p.d / maxD) * (mid - 18)), mid, css("--down"), true);
+  area(data.map((p) => mid + (p.u / maxU) * (h - mid - 4)), mid, css("--up"), false);
+  g.beginPath(); g.moveTo(0, mid + .5); g.lineTo(w, mid + .5); g.strokeStyle = css("--line"); g.stroke();
+  g.fillStyle = css("--faint"); g.font = "10px system-ui";
+  g.fillText(fmt(maxD / 1.15 * 0.75, "/s"), 2, mid * 0.25 + 12);
+  g.fillText("−60s", 2, h - 4);
+}
+
+// ---- Command palette ----
+function renderPalette(q = "") {
+  q = q.trim().toLowerCase();
+  const cmds = [["切换到全局模式", "mode global"], ["切换到规则模式", "mode rule"], ["全部测速", "test"], ["更新所有 Provider", "update"], ["打开 TUN", "tun"]];
+  const nodes = NODES.filter((n) => !q || n.name.toLowerCase().includes(q) || n.r.toLowerCase().includes(q));
+  const c = cmds.filter((x) => !q || x[0].includes(q));
+  $("pres").innerHTML = (c.length ? `<div class="grp">命令</div>` + c.map((x) => `<div class="it">› ${x[0]}</div>`).join("") : "")
+    + (nodes.length ? `<div class="grp">节点 · 回车设为默认出口，⌥回车选择路由</div>` + nodes.slice(0, 8).map((n) => `<div class="it" data-pick="default|${n.name}">${flag(n.r)} ${n.name}<span class="k ${tone(n.d)}">${n.d > 0 ? n.d + " ms" : "超时"}</span></div>`).join("") : "");
+}
+function openPalette() { $("palette").hidden = false; $("pq").value = ""; renderPalette(); $("pq").focus(); }
+
+// ===================================================================
+// Events
+// ===================================================================
+document.addEventListener("click", (e) => {
+  if (e.target.id === "palette") { $("palette").hidden = true; return; }
+  const t = e.target.closest("[data-go],[data-power],[data-take],[data-mode],[data-route],[data-pick],[data-policy],[data-rfilter],[data-win],[data-tab],[data-filter],[data-prov],[data-palette]");
+  if (!t) return;
+  const d = t.dataset;
+  if (d.palette !== undefined) return openPalette();
+  if (d.go) S.page = d.go;
+  if (d.power !== undefined) S.takeover = S.takeover === "off" ? "sys" : "off";
+  if (d.take) S.takeover = d.take;
+  if (d.mode) S.mode = d.mode;
+  if (d.route) S.open.has(d.route) ? S.open.delete(d.route) : S.open.add(d.route);
+  if (d.pick) { const [r, n] = d.pick.split("|"); const ro = route(r); ro.now = n; if (ro.policy === "auto") ro.policy = "manual"; $("palette").hidden = true; }
+  if (d.policy) { const [r, p] = d.policy.split("|"); route(r).policy = p; }
+  if (d.rfilter) { const [r, f] = d.rfilter.split("|"); route(r).filter = f; }
+  if (d.win) S.win = d.win;
+  if (d.tab) S.actTab = d.tab;
+  if (d.filter) S.actFilter = d.filter;
+  if (d.prov) { const p = PROVIDERS.find((x) => x.id === d.prov); p.on = !p.on; }
+  render();
+});
+document.addEventListener("input", (e) => {
+  if (e.target.id === "pq") renderPalette(e.target.value);
+  if (e.target.id === "addp") {
+    const v = e.target.value.trim();
+    const m = /^(vmess|vless|trojan|ss|ssr|hysteria2?|hy2|tuic|wireguard|anytls):\/\//i.exec(v);
+    const kind = !v ? "" : m ? `单节点 · ${m[1].toUpperCase()}` : /^https?:\/\//.test(v) ? "订阅链接 · 添加时自动判断 Clash / Base64 格式" : /proxies:|proxy-groups:/.test(v) ? "YAML 配置内容" : /^[A-Za-z0-9+/=\s]{40,}$/.test(v) ? "Base64 节点列表" : "无法识别";
+    $("detect").innerHTML = kind ? `识别为：<b>${kind}</b>` : `<span class="faint">支持：Clash/mihomo 订阅 · 通用 Base64 订阅 · 单节点链接 · YAML 配置</span>`;
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); openPalette(); }
+  if (e.key === "Escape") $("palette").hidden = true;
+});
+$("t-notes").onclick = () => { document.body.classList.toggle("no-notes"); $("t-notes").textContent = document.body.classList.contains("no-notes") ? "显示设计说明" : "隐藏设计说明"; };
+$("t-dark").onclick = () => { document.documentElement.classList.toggle("dark"); $("t-dark").textContent = document.documentElement.classList.contains("dark") ? "浅色" : "深色"; render(); };
+
+// Live traffic.
+setInterval(() => {
+  const i = S.hist.length;
+  S.hist.push({ d: Math.max(5e4, 1.3e6 + Math.sin(i / 7) * 7e5 + Math.random() * 4e5), u: Math.max(5e3, 6e4 + Math.sin(i / 5) * 3e4 + Math.random() * 3e4) });
+  S.hist.shift();
+  if (S.page !== "home") return;
+  const last = S.hist.at(-1); const [dv, du] = unit(last.d), [uv, uu] = unit(last.u);
+  $("rd").innerHTML = `${dv}<span>${du}/s</span>`; $("ru").innerHTML = `${uv}<span>${uu}/s</span>`;
+  drawChart();
+}, 1000);
+
+// Fit the fake window into small viewports, such as a side pane.
+const fit = () => { document.querySelector(".window").style.zoom = Math.min(1, (innerWidth - 40) / 1120, (innerHeight - 40) / 720); };
+addEventListener("resize", fit); fit();
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,99 @@
+// Package routes is Moho's routing template: kinds of traffic and the rules
+// that recognise them. Providers only supply nodes; every provider's nodes
+// can serve every route (decision D1 of docs/product-ia.md).
+package routes
+
+import "github.com/oboo/moho/internal/i18n"
+
+// Route is a kind of traffic and where it may go.
+type Route struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Color   string `json:"color"`   // CSS custom property of its color
+	Summary string `json:"summary"` // what it matches, for people
+	// Rules are mihomo rules without their target, e.g. "DOMAIN-SUFFIX,openai.com".
+	Rules []string `json:"-"`
+	// Direct routes never use a node.
+	Direct bool `json:"direct"`
+}
+
+// Default is the route that takes what no rule matched.
+const Default = "default"
+
+// Group is the name of a route's mihomo group; Auto that of its automatic
+// (fastest + failover) group.
+func Group(r Route) string { return r.Name }
+func Auto(r Route) string  { return r.Name + "·自动" }
+
+// Title is a route's name as the interface shows it. Name stays the
+// mihomo group's, in Chinese, so that configs and choices keep across a
+// change of language.
+func Title(r Route) string {
+	if en, ok := titleEn[r.ID]; ok {
+		return i18n.T(r.Name, en)
+	}
+	return r.Name
+}
+
+// Describe is a route's Summary as the interface shows it.
+func Describe(r Route) string {
+	if en, ok := summaryEn[r.ID]; ok {
+		return i18n.T(r.Summary, en)
+	}
+	return r.Summary
+}
+
+var titleEn = map[string]string{Default: "Default", "ai": "AI", "media": "Streaming", "dev": "Dev", "direct": "Direct"}
+
+var summaryEn = map[string]string{
+	Default:  "Traffic no other rule matched",
+	"ai":     "OpenAI · Claude · Gemini · Perplexity and more",
+	"media":  "YouTube · Netflix · Spotify · Disney+ and more",
+	"dev":    "GitHub · npm · Docker · PyPI · Go and more",
+	"direct": "Mainland China sites · LAN",
+}
+
+// Template returns the routes in the order their rules apply; the default
+// route comes first for display, its rule (MATCH) last.
+func Template() []Route {
+	return []Route{
+		{ID: Default, Name: "默认", Color: "--r-default", Summary: "没命中其他规则的流量"},
+		{ID: "ai", Name: "AI 服务", Color: "--r-ai", Summary: "OpenAI · Claude · Gemini · Perplexity 等", Rules: suffixes(
+			"openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com", "sora.com",
+			"anthropic.com", "claude.ai", "claude.com", "claudeusercontent.com",
+			"gemini.google.com", "generativelanguage.googleapis.com", "aistudio.google.com", "notebooklm.google.com", "bard.google.com",
+			"perplexity.ai", "x.ai", "grok.com", "poe.com", "cursor.com", "cursor.sh", "cursorapi.com",
+			"mistral.ai", "huggingface.co", "openrouter.ai", "midjourney.com", "character.ai",
+		)},
+		{ID: "media", Name: "流媒体", Color: "--r-media", Summary: "YouTube · Netflix · Spotify · Disney+ 等", Rules: []string{
+			"GEOSITE,youtube", "GEOSITE,netflix", "GEOSITE,spotify", "GEOSITE,disney", "GEOSITE,hbo",
+			"GEOSITE,primevideo", "GEOSITE,twitch", "GEOSITE,tiktok", "GEOSITE,bahamut", "GEOSITE,abema",
+		}},
+		{ID: "dev", Name: "开发", Color: "--r-dev", Summary: "GitHub · npm · Docker · PyPI · Go 等", Rules: suffixes(
+			"github.com", "githubusercontent.com", "githubassets.com", "github.io", "ghcr.io",
+			"npmjs.org", "npmjs.com", "yarnpkg.com", "docker.io", "docker.com", "pypi.org", "pythonhosted.org",
+			"golang.org", "go.dev", "proxy.golang.org", "crates.io", "rust-lang.org", "gitlab.com", "bitbucket.org",
+			"stackoverflow.com", "jsdelivr.net", "unpkg.com", "vercel.com", "brew.sh",
+		)},
+		{ID: "direct", Name: "直连", Color: "--r-direct", Summary: "国内网站 · 局域网", Direct: true, Rules: []string{
+			"GEOSITE,private", "GEOSITE,cn", "GEOIP,private,no-resolve", "GEOIP,CN,no-resolve",
+		}},
+	}
+}
+
+func suffixes(domains ...string) []string {
+	out := make([]string, len(domains))
+	for i, d := range domains {
+		out[i] = "DOMAIN-SUFFIX," + d
+	}
+	return out
+}
+
+// Count is the number of rules, MATCH included.
+func Count(rs []Route) int {
+	n := 1
+	for _, r := range rs {
+		n += len(r.Rules)
+	}
+	return n
+}
