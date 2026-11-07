@@ -273,7 +273,7 @@ func (u *UI) settingsSidebar(c *ui.Context, p *pal) {
 			}
 		}).Grow(1).Padding(0, 10).Background(p.paper2).Label(i18n.T("设置", "Settings"))
 		cs := u.snap.Core
-		ui.Row(c).Gap(7).Padding(12, 18, 16, 18).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Gap(7).Padding(12, 18, 16, 18).AlignItems(ui.Center).MinWidth(0).Children(func() {
 			col := p.faint
 			switch cs.State {
 			case "running":
@@ -288,7 +288,9 @@ func (u *UI) settingsSidebar(c *ui.Context, p *pal) {
 			if cs.Version != "" {
 				ver += " " + cs.Version
 			}
-			ui.Text(c, ver).FontSize(11.5).TextColor(p.mute).NoWrap().Ellipsis("…").Shrink(1)
+			// MinWidth(0): a line that doesn't wrap is otherwise as wide as
+			// its words, and a long version runs into the pane.
+			ui.Text(c, ver).FontSize(11.5).TextColor(p.mute).NoWrap().Ellipsis("…").Shrink(1).MinWidth(0).Tooltip(ver)
 		})
 	})
 }
@@ -318,6 +320,14 @@ func (u *UI) generalSection(c *ui.Context, p *pal, s settings.Settings) {
 		if actSeg(c.Key("appearance"), p, &sel, names).Changed() && settings.Appearances[sel] != s.Appearance {
 			a := settings.Appearances[sel]
 			u.setOpt(func(s *settings.Settings) { s.Appearance = a })
+		}
+	})
+	optRow(c, p, i18n.T("边框", "Borders"), i18n.T("首页各块之间的线：笔直，或像 logo 一样弯曲", "The lines between the home board's blocks: straight, or bending like the logo's"), func() {
+		names := []string{i18n.T("笔直", "Straight"), i18n.T("弯曲", "Twisted")}
+		sel := max(0, slices.Index(settings.BorderStyles, s.Borders))
+		if actSeg(c.Key("borders"), p, &sel, names).Changed() && settings.BorderStyles[sel] != s.Borders {
+			b := settings.BorderStyles[sel]
+			u.setOpt(func(s *settings.Settings) { s.Borders = b })
 		}
 	})
 	optRow(c, p, i18n.T("主题色", "Theme color"), i18n.T("按钮、开关和选中项的颜色", "The color of buttons, switches and what is selected"), func() {
@@ -368,7 +378,7 @@ func (u *UI) generalSection(c *ui.Context, p *pal, s settings.Settings) {
 func (u *UI) accentSwatch(c *ui.Context, p *pal, hex, name string, on bool) {
 	col := p.ink
 	if hex != "ink" {
-		col = ui.Hex(hex)
+		col = ui.Hex(accentHex(hex, p.dark))
 	}
 	ring := ui.Transparent
 	if on {

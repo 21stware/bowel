@@ -94,7 +94,6 @@ func newApp() (*App, error) {
 		return nil, err
 	}
 	i18n.Set(st.Get().Language)
-	mygo.Theme.SetSource(mygo.ThemeSource(st.Get().Appearance))
 	ps, err := provider.Open(filepath.Join(data, "providers"))
 	if err != nil {
 		return nil, err
@@ -177,6 +176,9 @@ func (a *App) copyGeo() {
 // ---- Lifecycle ----
 
 func (a *App) start() {
+	// Here, not in newApp: SetSource waits for the main thread, which a
+	// test's goroutine has no loop on.
+	mygo.Theme.SetSource(mygo.ThemeSource(a.settings.Get().Appearance))
 	registerFonts()
 	a.openAtLogin = mygo.App.OpenAtLogin()
 	a.openWindow()

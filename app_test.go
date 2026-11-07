@@ -96,7 +96,7 @@ func TestAppFlows(t *testing.T) {
 	var hk, jp NodeView
 	for _, n := range s.Nodes {
 		switch n.Display {
-		case "🇭🇰 香港 01":
+		case "香港 01": // the flag is drawn, not in the label (trimFlag)
 			hk = n
 		case "JP-Tokyo-02":
 			jp = n

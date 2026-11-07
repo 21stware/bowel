@@ -9,6 +9,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -35,7 +36,9 @@ type homeUI struct {
 	copies map[string]shareRec
 	frame  int
 
-	mapView mapView // the expanded map's pan and zoom
+	mapView mapView               // the expanded map's pan and zoom
+	walls   map[string]*wallPaths // twisted borders' paths, by cell
+	lines   map[string]*linePaths
 }
 
 type shownView struct {
@@ -335,7 +338,15 @@ func (u *UI) homePage(c *ui.Context, p *pal) {
 		}
 		h.x, h.sub = "", ""
 	})
+	// The lines between the cells are the board showing through the gaps,
+	// or, twisted, drawn over them.
+	twisted := u.shownSettings().Borders == "twisted"
 	board := ui.Box(c).Grow(1).Background(p.hair).Clip()
+	if twisted {
+		board.Background(p.paper)
+	} else {
+		h.walls, h.lines = nil, nil
+	}
 	r := board.LayoutBounds()
 	w, hh := r.W, r.H
 	if w <= 0 {
@@ -354,6 +365,17 @@ func (u *UI) homePage(c *ui.Context, p *pal) {
 	board.Children(func() {
 		for _, cl := range cells {
 			u.cell(c, p, cl, final[cl.id], normal[cl.id])
+		}
+		if !twisted {
+			return
+		}
+		// Over the cells, as they are drawn on the cells' edges: the lines,
+		// then the walls over them.
+		for _, cl := range cells {
+			h.line(c, p, cl.id, final[cl.id], w, hh)
+		}
+		for _, cl := range cells {
+			h.wall(c, p, cl.id, final[cl.id], w, hh)
 		}
 	})
 }
@@ -447,6 +469,364 @@ func (u *UI) cell(c *ui.Context, p *pal, cl cell, box, normalBox ui.Rect) {
 			t.Absolute().Left(glide(t, "x", k.x, true)).Top(glide(t, "y", k.y, true)).NoWrap().IgnoreInput(true).ContentTransition(morphText)
 		}
 	})
+}
+
+// The focused cell's wall: its edge, drawn as the logo's line, thick and
+// bending. Inside the line is the cell; outside, its neighbors. Edges on the
+// board's border are drawn a little inside, so that the line shows whole.
+const (
+	wallWidth = 2   // the line, DIPs
+	wallSwing = 2.6 // how far it bends to either side of the edge
+	wallWave  = 46  // DIPs from one bulge to the next, about
+	wallRound = 12  // the corners' radius
+	wallInk   = .5  // how strong the line is, of the ink
+	wallReach = wallSwing + wallWidth/2 + 1.5
+)
+
+// wall draws the wall of cell id, at box on a board w×h: it twists in as
+// the cell takes the focus and untwists as it gives it up, its bulges
+// rolling along the edge as they swell or settle.
+func (h *homeUI) wall(c *ui.Context, p *pal, id string, box ui.Rect, w, hh float32) {
+	m := float32(wallReach)
+	e := ui.Box(c.Key("wall-"+id)).Absolute().Left(box.X-m).Top(box.Y-m).Size(box.W+2*m, box.H+2*m).
+		IgnoreInput(true).AccessHidden(true).Transition(ui.ElementTransition{Animation: &motion, Position: true, Size: true})
+	on := h.x == id
+	twist := motion
+	twist.Duration = 640 * time.Millisecond
+	if on {
+		twist.Delay = 110 * time.Millisecond
+	}
+	k := e.AnimateTo("twist", map[bool]float32{false: 0, true: 1}[on], twist)
+	if k <= 0 {
+		delete(h.walls, id)
+		return
+	}
+	if h.walls == nil {
+		h.walls = map[string]*wallPaths{}
+	}
+	wp := h.walls[id]
+	if wp == nil {
+		wp = &wallPaths{}
+		h.walls[id] = wp
+	}
+	// Which sides are on the board's border, from the box at rest.
+	left, top, right, bottom := box.X < .5, box.Y < .5, box.X+box.W > w-.5, box.Y+box.H > hh-.5
+	e.Draw(func(pt *ui.Painter, r ui.Rect) {
+		cell := ui.Rect{X: r.X + m, Y: r.Y + m, W: r.W - 2*m, H: r.H - 2*m}
+		base := cell
+		if left {
+			base.X, base.W = base.X+m, base.W-m
+		}
+		if top {
+			base.Y, base.H = base.Y+m, base.H-m
+		}
+		if right {
+			base.W -= m
+		}
+		if bottom {
+			base.H -= m
+		}
+		if key := [5]float32{base.X, base.Y, base.W, base.H, k}; key != wp.key || cell != wp.cell {
+			wp.key, wp.cell = key, cell
+			wp.build(cell, base, wallSwing*k, float64(1-k)*2.5*math.Pi)
+		}
+		// Side by side, so that each shape is a strip along an edge, not as
+		// large as the cell: the shapes are rasterized anew as they change.
+		// The line is opaque, so that where the sides meet doesn't darken.
+		ink := p.sheet.Mix(p.ink, wallInk).Alpha(min(1, 2*k))
+		for i := range 4 {
+			pt.FillPath(&wp.out[i], p.paper.Alpha(k))
+			pt.FillPath(&wp.in[i], p.sheet.Alpha(k))
+		}
+		for i := range 4 {
+			pt.StrokePath(&wp.wall[i], wallWidth*(.5+.5*k), ink)
+		}
+	})
+}
+
+// wallPaths are a wall's paths by side (top, right, bottom, left), kept
+// while it stays put: the board is drawn often, a wall seldom changes.
+type wallPaths struct {
+	key           [5]float32
+	cell          ui.Rect
+	wall, out, in [4]ui.Path
+}
+
+// build makes the wall round cell, bending about base: the line; the paper
+// outside it, over the gap past the cell's edge and its line; and the sheet
+// inside it, where it bulges past the cell's edge.
+func (wp *wallPaths) build(cell, base ui.Rect, swing float32, roll float64) {
+	line, cuts := wobblyFrame(base, wallRound, swing, wallWave, roll)
+	n := len(line)
+	if n == 0 {
+		for i := range 4 {
+			wp.wall[i].Reset()
+			wp.out[i].Reset()
+			wp.in[i].Reset()
+		}
+		return
+	}
+	reach := float32(lineReach)
+	// The outer corners, clockwise from the top left's.
+	outer := [4][2]float32{
+		{cell.X - reach, cell.Y - reach}, {cell.X + cell.W + reach, cell.Y - reach},
+		{cell.X + cell.W + reach, cell.Y + cell.H + reach}, {cell.X - reach, cell.Y + cell.H + reach},
+	}
+	// past puts q on the cell's edge on side i unless it is past it.
+	past := func(i int, q [2]float32) ([2]float32, bool) {
+		switch i {
+		case 0:
+			return [2]float32{q[0], min(q[1], cell.Y)}, q[1] < cell.Y
+		case 1:
+			return [2]float32{max(q[0], cell.X+cell.W), q[1]}, q[0] > cell.X+cell.W
+		case 2:
+			return [2]float32{q[0], max(q[1], cell.Y+cell.H)}, q[1] > cell.Y+cell.H
+		}
+		return [2]float32{min(q[0], cell.X), q[1]}, q[0] < cell.X
+	}
+	for i := range 4 {
+		// Side i runs from the middle of the corner before it to that of
+		// the corner after.
+		from, to := cuts[(i+3)%4], cuts[i]
+		if to < from {
+			to += n
+		}
+		side := make([][2]float32, 0, to-from+1)
+		for j := from; j <= to; j++ {
+			side = append(side, line[j%n])
+		}
+		w := wp.wall[i].Reset()
+		w.MoveTo(side[0][0], side[0][1])
+		for j := 1; j < len(side)-1; j++ {
+			w.QuadTo(side[j][0], side[j][1], (side[j][0]+side[j+1][0])/2, (side[j][1]+side[j+1][1])/2)
+		}
+		w.LineTo(side[len(side)-1][0], side[len(side)-1][1])
+		// Outside: between the line, its bulges in, and the outer edge.
+		o := wp.out[i].Reset()
+		o.MoveTo(side[0][0], side[0][1])
+		for _, q := range side[1:] {
+			o.LineTo(q[0], q[1])
+		}
+		o.LineTo(outer[(i+1)%4][0], outer[(i+1)%4][1]).LineTo(outer[i][0], outer[i][1]).Close()
+		// Inside, past the cell's edge: between its bulges out and the edge.
+		in := wp.in[i].Reset()
+		bulges := false
+		for j, q := range side {
+			e, out := past(i, q)
+			bulges = bulges || out
+			if j == 0 {
+				in.MoveTo(e[0], e[1])
+			} else {
+				in.LineTo(e[0], e[1])
+			}
+		}
+		if !bulges {
+			in.Reset()
+			continue
+		}
+		last, _ := past(i, side[len(side)-1])
+		first, _ := past(i, side[0])
+		// Back along the edge.
+		if i%2 == 0 {
+			in.LineTo(last[0], cellEdge(cell, i)).LineTo(first[0], cellEdge(cell, i))
+		} else {
+			in.LineTo(cellEdge(cell, i), last[1]).LineTo(cellEdge(cell, i), first[1])
+		}
+		in.Close()
+	}
+}
+
+// cellEdge is where side i of cell is: its y for the top and bottom, its x
+// for the right and left.
+func cellEdge(cell ui.Rect, i int) float32 {
+	switch i {
+	case 0:
+		return cell.Y
+	case 1:
+		return cell.X + cell.W
+	case 2:
+		return cell.Y + cell.H
+	}
+	return cell.X
+}
+
+// wobblyFrame is the rounded rectangle r, corners rad, its line swung swing
+// to either side of the edge about every wave DIPs, as points eight a wave,
+// clockwise from the top's left end; cuts are the indexes of the middles of
+// the corners, clockwise from the top right's. The bulges go round a whole
+// number of times, so the line meets itself smoothly; a slower second wave
+// makes them unequal, as a drawn line's are. roll moves them along the
+// edge, in radians of a wave.
+func wobblyFrame(r ui.Rect, rad, swing, wave float32, roll float64) (pts [][2]float32, cuts [4]int) {
+	rad = min(rad, r.W/2, r.H/2)
+	if rad < 0 {
+		return nil, cuts
+	}
+	sw, sh := float64(r.W-2*rad), float64(r.H-2*rad)
+	R := float64(rad)
+	arc := math.Pi / 2 * R
+	total := 2*(sw+sh) + 4*arc
+	if total <= 0 {
+		return nil, cuts
+	}
+	k := math.Max(3, math.Round(total/float64(wave)))
+	x0, y0 := float64(r.X), float64(r.Y)
+	// at is the point s along the edge and the outward normal there.
+	at := func(s float64) (x, y, nx, ny float64) {
+		corner := func(cx, cy, from float64) (float64, float64, float64, float64) {
+			a := from + s/R
+			return cx + R*math.Cos(a), cy + R*math.Sin(a), math.Cos(a), math.Sin(a)
+		}
+		if s < sw {
+			return x0 + R + s, y0, 0, -1
+		}
+		if s -= sw; s < arc {
+			return corner(x0+R+sw, y0+R, -math.Pi/2)
+		}
+		if s -= arc; s < sh {
+			return x0 + 2*R + sw, y0 + R + s, 1, 0
+		}
+		if s -= sh; s < arc {
+			return corner(x0+R+sw, y0+R+sh, 0)
+		}
+		if s -= arc; s < sw {
+			return x0 + R + sw - s, y0 + 2*R + sh, 0, 1
+		}
+		if s -= sw; s < arc {
+			return corner(x0+R, y0+R+sh, math.Pi/2)
+		}
+		if s -= arc; s < sh {
+			return x0, y0 + R + sh - s, -1, 0
+		}
+		s -= sh
+		return corner(x0+R, y0+R, math.Pi)
+	}
+	n := int(k) * 8
+	pts = make([][2]float32, n)
+	for i := range pts {
+		s := total * float64(i) / float64(n)
+		x, y, nx, ny := at(s)
+		t := 2 * math.Pi * s / total
+		d := float64(swing) * (.8*math.Sin(k*t+roll) + .2*math.Sin(math.Round(k/3)*t+1-roll/2))
+		pts[i] = [2]float32{float32(x + nx*d), float32(y + ny*d)}
+	}
+	for i, s := range [4]float64{sw + arc/2, sw + sh + arc*1.5, 2*sw + sh + arc*2.5, 2*sw + 2*sh + arc*3.5} {
+		cuts[i] = int(math.Round(s/total*float64(n))) % n
+	}
+	return pts, cuts
+}
+
+// The twisted lines between the cells: thin, bending less, their bulges
+// fixed to the board so that they stay put as the cells move.
+const (
+	lineSwing = 1.4
+	lineReach = lineSwing + 2 // how far past a cell's edge its line goes
+)
+
+// line draws the twisted lines of cell id, at box on a board w×h: its right
+// and bottom edges, unless they are the board's, so that each line between
+// two cells is drawn once.
+func (h *homeUI) line(c *ui.Context, p *pal, id string, box ui.Rect, w, hh float32) {
+	left, top := box.X < .5, box.Y < .5
+	right, bottom := box.X+box.W > w-.5, box.Y+box.H > hh-.5
+	if right && bottom {
+		return
+	}
+	if h.lines == nil {
+		h.lines = map[string]*linePaths{}
+	}
+	lp := h.lines[id]
+	if lp == nil {
+		lp = &linePaths{}
+		h.lines[id] = lp
+	}
+	m := float32(lineReach)
+	col := p.hair.Over(p.paper) // opaque, so that lines crossing don't darken
+	ui.Box(c.Key("line-"+id)).Absolute().Left(box.X-m).Top(box.Y-m).Size(box.W+2*m, box.H+2*m).
+		IgnoreInput(true).AccessHidden(true).Transition(ui.ElementTransition{Animation: &motion, Position: true, Size: true}).
+		Draw(func(pt *ui.Painter, r ui.Rect) {
+			cell := ui.Rect{X: r.X + m, Y: r.Y + m, W: r.W - 2*m, H: r.H - 2*m}
+			if cell != lp.cell {
+				lp.cell = cell
+				lp.path.Reset()
+				// The gaps' middles round the cell. A line ends where it meets
+				// the line across it, which bends about the gap too: both lines
+				// pass there, so they join. At the board's border it runs off.
+				lx, ty := cell.X-.5, cell.Y-.5
+				rx, by := cell.X+cell.W+.5, cell.Y+cell.H+.5
+				meet := func(x, y float32) [2]float32 { return [2]float32{x + lineBend(y), y + lineBend(x)} }
+				off := func(x, y float32, down bool) [2]float32 {
+					if down {
+						return [2]float32{x + lineBend(y), y}
+					}
+					return [2]float32{x, y + lineBend(x)}
+				}
+				if !right {
+					from, to := meet(rx, ty), meet(rx, by)
+					if top {
+						from = off(rx, cell.Y-m, true)
+					}
+					if bottom {
+						to = off(rx, cell.Y+cell.H+m, true)
+					}
+					wavyLine(&lp.path, rx, from, to, true)
+				}
+				if !bottom {
+					from, to := meet(lx, by), meet(rx, by)
+					if left {
+						from = off(cell.X-m, by, false)
+					}
+					if right {
+						to = off(cell.X+cell.W+m, by, false)
+					}
+					wavyLine(&lp.path, by, from, to, false)
+				}
+			}
+			pt.StrokePath(&lp.path, 1, col)
+		})
+}
+
+// linePaths are a cell's twisted lines, kept while it stays put.
+type linePaths struct {
+	cell ui.Rect
+	path ui.Path
+}
+
+// lineBend is how far a twisted line at t along the board's x (or y) bends
+// from its gap: the bulges are the board's, not the line's, so that a line
+// moved along keeps them where they were, and lines that cross meet.
+func lineBend(t float32) float32 {
+	u := 2 * math.Pi * float64(t) / wallWave
+	return lineSwing * float32(.8*math.Sin(u)+.2*math.Sin(u/3+1))
+}
+
+// wavyLine adds to path the twisted line of the gap at gap along the
+// board's y (or, down, its x), from a to b: across the board, or down it.
+func wavyLine(path *ui.Path, gap float32, a, b [2]float32, down bool) {
+	along := func(q [2]float32) float32 {
+		if down {
+			return q[1]
+		}
+		return q[0]
+	}
+	at := func(t float32) [2]float32 {
+		if down {
+			return [2]float32{gap + lineBend(t), t}
+		}
+		return [2]float32{t, gap + lineBend(t)}
+	}
+	pts := [][2]float32{a}
+	step := float32(wallWave) / 8
+	ta, tb := along(a), along(b)
+	for t := float32(math.Floor(float64(ta/step))+1) * step; t < tb-step/4; t += step {
+		pts = append(pts, at(t))
+	}
+	pts = append(pts, b)
+	path.MoveTo(pts[0][0], pts[0][1])
+	for i := 1; i < len(pts)-1; i++ {
+		path.QuadTo(pts[i][0], pts[i][1], (pts[i][0]+pts[i+1][0])/2, (pts[i][1]+pts[i+1][1])/2)
+	}
+	path.LineTo(b[0], b[1])
 }
 
 func (u *UI) viewOf(c *ui.Context, p *pal, id, v string, box ui.Rect) {
@@ -555,7 +935,7 @@ func compact(c *ui.Context, p *pal, v, cell, label string, value func(size float
 			}
 		})
 		if sub != "" && (v == "column" || v == "wide") {
-			ui.Text(c, sub).FontSize(11.5).TextColor(p.mute)
+			ui.Text(c, sub).FontSize(11.5).TextColor(p.mute).MaxLines(2).Ellipsis("…")
 		}
 		if list != nil && (v == "column" || v == "wide") {
 			ui.Column(c).Gap(8).Margin(8, 0, 0, 0).Children(list)
@@ -586,6 +966,8 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 					t := ui.Text(c, val).FontSize(size).FontWeight(600).TextColor(p.ink).ContentTransition(morphText)
 					if v == "mini" || v == "strip" {
 						t.NoWrap()
+					} else {
+						t.MaxLines(2).Ellipsis("…").Tooltip(val)
 					}
 					return shimmer(t, u.pending("node:default"), p)
 				}
@@ -596,7 +978,7 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 			})
 		}, sub, func() {
 			if ok {
-				ui.Text(c, i18n.T("来自 ", "From ")+u.providerName(ex.Provider)).FontSize(12).TextColor(p.ink2)
+				ui.Text(c, i18n.T("来自 ", "From ")+u.providerName(ex.Provider)).FontSize(12).TextColor(p.ink2).MaxLines(1).Ellipsis("…")
 				mode := i18n.T("手动选择", "Manual")
 				if u.route("default").Auto {
 					mode = i18n.T("自动选最快", "Auto-pick fastest")
@@ -622,6 +1004,8 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 			t := ui.Text(c, val).FontSize(size).FontWeight(600).TextColor(col)
 			if v == "mini" || v == "strip" {
 				t.NoWrap()
+			} else {
+				t.MaxLines(2).Ellipsis("…")
 			}
 			shimmer(t, u.pending("entry:sys") || u.pending("entry:tun"), p)
 		}, sub, func() {
@@ -753,6 +1137,10 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 	switching := u.pending("node:default")
 	col := pad(c, 24)
 	room := col.LayoutBounds().W - 52 // its padding
+	// A short cell (a window near its least height) keeps the note to one
+	// line, or the latency below rides up over it.
+	h := col.LayoutBounds().H
+	tight := h > 0 && h < 300
 	col.Children(func() {
 		label := i18n.T("当前出口 · 默认路由", "Current exit · Default route")
 		if s.Mode == "global" {
@@ -784,21 +1172,27 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 				shimmer(ui.Text(c, i18n.T("正在切换并测速…", "Switching and testing…")).FontSize(13.5).TextColor(p.ink2), true, p)
 			case ok:
 				ui.Column(c).Gap(4).Children(func() {
-					ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-						ui.Text(c, placeName(ex)).FontSize(13.5).TextColor(p.ink2)
+					// One line: a long provider name ends in "…" rather than
+					// pushing the place and its tag into a column of letters.
+					ui.Row(c).Gap(6).AlignItems(ui.Center).MinWidth(0).Children(func() {
+						ui.Text(c, placeName(ex)).FontSize(13.5).TextColor(p.ink2).NoWrap().Shrink(0)
 						locTag(c, p, ex.Where.Source)
 						lead := "· "
 						if ex.Type != "" {
 							lead += ex.Type + " · "
 						}
 						ui.RichText(c, ui.Span{Text: lead + i18n.T("来自 ", "From "), Size: 13.5, Color: p.ink2},
-							ui.Span{Text: u.providerName(ex.Provider), Size: 13.5, Weight: 600, Color: p.ink})
+							ui.Span{Text: u.providerName(ex.Provider), Size: 13.5, Weight: 600, Color: p.ink}).
+							MaxLines(1).Ellipsis("…").Shrink(1).MinWidth(0).Tooltip(u.providerName(ex.Provider))
 					})
 					note := fmt.Sprintf(i18n.T("没命中其他规则的流量从这里出去，约占 %d%%。", "Traffic no other rule matches leaves through here, about %d%%."), int(u.route("default").Share*100+.5))
 					if s.Mode == "global" {
 						note = i18n.T("全局模式下，所有流量都从这里出去。", "In global mode, all traffic leaves through here.")
 					}
-					ui.Text(c, note).FontSize(13.5).TextColor(p.ink2)
+					t := ui.Text(c, note).FontSize(13.5).TextColor(p.ink2)
+					if tight {
+						t.MaxLines(1).Ellipsis("…").Tooltip(note)
+					}
 				})
 			case s.Mode == "direct":
 				ui.Text(c, i18n.T("直连模式：所有流量不经过任何节点，规则暂停。适合排查网络问题。", "Direct mode: no traffic goes through any node and rules are paused. Useful for troubleshooting the network.")).FontSize(13.5).TextColor(p.ink2)
@@ -815,18 +1209,20 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 					return
 				}
 				ui.Row(c).AlignItems(ui.Baseline).Gap(3).Children(func() {
-					d := fmt.Sprint(ex.Delay)
+					d, size := fmt.Sprint(ex.Delay), float32(38)
 					if ex.Delay <= 0 {
-						d = i18n.T("超时", "Timeout")
+						// A word, not a number: smaller, so that "タイムアウト"
+						// stays on one line beside the bars.
+						d, size = i18n.T("超时", "Timeout"), 26
 					}
-					ui.Text(c, d).FontSize(38).FontWeight(600).LetterSpacing(-1).FontFeatures("tnum").TextColor(delayColor(p, ex.Delay, ex.Tested)).ContentTransition(morphText)
+					ui.Text(c, d).FontSize(size).NoWrap().FontWeight(600).LetterSpacing(-1).FontFeatures("tnum").TextColor(delayColor(p, ex.Delay, ex.Tested)).ContentTransition(morphText)
 					if ex.Delay > 0 {
 						ui.Text(c, "ms").FontSize(14).FontWeight(500).TextColor(p.mute)
 					}
 				})
 				if len(ex.History) > 0 {
 					ui.Column(c).Gap(4).Children(func() {
-						ui.Text(c, fmt.Sprintf(i18n.T("最近 %d 次测速", "Last %d tests"), len(ex.History))).FontSize(10.5).LetterSpacing(.6).TextColor(p.mute)
+						ui.Text(c, fmt.Sprintf(i18n.T("最近 %d 次测速", "Last %d tests"), len(ex.History))).FontSize(10.5).LetterSpacing(.6).TextColor(p.mute).NoWrap()
 						stabilityBars(c, p, ex.History, 5, 20)
 					})
 				}
@@ -951,7 +1347,7 @@ func (u *UI) heroExpanded(c *ui.Context, p *pal) {
 				return detailTitle(c, p, i18n.T("选择出口", "Choose exit"))
 			}
 			return flagged(c, p, ex, 22, func() {
-				shimmer(detailTitle(c, p, ex.Display).ContentTransition(morphText), u.pending("node:default"), p)
+				shimmer(detailTitle(c, p, ex.Display).MaxLines(2).Ellipsis("…").Tooltip(ex.Display).ContentTransition(morphText), u.pending("node:default"), p)
 			})
 		})
 	}, func() { u.autoSeg(c, p, "default") })
@@ -1022,10 +1418,11 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string) {
 				if flag != "-" {
 					flagBadge(c, p, flag, 14)
 				}
-				ui.Text(c, label).FontSize(12).FontWeight(wgt).TextColor(col)
+				ui.Text(c, label).FontSize(12).FontWeight(wgt).TextColor(col).NoWrap()
 			})
 		}
-		ui.Row(c).Gap(2).AlignItems(ui.Center).Children(func() {
+		// Many regions scroll sideways, so the search and 全部测速 stay.
+		ui.ScrollHorizontal(c.Key("regions")).Gap(2).AlignItems(ui.Center).Shrink(1).MinWidth(0).Children(func() {
 			chip("", "-", i18n.T("全部", "All"))
 			for _, cc := range order {
 				chip(cc, countries[cc], cc)
@@ -1033,12 +1430,12 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string) {
 			chip("?", "", i18n.T("未知", "Unknown"))
 		})
 		ui.Spacer(c)
-		ui.SearchField(c.Key("q"), &h.query).Placeholder(i18n.T("搜索节点", "Search nodes")).Width(180)
+		ui.SearchField(c.Key("q"), &h.query).Placeholder(i18n.T("搜索节点", "Search nodes")).Width(180).Shrink(0)
 		label := i18n.T("全部测速", "Test all")
 		if testing {
 			label = i18n.T("测速中…", "Testing…")
 		}
-		b := btn(c, p, label).Disabled(testing)
+		b := btn(c, p, label).Disabled(testing).Shrink(0)
 		b.OnClick(func() { u.do(func() error { return u.app.testRoute(bg(), rid) }) })
 	})
 	if r.Auto {
@@ -1084,21 +1481,24 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string) {
 			if on {
 				ui.Box(c).Absolute().Left(0).Top(0).Bottom(0).Width(2).Background(p.ink)
 			}
-			ui.Box(c).Width(22).Children(func() { flagBadge(c, p, nodeFlag(n), 12) })
-			ui.Column(c).Grow(1).Gap(2).Children(func() {
-				shimmer(ui.Text(c, n.Display).FontSize(13).FontWeight(600).TextColor(ink).NoWrap(), sw, p)
-				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, placeName(n)).FontSize(11).TextColor(sub)
+			ui.Box(c).Width(22).Shrink(0).Children(func() { flagBadge(c, p, nodeFlag(n), 12) })
+			// The name and its line give way to the delay: a long name ends
+			// in "…" (its tooltip has it whole) instead of pushing the delay
+			// past the sheet's edge.
+			ui.Column(c).Grow(1).Shrink(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
+				shimmer(ui.Text(c, n.Display).FontSize(13).FontWeight(600).TextColor(ink).MaxLines(1).Ellipsis("…").Tooltip(n.Display), sw, p)
+				ui.Row(c).Gap(6).AlignItems(ui.Center).MinWidth(0).Children(func() {
+					ui.Text(c, placeName(n)).FontSize(11).TextColor(sub).NoWrap().Shrink(0)
 					locTag(c, p, n.Where.Source)
-					ui.Text(c, "· "+n.Type+" · "+u.providerName(n.Provider)).FontSize(11).TextColor(sub).NoWrap()
+					ui.Text(c, "· "+n.Type+" · "+u.providerName(n.Provider)).FontSize(11).TextColor(sub).MaxLines(1).Ellipsis("…").Shrink(1).MinWidth(0)
 				})
 			})
 			if testing {
-				ui.Box(c).Size(80, 12).Radius(3).Background(sub.Alpha(.2))
+				ui.Box(c).Size(80, 12).Radius(3).Background(sub.Alpha(.2)).Shrink(0)
 			} else {
-				stabilityBarsIn(c, p, ink.Alpha(.7), n.History, 3, 14)
+				stabilityBarsIn(c, p, ink.Alpha(.7), n.History, 3, 14).Shrink(0)
 			}
-			ui.Text(c, fmtDelay(n)).FontSize(12).FontFeatures("tnum").Width(58).TextAlign(ui.End).TextColor(delayColor(p, n.Delay, n.Tested))
+			ui.Text(c, fmtDelay(n)).FontSize(12).FontFeatures("tnum").Width(58).Shrink(0).NoWrap().TextAlign(ui.End).TextColor(delayColor(p, n.Delay, n.Tested))
 			mark := ""
 			if on {
 				mark = "✓"
@@ -1106,7 +1506,7 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string) {
 					mark = "◆"
 				}
 			}
-			ui.Text(c, mark).FontSize(12).Width(14).TextColor(ink)
+			ui.Text(c, mark).FontSize(12).Width(14).Shrink(0).TextColor(ink)
 		})
 	}).Grow(1)
 }
@@ -1151,9 +1551,25 @@ func modeNote(m string) string {
 
 func (u *UI) modeNormal(c *ui.Context, p *pal) {
 	s := u.snap
-	pad(c, 16).Children(func() {
+	col := pad(c, 16)
+	// The three words stay on one line: wider than the cell (as with
+	// "直接接続"), they get smaller; wrapping is the last resort.
+	size, room := float32(25), col.LayoutBounds().W-52
+	if room > 0 {
+		for ; size > 17; size-- {
+			w := float32(18 * 2)
+			for _, m := range []string{"rule", "global", "direct"} {
+				mw, _ := c.MeasureText(0, ui.Span{Text: modeWord(m), Size: size, Weight: 600})
+				w += mw
+			}
+			if w <= room {
+				break
+			}
+		}
+	}
+	col.Children(func() {
 		cellKicker(c, p, "mode", i18n.T("模式", "Mode"))
-		ui.Row(c).Gap(18).Margin(10, 0, 0, 0).AlignItems(ui.Baseline).Children(func() {
+		ui.Row(c).Wrap().GapX(18).GapY(4).Margin(10, 0, 0, 0).AlignItems(ui.Baseline).Children(func() {
 			for _, m := range []string{"rule", "global", "direct"} {
 				on := s.Mode == m
 				b := ui.ButtonBase(c.Key(m)).OnClick(func() {
@@ -1168,7 +1584,7 @@ func (u *UI) modeNormal(c *ui.Context, p *pal) {
 					} else if b.Hovered() {
 						col = p.ink2
 					}
-					shimmer(ui.Text(c, modeWord(m)).FontSize(25).FontWeight(600).TextColor(col).
+					shimmer(ui.Text(c, modeWord(m)).FontSize(size).FontWeight(600).TextColor(col).
 						Transition(ui.ElementTransition{Colors: true, Duration: 160 * time.Millisecond}), on && u.pending("mode"), p)
 					if on {
 						// The underline is one element that flies from word to word.
@@ -1184,7 +1600,7 @@ func (u *UI) modeNormal(c *ui.Context, p *pal) {
 			"global": i18n.T("所有流量都走当前出口，规则暂不生效。", "All traffic goes through the current exit; rules are paused."),
 			"direct": i18n.T("所有流量直接连接，不经过任何节点。", "All traffic connects directly, through no node."),
 		}[s.Mode]
-		ui.Text(c, note).FontSize(12).TextColor(p.mute).Margin(12, 0, 0, 0)
+		ui.Text(c, note).FontSize(12).TextColor(p.mute).Margin(12, 0, 0, 0).MaxLines(2).Ellipsis("…").Tooltip(note)
 	})
 }
 
@@ -1454,7 +1870,7 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal) {
 				iconBtn(c.Key("back"), p, "‹", 22, i18n.T("返回路由", "Back to routes")).Margin(0, -6, 0, -10).OnClick(func() { h.sub = "" })
 				swatch(c, p.routeColor(r.ID), 10)
 				u.share(c, routeNameMatch{r.ID}, "route:"+r.ID, func(c *ui.Context) ui.Element {
-					return ui.Text(c, r.Name).FontSize(22).FontWeight(700).TextColor(p.ink)
+					return ui.Text(c, r.Name).FontSize(22).FontWeight(700).TextColor(p.ink).NoWrap().Shrink(0)
 				})
 				ui.Text(c, "→").FontSize(18).TextColor(p.faint)
 				n, ok := u.node(r.Node)
@@ -1463,7 +1879,8 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal) {
 						return detailTitle(c, p, "—")
 					}
 					return flagged(c, p, n, 22, func() {
-						shimmer(detailTitle(c, p, n.Display).ContentTransition(morphText), u.pending("node:"+r.ID), p)
+						// Two lines at most: a long name must leave the list its room.
+						shimmer(detailTitle(c, p, n.Display).MaxLines(2).Ellipsis("…").Tooltip(n.Display).ContentTransition(morphText), u.pending("node:"+r.ID), p)
 					})
 				})
 			})
@@ -1651,14 +2068,15 @@ func (u *UI) appsNormal(c *ui.Context, p *pal) {
 				ui.Row(c.Key(a.App)).Gap(10).AlignItems(ui.Center).Transition(ui.ElementTransition{Animation: &motion}).Children(func() {
 					ui.Row(c).Gap(6).Grow(1).Shrink(1).MinWidth(0).Children(func() {
 						u.share(c, appMatch{a.App}, "app:"+a.App, func(c *ui.Context) ui.Element {
-							return ui.Text(c, a.App).FontSize(12).TextColor(p.ink).NoWrap()
+							// At most most of the room, so the host still shows.
+							return ui.Text(c, a.App).FontSize(12).TextColor(p.ink).MaxLines(1).Ellipsis("…").Shrink(0).MaxWidth(110)
 						})
 						ui.Text(c, a.Host).FontSize(12).TextColor(p.mute).MaxLines(1).Ellipsis("…").Shrink(1).MinWidth(0)
 					})
-					ui.Box(c).Width(64).Height(3).Radius(2).Background(p.hair).Children(func() {
+					ui.Box(c).Width(64).Height(3).Radius(2).Background(p.hair).Shrink(0).Children(func() {
 						ui.Box(c).WidthPercent(float32(a.Down) / float32(peak) * 100).FillHeight().Radius(2).Background(p.routeColor(a.Route))
 					})
-					ui.Text(c, fmtRate(a.Down)).FontSize(12).FontFeatures("tnum").TextColor(p.ink2).Width(70).TextAlign(ui.End)
+					ui.Text(c, fmtRate(a.Down)).FontSize(12).FontFeatures("tnum").TextColor(p.ink2).Width(70).Shrink(0).NoWrap().TextAlign(ui.End)
 				})
 			}
 		})
@@ -1688,15 +2106,15 @@ func (u *UI) appsExpanded(c *ui.Context, p *pal) {
 			}
 			b.Children(func() {
 				u.share(c, appMatch{app}, "app:"+app, func(c *ui.Context) ui.Element {
-					return ui.Text(c, app).FontSize(15).FontWeight(700).TextColor(p.ink).Width(160).NoWrap()
+					return ui.Text(c, app).FontSize(15).FontWeight(700).TextColor(p.ink).Width(160).Shrink(0).MaxLines(1).Ellipsis("…").Tooltip(app)
 				})
-				ui.Text(c, a.Host).FontSize(12).TextColor(p.mute).Grow(1).NoWrap()
-				ui.Box(c).Width(140).Height(3).Radius(2).Background(p.hair).Children(func() {
+				ui.Text(c, a.Host).FontSize(12).TextColor(p.mute).Grow(1).Shrink(1).Basis(0).MinWidth(0).MaxLines(1).Ellipsis("…")
+				ui.Box(c).Width(140).Height(3).Radius(2).Background(p.hair).Shrink(0).Children(func() {
 					ui.Box(c).WidthPercent(float32(a.Down) / float32(peak) * 100).FillHeight().Radius(2).Background(p.routeColor(a.Route))
 				})
-				ui.Text(c, fmtRate(a.Down)).FontSize(12).FontFeatures("tnum").TextColor(p.ink).Width(90).TextAlign(ui.End)
-				ui.Text(c, fmt.Sprintf(i18n.T("%d 连接", "%d conns"), a.Conns)).FontSize(12).TextColor(p.mute).Width(60)
-				ui.Text(c, "›").FontSize(13).TextColor(p.mute)
+				ui.Text(c, fmtRate(a.Down)).FontSize(12).FontFeatures("tnum").TextColor(p.ink).Width(90).Shrink(0).NoWrap().TextAlign(ui.End)
+				ui.Text(c, fmt.Sprintf(i18n.T("%d 连接", "%d conns"), a.Conns)).FontSize(12).TextColor(p.mute).MinWidth(60).Shrink(0).NoWrap()
+				ui.Text(c, "›").FontSize(13).TextColor(p.mute).Shrink(0)
 			})
 		}
 		if len(apps) == 0 {

@@ -300,6 +300,20 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 	aspect := float64(box.W * span / max(box.H, 1))
 	fitted := fit(places, around, aspect)
 	fitted.span = span
+	// The caption takes the top 50 DIPs of a cell's map: a short one
+	// zooms out until the places, and their labels, sit under it.
+	if v != "expanded" && box.W >= 300 && box.H >= 170 && len(places) > 0 {
+		north := places[0].Lat
+		for _, pl := range places {
+			north = math.Max(north, pl.Lat)
+		}
+		g := float64(50 / box.H)
+		if lat1 := (north - g*fitted.lat0) / (1 - g); lat1 > fitted.lat1 {
+			grow := (fitted.lon1 - fitted.lon0) * ((lat1-fitted.lat0)/(fitted.lat1-fitted.lat0) - 1) / 2
+			fitted.lat1 = lat1
+			fitted.lon0, fitted.lon1 = fitted.lon0-grow, fitted.lon1+grow
+		}
+	}
 
 	h := &u.home
 	e := ui.Box(c.Key("map")).Fill()

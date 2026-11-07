@@ -29,10 +29,12 @@ const (
 )
 
 // actAllApps is the app choice that filters no app, in the interface's
-// language; actIsAllApps knows it in either.
+// language; actIsAllApps knows it in every language.
 func actAllApps() string { return i18n.T("所有应用", "All apps") }
 
-func actIsAllApps(s string) bool { return s == "" || s == "所有应用" || s == "All apps" }
+func actIsAllApps(s string) bool {
+	return s == "" || slices.Contains(i18n.Every("所有应用", "All apps"), s)
+}
 
 // Statuses in the order of the status control; the zero value is active.
 var actStatuses = []string{"active", "closed", "failed", "all"}
@@ -600,7 +602,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 	head.Children(func() {
 		for i, col := range actCols {
 			if col.sort == "" {
-				t := ui.Text(c, i18n.T(col.zh, col.en)).FontSize(10.5).FontWeight(600).LetterSpacing(.8).TextColor(p.mute).NoWrap()
+				t := ui.Text(c, i18n.T(col.zh, col.en)).FontSize(10.5).FontWeight(600).LetterSpacing(.8).TextColor(p.mute).NoWrap().Ellipsis("…")
 				actCell(t, i)
 				continue
 			}
@@ -628,7 +630,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 	})
 	a.list.Key = func(i int) any { return rows[i].ID }
 	a.list.KeepOffset = true
-	list := ui.List(c.Key("conns"), &a.list, len(rows), func(i int) { u.actRow(c, p, rows[i]) }).
+	list := ui.List(c.Key("conns"), &a.list, len(rows), func(i int) { u.actRow(c, p, i, rows[i]) }).
 		Grow(1).Padding(0, 26, 16, 26).RowWidth(actRowWidth())
 	list.Children(func() {
 		if len(rows) > 0 {
@@ -647,7 +649,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 	head.ScrollWith(list)
 }
 
-func (u *UI) actRow(c *ui.Context, p *pal, cn Conn) {
+func (u *UI) actRow(c *ui.Context, p *pal, i int, cn Conn) {
 	a := &u.act
 	open := a.open == cn.ID
 	id := cn.ID
@@ -664,7 +666,10 @@ func (u *UI) actRow(c *ui.Context, p *pal, cn Conn) {
 			if a.open == id {
 				a.open = ""
 			} else {
+				// Its detail opens under it: a row near the bottom brings
+				// the detail into view rather than open it off the edge.
 				a.open = id
+				a.list.ScrollIntoView(i)
 			}
 		})
 		ink, ink2 := p.ink, p.ink2
@@ -747,9 +752,11 @@ func (u *UI) actDetail(c *ui.Context, p *pal, cn Conn) {
 	a := &u.act
 	failed := cn.Status == "failed"
 	kv := func(rows func(pair func(k string, v func()))) {
-		ui.Grid(c).ColumnTracks(ui.Fixed(64), ui.Fr(1)).GapX(12).GapY(5).Grow(1).Basis(0).MinWidth(0).AlignContent(ui.Start).Children(func() {
+		// The labels' column is as wide as its widest: "ネットワーク" is
+		// half again as wide as "网络" and must not break.
+		ui.Grid(c).ColumnTracks(ui.FitContent(), ui.Fr(1)).GapX(12).GapY(5).Grow(1).Basis(0).MinWidth(0).AlignContent(ui.Start).Children(func() {
 			rows(func(k string, v func()) {
-				ui.Text(c, k).FontSize(12).TextColor(p.mute)
+				ui.Text(c, k).FontSize(12).TextColor(p.mute).NoWrap()
 				ui.Box(c).MinWidth(0).Children(v)
 			})
 		})
@@ -804,7 +811,7 @@ func (u *UI) actDetail(c *ui.Context, p *pal, cn Conn) {
 					pair(i18n.T("错误", "Error"), mono(msg, p.signal))
 				}
 			})
-			ui.Column(c).Gap(6).Width(96).Shrink(0).Children(func() {
+			ui.Column(c).Gap(6).MinWidth(96).Shrink(0).Children(func() {
 				if cn.Status == "active" {
 					b := ui.ButtonBase(c.Key("kill")).Padding(5, 11).Radius(7).Border(1, p.hair).OnClick(func() { a.close(u, []string{cn.ID}) })
 					if b.Hovered() {

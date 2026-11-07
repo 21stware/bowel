@@ -99,6 +99,8 @@ type pal struct {
 	// accentOf is the setting they were made from.
 	accent, onAccent, accentLine ui.Color
 	accentOf                     string
+	// dark is the dark palette's: the presets have a color for each.
+	dark bool
 }
 
 var lightPal = pal{
@@ -110,6 +112,7 @@ var lightPal = pal{
 }
 
 var darkPal = pal{
+	dark:  true,
 	paper: ui.Hex("#171615"), paper2: ui.Hex("#1c1b1a"), card: ui.Hex("#201f1d"), sheet: ui.Hex("#242321"),
 	ink: ui.Hex("#f3f1ec"), ink2: ui.Hex("#cfccc5"), mute: ui.Hex("#8e8a82"), faint: ui.Hex("#4d4a45"),
 	hair: ui.RGBA(244, 243, 238, .11), hair2: ui.RGBA(244, 243, 238, .06), hover: ui.RGBA(244, 243, 238, .04),
@@ -142,14 +145,34 @@ func palette(c *ui.Context) *pal {
 }
 
 // accentPresets are the theme colors the settings offer as swatches, with
-// their names; "ink" is none, the interface in black and white.
-var accentPresets = []struct{ hex, zh, en string }{
-	{"#DDFB4C", "青柠", "Lime"},
-	{"#4B3BF5", "靛蓝", "Indigo"},
-	{"#FF6A3D", "珊瑚", "Coral"},
-	{"#14B8A6", "青绿", "Teal"},
-	{"#FF5FA2", "桃红", "Pink"},
-	{"ink", "墨色", "Ink"},
+// their names; "ink" is none, the interface in black and white. hex is
+// what the settings keep; light and dark are the colors drawn on each
+// paper, "" for hex itself: a lime that glows on graphite is all but
+// white on paper, and an indigo that reads on paper sinks into graphite.
+var accentPresets = []struct{ hex, light, dark, zh, en string }{
+	{"#DDFB4C", "#7A9E00", "", "青柠", "Lime"},
+	{"#4B3BF5", "", "#7B6DFF", "靛蓝", "Indigo"},
+	{"#FF6A3D", "#E8552A", "", "珊瑚", "Coral"},
+	{"#14B8A6", "#0E9F8F", "", "青绿", "Teal"},
+	{"#FF5FA2", "#E54888", "", "桃红", "Pink"},
+	{"ink", "", "", "墨色", "Ink"},
+}
+
+// accentHex is the color theme color a draws as on the dark paper or the
+// light: a preset's own for it, or a itself, as a color typed in is.
+func accentHex(a string, dark bool) string {
+	for _, pr := range accentPresets {
+		if !strings.EqualFold(pr.hex, a) {
+			continue
+		}
+		if dark && pr.dark != "" {
+			return pr.dark
+		}
+		if !dark && pr.light != "" {
+			return pr.light
+		}
+	}
+	return a
 }
 
 // setAccent makes p's accent colors from a theme color (settings.Accent).
@@ -159,7 +182,7 @@ func (p *pal) setAccent(a string) {
 		p.accent, p.onAccent, p.accentLine = p.ink, p.paper, p.ink
 		return
 	}
-	p.accent = ui.Hex(a)
+	p.accent = ui.Hex(accentHex(a, p.dark))
 	// Text on it: whichever of near-black and white reads better.
 	dark := ui.Hex("#171615")
 	if contrast(dark, p.accent) >= contrast(ui.Hex("#ffffff"), p.accent) {
@@ -469,7 +492,8 @@ func btn(c *ui.Context, p *pal, label string) ui.Element {
 	if b.Hovered() {
 		b.BorderColor(p.ink)
 	}
-	return b.Children(func() { ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(p.ink) })
+	// A label never breaks: "ドメインをコピー" on two lines reads as two buttons.
+	return b.Children(func() { ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(p.ink).NoWrap() })
 }
 
 // iconBtn is a bare glyph button (‹, ×) with a 32pt target and a hover
@@ -705,8 +729,9 @@ func locTag(c *ui.Context, p *pal, src string) {
 	case "locating":
 		text, col = i18n.T("定位中", "Locating"), p.warn
 	}
-	ui.Box(c).Padding(1, 6).Radius(4).Background(col.Alpha(.12)).Children(func() {
-		ui.Text(c, text).FontSize(10.5).FontWeight(600).TextColor(col)
+	// A tag never breaks: squeezed, its letters would stack one a line.
+	ui.Box(c).Padding(1, 6).Radius(4).Background(col.Alpha(.12)).Shrink(0).Children(func() {
+		ui.Text(c, text).FontSize(10.5).FontWeight(600).TextColor(col).NoWrap()
 	})
 }
 

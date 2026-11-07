@@ -25,6 +25,9 @@ type Settings struct {
 	Accent string `json:"accent"`
 	// Appearance is light or dark, or "system" to follow the Mac.
 	Appearance string `json:"appearance"`
+	// Borders is how the home board draws its lines: "straight", or
+	// "twisted", bending as the logo's line does.
+	Borders string `json:"borders"`
 
 	// Takeover: which entries the user wants. Whether they are actually in
 	// effect is the status model's business, not stored here.
@@ -50,6 +53,9 @@ type Settings struct {
 // Appearances are the choices of Appearance.
 var Appearances = []string{"system", "light", "dark"}
 
+// BorderStyles are the choices of Borders.
+var BorderStyles = []string{"straight", "twisted"}
+
 // LogLevels are the core's log levels.
 var LogLevels = []string{"debug", "info", "warning", "error", "silent"}
 
@@ -57,6 +63,7 @@ var Defaults = Settings{
 	Language:    "zh",
 	Accent:      "#DDFB4C",
 	Appearance:  "system",
+	Borders:     "straight",
 	SystemProxy: true,
 	Paused:      true,
 	Mode:        "rule",
@@ -90,6 +97,9 @@ func Open(dir string) (*Store, error) {
 	}
 	if st.s.Appearance == "" {
 		st.s.Appearance = Defaults.Appearance
+	}
+	if st.s.Borders == "" {
+		st.s.Borders = Defaults.Borders
 	}
 	if st.s.MixedPort == 0 {
 		st.s.MixedPort = Defaults.MixedPort
@@ -151,6 +161,9 @@ func (s Settings) Validate() error {
 	if !slices.Contains(Appearances, s.Appearance) {
 		return fmt.Errorf(i18n.T("未知外观: %s", "Unknown appearance: %s"), s.Appearance)
 	}
+	if s.Borders != "" && !slices.Contains(BorderStyles, s.Borders) { // "" is straight
+		return fmt.Errorf(i18n.T("未知边框样式: %s", "Unknown border style: %s"), s.Borders)
+	}
 	if s.MixedPort < 1 || s.MixedPort > 65535 {
 		return errors.New(i18n.T("端口要在 1 到 65535 之间", "The port must be between 1 and 65535"))
 	}
@@ -161,7 +174,7 @@ func (s Settings) Validate() error {
 		return errors.New(i18n.T("测速地址要是 http 或 https 链接", "The test URL must be an http or https link"))
 	}
 	for _, b := range s.Bypass {
-		if strings.ContainsAny(b, " \t,") {
+		if strings.ContainsAny(b, " \t,;") {
 			return fmt.Errorf(i18n.T("不走代理的写法不对: %s", "Malformed bypass entry: %s"), b)
 		}
 	}

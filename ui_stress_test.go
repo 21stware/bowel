@@ -29,7 +29,9 @@ import (
 // stressFixture is fixture() with long names, extreme numbers and many items.
 func stressFixture() Snapshot {
 	s := fixture()
-	place := func(cc, city string, lat, lon float64) *Place { return &Place{Country: cc, City: city, Lat: lat, Lon: lon} }
+	place := func(cc, city string, lat, lon float64) *Place {
+		return &Place{Country: cc, City: city, Lat: lat, Lon: lon}
+	}
 	cities := []*Place{place("HK", "香港", 22.3, 114.2), place("JP", "东京", 35.7, 139.7), place("SG", "新加坡", 1.3, 103.8),
 		place("US", "洛杉矶", 34.05, -118.24), place("DE", "法兰克福", 50.1, 8.7), place("GB", "伦敦", 51.5, -.1),
 		place("TW", "台北", 25.0, 121.5), place("KR", "首尔", 37.5, 127.0), place("AU", "悉尼", -33.9, 151.2), nil}
@@ -78,7 +80,7 @@ func stressFixture() Snapshot {
 	var ps []ProviderView
 	for i := 0; i < 40; i++ {
 		pv := ProviderView{ID: fmt.Sprintf("p%02d", i), Kind: []string{"subscription", "link", "file"}[i%3], Enabled: i%5 != 4, Nodes: 10 + i*37,
-			Source: "https://very-long-subscription-host.example-airport-domain.com/api/v1/client/subscribe?token=0123456789abcdef0123456789abcdef&flag=clash",
+			Source:    "https://very-long-subscription-host.example-airport-domain.com/api/v1/client/subscribe?token=0123456789abcdef0123456789abcdef&flag=clash",
 			UpdatedAt: time.Now().Add(-time.Duration(i*7) * time.Hour), AutoUpdate: []int{0, 1, 6, 12, 24, 168}[i%6]}
 		if i < 4 {
 			pv.ID = provs[i]
@@ -356,6 +358,24 @@ func (r *stressReport) write() {
 	r.t.Logf("stress: %d frames, %d findings → %s", r.shots, len(r.found), filepath.Join(r.dir, "report.txt"))
 }
 
+// TestActivityEveryLanguage: the app filter's "all apps" is saved in the
+// language the interface showed, and keeps every connection in each.
+func TestActivityEveryLanguage(t *testing.T) {
+	defer i18n.Set("zh")
+	for _, lang := range i18n.Languages {
+		i18n.Set(lang)
+		u := actUI()
+		tt := ui.NewTester(u.view, 1060, 760)
+		tt.Advance(time.Second)
+		if n := len(u.actFiltered()); n != 13 {
+			t.Errorf("%s: %d active connections show, want 13 (app filter %q)", lang, n, u.act.app)
+		}
+		if !hasTextPart(tt, "registry-1.docker.io") {
+			t.Errorf("%s: the list is empty", lang)
+		}
+	}
+}
+
 // ---- Scenarios ----
 
 var mainSizes = [][2]int{{960, 660}, {1060, 760}, {1440, 660}, {960, 1100}, {1920, 1200}}
@@ -376,6 +396,9 @@ func TestStress(t *testing.T) {
 		}
 	}
 	for _, lang := range i18n.Languages {
+		if l := os.Getenv("MOHO_STRESS_LANG"); l != "" && l != lang {
+			continue
+		}
 		i18n.Set(lang)
 		for _, sz := range mainSizes {
 			w, h := sz[0], sz[1]
@@ -413,10 +436,15 @@ func stressHome(r *stressReport, tag string, w, h int) {
 	tt.Frame()
 	tt.Advance(2 * time.Second)
 	r.snap(tt, "home-x-routes-ai-"+tag, w, h)
-	last := u.snap.Nodes[len(u.snap.Nodes)-1].Display
-	if box, ok := tt.Find(u.snap.Nodes[0].Display); ok {
+	// The picker ranks nodes by latency: its last row is the last of that.
+	ranked := slices.Clone(u.snap.Nodes)
+	sort.SliceStable(ranked, func(i, j int) bool { return rankOf(ranked[i]) < rankOf(ranked[j]) })
+	last := ranked[len(ranked)-1].Display
+	// Wheel over the list just under its toolbar: a node's name may be
+	// the exit's too, and then Find lands on the header instead.
+	if box, ok := tt.Find(i18n.T("全部测速", "Test all")); ok {
 		for i := 0; i < 400 && !visible(tt, last, w, h); i++ {
-			tt.Wheel(box.X+box.W/2, box.Y+box.H/2, 0, 600)
+			tt.Wheel(box.X-120, box.Y+box.H+80, 0, 120) // under a row's height of the shortest list
 			tt.Advance(100 * time.Millisecond)
 		}
 	}
@@ -483,6 +511,8 @@ func stressActivity(r *stressReport, tag string, w, h int) {
 		tt.Advance(time.Second)
 		if u.act.open == "" {
 			r.fail("activity-end-"+tag, "clicking the last row opens no detail")
+		} else if !visible(tt, i18n.T("网络", "Network"), w, h) {
+			r.fail("activity-detail-"+tag, "the last row's detail opens out of sight")
 		}
 		r.snap(tt, "activity-detail-"+tag, w, h)
 	}

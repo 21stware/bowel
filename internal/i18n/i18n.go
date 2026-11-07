@@ -75,3 +75,16 @@ func T(zhs, ens string) string {
 	}
 	return zhs
 }
+
+// Every is the pair's string in each of Languages, for recognising a
+// value saved in whichever language the interface showed then.
+func Every(zhs, ens string) []string {
+	out := []string{zhs, ens}
+	if s, ok := jaTable[zhs]; ok {
+		out = append(out, s)
+	}
+	if s, ok := hantTable[zhs]; ok {
+		out = append(out, s)
+	}
+	return out
+}
