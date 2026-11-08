@@ -47,6 +47,47 @@ fi
 "$DEST/$BIN" -v 2>/dev/null || true
 echo "installed $DEST/$BIN"
 
+# fetch_source <url> <api path> <file>: like fetch, for files outside a release.
+fetch_source() {
+  curl -fL --retry 3 -o "$3" "$1" && return
+  command -v gh >/dev/null || return 1
+  echo "direct download failed; trying the GitHub API"
+  gh api -H "Accept: application/vnd.github.raw" "$2" > "$3"
+}
+
+# GPL-3.0 notices for the binary above, which the app bundle carries from here.
+NOTICES="$ROOT/resources/licenses/mihomo"
+mkdir -p "$NOTICES"
+fetch_source "https://raw.githubusercontent.com/MetaCubeX/mihomo/$VERSION/LICENSE" \
+  "repos/MetaCubeX/mihomo/contents/LICENSE?ref=$VERSION" "$NOTICES/LICENSE"
+# The notices below and the app's About section say GPL-3.0, so a future
+# version under other terms has to stop the build until they are updated.
+if ! grep -q 'GNU GENERAL PUBLIC LICENSE' "$NOTICES/LICENSE" || ! grep -q 'Version 3' "$NOTICES/LICENSE"; then
+  echo "mihomo $VERSION is not under GPL-3.0; update the notices in this script" >&2
+  exit 1
+fi
+cat > "$NOTICES/SOURCE.txt" <<EOF
+mihomo $VERSION
+Copyright (C) the mihomo and Clash authors
+
+This program is free software under the GNU General Public License, version 3.
+See LICENSE in this folder. It comes with ABSOLUTELY NO WARRANTY.
+
+bowel runs the unmodified official binary ($ASSET) as a separate program.
+
+Source code for this version:
+  https://github.com/MetaCubeX/mihomo/tree/$VERSION
+A copy is attached to each bowel release:
+  https://github.com/21stware/bowel/releases
+EOF
+
+# A release attaches the matching source, so it stays available from bowel.
+if [ -n "${MIHOMO_SOURCE_DIR:-}" ]; then
+  mkdir -p "$MIHOMO_SOURCE_DIR"
+  fetch_source "https://github.com/MetaCubeX/mihomo/archive/refs/tags/$VERSION.tar.gz" \
+    "repos/MetaCubeX/mihomo/tarball/$VERSION" "$MIHOMO_SOURCE_DIR/mihomo-$VERSION-source.tar.gz"
+fi
+
 # Geo data the rules need (GEOSITE / GEOIP), so the first start works offline.
 GEO="$ROOT/resources/geo"
 mkdir -p "$GEO"
