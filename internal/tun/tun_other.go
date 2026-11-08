@@ -30,3 +30,17 @@ func Install(src, dst string) error { return errUnsupported }
 
 // Uninstall is not supported outside macOS.
 func Uninstall(dst string) error { return errUnsupported }
+
+// Step is one shell command run as root.
+type Step []string
+
+// Prompt is what the administrator dialog says for TUN alone.
+func Prompt() string {
+	return i18n.T("bowel 需要授权以启用 TUN 模式", "bowel needs authorization to turn on TUN mode")
+}
+
+// InstallStep is not supported outside macOS.
+func InstallStep(src, dst string) (Step, error) { return nil, errUnsupported }
+
+// Admin is not supported outside macOS.
+func Admin(prompt string, steps ...Step) error { return errUnsupported }

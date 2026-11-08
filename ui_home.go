@@ -1015,6 +1015,10 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 				lan = i18n.T("允许", "Allowed")
 			}
 			ui.Text(c, i18n.T("局域网 ", "LAN ")+lan).FontSize(12).TextColor(p.ink2)
+			if s.Takeover.Gateway.Wanted {
+				_, st := u.gatewayStatus(p)
+				ui.Text(c, i18n.T("网关 · ", "Gateway · ")+st).FontSize(12).TextColor(p.ink2).MaxLines(2).Ellipsis("…")
+			}
 		})
 	case "routes":
 		var proxied []RouteView
@@ -1738,6 +1742,9 @@ func (u *UI) entryNames() []string {
 		if t.Tun.Wanted {
 			names = append(names, "TUN")
 		}
+		if t.Gateway.Wanted {
+			names = append(names, i18n.T("网关", "Gateway"))
+		}
 	}
 	return names
 }
@@ -1749,6 +1756,32 @@ func (u *UI) takeoverNormal(c *ui.Context, p *pal) {
 			u.entryWord(c, p, "sys", i18n.T("系统代理", "System proxy"), u.snap.Takeover.System)
 			ui.Box(c).Height(1).BorderStyle(ui.BorderDashed).BorderWidth(1, 0, 0, 0).BorderColor(p.hair)
 			u.entryWord(c, p, "tun", "TUN", u.snap.Takeover.Tun)
+			if u.snap.Takeover.Gateway.Wanted {
+				ui.Box(c).Height(1).BorderStyle(ui.BorderDashed).BorderWidth(1, 0, 0, 0).BorderColor(p.hair)
+				u.gatewayWord(c, p)
+			}
+		})
+	})
+}
+
+// gatewayWord is the gateway's line on the board, under the entries. Not
+// a switch: a click opens the takeover, where its guide is.
+func (u *UI) gatewayWord(c *ui.Context, p *pal) {
+	t := u.snap.Takeover
+	ui.Row(c).Wrap().Justify(ui.Start).Padding(6, 0).GapX(12).GapY(2).AlignItems(ui.Baseline).Children(func() {
+		col := p.faint
+		if t.On {
+			col = p.ink
+		}
+		ui.Text(c, i18n.T("网关", "Gateway")).FontSize(20).FontWeight(600).TextColor(col).NoWrap().Shrink(0).Grow(1)
+		dot, text := u.gatewayStatus(p)
+		ui.Row(c).Gap(6).Shrink(1).MinWidth(0).AlignItems(ui.Center).Children(func() {
+			ui.Box(c).Size(6, 6).Radius(3).Background(dot).Shrink(0)
+			tcol := p.mute
+			if dot == p.signal {
+				tcol = p.signal
+			}
+			ui.Text(c, text).FontSize(11.5).TextColor(tcol).Shrink(1).MinWidth(0).MaxLines(1).Ellipsis("…")
 		})
 	})
 }
@@ -1858,6 +1891,27 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 				u.do(func() error { return u.app.setLan(on) })
 			}
 		})
+		section(c, p, i18n.T("网关", "Gateway"), i18n.T("局域网里的其他设备，把这台 Mac 当网关", "Other devices on the LAN, through this Mac as their gateway"), func() {
+			_, status := u.gatewayStatus(p)
+			addr := i18n.T("没有局域网地址", "No LAN address")
+			if g := t.Gateway; g.IP != "" {
+				link := i18n.T("有线", "Wired")
+				if g.WiFi {
+					link = "Wi‑Fi"
+				}
+				addr = fmt.Sprintf("%s · %s %s", g.IP, g.Iface, link)
+			}
+			rows := [][2]string{{i18n.T("状态", "Status"), status}}
+			if t.Gateway.Wanted {
+				rows = append(rows, [2]string{i18n.T("本机地址", "This Mac"), addr})
+			} else {
+				rows = append(rows, [2]string{i18n.T("作用", "What it does"), gatewayDesc()})
+			}
+			kv(c, p, rows)
+			if u.gatewayShownOn() {
+				ui.Column(c).Margin(12, 0, 0, 0).Children(func() { u.gatewayGuide(c, p, u.toast) })
+			}
+		}, func() { u.gatewaySwitch(c, "gateway", u.toast) })
 	})
 }
 

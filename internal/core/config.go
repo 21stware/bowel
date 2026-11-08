@@ -33,6 +33,7 @@ type Input struct {
 	MixedPort  int
 	AllowLan   bool
 	Tun        bool
+	Gateway    bool // LAN devices use this Mac as gateway and DNS (needs Tun): the resolver answers them on port 53, with fake IPs
 	LogLevel   string
 	TestURL    string
 	ProbePort  int
@@ -216,6 +217,10 @@ func BuildConfig(in Input) ([]byte, error) {
 		}
 		cfg["tun"] = tun
 	}
+	gateway := in.Tun && in.Gateway
+	if gateway {
+		o.DNSMode = "fake-ip"
+	}
 	if in.Tun || o.DNS {
 		dns := map[string]any{
 			"enable": true, "ipv6": o.IPv6, "enhanced-mode": o.DNSMode,
@@ -245,7 +250,10 @@ func BuildConfig(in Input) ([]byte, error) {
 			}
 			dns["nameserver-policy"] = policy
 		}
-		if in.Tun {
+		switch {
+		case gateway:
+			dns["listen"] = "0.0.0.0:53"
+		case in.Tun:
 			dns["listen"] = "127.0.0.1:1053"
 		}
 		cfg["dns"] = dns

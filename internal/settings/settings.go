@@ -36,6 +36,9 @@ type Settings struct {
 	Tun         bool `json:"tun"`
 	// Paused turns takeover off without forgetting the entries above.
 	Paused bool `json:"paused"`
+	// Gateway: this Mac is the LAN's gateway and DNS, through TUN. Like
+	// the entries, it waits while takeover is paused or TUN is off.
+	Gateway bool `json:"gateway"`
 
 	Mode      string   `json:"mode"` // rule, global, direct
 	MixedPort int      `json:"mixedPort"`

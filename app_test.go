@@ -14,6 +14,7 @@ import (
 	"github.com/egoist/mygo"
 
 	"github.com/oboo/moho/internal/core"
+	"github.com/oboo/moho/internal/gateway"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
 	"github.com/oboo/moho/internal/sysproxy"
@@ -33,6 +34,9 @@ func TestAppFlows(t *testing.T) {
 	osProxy.snapshot = func() (sysproxy.Saved, error) { return sysproxy.Saved{}, nil }
 	osProxy.restore = func(sysproxy.Saved) error { t.Error("the test tried to restore the system proxy"); return nil }
 	defer func() { osProxy = saved }()
+	savedGw := osGateway
+	osGateway = func() gateway.System { return &gwFake{t: t} }
+	defer func() { osGateway = savedGw }()
 	dir, err := os.MkdirTemp("", "mh") // short: unix socket paths are limited
 	if err != nil {
 		t.Fatal(err)
