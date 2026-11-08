@@ -27,10 +27,22 @@ else
 fi
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 fetch MetaCubeX/mihomo "$VERSION" "$ASSET" "$TMP/$ASSET"
+# Each step is on its own line so that set -e stops the script when one fails
+# (a failure on the left of && does not).
 if [ "$OS" = windows ]; then
-  unzip -o -q "$TMP/$ASSET" -d "$TMP/x" && mv "$TMP"/x/*.exe "$DEST/$BIN"
+  # unzip is often missing (WSL, slim containers); Python's zipfile does the same.
+  if command -v unzip >/dev/null; then
+    unzip -o -q "$TMP/$ASSET" -d "$TMP/x"
+  elif command -v python3 >/dev/null; then
+    python3 -I -m zipfile -e "$TMP/$ASSET" "$TMP/x"
+  else
+    echo "need unzip or python3 to extract $ASSET" >&2
+    exit 1
+  fi
+  mv "$TMP"/x/*.exe "$DEST/$BIN"
 else
-  gunzip -c "$TMP/$ASSET" > "$DEST/$BIN" && chmod +x "$DEST/$BIN"
+  gunzip -c "$TMP/$ASSET" > "$DEST/$BIN"
+  chmod +x "$DEST/$BIN"
 fi
 "$DEST/$BIN" -v 2>/dev/null || true
 echo "installed $DEST/$BIN"
