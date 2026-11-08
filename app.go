@@ -30,6 +30,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/oboo/moho/internal/core"
+	"github.com/oboo/moho/internal/gateway"
 	"github.com/oboo/moho/internal/geo"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/locate"
@@ -56,6 +57,7 @@ type App struct {
 	coreBin   string // the bundled core
 	tunBin    string // the setuid copy TUN runs
 	probePort int
+	gw        *gateway.Gateway
 
 	setMu sync.Mutex // serialises updateSettings
 	// openAtLogin is whether Moho is a login item, as last read.
@@ -87,6 +89,10 @@ type App struct {
 	tray     *mygo.Tray
 	quitting bool
 	lastTick Tick
+	// The gateway as last measured, and what its last change said.
+	gwProbe   gwProbe
+	gwProbing bool
+	gwErr     error
 }
 
 type switchNote struct {
@@ -130,6 +136,7 @@ func newApp() (*App, error) {
 		http: &http.Client{Transport: netproxy.Transport()}, coreBin: bin, tunBin: tunBin, probePort: probe,
 		pending: map[string]bool{}, locating: map[string]bool{}, proxies: map[string]mihomo.Proxy{},
 		provNodes: map[string][]string{}, lastNode: map[string]string{}, routeBytes: map[string]int64{},
+		gw: gateway.New(osGateway(), filepath.Join(data, "gateway-before.json")),
 	}
 	cm.SafePaths = []string{filepath.Join(data, "providers")}
 	a.mon.SkipGroup = core.ProbeGroup // the location probe's own traffic
@@ -292,6 +299,11 @@ func (a *App) shutdown() {
 	a.mu.Lock()
 	a.quitting = true
 	a.mu.Unlock()
+	// Other devices lose the network now: forwarding goes back as it was
+	// before the gateway, and the Mac may sleep again.
+	if err := a.gw.Disable(); err != nil {
+		log.Println("gateway:", err)
+	}
 	// Never leave the system pointing at a proxy that is gone: put back
 	// what it had before Moho took it over.
 	port := a.settings.Get().MixedPort
@@ -351,6 +363,7 @@ func (a *App) loop() {
 }
 
 func (a *App) refresh() {
+	a.probeSoon()
 	// The system proxy is judged only while it is wanted: otherwise no
 	// scutil every 2 s for nothing.
 	if st := a.settings.Get(); a.takeoverOn(st) && st.SystemProxy {
@@ -438,6 +451,7 @@ func (a *App) applyConfig() error {
 	cfg, err := core.BuildConfig(core.Input{
 		Providers: refs, Routes: a.routes, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
 		Tun:      s.Tun && a.takeoverOn(s) && tun.Installed(a.tunBin),
+		Gateway:  a.gatewayOn(s),
 		LogLevel: s.LogLevel, TestURL: s.TestURL, ProbePort: a.probePort, Controller: a.core.ControllerFields(),
 		Options: s.Options,
 	})
@@ -454,6 +468,7 @@ func (a *App) applyConfig() error {
 	a.mu.Lock()
 	a.nodesAt = time.Time{} // providers may hold other nodes now
 	a.mu.Unlock()
+	a.syncGateway()
 	a.refresh()
 	return nil
 }
@@ -1388,6 +1403,7 @@ func (a *App) snapshot() Snapshot {
 	a.mu.Lock()
 	sys, px, provNodes, you, sw := a.sys, a.proxies, a.provNodes, a.you, a.switched
 	openAtLogin := a.openAtLogin
+	gwp, gwErr := a.gwProbe, a.gwErr
 	pending := make([]string, 0, len(a.pending))
 	for k := range a.pending {
 		pending = append(pending, k)
@@ -1434,6 +1450,7 @@ func (a *App) snapshot() Snapshot {
 	if s.AllowLan {
 		tk.LanAddr = lanAddr(s.MixedPort)
 	}
+	tk.Gateway = gatewayView(s, on, tk.Tun.Status, a.gw.System().Ready(), a.gw.Awake(), gwp, gwErr)
 	snap.Takeover = tk
 
 	// Nodes, in their providers' order.
@@ -1517,6 +1534,9 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 	}
 	if tk.System.Status == "hijacked" {
 		return StateError, &Issue{Level: "error", Text: i18n.T("系统代理被其他程序改掉了", "Another program changed the system proxy"), Detail: i18n.T("网页流量现在没有经过 bowel。", "Web traffic isn't going through bowel now."), Action: "retake", Label: i18n.T("重新接管", "Take over again")}
+	}
+	if g := tk.Gateway; g.Status == "error" {
+		return StateDegraded, &Issue{Level: "warn", Text: i18n.T("网关模式没有生效", "Gateway mode isn't working"), Detail: g.Detail}
 	}
 	if len(snap.Nodes) == 0 && s.Mode != "direct" {
 		return StateDegraded, &Issue{Level: "warn", Text: i18n.T("还没有节点，流量正在直连", "No nodes yet; traffic is going direct"), Action: "providers", Label: i18n.T("添加提供商", "Add Provider")}

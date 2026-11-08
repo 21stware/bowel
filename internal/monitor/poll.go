@@ -202,6 +202,7 @@ func convert(mc mihomo.Connection) Conn {
 		Chains:  mc.Chains,
 		Start:   mc.Start,
 		Status:  "active",
+		Source:  md.SourceIP,
 	}
 	c.Port, _ = strconv.Atoi(md.DestinationPort)
 	return c

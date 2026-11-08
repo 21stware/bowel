@@ -8,6 +8,7 @@ package main
 import (
 	"time"
 
+	"github.com/oboo/moho/internal/gateway"
 	"github.com/oboo/moho/internal/settings"
 )
 
@@ -88,6 +89,29 @@ type Takeover struct {
 	Lan     bool     `json:"lan"`
 	LanAddr string   `json:"lanAddr,omitempty"`
 	Bypass  []string `json:"bypass"`
+	// Gateway is this Mac as the LAN's gateway, as it really is.
+	Gateway GatewayView `json:"gateway"`
+}
+
+// GatewayView is gateway mode as measured.
+type GatewayView struct {
+	Wanted bool `json:"wanted"`
+	// Status: off, checking (not looked at yet), on, paused (takeover or
+	// TUN is off), install (needs its one-time authorisation), error.
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
+	// Ready: forwarding can change without asking (authorised before).
+	Ready bool `json:"ready"`
+	// The network, for the guide and the tips.
+	gateway.Network
+	// What was measured: forwarding on, the resolver answering on the LAN
+	// address, TUN running, the Mac kept awake.
+	Forwarding bool `json:"forwarding"`
+	DNS        bool `json:"dns"`
+	Tun        bool `json:"tun"`
+	Awake      bool `json:"awake"`
+	// Devices is how many other devices have connections through bowel.
+	Devices int `json:"devices"`
 }
 
 // RouteView is a kind of traffic and where it goes now.

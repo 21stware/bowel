@@ -37,6 +37,7 @@ type UI struct {
 	prov  providersUI
 	set   settingsUI
 	panel panelUI
+	gw    gatewayUI
 }
 
 func newUI(a *App) *UI { return &UI{app: a, page: "home", home: newHomeUI()} }

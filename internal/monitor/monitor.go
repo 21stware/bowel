@@ -36,6 +36,9 @@ type Conn struct {
 	Start, End                 time.Time
 	Status                     string // "active", "closed", "failed"
 	Error                      string
+	// Source is the client's address: this Mac's own, or another
+	// device's on the LAN.
+	Source string
 }
 
 // Event is a newly seen connection or a failed dial.
@@ -267,6 +270,18 @@ func (m *Monitor) Conns() []Conn {
 		}
 		return 0
 	})
+	return out
+}
+
+// Sources are the client addresses of the active connections, one for
+// each connection.
+func (m *Monitor) Sources() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, 0, len(m.active))
+	for _, t := range m.active {
+		out = append(out, t.Source)
+	}
 	return out
 }
 
