@@ -9,15 +9,24 @@ ARCH="${GOARCH:-$(go env GOARCH)}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$ROOT/resources/$OS-$ARCH/bin"
 mkdir -p "$DEST"
+
+# fetch <repo> <tag> <asset> <file>: the release download URL can answer 504
+# while GitHub's API serves the same file, so the gh CLI is the fallback.
+fetch() {
+  echo "fetching $1 $2 $3"
+  curl -fL --retry 3 -o "$4" "https://github.com/$1/releases/download/$2/$3" && return
+  command -v gh >/dev/null || return 1
+  echo "direct download failed; trying the GitHub API"
+  gh release download "$2" --repo "$1" --pattern "$3" --output "$4" --clobber
+}
+
 if [ "$OS" = windows ]; then
   ASSET="mihomo-$OS-$ARCH-$VERSION.zip"; BIN="mihomo.exe"
 else
   ASSET="mihomo-$OS-$ARCH-$VERSION.gz"; BIN="mihomo"
 fi
-URL="https://github.com/MetaCubeX/mihomo/releases/download/$VERSION/$ASSET"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-echo "fetching $URL"
-curl -fL --retry 3 -o "$TMP/$ASSET" "$URL"
+fetch MetaCubeX/mihomo "$VERSION" "$ASSET" "$TMP/$ASSET"
 if [ "$OS" = windows ]; then
   unzip -o -q "$TMP/$ASSET" -d "$TMP/x" && mv "$TMP"/x/*.exe "$DEST/$BIN"
 else
@@ -32,8 +41,7 @@ mkdir -p "$GEO"
 for f in "geosite.dat:GeoSite.dat" "geoip-lite.dat:GeoIP.dat"; do
   src="${f%%:*}"; dst="${f##*:}"
   if [ ! -s "$GEO/$dst" ]; then
-    echo "fetching $src"
-    curl -fL --retry 3 -o "$GEO/$dst" "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/$src"
+    fetch MetaCubeX/meta-rules-dat latest "$src" "$GEO/$dst"
   fi
 done
 ls -la "$GEO"
