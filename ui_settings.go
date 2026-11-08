@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -40,6 +41,10 @@ type settingsUI struct {
 	// the options of every section that match them, in place of section.
 	query string
 	findH ui.Handle
+	// lit is what a jump from the search lights up on its page, and
+	// litRun counts the jumps, so that each plays its flash anew.
+	lit    *optLight
+	litRun uint64
 	// busy lists the actions running, by their button's key.
 	busy map[string]bool
 	// rule is 规则's typing.
@@ -184,7 +189,7 @@ func (u *UI) settingsButton(c *ui.Context, p *pal) {
 
 func (u *UI) settingsView(c *ui.Context) {
 	useAccent(u.shownSettings().Accent)
-	p := palette(c)
+	p := windowPal(c, palette(c))
 	t := *c.Theme()
 	t.Background, t.Text, t.TextMuted, t.Border = p.paper, p.ink, p.mute, p.hair
 	t.Surface, t.SurfaceHover = p.card, p.paper2
@@ -222,6 +227,11 @@ func (u *UI) settingsView(c *ui.Context) {
 				if len(words) > 0 {
 					u.searchResults(c, p, words)
 				} else {
+					optLit = u.set.lighting(sec.id)
+					if optLit != nil {
+						optLit.dim = !c.WindowActive()
+					}
+					defer func() { optLit = nil }()
 					ui.Column(c).Children(func() { sec.body(u, c, p, u.shownSettings()) })
 				}
 			})
@@ -309,7 +319,11 @@ func (u *UI) settingsSidebar(c *ui.Context, p *pal) {
 			}
 		}).Grow(1).Padding(0, 10).Background(p.paper2).Label(i18n.T("设置", "Settings"))
 		if sel != "" && (sel != u.set.section || u.set.query != "") {
-			u.set.section, u.set.query = sel, ""
+			if u.set.query != "" {
+				u.searchJump(sel, "")
+			} else {
+				u.set.section, u.set.lit = sel, nil
+			}
 		}
 		cs := u.snap.Core
 		ui.Row(c).Gap(7).Padding(12, 18, 16, 18).AlignItems(ui.Center).MinWidth(0).Children(func() {
@@ -343,6 +357,7 @@ type optFinder struct {
 	words []string
 	sec   string
 	head  func()
+	jump  func(title string)
 	hits  int
 }
 
@@ -387,6 +402,7 @@ func (u *UI) searchResults(c *ui.Context, p *pal, words []string) {
 	s := u.shownSettings()
 	for _, sec := range settingsSections {
 		f.sec, f.head = sec.name(), func() { u.searchHead(c, p, sec) }
+		f.jump = func(title string) { u.searchJump(sec.id, title) }
 		ui.Column(c.Key(sec.id)).Children(func() { sec.body(u, c, p, s) })
 	}
 	if f.hits == 0 {
@@ -405,13 +421,114 @@ func (u *UI) searchHead(c *ui.Context, p *pal, sec settingsSection) {
 			b.Background(p.hair2)
 			col = p.ink2
 		}
-		b.OnClick(func() { u.set.section, u.set.query = sec.id, "" }).Children(func() {
+		b.OnClick(func() { u.searchJump(sec.id, "") }).Children(func() {
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 				ui.Icon(c, sec.icon).Size(13, 13).TextColor(col)
 				ui.Text(c, sec.name()).FontSize(11.5).FontWeight(700).TextColor(col)
 			})
 		})
 	})
+}
+
+// optLight is what a jump from the search lights up on the section it
+// opens: the one option it named, or else every option the search's words
+// match there. Its titles flash, and the page scrolls to the first.
+type optLight struct {
+	sec    string
+	words  []string
+	title  string
+	run    uint64
+	at     time.Time
+	scroll bool // still to scroll to the first
+	// dim is whether the window is not active, where the flash fades to
+	// gray as AppKit fades an inactive window's selection.
+	dim bool
+}
+
+// optLit is the light of the section being drawn, nil when none; as
+// optFind, set and read on the main thread, in one frame.
+var optLit *optLight
+
+// litFor is how long a jump's flash lasts.
+const litFor = 1900 * time.Millisecond
+
+// litFrames is the flash: on, a blink, on, and fading.
+var litFrames = []ui.Keyframe{
+	{At: 0, Value: 0},
+	{At: 120 * time.Millisecond, Value: 1, Ease: ui.EaseOut},
+	{At: 420 * time.Millisecond, Value: 1},
+	{At: 600 * time.Millisecond, Value: .15, Ease: ui.EaseInOut},
+	{At: 780 * time.Millisecond, Value: 1, Ease: ui.EaseInOut},
+	{At: 1200 * time.Millisecond, Value: 1},
+	{At: litFor, Value: 0, Ease: ui.EaseInOut},
+}
+
+// searchJump ends the search on section sec, lighting the option titled
+// title there, or with none every option the search matched in it.
+func (u *UI) searchJump(sec, title string) {
+	u.set.litRun++
+	u.set.lit = &optLight{sec: sec, words: searchWords(u.set.query), title: title, run: u.set.litRun, at: time.Now(), scroll: true}
+	u.set.section, u.set.query = sec, ""
+}
+
+// lighting is the light for section sec as it is drawn: the last jump's,
+// while it flashes.
+func (s *settingsUI) lighting(sec string) *optLight {
+	l := s.lit
+	if l == nil || l.sec != sec || time.Since(l.at) > litFor+100*time.Millisecond {
+		s.lit = nil
+		return nil
+	}
+	return l
+}
+
+// lights tells whether an option, by its title and what it does, is lit.
+// Without a title named, a word may be in the section's name, as in the
+// search, but one at least must be in the option's own words.
+func (l *optLight) lights(texts []string) bool {
+	if l.title != "" {
+		return len(texts) > 0 && texts[0] == l.title
+	}
+	hay := strings.ToLower(strings.Join(texts, "\n"))
+	own := false
+	for _, w := range l.words {
+		if strings.Contains(hay, w) {
+			own = true
+		} else if sec := sectionByID(l.sec); !strings.Contains(strings.ToLower(sec.name()), w) {
+			return false
+		}
+	}
+	return own
+}
+
+func sectionByID(id string) settingsSection {
+	for _, sec := range settingsSections {
+		if sec.id == id {
+			return sec
+		}
+	}
+	return settingsSection{}
+}
+
+// optFlash lights an option's title, e, when the jump that opened its page
+// lit it: its title, and texts after, the rest of what it says. The first
+// lit comes into view.
+func optFlash(e ui.Element, p *pal, texts ...string) ui.Element {
+	l := optLit
+	if l == nil || !l.lights(texts) {
+		return e
+	}
+	a := e.Keyframes("lit", litFrames, ui.KeyframeOptions{Run: l.run, NonMotion: true})
+	col := p.accent.Alpha(.3 * a)
+	if l.dim {
+		col = p.mute.Alpha(.22 * a)
+	}
+	e.Background(col).Shadow(0, 0, 0, 4, col).Radius(3)
+	if l.scroll {
+		l.scroll = false
+		e.ScrollIntoView(ui.ScrollIntoViewOptions{Block: ui.ScrollCenter, Animation: &ui.Smooth})
+	}
+	return e
 }
 
 // sectionNote is the line under a section's title saying what it is about.
@@ -884,7 +1001,21 @@ func optHeading(c *ui.Context, p *pal, s string) {
 // optLabel is an option's name and what it does.
 func optLabel(c *ui.Context, p *pal, title, desc string) ui.Element {
 	return ui.Column(c).Gap(2).Children(func() {
-		ui.Text(c, title).FontSize(13).FontWeight(600).TextColor(p.ink)
+		if f := optFind; f != nil && f.jump != nil {
+			// Among search results, the title opens the option's page.
+			jump := f.jump
+			b := ui.ButtonBase(c.Key("title")).AlignSelf(ui.Start).Radius(3).Label(title).
+				Tooltip(i18n.T("在设置页中显示", "Show on its page"))
+			col := p.ink
+			if b.Hovered() {
+				col = p.accentLine
+			}
+			b.OnClick(func() { jump(title) }).Children(func() {
+				ui.Text(c, title).FontSize(13).FontWeight(600).TextColor(col)
+			})
+		} else {
+			optFlash(ui.Text(c, title).FontSize(13).FontWeight(600).TextColor(p.ink).AlignSelf(ui.Start), p, title, desc)
+		}
 		ui.Text(c, desc).FontSize(11.5).TextColor(p.mute)
 	})
 }

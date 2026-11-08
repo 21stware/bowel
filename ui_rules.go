@@ -246,7 +246,7 @@ func (u *UI) rulesSection(c *ui.Context, p *pal, s settings.Settings) {
 		}
 		ui.Row(c).Gap(10).Padding(8, 0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 			swatch(c, p.routeColor(r.ID), 9).Shrink(0)
-			ui.Text(c, routes.Title(r)).FontSize(12.5).FontWeight(600).TextColor(p.ink).Width(90).Shrink(0)
+			optFlash(ui.Text(c, routes.Title(r)).FontSize(12.5).FontWeight(600).TextColor(p.ink).Width(90).Shrink(0), p, routes.Title(r), desc)
 			ui.Text(c, desc).FontSize(11.5).TextColor(p.mute).SingleLine().Grow(1).Basis(0).MinWidth(0)
 		})
 	}
@@ -330,7 +330,7 @@ func (u *UI) ruleRow(c *ui.Context, p *pal, r routes.UserRule, ids, names []stri
 	key := r.Kind + ":" + r.Value
 	ui.Row(c.Key(key)).Gap(10).Padding(7, 0, 7, 17).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 		ui.Column(c).Gap(1).Grow(1).Basis(0).MinWidth(0).Children(func() {
-			ui.Text(c, r.Value).Font(actMono).FontSize(12.5).TextColor(p.ink).SingleLine()
+			optFlash(ui.Text(c, r.Value).Font(actMono).FontSize(12.5).TextColor(p.ink).SingleLine().AlignSelf(ui.Start), p, r.Value, routes.KindName(r.Kind), routeName(r.Route))
 			ui.Text(c, routes.KindName(r.Kind)).FontSize(11).TextColor(p.mute)
 		})
 		cur := names[max(0, slices.Index(ids, r.Route))]

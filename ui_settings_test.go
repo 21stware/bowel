@@ -460,3 +460,80 @@ func TestSettingsSearch(t *testing.T) {
 		t.Errorf("after the sidebar: section %q query %q", u.set.section, u.set.query)
 	}
 }
+
+// TestSettingsSearchJump: a result's title opens its page, scrolled to it,
+// with its title flashing; a section's title lights all it matched there.
+func TestSettingsSearchJump(t *testing.T) {
+	u := fixtureUI()
+	u.snap.Settings = settings.Defaults.Clone()
+	tt := ui.NewTesterWith(u.settingsView, 760, 560, ui.TesterOptions{})
+	tt.Advance(time.Second)
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	tt.Type("健康检查")
+	tt.Frame()
+	b, ok := tt.AccessByRole(ui.RoleButton, "健康检查间隔")
+	if !ok {
+		t.Fatalf("no title to click among %q", tt.Texts())
+	}
+	tt.ClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
+	tt.Frame()
+	if u.set.section != "core" || u.set.query != "" || u.set.lit == nil || u.set.lit.title != "健康检查间隔" {
+		t.Fatalf("after the title: section %q query %q lit %+v", u.set.section, u.set.query, u.set.lit)
+	}
+	tt.Advance(250 * time.Millisecond)
+	shot(t, tt, "settings-search-jump")
+	// In a window that is not active the flash fades to gray, and comes
+	// back as it is again.
+	tt.SetWindowActive(false)
+	if l := u.set.lit; l == nil || !l.dim {
+		t.Errorf("not dimmed in an inactive window: %+v", l)
+	}
+	shot(t, tt, "settings-search-jump-inactive")
+	tt.SetWindowActive(true)
+	if l := u.set.lit; l == nil || l.dim {
+		t.Errorf("still dimmed in the active window: %+v", l)
+	}
+	tt.Advance(600 * time.Millisecond)
+	shot(t, tt, "settings-search-jump-late")
+	r, ok := tt.Find("健康检查间隔")
+	if !ok || r.Y < 50 || r.Y+r.H > 560 {
+		t.Errorf("the option is not in view: %+v %v", r, ok)
+	}
+	// The flash ends, and leaving the page forgets it.
+	if err := tt.Click("DNS"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if u.set.lit != nil {
+		t.Errorf("still lit after leaving: %+v", u.set.lit)
+	}
+
+	// A section's title lights what the words matched there, by the
+	// option's own words, the section's name helping.
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	tt.Type("dns 缓存")
+	tt.Frame()
+	h, ok := tt.AccessByRole(ui.RoleButton, "DNS")
+	if !ok {
+		t.Fatalf("no DNS title among %q", tt.Texts())
+	}
+	tt.ClickAt(h.Bounds.X+h.Bounds.W/2, h.Bounds.Y+h.Bounds.H/2)
+	tt.Frame()
+	l := u.set.lit
+	if l == nil || l.sec != "dns" || l.title != "" {
+		t.Fatalf("after the section's title: %+v", l)
+	}
+	if !l.lights([]string{"清除 DNS 缓存", "忘掉解析结果和 Fake-IP 映射，下次重新解析"}) {
+		t.Error("清除 DNS 缓存 is not lit")
+	}
+	if l.lights([]string{"上游服务器", "DoH、DoT 链接或 IP"}) {
+		t.Error("上游服务器 is lit")
+	}
+	l.words = []string{"tun", "mtu"}
+	l.sec = "tun"
+	if !l.lights([]string{"MTU", "一个包最大多少字节"}) || l.lights([]string{"协议栈", "mixed：TCP 用 system，UDP 用 gVisor"}) {
+		t.Error("tun mtu lights the wrong options")
+	}
+}

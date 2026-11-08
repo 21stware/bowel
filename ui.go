@@ -134,6 +134,29 @@ func useAccent(a string) {
 	themeAccent = a
 }
 
+// windowPal is p for a window that fades when it loses the user's input,
+// as AppKit fades an inactive window's selection: there the accent, what
+// is chosen and what to press, goes a quiet gray with ink on it, and the
+// accent's lines and selected text go muted. The menu bar's panel and the
+// QR hint, never the active window, keep the accent.
+func windowPal(c *ui.Context, p *pal) *pal {
+	if c.WindowActive() {
+		return p
+	}
+	q := *p
+	q.accent, q.onAccent, q.accentLine = p.paper.Mix(p.ink, inactiveMix(p)), p.ink, p.mute
+	return &q
+}
+
+// inactiveMix is how much ink the inactive gray takes over the paper: a
+// touch more in the dark, where the same share reads fainter.
+func inactiveMix(p *pal) float32 {
+	if p.dark {
+		return .2
+	}
+	return .14
+}
+
 func palette(c *ui.Context) *pal {
 	p := &lightPal
 	if c.Theme().Dark {
@@ -202,9 +225,9 @@ func (p *pal) setAccent(a string) {
 func accentTheme(t *ui.Theme, p *pal) {
 	t.Accent, t.AccentText = p.accent, p.onAccent
 	t.AccentHover, t.AccentPressed = p.accent.Mix(p.onAccent, .1), p.accent.Mix(p.onAccent, .2)
-	// The accent stays in a window that is not active, as the menu bar's
-	// panel always is: faded, a pale accent with dark text on it would
-	// fade into the paper.
+	// Not the toolkit's own fade: the panel, never active, keeps the
+	// accent, and the windows fade theirs to a gray made for ink on it
+	// (windowPal), where a pale accent's dark text would fade with it.
 	t.InactiveAccent = p.accent
 	t.Focus = p.accentLine.Alpha(.55)
 	t.Selection = p.accentLine.Alpha(.25)
@@ -248,7 +271,7 @@ var motion = ui.Animation{Duration: 520 * time.Millisecond, Ease: ui.CubicBezier
 
 func (u *UI) view(c *ui.Context) {
 	useAccent(u.shownSettings().Accent)
-	p := palette(c)
+	p := windowPal(c, palette(c))
 	t := *c.Theme()
 	t.Background, t.Text, t.TextMuted, t.Border = p.paper, p.ink, p.mute, p.hair
 	t.Surface, t.SurfaceHover = p.card, p.paper2
