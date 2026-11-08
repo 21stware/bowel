@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "out": "build",
   "macos": {
+    "icon": "assets/icon/AppIcon.icon",
+    "signingIdentity": "Developer ID Application: Cheng Aobo (R54TY86R4C)",
+    "entitlements": "entitlements.plist",
     "infoPlist": {
       "NSCameraUsageDescription": "bowel 用摄像头扫描订阅或节点的二维码。"
     }

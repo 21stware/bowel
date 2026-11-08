@@ -63,8 +63,8 @@ func (a *App) serveMCP(ctx context.Context) {
 }
 
 // mcpCommand is how an agent starts bowel's MCP server: this executable,
-// with the argument "mcp".
-func mcpCommand() string {
+// with the argument "mcp". Screenshots replace it with the installed path.
+var mcpCommand = func() string {
 	exe, err := os.Executable()
 	if err != nil {
 		return "bowel"
