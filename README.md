@@ -5,101 +5,102 @@
 <h1 align="center">bowel</h1>
 
 <p align="center">
-bowel 是 macOS 上的 <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> 客户端。
+bowel is a <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> client for macOS.
 </p>
 
 <p align="center">
-  <a href="https://github.com/21stware/bowel/releases/latest"><b>下载 macOS 版</b></a> ·
-  <a href="site/index.html">官网</a> ·
-  <a href="README.en.md">English</a>
+  <a href="https://github.com/21stware/bowel/releases/latest"><b>Download for macOS</b></a> ·
+  <a href="https://21stware.github.io/bowel/">Website</a> ·
+  <a href="README.zh-CN.md">简体中文</a>
 </p>
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="site/shots/home-zh-dark.webp">
-    <img src="site/shots/home-zh.webp" width="880" alt="bowel 主窗口">
+    <source media="(prefers-color-scheme: dark)" srcset="site/shots/home-en-dark.webp">
+    <img src="site/shots/home-en.webp" width="880" alt="bowel main window">
   </picture>
 </p>
 
-界面使用 Go 开发并通过 GPU 渲染，不使用 WebView。
+The interface is built in Go and rendered directly via the GPU, with no WebView.
 
-## 界面与功能
+## Features
 
-### 路由
-按用途分配不同路由，可手动指定出口节点或由自动测速选择。
+### Routes
+Route traffic by purpose, and select exit nodes manually or automatically by speed.
 
-<img src="site/shots/routes-zh.webp" width="880" alt="路由">
+<img src="site/shots/routes-en.webp" width="880" alt="Routes">
 
-### 连接
-查看每个连接的应用、目标、规则、出口和速率，也可以直接修改指定域名的路由。
+### Connections
+Inspect the app, destination, rule, exit, and speed for each connection, or reroute domains on the fly.
 
-<img src="site/shots/activity-zh.webp" width="880" alt="连接日志">
+<img src="site/shots/activity-en.webp" width="880" alt="Connections log">
 
-### 提供商
-支持添加订阅链接、节点链接、YAML 配置或扫码导入，并显示流量与到期时间。
+### Providers
+Import subscription links, node URLs, YAML configs, or QR codes, with data usage and expiry shown for each source.
 
-<img src="site/shots/providers-zh.webp" width="880" alt="提供商">
+<img src="site/shots/providers-en.webp" width="880" alt="Providers">
 
-### 菜单栏
-支持在菜单栏开关接管状态、切换运行模式和默认出口节点。
+### Menu bar
+Toggle system proxy takeover, switch proxy modes, and select default nodes from the menu bar.
 
-<img src="site/shots/panel-zh.webp" width="300" alt="菜单栏面板">
+<img src="site/shots/panel-en.webp" width="300" alt="Menu bar panel">
 
-### 主题皮肤
-六种皮肤，换的是整个界面的样子。
+### Skins
+Six skins that change the look of the whole interface.
 
 <table>
   <tr>
-    <td><img src="site/shots/skin-broadsheet-zh.webp" alt="报刊"><br><sub>报刊</sub></td>
-    <td><img src="site/shots/skin-phosphor-zh.webp" alt="荧光屏"><br><sub>荧光屏</sub></td>
-    <td><img src="site/shots/skin-neon-zh.webp" alt="霓虹"><br><sub>霓虹</sub></td>
+    <td><img src="site/shots/skin-broadsheet-en.webp" alt="Broadsheet"><br><sub>Broadsheet</sub></td>
+    <td><img src="site/shots/skin-phosphor-en.webp" alt="Phosphor"><br><sub>Phosphor</sub></td>
+    <td><img src="site/shots/skin-neon-en.webp" alt="Neon"><br><sub>Neon</sub></td>
   </tr>
   <tr>
-    <td><img src="site/shots/skin-blueprint-zh.webp" alt="蓝图"><br><sub>蓝图</sub></td>
-    <td><img src="site/shots/skin-sakura-zh.webp" alt="樱"><br><sub>樱</sub></td>
-    <td><img src="site/shots/skin-paper-zh.webp" alt="纸墨"><br><sub>纸墨（默认）</sub></td>
+    <td><img src="site/shots/skin-blueprint-en.webp" alt="Blueprint"><br><sub>Blueprint</sub></td>
+    <td><img src="site/shots/skin-sakura-en.webp" alt="Sakura"><br><sub>Sakura</sub></td>
+    <td><img src="site/shots/skin-paper-en.webp" alt="Paper"><br><sub>Paper (default)</sub></td>
   </tr>
 </table>
 
-### 其他
-- **自定义规则**：支持按域名、关键词或 IP 段添加分流规则并测试匹配结果。
-- **出口位置实测**：通过 Cloudflare 请求实测节点真实的出口所在地。
-- **网关模式**：支持作为局域网网关为电视、游戏机和手机提供代理服务。
-- **TUN**：接管不遵循系统代理设置的应用程序流量。
-- **MCP**：内置 MCP 服务器，供 Claude Code 等 Agent 读取状态、排查网络问题，改设置前默认先问你。
+### Other
+- **Custom rules**: Route specific domains, keywords, or IP ranges, and test where addresses go.
+- **Measured exit locations**: Verify true exit locations through Cloudflare trace.
+- **Gateway mode**: Turn this Mac into a LAN gateway for devices like TVs and consoles.
+- **TUN**: Intercept traffic from applications that ignore system proxy settings.
+- **MCP**: Built-in MCP server for Claude Code and other agents to read status and troubleshoot connections. It asks you before changing settings by default.
   ```bash
   claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp
   ```
-- **设置与语言**：设置项支持搜索（⌘F），支持简体中文、繁體中文、English 与日本語，支持浅色与深色。
+- **Settings and languages**: Searchable settings (⌘F); English, Simplified Chinese, Traditional Chinese and Japanese; light and dark.
 
-## 安装
+## Install
 
-1. 从 [Releases](https://github.com/21stware/bowel/releases/latest) 下载 `bowel-<版本>-arm64.dmg`，把 bowel 拖进「应用程序」。
-2. 打开后添加一个 Provider（订阅链接、节点链接或扫码），打开接管。
+1. Download `bowel-<version>-arm64.dmg` from [Releases](https://github.com/21stware/bowel/releases/latest) and drag bowel into Applications.
+2. Add a provider (a subscription URL, node links or a QR code) and turn on takeover.
 
-需要 macOS 12 或更新版本，目前发布的是 Apple 芯片版本。安装包用 Developer ID 签名，并经过 Apple 公证。
+Needs macOS 12 or later. Released builds are for Apple silicon, signed with a Developer ID and notarized by Apple.
 
-## 开发
+## Develop
 
-需要 Go 1.27.3+（`GOTOOLCHAIN=auto` 会自动下载）。不需要 Node 或 Bun。
+Needs Go 1.27.3+ (`GOTOOLCHAIN=auto` fetches it). No Node or Bun.
 
 ```bash
-./scripts/fetch-core.sh     # 下载 mihomo 内核和 GeoSite/GeoIP 数据到 resources/
-go tool mygo dev            # 运行，改代码自动重建
-go tool mygo build          # 打包 bowel.app 和 .dmg（已签名，未公证）
-./scripts/release.sh        # 打包、公证并装订，发版用这个
-CGO_ENABLED=0 go test ./... # 包含会启动真实内核的测试
-./scripts/site-shots.sh     # 重新生成 README 和官网的截图（需要 cwebp）
+./scripts/fetch-core.sh     # mihomo + GeoSite/GeoIP data into resources/
+go tool mygo dev            # the app, rebuilt on every change
+go tool mygo build          # bowel.app and a .dmg, signed but not notarized
+./scripts/release.sh        # build, notarize and staple: use this for releases
+CGO_ENABLED=0 go test ./... # includes tests that start the real core
+./scripts/site-shots.sh     # re-render the README's and the website's screenshots (needs cwebp)
 ```
 
-- 工作原理与代码结构：[docs/architecture.md](docs/architecture.md)
-- 产品信息架构：[docs/product-ia.md](docs/product-ia.md)
-- 官网是 `site/` 下的静态页面，直接打开 `site/index.html` 即可预览
+- How it works and where the code is: [docs/architecture.md](docs/architecture.md)
+- The product's information architecture: [docs/product-ia.md](docs/product-ia.md)
+- The website is static, in `site/`; open `site/index.html` to preview it. Changes to it go live when they reach `main`.
+- To release, set the version in `mygo.json` and push a matching tag, such as `v0.1.0`. GitHub Actions builds, signs and notarizes the disk image and attaches it to a new release.
 
-bowel 原名 Moho。Go 模块仍是 `github.com/oboo/moho`，Bundle ID 仍是 `dev.moho.app`（保留 macOS 已授予的摄像头和录屏权限）。首次启动时，`~/Library/Application Support/Moho` 里的数据会迁移到 `…/bowel`。
+bowel was called Moho. The Go module is still `github.com/oboo/moho` and the bundle identifier `dev.moho.app`, which keeps macOS's camera and screen-recording permissions. On first launch the data in `~/Library/Application Support/Moho` moves to `…/bowel`.
 
-## 致谢
+## Credits
 
-- [mihomo](https://github.com/MetaCubeX/mihomo)：代理内核，GPL-3.0。bowel 把它作为独立进程运行，不链接它的代码。
-- [MyGo](https://github.com/egoist/mygo)：原生 Go UI 框架。
-- [OPPO Sans](resources/fonts/)：界面字体。
+- [mihomo](https://github.com/MetaCubeX/mihomo): the proxy core, GPL-3.0. bowel runs it as a separate program and does not link it.
+- [MyGo](https://github.com/egoist/mygo): the native Go UI toolkit.
+- [OPPO Sans](resources/fonts/): the interface's typeface.

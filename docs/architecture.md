@@ -1,6 +1,6 @@
 # How bowel works
 
-The product logic is in [product-ia.md](product-ia.md); the approved interaction prototype is [prototype/index.html](../prototype/index.html). How to build and run is in the [README](../README.md#开发).
+The product logic is in [product-ia.md](product-ia.md); the approved interaction prototype is [prototype/index.html](../prototype/index.html). How to build and run is in the [README](../README.md#develop).
 
 ## Design
 
