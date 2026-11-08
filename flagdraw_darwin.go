@@ -41,7 +41,13 @@ func flagDrawLoad() bool {
 	cg := open("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
 	ct := open("/System/Library/Frameworks/CoreText.framework/CoreText")
 	cf := open("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
-	if open("/System/Library/Frameworks/Foundation.framework/Foundation") == 0 || cg == 0 || ct == 0 || cf == 0 {
+	// AppKit before any Core Text font. A font made while AppKit is not
+	// loaded yet stays in Core Text's shared cache as a plain CTFont, and
+	// the first NSFont of that face afterwards (mygo's system font)
+	// aborts: "-[__NSCFType initWithTypefaceInfo:key:renderingMode:]:
+	// unrecognized selector". The app has AppKit already; tests may not.
+	appKit := open("/System/Library/Frameworks/AppKit.framework/AppKit")
+	if open("/System/Library/Frameworks/Foundation.framework/Foundation") == 0 || appKit == 0 || cg == 0 || ct == 0 || cf == 0 {
 		return false
 	}
 	sym, err := purego.Dlsym(ct, "kCTFontAttributeName")
@@ -82,6 +88,10 @@ func flagColoured(flag string) bool {
 	}
 	defer cfRelease(ctx)
 
+	// An autorelease pool belongs to the thread that pushed it: the
+	// goroutine stays on that thread until the pool is drained.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	cls := func(s string) objc.ID { return objc.ID(objc.GetClass(s)) }
 	pool := cls("NSAutoreleasePool").Send(objc.RegisterName("new"))
 	defer pool.Send(objc.RegisterName("drain"))

@@ -278,13 +278,18 @@ func (m *Manager) start() error {
 		}
 		c, cc := context.WithTimeout(ctx, time.Second)
 		v, err := client.Version(c)
+		if err == nil {
+			err = proxiesLoaded(c, client)
+		}
 		cc()
 		if err == nil {
 			m.mu.Lock()
 			m.client = client
 			m.mu.Unlock()
 			m.setStatus(Status{State: Running, Version: v.Version, PID: cmd.Process.Pid, StartedAt: time.Now()})
-			go m.traffic(ctx, client)
+			if m.OnTraffic != nil { // a stream no one reads costs a decode a second
+				go m.traffic(ctx, client)
+			}
 			return nil
 		}
 		if time.Now().After(deadline) {
@@ -295,6 +300,21 @@ func (m *Manager) start() error {
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
+}
+
+// proxiesLoaded reports whether the core has built its proxies and groups.
+// mihomo opens its controller before it applies the config, so /version
+// answers while /proxies is still empty and selecting a group fails with
+// "Resource not found".
+func proxiesLoaded(ctx context.Context, c *mihomo.Client) error {
+	ps, err := c.Proxies(ctx)
+	if err != nil {
+		return err
+	}
+	if _, ok := ps["GLOBAL"]; !ok {
+		return errors.New("proxies not loaded yet")
+	}
+	return nil
 }
 
 func (m *Manager) traffic(ctx context.Context, c *mihomo.Client) {

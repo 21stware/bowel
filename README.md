@@ -23,12 +23,14 @@ MOHO_SHOTS=/tmp/shots CGO_ENABLED=0 go test -short -run 'Home|Activity|Provider|
 
 - **Providers only supply nodes.** A subscription URL, pasted node links (`vmess://`, `trojan://`, `hysteria2://`, …) or a YAML file each become a mihomo `type: file` proxy-provider. bowel downloads subscriptions itself, to read their usage and expiry. A hidden per-provider suffix keeps node names unique across providers.
 - **Routes come from bowel's template** (`internal/routes`): 默认, AI 服务, 流媒体, 开发 and 直连, and the rules that recognise each. Every node can serve every route. Each proxied route has two groups: a selector, and an automatic url-test group the selector can point at ("自动" = fastest + failover).
+- **Your own rules come first** (`internal/routes/user.go`, `ui_rules.go`). A rule sends a domain and its subdomains, one name, a keyword or an IP range to a route; they are kept in settings.json and written before the template's. The quickest way to make one is 让它走… on a connection in 日志, which offers the site (api.openai.com → openai.com) or the one name. 设置 > 规则 adds them by hand, says what a typed rule will do before it is added, moves and removes them, and tests an address. A change closes the open connections it would send elsewhere, so it shows at once.
 - **The core runs as a sidecar process** (`internal/core`), controlled over a unix socket. bowel falls back to TCP with a secret when the socket path is too long. Config changes reload the core without restarting it.
 - **The interface is native.** The window and the menu bar panel are MyGo `ui` views over two values: a `Snapshot`, rebuilt whenever anything changes, and a `Tick`, every second. The 今日 board animates its cells' boxes: the expanded cell grows in place and the others are squeezed into summaries chosen to fit. Every view is laid out at its cell's final size, so nothing reflows on the way. Views open and fold like drawers, and shared pieces fly between views (`Match`, with text morphing).
 - **Status is measured, not assumed** (§2 of the IA). bowel checks every 2 s that the system proxy still points at it (`scutil --proxy`). The core's state, failing nodes and automatic switches feed the one light: 正常 / 降级 / 异常 / 未接管.
 - **Exit locations** (`internal/locate`, `internal/geo`). A node's place is guessed from its name. When it matters (the node a route uses, or one you pick), bowel measures it instead: it requests Cloudflare's `/cdn-cgi/trace` through the node, via a mihomo listener bound to a probe group. The UI labels each place 实测 / 按名称 / 未知.
-- **Monitoring** (`internal/monitor`). bowel polls connections every second to get rates per route and per app, new connections, and closed ones. It parses failed dials from the core's log, and keeps today's and this month's totals. On macOS 27 the kernel hides its socket list from a process whose parent is an ad-hoc signed app, so the core, bowel's child, cannot tell which app opened a connection. bowel reads the list itself (`internal/procinfo`) and names those connections. Under `mygo dev` bowel is itself such a child, so the names show as 未知 in development; an app opened from Finder has them.
+- **Monitoring** (`internal/monitor`). bowel polls connections every second while the window or the menu bar panel is open (every 5 s otherwise) to get rates per route and per app, new connections, and closed ones. It parses failed dials from the core's log, and keeps today's and this month's totals. On macOS 27 the kernel hides its socket list from a process whose parent is an ad-hoc signed app, so the core, bowel's child, cannot tell which app opened a connection. bowel reads the list itself (`internal/procinfo`) and names those connections. Under `mygo dev` bowel is itself such a child, so the names show as 未知 in development; an app opened from Finder has them.
 - **TUN.** The first time you turn it on, macOS asks for an administrator's authorisation. bowel then copies the core to `~/Library/Application Support/bowel/bin/` and makes it setuid root (`internal/tun`), the approach early Clash Verge used. A launchd helper would be the cleaner long-term design.
+- **Agents (MCP)** (`internal/mcp`, `app_mcp.go`, `ui_mcp.go`). bowel serves an MCP server on a unix socket in its data folder (`mcp.sock`, this user only). `bowel mcp` bridges an agent's stdio to it and opens the app when it isn't running, so an agent registers it as an ordinary stdio server: `claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp` (设置 > MCP has the command and a JSON snippet to copy). Agents can always read: status, settings (secrets hidden), routes and nodes, rules, where a host would go, connections, logs, and the three whitelists (direct sites, the system proxy's bypass list, LAN addresses). Changes (mode, takeover, a route's node, rules, whitelists, settings by key, providers, DNS) follow `mcpPolicy`: `ask` (the default: a dialog shows what would change, and can let the rest of that connection through), `allow` or `deny`. Only the user can change the policy. 设置 > MCP lists the changes agents asked for.
 
 ## Layout
 
@@ -39,19 +41,22 @@ ui.go                      the window: palette, title bar, pages, shared parts
 ui_home.go, ui_map.go      今日: the morphing board and the exit map
 ui_activity.go             活动: connections and logs
 ui_providers.go            Provider: add, list, nodes
+ui_rules.go                the user's rules: 日志's 让它走…, 设置 > 规则
 ui_settings.go             设置: the core's options, in a window of their own (sidebar + pane)
 ui_panel.go, tray.go       the menu bar icon, its panel and its menu
 debug.go                   a script hook for development builds (MOHO_DEBUG_DIR)
 internal/core              mihomo process, runtime config, the core's options (Options)
 internal/mihomo            controller client
 internal/provider          providers: detect, download, store
-internal/routes            the routing template
+internal/routes            the routing template, and the user's rules
 internal/monitor           connections, rates, events, logs, totals
 internal/procinfo          which app owns a local socket (macOS)
 internal/locate, geo       exit locations
 internal/sysproxy          set and check the macOS system proxy
 internal/tun               setuid install for TUN
 internal/settings          settings.json
+internal/mcp               a small MCP server (stdio framing over a unix socket) and the `bowel mcp` bridge
+app_mcp.go, ui_mcp.go      the agents' tools and their policy; 设置 > MCP
 prototype/                 the interaction prototype and its history
 ```
 

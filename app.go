@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -19,6 +21,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -27,6 +30,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/oboo/moho/internal/core"
+	"github.com/oboo/moho/internal/gateway"
 	"github.com/oboo/moho/internal/geo"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/locate"
@@ -53,6 +57,7 @@ type App struct {
 	coreBin   string // the bundled core
 	tunBin    string // the setuid copy TUN runs
 	probePort int
+	gw        *gateway.Gateway
 
 	setMu sync.Mutex // serialises updateSettings
 	// openAtLogin is whether Moho is a login item, as last read.
@@ -63,19 +68,31 @@ type App struct {
 	sys         sysproxy.Status
 	proxies     map[string]mihomo.Proxy
 	provNodes   map[string][]string // provider id → node names, in the provider's order
-	you         *locate.Result
-	lastNode    map[string]string // route id → node, to notice automatic switches
-	switched    *switchNote
-	shareDay    string
-	routeBytes  map[string]int64 // today's download per route id
-	monCancel   context.CancelFunc
-	lastHash    [32]byte
-	emitQueued  bool
-	win         *mygo.Window
-	ui          *UI
-	tray        *mygo.Tray
-	quitting    bool
-	lastTick    Tick
+	// nodesSig is the names /proxies had when provNodes was read, at
+	// nodesAt: the providers' lists are read again when they change.
+	nodesSig   uint64
+	nodesAt    time.Time
+	you        *locate.Result
+	lastNode   map[string]string // route id → node, to notice automatic switches
+	switched   *switchNote
+	shareDay   string
+	routeBytes map[string]int64 // today's download per route id
+	groupSeen  map[string]int64 // the monitor's GroupBytes when last added in
+	monCancel  context.CancelFunc
+	lastHash   [32]byte
+	emitQueued bool
+	win        *mygo.Window
+	ui         *UI
+	// winShown is whether the main window is shown, kept from its events
+	// for goroutines that may not wait on the main thread to ask.
+	winShown atomic.Bool
+	tray     *mygo.Tray
+	quitting bool
+	lastTick Tick
+	// The gateway as last measured, and what its last change said.
+	gwProbe   gwProbe
+	gwProbing bool
+	gwErr     error
 }
 
 type switchNote struct {
@@ -94,7 +111,6 @@ func newApp() (*App, error) {
 		return nil, err
 	}
 	i18n.Set(st.Get().Language)
-	mygo.Theme.SetSource(mygo.ThemeSource(st.Get().Appearance))
 	ps, err := provider.Open(filepath.Join(data, "providers"))
 	if err != nil {
 		return nil, err
@@ -120,10 +136,12 @@ func newApp() (*App, error) {
 		http: &http.Client{Transport: netproxy.Transport()}, coreBin: bin, tunBin: tunBin, probePort: probe,
 		pending: map[string]bool{}, locating: map[string]bool{}, proxies: map[string]mihomo.Proxy{},
 		provNodes: map[string][]string{}, lastNode: map[string]string{}, routeBytes: map[string]int64{},
+		gw: gateway.New(osGateway(), filepath.Join(data, "gateway-before.json")),
 	}
 	cm.SafePaths = []string{filepath.Join(data, "providers")}
 	a.mon.SkipGroup = core.ProbeGroup // the location probe's own traffic
 	a.mon.FindProcess = procinfo.New().Find
+	a.mon.Every = a.pollEvery
 	cm.OnStatus = func(s core.Status) { a.onCoreStatus(s) }
 	a.mon.OnTick(a.onTick)
 	return a, nil
@@ -177,6 +195,9 @@ func (a *App) copyGeo() {
 // ---- Lifecycle ----
 
 func (a *App) start() {
+	// Here, not in newApp: SetSource waits for the main thread, which a
+	// test's goroutine has no loop on.
+	mygo.Theme.SetSource(mygo.ThemeSource(appearanceOf(a.settings.Get())))
 	registerFonts()
 	a.openAtLogin = mygo.App.OpenAtLogin()
 	a.openWindow()
@@ -189,6 +210,7 @@ func (a *App) start() {
 	}()
 	go a.loop()
 	go a.debugDriver()
+	a.startMCP()
 }
 
 func (a *App) openWindow() {
@@ -221,8 +243,9 @@ func (a *App) openWindow() {
 	})
 	// The Dock icon is there while a window is: hidden, Moho lives in
 	// the menu bar alone.
-	win.OnShow(a.syncDock)
-	win.OnHide(a.syncDock)
+	win.OnShow(func() { a.winShown.Store(true); a.mon.Wake(); a.syncDock() })
+	win.OnHide(func() { a.winShown.Store(false); a.syncDock() })
+	a.winShown.Store(!(a.settings.Get().StartHidden && mygo.App.WasOpenedAtLogin()))
 	a.mu.Lock()
 	a.win = win
 	a.mu.Unlock()
@@ -277,6 +300,12 @@ func (a *App) shutdown() {
 	a.mu.Lock()
 	a.quitting = true
 	a.mu.Unlock()
+	stopMCP()
+	// Other devices lose the network now: forwarding goes back as it was
+	// before the gateway, and the Mac may sleep again.
+	if err := a.gw.Disable(); err != nil {
+		log.Println("gateway:", err)
+	}
 	// Never leave the system pointing at a proxy that is gone: put back
 	// what it had before Moho took it over.
 	port := a.settings.Get().MixedPort
@@ -290,6 +319,31 @@ func (a *App) shutdown() {
 		}
 	}
 	a.core.Stop()
+}
+
+// pollEvery is how often the monitor reads the core's connections: every
+// second while the window or the menu bar panel shows them, every 5 s
+// otherwise. The totals stay exact, as they are the core's own counters;
+// what goes is the rates' detail and connections too short to be seen.
+func (a *App) pollEvery() time.Duration {
+	if a.winShown.Load() {
+		return time.Second
+	}
+	if u := a.uiRef(); u != nil && u.panel.win.Load() != nil {
+		return time.Second
+	}
+	return 5 * time.Second
+}
+
+// nodeSig tells apart the sets of names in px.
+func nodeSig(px map[string]mihomo.Proxy) uint64 {
+	names := slices.Sorted(maps.Keys(px))
+	h := fnv.New64a()
+	for _, n := range names {
+		h.Write([]byte(n))
+		h.Write([]byte{0})
+	}
+	return h.Sum64()
 }
 
 // loop refreshes what the core and the OS say, and runs the periodic jobs.
@@ -311,29 +365,47 @@ func (a *App) loop() {
 }
 
 func (a *App) refresh() {
-	if s, err := sysproxy.Check(a.settings.Get().MixedPort); err == nil {
-		a.mu.Lock()
-		a.sys = s
-		a.mu.Unlock()
+	a.probeSoon()
+	// The system proxy is judged only while it is wanted: otherwise no
+	// scutil every 2 s for nothing.
+	if st := a.settings.Get(); a.takeoverOn(st) && st.SystemProxy {
+		if s, err := sysproxy.Check(st.MixedPort); err == nil {
+			a.mu.Lock()
+			a.sys = s
+			a.mu.Unlock()
+		}
 	}
 	if c, err := a.core.Client(); err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		px, err1 := c.Proxies(ctx)
-		pp, err2 := c.ProxyProviders(ctx)
-		cancel()
-		if err1 == nil && err2 == nil {
-			nodes := map[string][]string{}
-			for name, p := range pp {
-				id, ok := strings.CutPrefix(name, "p-")
-				if !ok {
-					continue
-				}
-				for _, n := range p.Proxies {
-					nodes[id] = append(nodes[id], n.Name)
+		px, err := c.Proxies(ctx)
+		// The providers' lists hold the same nodes again, in their order:
+		// read them only when the names change, or a minute on.
+		sig := nodeSig(px)
+		a.mu.Lock()
+		nodes, stale := a.provNodes, sig != a.nodesSig || time.Since(a.nodesAt) > time.Minute
+		a.mu.Unlock()
+		if err == nil && stale {
+			var pp map[string]mihomo.ProxyProvider
+			if pp, err = c.ProxyProviders(ctx); err == nil {
+				nodes = map[string][]string{}
+				for name, p := range pp {
+					id, ok := strings.CutPrefix(name, "p-")
+					if !ok {
+						continue
+					}
+					for _, n := range p.Proxies {
+						nodes[id] = append(nodes[id], n.Name)
+					}
 				}
 			}
+		}
+		cancel()
+		if err == nil {
 			a.mu.Lock()
 			a.proxies, a.provNodes = px, nodes
+			if stale {
+				a.nodesSig, a.nodesAt = sig, time.Now()
+			}
 			a.mu.Unlock()
 			a.noticeSwitches()
 		}
@@ -379,8 +451,9 @@ func (a *App) applyConfig() error {
 		}
 	}
 	cfg, err := core.BuildConfig(core.Input{
-		Providers: refs, Routes: a.routes, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
+		Providers: refs, Routes: a.routes, UserRules: s.Rules, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
 		Tun:      s.Tun && a.takeoverOn(s) && tun.Installed(a.tunBin),
+		Gateway:  a.gatewayOn(s),
 		LogLevel: s.LogLevel, TestURL: s.TestURL, ProbePort: a.probePort, Controller: a.core.ControllerFields(),
 		Options: s.Options,
 	})
@@ -394,6 +467,10 @@ func (a *App) applyConfig() error {
 	if s.Mode == "global" {
 		a.pointGlobal()
 	}
+	a.mu.Lock()
+	a.nodesAt = time.Time{} // providers may hold other nodes now
+	a.mu.Unlock()
+	a.syncGateway()
 	a.refresh()
 	return nil
 }
@@ -658,9 +735,12 @@ func migrateData(dir string) {
 }
 
 // appOnly says whether next differs from old only in what the core does
-// not see: the language, starting hidden, the theme color, the appearance.
+// not see: the language, starting hidden, the theme color, the appearance,
+// the skin and the board's borders.
 func appOnly(old, next settings.Settings) bool {
 	next.Language, next.StartHidden, next.Accent, next.Appearance = old.Language, old.StartHidden, old.Accent, old.Appearance
+	next.Skin, next.Borders = old.Skin, old.Borders
+	next.MCPPolicy = old.MCPPolicy // the MCP server's, not the core's
 	return reflect.DeepEqual(old, next)
 }
 
@@ -697,8 +777,8 @@ func (a *App) updateSettings(fn func(*settings.Settings)) error {
 		return err
 	}
 	i18n.Set(next.Language)
-	if next.Appearance != old.Appearance {
-		mygo.Theme.SetSource(mygo.ThemeSource(next.Appearance))
+	if appearanceOf(next) != appearanceOf(old) {
+		mygo.Theme.SetSource(mygo.ThemeSource(appearanceOf(next)))
 	}
 	if appOnly(old, next) { // the core does not care
 		a.refresh()
@@ -1055,6 +1135,68 @@ func (a *App) deleteProvider(id string) error {
 	return a.applyConfig()
 }
 
+// ---- The user's rules ----
+
+// addRule sends r's traffic to its route, in place of an older rule for
+// the same traffic. Connections it matches that went elsewhere are closed,
+// so that the change shows at once: their apps connect again, by the new
+// way. It returns how many were closed.
+func (a *App) addRule(r routes.UserRule) (int, error) {
+	if a.route(r.Route).ID == "" {
+		return 0, errors.New(i18n.T("没有这条路由", "No such route"))
+	}
+	if err := a.updateSettings(func(s *settings.Settings) { s.Rules = routes.Upsert(s.Rules, r) }); err != nil {
+		return 0, err
+	}
+	return a.reroute(r, r.Route), nil
+}
+
+// removeRule takes out the rule for r's traffic, and closes the
+// connections it matched.
+func (a *App) removeRule(r routes.UserRule) (int, error) {
+	if err := a.updateSettings(func(s *settings.Settings) { s.Rules = routes.Remove(s.Rules, r) }); err != nil {
+		return 0, err
+	}
+	return a.reroute(r, ""), nil
+}
+
+// reroute closes the open connections r matches that are not on route
+// keep. A failure only leaves them open: the rule holds for new ones.
+func (a *App) reroute(r routes.UserRule, keep string) int {
+	c, err := a.core.Client()
+	if err != nil {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snap, err := c.Connections(ctx)
+	if err != nil {
+		return 0
+	}
+	var ids []string
+	for _, cn := range snap.Connections {
+		host := cn.Metadata.Host
+		if host == "" {
+			host = cn.Metadata.SniffHost
+		}
+		if !r.Matches(host, cn.Metadata.DestinationIP) {
+			continue
+		}
+		group := ""
+		if len(cn.Chains) > 0 {
+			group = cn.Chains[len(cn.Chains)-1]
+		}
+		if keep == "" || a.routeOfGroup(group, cn.Rule) != keep {
+			ids = append(ids, cn.ID)
+		}
+	}
+	if len(ids) > 0 && a.closeConns(ids) == nil {
+		a.mon.Wake()
+		return len(ids)
+	}
+	return 0
+}
+
 // ---- Activity ----
 
 // routeOfGroup maps a mihomo group name (or DIRECT) to a route id.
@@ -1216,7 +1358,6 @@ func (a *App) buildTick() Tick {
 	n := a.mon.Now()
 	t := Tick{Down: n.Down, Up: n.Up, ByRoute: map[string]int64{}, Active: n.Active,
 		TodayDown: n.TodayDown, TodayUp: n.TodayUp, MonthDown: n.MonthDown, Apps: []AppRate{}, Events: []Event{}}
-	conns := a.mon.Conns()
 	for g, v := range n.ByGroup {
 		// A DIRECT group can be the direct route or the default's DIRECT; count it as direct.
 		id := a.routeOfGroup(g, "x")
@@ -1224,35 +1365,46 @@ func (a *App) buildTick() Tick {
 			t.ByRoute[id] += v
 		}
 	}
-	// Today's share per route.
+	// Today's share per route: the bytes since the last tick, as the
+	// monitor counted them, however long ago that was.
 	day := time.Now().Format("2006-01-02")
 	a.mu.Lock()
 	if a.shareDay != day {
 		a.shareDay, a.routeBytes = day, map[string]int64{}
 	}
-	for id, v := range t.ByRoute {
-		a.routeBytes[id] += v
+	for g, v := range n.GroupBytes {
+		if d := v - a.groupSeen[g]; d > 0 {
+			if id := a.routeOfGroup(g, "x"); id != "" {
+				a.routeBytes[id] += d
+			}
+		}
 	}
+	a.groupSeen = n.GroupBytes
 	a.mu.Unlock()
 
+	// Each app's busiest connection names its host: the fastest, the
+	// oldest of equals, so that it holds still from one tick to the next.
+	type top struct {
+		rate  int64
+		start time.Time
+		id    string
+	}
 	apps := map[string]*AppRate{}
-	hostRate := map[string]int64{}
-	for _, c := range conns {
-		if c.Status != "active" {
-			continue
-		}
-		v := a.convConn(c)
-		r := apps[v.App]
+	best := map[string]top{}
+	for _, c := range a.mon.Rates() {
+		r := apps[c.App]
 		if r == nil {
-			r = &AppRate{App: v.App}
-			apps[v.App] = r
+			r = &AppRate{App: c.App}
+			apps[c.App] = r
 		}
-		r.Down += v.DownRate
-		r.Up += v.UpRate
+		r.Down += c.DownRate
+		r.Up += c.UpRate
 		r.Conns++
-		if v.DownRate >= hostRate[v.App] {
-			hostRate[v.App] = v.DownRate
-			r.Host, r.Route = v.Host, v.Route
+		b, seen := best[c.App]
+		if !seen || c.DownRate > b.rate || c.DownRate == b.rate &&
+			(c.Start.Before(b.start) || c.Start.Equal(b.start) && c.ID > b.id) {
+			best[c.App] = top{c.DownRate, c.Start, c.ID}
+			r.Host, r.Route = c.Host, a.routeOfGroup(c.Group, c.Rule)
 		}
 	}
 	for _, r := range apps {
@@ -1318,6 +1470,7 @@ func (a *App) snapshot() Snapshot {
 	a.mu.Lock()
 	sys, px, provNodes, you, sw := a.sys, a.proxies, a.provNodes, a.you, a.switched
 	openAtLogin := a.openAtLogin
+	gwp, gwErr := a.gwProbe, a.gwErr
 	pending := make([]string, 0, len(a.pending))
 	for k := range a.pending {
 		pending = append(pending, k)
@@ -1329,7 +1482,7 @@ func (a *App) snapshot() Snapshot {
 
 	on := a.takeoverOn(s)
 	snap := Snapshot{
-		Mode: s.Mode, Pending: pending, Version: mygo.App.Version(), RuleCount: routes.Count(a.routes),
+		Mode: s.Mode, Pending: pending, Version: mygo.App.Version(), RuleCount: routes.Count(a.routes) + len(s.Rules),
 		Settings: s, ConfigPath: a.core.ConfigPath(), OpenAtLogin: openAtLogin,
 		ControllerTCP: a.core.TCPAddr(),
 		Core:          Core{State: string(cs.State), Version: cs.Version, Error: cs.Error},
@@ -1364,6 +1517,7 @@ func (a *App) snapshot() Snapshot {
 	if s.AllowLan {
 		tk.LanAddr = lanAddr(s.MixedPort)
 	}
+	tk.Gateway = gatewayView(s, on, tk.Tun.Status, a.gw.System().Ready(), a.gw.Awake(), gwp, gwErr)
 	snap.Takeover = tk
 
 	// Nodes, in their providers' order.
@@ -1404,6 +1558,12 @@ func (a *App) snapshot() Snapshot {
 		if r.ID == routes.Default {
 			rv.Rules = 1
 		}
+		for _, u := range s.Rules {
+			if u.Route == r.ID {
+				rv.Mine++
+			}
+		}
+		rv.Rules += rv.Mine
 		if !r.Direct {
 			rv.Auto = px[routes.Group(r)].Now == routes.Auto(r)
 			rv.Node = currentNode(px, r)
@@ -1447,6 +1607,9 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 	}
 	if tk.System.Status == "hijacked" {
 		return StateError, &Issue{Level: "error", Text: i18n.T("系统代理被其他程序改掉了", "Another program changed the system proxy"), Detail: i18n.T("网页流量现在没有经过 bowel。", "Web traffic isn't going through bowel now."), Action: "retake", Label: i18n.T("重新接管", "Take over again")}
+	}
+	if g := tk.Gateway; g.Status == "error" {
+		return StateDegraded, &Issue{Level: "warn", Text: i18n.T("网关模式没有生效", "Gateway mode isn't working"), Detail: g.Detail}
 	}
 	if len(snap.Nodes) == 0 && s.Mode != "direct" {
 		return StateDegraded, &Issue{Level: "warn", Text: i18n.T("还没有节点，流量正在直连", "No nodes yet; traffic is going direct"), Action: "providers", Label: i18n.T("添加提供商", "Add Provider")}

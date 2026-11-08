@@ -85,6 +85,9 @@ func (a *App) togglePanel() {
 		Content:      ui.View(u.panelView),
 	})
 	u.panel.win.Store(fl)
+	if u.app != nil {
+		u.app.mon.Wake() // the panel shows rates: at once, and every second
+	}
 	fl.OnClosed(func() { u.panel.win.CompareAndSwap(fl, nil) })
 }
 

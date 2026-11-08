@@ -9,6 +9,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -35,7 +36,9 @@ type homeUI struct {
 	copies map[string]shareRec
 	frame  int
 
-	mapView mapView // the expanded map's pan and zoom
+	mapView mapView               // the expanded map's pan and zoom
+	walls   map[string]*wallPaths // twisted borders' paths, by cell
+	lines   map[string]*linePaths
 }
 
 type shownView struct {
@@ -335,7 +338,15 @@ func (u *UI) homePage(c *ui.Context, p *pal) {
 		}
 		h.x, h.sub = "", ""
 	})
+	// The lines between the cells are the board showing through the gaps,
+	// or, twisted, drawn over them.
+	twisted := u.shownSettings().Borders == "twisted"
 	board := ui.Box(c).Grow(1).Background(p.hair).Clip()
+	if twisted {
+		board.Background(p.paper)
+	} else {
+		h.walls, h.lines = nil, nil
+	}
 	r := board.LayoutBounds()
 	w, hh := r.W, r.H
 	if w <= 0 {
@@ -354,6 +365,17 @@ func (u *UI) homePage(c *ui.Context, p *pal) {
 	board.Children(func() {
 		for _, cl := range cells {
 			u.cell(c, p, cl, final[cl.id], normal[cl.id])
+		}
+		if !twisted {
+			return
+		}
+		// Over the cells, as they are drawn on the cells' edges: the lines,
+		// then the walls over them.
+		for _, cl := range cells {
+			h.line(c, p, cl.id, final[cl.id], w, hh)
+		}
+		for _, cl := range cells {
+			h.wall(c, p, cl.id, final[cl.id], w, hh)
 		}
 	})
 }
@@ -449,6 +471,364 @@ func (u *UI) cell(c *ui.Context, p *pal, cl cell, box, normalBox ui.Rect) {
 	})
 }
 
+// The focused cell's wall: its edge, drawn as the logo's line, thick and
+// bending. Inside the line is the cell; outside, its neighbors. Edges on the
+// board's border are drawn a little inside, so that the line shows whole.
+const (
+	wallWidth = 2   // the line, DIPs
+	wallSwing = 2.6 // how far it bends to either side of the edge
+	wallWave  = 46  // DIPs from one bulge to the next, about
+	wallRound = 12  // the corners' radius
+	wallInk   = .5  // how strong the line is, of the ink
+	wallReach = wallSwing + wallWidth/2 + 1.5
+)
+
+// wall draws the wall of cell id, at box on a board w×h: it twists in as
+// the cell takes the focus and untwists as it gives it up, its bulges
+// rolling along the edge as they swell or settle.
+func (h *homeUI) wall(c *ui.Context, p *pal, id string, box ui.Rect, w, hh float32) {
+	m := float32(wallReach)
+	e := ui.Box(c.Key("wall-"+id)).Absolute().Left(box.X-m).Top(box.Y-m).Size(box.W+2*m, box.H+2*m).
+		IgnoreInput(true).AccessHidden(true).Transition(ui.ElementTransition{Animation: &motion, Position: true, Size: true})
+	on := h.x == id
+	twist := motion
+	twist.Duration = 640 * time.Millisecond
+	if on {
+		twist.Delay = 110 * time.Millisecond
+	}
+	k := e.AnimateTo("twist", map[bool]float32{false: 0, true: 1}[on], twist)
+	if k <= 0 {
+		delete(h.walls, id)
+		return
+	}
+	if h.walls == nil {
+		h.walls = map[string]*wallPaths{}
+	}
+	wp := h.walls[id]
+	if wp == nil {
+		wp = &wallPaths{}
+		h.walls[id] = wp
+	}
+	// Which sides are on the board's border, from the box at rest.
+	left, top, right, bottom := box.X < .5, box.Y < .5, box.X+box.W > w-.5, box.Y+box.H > hh-.5
+	e.Draw(func(pt *ui.Painter, r ui.Rect) {
+		cell := ui.Rect{X: r.X + m, Y: r.Y + m, W: r.W - 2*m, H: r.H - 2*m}
+		base := cell
+		if left {
+			base.X, base.W = base.X+m, base.W-m
+		}
+		if top {
+			base.Y, base.H = base.Y+m, base.H-m
+		}
+		if right {
+			base.W -= m
+		}
+		if bottom {
+			base.H -= m
+		}
+		if key := [5]float32{base.X, base.Y, base.W, base.H, k}; key != wp.key || cell != wp.cell {
+			wp.key, wp.cell = key, cell
+			wp.build(cell, base, wallSwing*k, float64(1-k)*2.5*math.Pi)
+		}
+		// Side by side, so that each shape is a strip along an edge, not as
+		// large as the cell: the shapes are rasterized anew as they change.
+		// The line is opaque, so that where the sides meet doesn't darken.
+		ink := p.sheet.Mix(p.ink, wallInk).Alpha(min(1, 2*k))
+		for i := range 4 {
+			pt.FillPath(&wp.out[i], p.paper.Alpha(k))
+			pt.FillPath(&wp.in[i], p.sheet.Alpha(k))
+		}
+		for i := range 4 {
+			pt.StrokePath(&wp.wall[i], wallWidth*(.5+.5*k), ink)
+		}
+	})
+}
+
+// wallPaths are a wall's paths by side (top, right, bottom, left), kept
+// while it stays put: the board is drawn often, a wall seldom changes.
+type wallPaths struct {
+	key           [5]float32
+	cell          ui.Rect
+	wall, out, in [4]ui.Path
+}
+
+// build makes the wall round cell, bending about base: the line; the paper
+// outside it, over the gap past the cell's edge and its line; and the sheet
+// inside it, where it bulges past the cell's edge.
+func (wp *wallPaths) build(cell, base ui.Rect, swing float32, roll float64) {
+	line, cuts := wobblyFrame(base, wallRound, swing, wallWave, roll)
+	n := len(line)
+	if n == 0 {
+		for i := range 4 {
+			wp.wall[i].Reset()
+			wp.out[i].Reset()
+			wp.in[i].Reset()
+		}
+		return
+	}
+	reach := float32(lineReach)
+	// The outer corners, clockwise from the top left's.
+	outer := [4][2]float32{
+		{cell.X - reach, cell.Y - reach}, {cell.X + cell.W + reach, cell.Y - reach},
+		{cell.X + cell.W + reach, cell.Y + cell.H + reach}, {cell.X - reach, cell.Y + cell.H + reach},
+	}
+	// past puts q on the cell's edge on side i unless it is past it.
+	past := func(i int, q [2]float32) ([2]float32, bool) {
+		switch i {
+		case 0:
+			return [2]float32{q[0], min(q[1], cell.Y)}, q[1] < cell.Y
+		case 1:
+			return [2]float32{max(q[0], cell.X+cell.W), q[1]}, q[0] > cell.X+cell.W
+		case 2:
+			return [2]float32{q[0], max(q[1], cell.Y+cell.H)}, q[1] > cell.Y+cell.H
+		}
+		return [2]float32{min(q[0], cell.X), q[1]}, q[0] < cell.X
+	}
+	for i := range 4 {
+		// Side i runs from the middle of the corner before it to that of
+		// the corner after.
+		from, to := cuts[(i+3)%4], cuts[i]
+		if to < from {
+			to += n
+		}
+		side := make([][2]float32, 0, to-from+1)
+		for j := from; j <= to; j++ {
+			side = append(side, line[j%n])
+		}
+		w := wp.wall[i].Reset()
+		w.MoveTo(side[0][0], side[0][1])
+		for j := 1; j < len(side)-1; j++ {
+			w.QuadTo(side[j][0], side[j][1], (side[j][0]+side[j+1][0])/2, (side[j][1]+side[j+1][1])/2)
+		}
+		w.LineTo(side[len(side)-1][0], side[len(side)-1][1])
+		// Outside: between the line, its bulges in, and the outer edge.
+		o := wp.out[i].Reset()
+		o.MoveTo(side[0][0], side[0][1])
+		for _, q := range side[1:] {
+			o.LineTo(q[0], q[1])
+		}
+		o.LineTo(outer[(i+1)%4][0], outer[(i+1)%4][1]).LineTo(outer[i][0], outer[i][1]).Close()
+		// Inside, past the cell's edge: between its bulges out and the edge.
+		in := wp.in[i].Reset()
+		bulges := false
+		for j, q := range side {
+			e, out := past(i, q)
+			bulges = bulges || out
+			if j == 0 {
+				in.MoveTo(e[0], e[1])
+			} else {
+				in.LineTo(e[0], e[1])
+			}
+		}
+		if !bulges {
+			in.Reset()
+			continue
+		}
+		last, _ := past(i, side[len(side)-1])
+		first, _ := past(i, side[0])
+		// Back along the edge.
+		if i%2 == 0 {
+			in.LineTo(last[0], cellEdge(cell, i)).LineTo(first[0], cellEdge(cell, i))
+		} else {
+			in.LineTo(cellEdge(cell, i), last[1]).LineTo(cellEdge(cell, i), first[1])
+		}
+		in.Close()
+	}
+}
+
+// cellEdge is where side i of cell is: its y for the top and bottom, its x
+// for the right and left.
+func cellEdge(cell ui.Rect, i int) float32 {
+	switch i {
+	case 0:
+		return cell.Y
+	case 1:
+		return cell.X + cell.W
+	case 2:
+		return cell.Y + cell.H
+	}
+	return cell.X
+}
+
+// wobblyFrame is the rounded rectangle r, corners rad, its line swung swing
+// to either side of the edge about every wave DIPs, as points eight a wave,
+// clockwise from the top's left end; cuts are the indexes of the middles of
+// the corners, clockwise from the top right's. The bulges go round a whole
+// number of times, so the line meets itself smoothly; a slower second wave
+// makes them unequal, as a drawn line's are. roll moves them along the
+// edge, in radians of a wave.
+func wobblyFrame(r ui.Rect, rad, swing, wave float32, roll float64) (pts [][2]float32, cuts [4]int) {
+	rad = min(rad, r.W/2, r.H/2)
+	if rad < 0 {
+		return nil, cuts
+	}
+	sw, sh := float64(r.W-2*rad), float64(r.H-2*rad)
+	R := float64(rad)
+	arc := math.Pi / 2 * R
+	total := 2*(sw+sh) + 4*arc
+	if total <= 0 {
+		return nil, cuts
+	}
+	k := math.Max(3, math.Round(total/float64(wave)))
+	x0, y0 := float64(r.X), float64(r.Y)
+	// at is the point s along the edge and the outward normal there.
+	at := func(s float64) (x, y, nx, ny float64) {
+		corner := func(cx, cy, from float64) (float64, float64, float64, float64) {
+			a := from + s/R
+			return cx + R*math.Cos(a), cy + R*math.Sin(a), math.Cos(a), math.Sin(a)
+		}
+		if s < sw {
+			return x0 + R + s, y0, 0, -1
+		}
+		if s -= sw; s < arc {
+			return corner(x0+R+sw, y0+R, -math.Pi/2)
+		}
+		if s -= arc; s < sh {
+			return x0 + 2*R + sw, y0 + R + s, 1, 0
+		}
+		if s -= sh; s < arc {
+			return corner(x0+R+sw, y0+R+sh, 0)
+		}
+		if s -= arc; s < sw {
+			return x0 + R + sw - s, y0 + 2*R + sh, 0, 1
+		}
+		if s -= sw; s < arc {
+			return corner(x0+R, y0+R+sh, math.Pi/2)
+		}
+		if s -= arc; s < sh {
+			return x0, y0 + R + sh - s, -1, 0
+		}
+		s -= sh
+		return corner(x0+R, y0+R, math.Pi)
+	}
+	n := int(k) * 8
+	pts = make([][2]float32, n)
+	for i := range pts {
+		s := total * float64(i) / float64(n)
+		x, y, nx, ny := at(s)
+		t := 2 * math.Pi * s / total
+		d := float64(swing) * (.8*math.Sin(k*t+roll) + .2*math.Sin(math.Round(k/3)*t+1-roll/2))
+		pts[i] = [2]float32{float32(x + nx*d), float32(y + ny*d)}
+	}
+	for i, s := range [4]float64{sw + arc/2, sw + sh + arc*1.5, 2*sw + sh + arc*2.5, 2*sw + 2*sh + arc*3.5} {
+		cuts[i] = int(math.Round(s/total*float64(n))) % n
+	}
+	return pts, cuts
+}
+
+// The twisted lines between the cells: thin, bending less, their bulges
+// fixed to the board so that they stay put as the cells move.
+const (
+	lineSwing = 1.4
+	lineReach = lineSwing + 2 // how far past a cell's edge its line goes
+)
+
+// line draws the twisted lines of cell id, at box on a board w×h: its right
+// and bottom edges, unless they are the board's, so that each line between
+// two cells is drawn once.
+func (h *homeUI) line(c *ui.Context, p *pal, id string, box ui.Rect, w, hh float32) {
+	left, top := box.X < .5, box.Y < .5
+	right, bottom := box.X+box.W > w-.5, box.Y+box.H > hh-.5
+	if right && bottom {
+		return
+	}
+	if h.lines == nil {
+		h.lines = map[string]*linePaths{}
+	}
+	lp := h.lines[id]
+	if lp == nil {
+		lp = &linePaths{}
+		h.lines[id] = lp
+	}
+	m := float32(lineReach)
+	col := p.hair.Over(p.paper) // opaque, so that lines crossing don't darken
+	ui.Box(c.Key("line-"+id)).Absolute().Left(box.X-m).Top(box.Y-m).Size(box.W+2*m, box.H+2*m).
+		IgnoreInput(true).AccessHidden(true).Transition(ui.ElementTransition{Animation: &motion, Position: true, Size: true}).
+		Draw(func(pt *ui.Painter, r ui.Rect) {
+			cell := ui.Rect{X: r.X + m, Y: r.Y + m, W: r.W - 2*m, H: r.H - 2*m}
+			if cell != lp.cell {
+				lp.cell = cell
+				lp.path.Reset()
+				// The gaps' middles round the cell. A line ends where it meets
+				// the line across it, which bends about the gap too: both lines
+				// pass there, so they join. At the board's border it runs off.
+				lx, ty := cell.X-.5, cell.Y-.5
+				rx, by := cell.X+cell.W+.5, cell.Y+cell.H+.5
+				meet := func(x, y float32) [2]float32 { return [2]float32{x + lineBend(y), y + lineBend(x)} }
+				off := func(x, y float32, down bool) [2]float32 {
+					if down {
+						return [2]float32{x + lineBend(y), y}
+					}
+					return [2]float32{x, y + lineBend(x)}
+				}
+				if !right {
+					from, to := meet(rx, ty), meet(rx, by)
+					if top {
+						from = off(rx, cell.Y-m, true)
+					}
+					if bottom {
+						to = off(rx, cell.Y+cell.H+m, true)
+					}
+					wavyLine(&lp.path, rx, from, to, true)
+				}
+				if !bottom {
+					from, to := meet(lx, by), meet(rx, by)
+					if left {
+						from = off(cell.X-m, by, false)
+					}
+					if right {
+						to = off(cell.X+cell.W+m, by, false)
+					}
+					wavyLine(&lp.path, by, from, to, false)
+				}
+			}
+			pt.StrokePath(&lp.path, 1, col)
+		})
+}
+
+// linePaths are a cell's twisted lines, kept while it stays put.
+type linePaths struct {
+	cell ui.Rect
+	path ui.Path
+}
+
+// lineBend is how far a twisted line at t along the board's x (or y) bends
+// from its gap: the bulges are the board's, not the line's, so that a line
+// moved along keeps them where they were, and lines that cross meet.
+func lineBend(t float32) float32 {
+	u := 2 * math.Pi * float64(t) / wallWave
+	return lineSwing * float32(.8*math.Sin(u)+.2*math.Sin(u/3+1))
+}
+
+// wavyLine adds to path the twisted line of the gap at gap along the
+// board's y (or, down, its x), from a to b: across the board, or down it.
+func wavyLine(path *ui.Path, gap float32, a, b [2]float32, down bool) {
+	along := func(q [2]float32) float32 {
+		if down {
+			return q[1]
+		}
+		return q[0]
+	}
+	at := func(t float32) [2]float32 {
+		if down {
+			return [2]float32{gap + lineBend(t), t}
+		}
+		return [2]float32{t, gap + lineBend(t)}
+	}
+	pts := [][2]float32{a}
+	step := float32(wallWave) / 8
+	ta, tb := along(a), along(b)
+	for t := float32(math.Floor(float64(ta/step))+1) * step; t < tb-step/4; t += step {
+		pts = append(pts, at(t))
+	}
+	pts = append(pts, b)
+	path.MoveTo(pts[0][0], pts[0][1])
+	for i := 1; i < len(pts)-1; i++ {
+		path.QuadTo(pts[i][0], pts[i][1], (pts[i][0]+pts[i+1][0])/2, (pts[i][1]+pts[i+1][1])/2)
+	}
+	path.LineTo(b[0], b[1])
+}
+
 func (u *UI) viewOf(c *ui.Context, p *pal, id, v string, box ui.Rect) {
 	switch v {
 	case "normal":
@@ -456,7 +836,7 @@ func (u *UI) viewOf(c *ui.Context, p *pal, id, v string, box ui.Rect) {
 	case "compact":
 		u.compactView(c, p, id, variant(box))
 	default:
-		u.expandedView(c, p, id)
+		u.expandedView(c, p, id, box.W)
 	}
 }
 
@@ -479,16 +859,16 @@ func (u *UI) normalView(c *ui.Context, p *pal, id string) {
 	}
 }
 
-func (u *UI) expandedView(c *ui.Context, p *pal, id string) {
+func (u *UI) expandedView(c *ui.Context, p *pal, id string, w float32) {
 	switch id {
 	case "hero":
-		u.heroExpanded(c, p)
+		u.heroExpanded(c, p, w)
 	case "mode":
 		u.modeExpanded(c, p)
 	case "takeover":
 		u.takeoverExpanded(c, p)
 	case "routes":
-		u.routesExpanded(c, p)
+		u.routesExpanded(c, p, w)
 	case "speed":
 		u.speedExpanded(c, p)
 	case "apps":
@@ -528,7 +908,7 @@ func (u *UI) detailHead(c *ui.Context, p *pal, cell, label string, title func(),
 }
 
 func detailTitle(c *ui.Context, p *pal, s string) ui.Element {
-	return ui.Text(c, s).FontSize(22).FontWeight(700).TextColor(p.ink)
+	return disp(ui.Text(c, s), p).FontSize(22).FontWeight(700).TextColor(p.ink)
 }
 
 // ---- Compact summaries ----
@@ -555,7 +935,7 @@ func compact(c *ui.Context, p *pal, v, cell, label string, value func(size float
 			}
 		})
 		if sub != "" && (v == "column" || v == "wide") {
-			ui.Text(c, sub).FontSize(11.5).TextColor(p.mute)
+			ui.Text(c, sub).FontSize(11.5).TextColor(p.mute).MaxLines(2).Ellipsis("…")
 		}
 		if list != nil && (v == "column" || v == "wide") {
 			ui.Column(c).Gap(8).Margin(8, 0, 0, 0).Children(list)
@@ -583,9 +963,11 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 		compact(c, p, v, id, i18n.T("当前出口", "Current exit"), func(size float32) {
 			u.share(c, exitMatch{"default"}, "exit", func(c *ui.Context) ui.Element {
 				text := func() ui.Element {
-					t := ui.Text(c, val).FontSize(size).FontWeight(600).TextColor(p.ink).ContentTransition(morphText)
+					t := disp(ui.Text(c, val), p).FontSize(size).FontWeight(600).TextColor(p.ink).ContentTransition(morphText)
 					if v == "mini" || v == "strip" {
 						t.NoWrap()
+					} else {
+						t.MaxLines(2).Ellipsis("…").Tooltip(val)
 					}
 					return shimmer(t, u.pending("node:default"), p)
 				}
@@ -596,7 +978,7 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 			})
 		}, sub, func() {
 			if ok {
-				ui.Text(c, i18n.T("来自 ", "From ")+u.providerName(ex.Provider)).FontSize(12).TextColor(p.ink2)
+				ui.Text(c, i18n.T("来自 ", "From ")+u.providerName(ex.Provider)).FontSize(12).TextColor(p.ink2).MaxLines(1).Ellipsis("…")
 				mode := i18n.T("手动选择", "Manual")
 				if u.route("default").Auto {
 					mode = i18n.T("自动选最快", "Auto-pick fastest")
@@ -606,7 +988,7 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 		})
 	case "mode":
 		compact(c, p, v, id, i18n.T("模式", "Mode"), func(size float32) {
-			ui.Text(c, modeWord(s.Mode)).FontSize(size).FontWeight(600).TextColor(p.ink)
+			disp(ui.Text(c, modeWord(s.Mode)), p).FontSize(size).FontWeight(600).TextColor(p.ink)
 		}, modeNote(s.Mode), nil)
 	case "takeover":
 		names := u.entryNames()
@@ -619,9 +1001,11 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 			col, sub = p.signal, i18n.T("被其他程序改掉了", "Changed by another app")
 		}
 		compact(c, p, v, id, i18n.T("接管", "Takeover"), func(size float32) {
-			t := ui.Text(c, val).FontSize(size).FontWeight(600).TextColor(col)
+			t := dispIn(ui.Text(c, val), p, col).FontSize(size).FontWeight(600).TextColor(col)
 			if v == "mini" || v == "strip" {
 				t.NoWrap()
+			} else {
+				t.MaxLines(2).Ellipsis("…")
 			}
 			shimmer(t, u.pending("entry:sys") || u.pending("entry:tun"), p)
 		}, sub, func() {
@@ -631,6 +1015,10 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 				lan = i18n.T("允许", "Allowed")
 			}
 			ui.Text(c, i18n.T("局域网 ", "LAN ")+lan).FontSize(12).TextColor(p.ink2)
+			if s.Takeover.Gateway.Wanted {
+				_, st := u.gatewayStatus(p)
+				ui.Text(c, i18n.T("网关 · ", "Gateway · ")+st).FontSize(12).TextColor(p.ink2).MaxLines(2).Ellipsis("…")
+			}
 		})
 	case "routes":
 		var proxied []RouteView
@@ -681,7 +1069,7 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 	case "speed":
 		compact(c, p, v, id, i18n.T("此刻速度", "Speed now"), func(size float32) {
 			u.share(c, speedMatch{}, "speed", func(c *ui.Context) ui.Element {
-				return ui.Text(c, "↓ "+fmtRate(u.tick.Down)).FontSize(size).FontWeight(600).TextColor(p.ink).FontFeatures("tnum").NoWrap()
+				return disp(ui.Text(c, "↓ "+fmtRate(u.tick.Down)), p).FontSize(size).FontWeight(600).TextColor(p.ink).FontFeatures("tnum").NoWrap()
 			})
 		}, fmt.Sprintf(i18n.T("↑ %s · 今日 %s", "↑ %s · Today %s"), fmtRate(u.tick.Up), fmtBytes(u.tick.TodayDown)), nil)
 	case "apps":
@@ -693,7 +1081,7 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 		}
 		compact(c, p, v, id, i18n.T("谁在用", "Who's using it"), func(size float32) {
 			u.share(c, appMatch{top}, "app:"+top, func(c *ui.Context) ui.Element {
-				return ui.Text(c, top).FontSize(size).FontWeight(600).TextColor(p.ink).NoWrap()
+				return disp(ui.Text(c, top), p).FontSize(size).FontWeight(600).TextColor(p.ink).NoWrap()
 			})
 		}, sub, func() {
 			for i, a := range u.tick.Apps {
@@ -719,8 +1107,8 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 		}
 		compact(c, p, v, id, i18n.T("刚刚", "Just now"), func(size float32) {
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-				ui.Box(c).Size(7, 7).Radius(4).Background(p.good)
-				ui.Text(c, i18n.T("实时", "Live")).FontSize(size).FontWeight(600).TextColor(p.ink)
+				ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(p.good)
+				disp(ui.Text(c, i18n.T("实时", "Live")), p).FontSize(size).FontWeight(600).TextColor(p.ink)
 			})
 		}, "", func() {
 			for i, ev := range u.tick.Events {
@@ -753,6 +1141,10 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 	switching := u.pending("node:default")
 	col := pad(c, 24)
 	room := col.LayoutBounds().W - 52 // its padding
+	// A short cell (a window near its least height) keeps the note to one
+	// line, or the latency below rides up over it.
+	h := col.LayoutBounds().H
+	tight := h > 0 && h < 300
 	col.Children(func() {
 		label := i18n.T("当前出口 · 默认路由", "Current exit · Default route")
 		if s.Mode == "global" {
@@ -769,7 +1161,7 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 		size := heroSize(c, headline, room, ok)
 		u.share(c, exitMatch{"default"}, "exit", func(c *ui.Context) ui.Element {
 			text := func() ui.Element {
-				return shimmer(ui.Text(c, headline).FontSize(size).FontWeight(700).LetterSpacing(-.8*size/heroBig).TextColor(p.ink).
+				return shimmer(disp(ui.Text(c, headline), p).FontSize(size).FontWeight(700).LetterSpacing(-.8*size/heroBig).TextColor(p.ink).
 					MaxLines(2).ContentTransition(morphText), switching, p)
 			}
 			if ok {
@@ -784,21 +1176,27 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 				shimmer(ui.Text(c, i18n.T("正在切换并测速…", "Switching and testing…")).FontSize(13.5).TextColor(p.ink2), true, p)
 			case ok:
 				ui.Column(c).Gap(4).Children(func() {
-					ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-						ui.Text(c, placeName(ex)).FontSize(13.5).TextColor(p.ink2)
+					// One line: a long provider name ends in "…" rather than
+					// pushing the place and its tag into a column of letters.
+					ui.Row(c).Gap(6).AlignItems(ui.Center).MinWidth(0).Children(func() {
+						ui.Text(c, placeName(ex)).FontSize(13.5).TextColor(p.ink2).NoWrap().Shrink(0)
 						locTag(c, p, ex.Where.Source)
 						lead := "· "
 						if ex.Type != "" {
 							lead += ex.Type + " · "
 						}
 						ui.RichText(c, ui.Span{Text: lead + i18n.T("来自 ", "From "), Size: 13.5, Color: p.ink2},
-							ui.Span{Text: u.providerName(ex.Provider), Size: 13.5, Weight: 600, Color: p.ink})
+							ui.Span{Text: u.providerName(ex.Provider), Size: 13.5, Weight: 600, Color: p.ink}).
+							MaxLines(1).Ellipsis("…").Shrink(1).MinWidth(0).Tooltip(u.providerName(ex.Provider))
 					})
 					note := fmt.Sprintf(i18n.T("没命中其他规则的流量从这里出去，约占 %d%%。", "Traffic no other rule matches leaves through here, about %d%%."), int(u.route("default").Share*100+.5))
 					if s.Mode == "global" {
 						note = i18n.T("全局模式下，所有流量都从这里出去。", "In global mode, all traffic leaves through here.")
 					}
-					ui.Text(c, note).FontSize(13.5).TextColor(p.ink2)
+					t := ui.Text(c, note).FontSize(13.5).TextColor(p.ink2)
+					if tight {
+						t.MaxLines(1).Ellipsis("…").Tooltip(note)
+					}
 				})
 			case s.Mode == "direct":
 				ui.Text(c, i18n.T("直连模式：所有流量不经过任何节点，规则暂停。适合排查网络问题。", "Direct mode: no traffic goes through any node and rules are paused. Useful for troubleshooting the network.")).FontSize(13.5).TextColor(p.ink2)
@@ -815,18 +1213,20 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 					return
 				}
 				ui.Row(c).AlignItems(ui.Baseline).Gap(3).Children(func() {
-					d := fmt.Sprint(ex.Delay)
+					d, size := fmt.Sprint(ex.Delay), float32(38)
 					if ex.Delay <= 0 {
-						d = i18n.T("超时", "Timeout")
+						// A word, not a number: smaller, so that "タイムアウト"
+						// stays on one line beside the bars.
+						d, size = i18n.T("超时", "Timeout"), 26
 					}
-					ui.Text(c, d).FontSize(38).FontWeight(600).LetterSpacing(-1).FontFeatures("tnum").TextColor(delayColor(p, ex.Delay, ex.Tested)).ContentTransition(morphText)
+					disp(ui.Text(c, d), p).FontSize(size).NoWrap().FontWeight(600).LetterSpacing(-1).FontFeatures("tnum").TextColor(delayColor(p, ex.Delay, ex.Tested)).ContentTransition(morphText)
 					if ex.Delay > 0 {
 						ui.Text(c, "ms").FontSize(14).FontWeight(500).TextColor(p.mute)
 					}
 				})
 				if len(ex.History) > 0 {
 					ui.Column(c).Gap(4).Children(func() {
-						ui.Text(c, fmt.Sprintf(i18n.T("最近 %d 次测速", "Last %d tests"), len(ex.History))).FontSize(10.5).LetterSpacing(.6).TextColor(p.mute)
+						ui.Text(c, fmt.Sprintf(i18n.T("最近 %d 次测速", "Last %d tests"), len(ex.History))).FontSize(10.5).LetterSpacing(.6).TextColor(p.mute).NoWrap()
 						stabilityBars(c, p, ex.History, 5, 20)
 					})
 				}
@@ -879,7 +1279,7 @@ func heroSize(c *ui.Context, s string, room float32, flag bool) float32 {
 func (u *UI) heroOff(c *ui.Context, p *pal) {
 	ui.Column(c).Fill().Padding(0, 56).Justify(ui.Center).Children(func() {
 		kicker(c, p, "MOHO")
-		ui.Text(c, i18n.T("未接管", "Not taken over")).FontSize(64).FontWeight(700).LetterSpacing(-1.2).TextColor(p.ink).Margin(14, 0, 0, 0).
+		disp(ui.Text(c, i18n.T("未接管", "Not taken over")), p).FontSize(64).FontWeight(700).LetterSpacing(-1.2).TextColor(p.ink).Margin(14, 0, 0, 0).
 			Transition(fly(exitMatch{"default"})).ContentTransition(morphText)
 		ui.Text(c, i18n.T("所有应用都直接连接互联网，流量不经过 bowel。", "Every app connects to the internet directly; no traffic goes through bowel.")).FontSize(15).TextColor(p.ink2).Margin(12, 0, 0, 0)
 		ui.Column(c).Gap(10).Margin(34, 0, 0, 0).MaxWidth(360).Children(func() {
@@ -898,7 +1298,7 @@ func (u *UI) heroOff(c *ui.Context, p *pal) {
 
 func (u *UI) choice(c *ui.Context, p *pal, id, word, desc string) {
 	busy := u.pending("entry:" + id)
-	b := ui.ButtonBase(c.Key(id)).Column().AlignItems(ui.Start).Padding(14, 18).Radius(12).Border(1, p.hair).Gap(3)
+	b := ui.ButtonBase(c.Key(id)).Column().AlignItems(ui.Start).Padding(14, 18).Radius(p.r(12)).Border(1, p.hair).Gap(3)
 	if b.Hovered() || busy {
 		b.Border(1.5, p.ink).Background(p.card)
 	}
@@ -910,7 +1310,7 @@ func (u *UI) choice(c *ui.Context, p *pal, id, word, desc string) {
 			u.do(func() error { return u.app.setTun(true) })
 		}
 	}).Children(func() {
-		shimmer(ui.Text(c, word).FontSize(22).FontWeight(700).TextColor(p.ink).Opacity(flyAlpha()).Transition(fly(entryMatch{id})), busy, p)
+		shimmer(disp(ui.Text(c, word), p).FontSize(22).FontWeight(700).TextColor(p.ink).Opacity(flyAlpha()).Transition(fly(entryMatch{id})), busy, p)
 		if busy {
 			msg := i18n.T("正在接管…", "Taking over…")
 			if id == "tun" && u.snap.Takeover.Tun.Status == "install" {
@@ -943,7 +1343,7 @@ func stabilityBarsIn(c *ui.Context, p *pal, ink ui.Color, hist []int, w, h float
 	})
 }
 
-func (u *UI) heroExpanded(c *ui.Context, p *pal) {
+func (u *UI) heroExpanded(c *ui.Context, p *pal, w float32) {
 	ex, ok := u.exitNode()
 	u.detailHead(c, p, "hero", i18n.T("当前出口 · 默认路由 · 选择出口", "Current exit · Default route · Choose exit"), func() {
 		u.share(c, exitMatch{"default"}, "exit", func(c *ui.Context) ui.Element {
@@ -951,23 +1351,23 @@ func (u *UI) heroExpanded(c *ui.Context, p *pal) {
 				return detailTitle(c, p, i18n.T("选择出口", "Choose exit"))
 			}
 			return flagged(c, p, ex, 22, func() {
-				shimmer(detailTitle(c, p, ex.Display).ContentTransition(morphText), u.pending("node:default"), p)
+				shimmer(detailTitle(c, p, ex.Display).MaxLines(2).Ellipsis("…").Tooltip(ex.Display).ContentTransition(morphText), u.pending("node:default"), p)
 			})
 		})
 	}, func() { u.autoSeg(c, p, "default") })
-	u.nodePicker(c, p, "default")
+	u.nodePicker(c, p, "default", w)
 }
 
 // autoSeg chooses automatic or manual for a route.
 func (u *UI) autoSeg(c *ui.Context, p *pal, rid string) {
 	r := u.route(rid)
-	ui.Row(c).Padding(2).Radius(8).Background(p.hair2).Children(func() {
+	ui.Row(c).Padding(2).Radius(p.r(8)).Background(p.hair2).Children(func() {
 		for _, opt := range []struct {
 			label string
 			auto  bool
 		}{{i18n.T("自动", "Auto"), true}, {i18n.T("手动", "Manual"), false}} {
 			on := r.Auto == opt.auto
-			b := ui.ButtonBase(c.Key(fmt.Sprint(opt.auto))).Padding(3, 11).Radius(6)
+			b := ui.ButtonBase(c.Key(fmt.Sprint(opt.auto))).Padding(3, 11).Radius(p.r(6))
 			if on {
 				b.Background(p.card).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, .12))
 			}
@@ -986,8 +1386,46 @@ func (u *UI) autoSeg(c *ui.Context, p *pal, rid string) {
 	})
 }
 
+// The region bar's measures, shared by its layout and peekWidth's sums.
+const (
+	regionBarPad   = 16
+	regionBarGap   = 14
+	regionChipPadX = 10
+	regionChipGap  = 2
+	regionFlag     = 14
+	regionFlagGap  = 6
+	regionSearchW  = 180
+)
+
+// peekWidth is how wide a strip of items widths wide, gap apart, is in
+// avail DIPs. cut is false when they all fit. Otherwise the strip ends in
+// the middle of the last item whose first half fits, so that half shows.
+func peekWidth(widths []float32, gap, avail float32) (w float32, cut bool) {
+	var total float32
+	for i, iw := range widths {
+		if i > 0 {
+			total += gap
+		}
+		total += iw
+	}
+	// Too narrow for even half the first item: let the strip shrink.
+	if total <= avail || len(widths) == 0 || avail < widths[0]/2 {
+		return 0, false
+	}
+	var x float32
+	for _, iw := range widths {
+		if mid := x + iw/2; mid <= avail {
+			w = mid
+		} else {
+			break
+		}
+		x += iw + gap
+	}
+	return w, true
+}
+
 // nodePicker lists every node a route can use, fastest first.
-func (u *UI) nodePicker(c *ui.Context, p *pal, rid string) {
+func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 	h := &u.home
 	r := u.route(rid)
 	testing := u.pending("test:" + rid)
@@ -1002,43 +1440,72 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string) {
 		}
 	}
 	sort.Strings(order)
-	ui.Row(c).Gap(14).Padding(7, 16).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).AlignItems(ui.Center).Children(func() {
+	type region struct{ id, flag, label string }
+	regions := []region{{"", "-", i18n.T("全部", "All")}}
+	for _, cc := range order {
+		regions = append(regions, region{cc, countries[cc], cc})
+	}
+	regions = append(regions, region{"?", "", i18n.T("未知", "Unknown")})
+	label := i18n.T("全部测速", "Test all")
+	if testing {
+		label = i18n.T("测速中…", "Testing…")
+	}
+	// The bar's height leaves the chips 12 DIPs above and below, so the
+	// strip's scroll bar (3–9 DIPs up from its bottom) runs under them
+	// instead of across their labels.
+	ui.Row(c).Gap(regionBarGap).Padding(4, regionBarPad).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).AlignItems(ui.Center).Children(func() {
 		// Each region is a pill: the same round flag the node rows show,
 		// then its letters; the chosen one sits on a faint fill.
-		chip := func(id, flag, label string) {
-			on := h.region == id
-			b := ui.ButtonBase(c.Key("r"+id)).Row().AlignItems(ui.Center).Gap(6).Padding(4, 10).Radius(99)
+		chip := func(r region) {
+			on := h.region == r.id
+			b := ui.ButtonBase(c.Key("r"+r.id)).Row().AlignItems(ui.Center).Gap(regionFlagGap).Padding(4, regionChipPadX).Radius(p.r(99))
 			switch {
 			case on:
 				b.Background(p.hair2)
 			case b.Hovered():
 				b.Background(p.hover)
 			}
-			b.OnClick(func() { h.region = id }).Children(func() {
+			b.OnClick(func() { h.region = r.id }).Children(func() {
 				col, wgt := p.mute, 500
 				if on {
 					col, wgt = p.ink, 600
 				}
-				if flag != "-" {
-					flagBadge(c, p, flag, 14)
+				if r.flag != "-" {
+					flagBadge(c, p, r.flag, regionFlag)
 				}
-				ui.Text(c, label).FontSize(12).FontWeight(wgt).TextColor(col)
+				ui.Text(c, r.label).FontSize(12).FontWeight(wgt).TextColor(col).NoWrap()
 			})
 		}
-		ui.Row(c).Gap(2).AlignItems(ui.Center).Children(func() {
-			chip("", "-", i18n.T("全部", "All"))
-			for _, cc := range order {
-				chip(cc, countries[cc], cc)
+		// Many regions scroll sideways, so the search and 全部测速 stay.
+		// When they overflow, the strip ends halfway through a chip: the
+		// cut-off half says there is more to scroll to, where a strip that
+		// happened to end between two chips would look complete.
+		widths := make([]float32, len(regions))
+		for i, r := range regions {
+			wgt := 500
+			if h.region == r.id {
+				wgt = 600
 			}
-			chip("?", "", i18n.T("未知", "Unknown"))
+			tw, _ := c.MeasureText(0, ui.Span{Text: r.label, Size: 12, Weight: wgt})
+			widths[i] = 2*regionChipPadX + tw
+			if r.flag != "-" {
+				widths[i] += regionFlag + regionFlagGap
+			}
+		}
+		bw, _ := c.MeasureText(0, ui.Span{Text: label, Size: 12, Weight: 500})
+		avail := w - 2*regionBarPad - 3*regionBarGap - regionSearchW - (bw + 2*11 + 2)
+		strip := ui.ScrollHorizontal(c.Key("regions")).Gap(regionChipGap).Padding(12, 0).AlignItems(ui.Center).Shrink(1).MinWidth(0)
+		if sw, cut := peekWidth(widths, regionChipGap, avail); cut {
+			strip.Width(sw)
+		}
+		strip.Children(func() {
+			for _, r := range regions {
+				chip(r)
+			}
 		})
 		ui.Spacer(c)
-		ui.SearchField(c.Key("q"), &h.query).Placeholder(i18n.T("搜索节点", "Search nodes")).Width(180)
-		label := i18n.T("全部测速", "Test all")
-		if testing {
-			label = i18n.T("测速中…", "Testing…")
-		}
-		b := btn(c, p, label).Disabled(testing)
+		ui.SearchField(c.Key("q"), &h.query).Placeholder(i18n.T("搜索节点", "Search nodes")).Width(regionSearchW).Shrink(0)
+		b := btn(c, p, label).Disabled(testing).Shrink(0)
 		b.OnClick(func() { u.do(func() error { return u.app.testRoute(bg(), rid) }) })
 	})
 	if r.Auto {
@@ -1084,21 +1551,24 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string) {
 			if on {
 				ui.Box(c).Absolute().Left(0).Top(0).Bottom(0).Width(2).Background(p.ink)
 			}
-			ui.Box(c).Width(22).Children(func() { flagBadge(c, p, nodeFlag(n), 12) })
-			ui.Column(c).Grow(1).Gap(2).Children(func() {
-				shimmer(ui.Text(c, n.Display).FontSize(13).FontWeight(600).TextColor(ink).NoWrap(), sw, p)
-				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, placeName(n)).FontSize(11).TextColor(sub)
+			ui.Box(c).Width(22).Shrink(0).Children(func() { flagBadge(c, p, nodeFlag(n), 12) })
+			// The name and its line give way to the delay: a long name ends
+			// in "…" (its tooltip has it whole) instead of pushing the delay
+			// past the sheet's edge.
+			ui.Column(c).Grow(1).Shrink(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
+				shimmer(ui.Text(c, n.Display).FontSize(13).FontWeight(600).TextColor(ink).MaxLines(1).Ellipsis("…").Tooltip(n.Display), sw, p)
+				ui.Row(c).Gap(6).AlignItems(ui.Center).MinWidth(0).Children(func() {
+					ui.Text(c, placeName(n)).FontSize(11).TextColor(sub).NoWrap().Shrink(0)
 					locTag(c, p, n.Where.Source)
-					ui.Text(c, "· "+n.Type+" · "+u.providerName(n.Provider)).FontSize(11).TextColor(sub).NoWrap()
+					ui.Text(c, "· "+n.Type+" · "+u.providerName(n.Provider)).FontSize(11).TextColor(sub).MaxLines(1).Ellipsis("…").Shrink(1).MinWidth(0)
 				})
 			})
 			if testing {
-				ui.Box(c).Size(80, 12).Radius(3).Background(sub.Alpha(.2))
+				ui.Box(c).Size(80, 12).Radius(p.r(3)).Background(sub.Alpha(.2)).Shrink(0)
 			} else {
-				stabilityBarsIn(c, p, ink.Alpha(.7), n.History, 3, 14)
+				stabilityBarsIn(c, p, ink.Alpha(.7), n.History, 3, 14).Shrink(0)
 			}
-			ui.Text(c, fmtDelay(n)).FontSize(12).FontFeatures("tnum").Width(58).TextAlign(ui.End).TextColor(delayColor(p, n.Delay, n.Tested))
+			ui.Text(c, fmtDelay(n)).FontSize(12).FontFeatures("tnum").Width(58).Shrink(0).NoWrap().TextAlign(ui.End).TextColor(delayColor(p, n.Delay, n.Tested))
 			mark := ""
 			if on {
 				mark = "✓"
@@ -1106,7 +1576,7 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string) {
 					mark = "◆"
 				}
 			}
-			ui.Text(c, mark).FontSize(12).Width(14).TextColor(ink)
+			ui.Text(c, mark).FontSize(12).Width(14).Shrink(0).TextColor(ink)
 		})
 	}).Grow(1)
 }
@@ -1151,9 +1621,25 @@ func modeNote(m string) string {
 
 func (u *UI) modeNormal(c *ui.Context, p *pal) {
 	s := u.snap
-	pad(c, 16).Children(func() {
+	col := pad(c, 16)
+	// The three words stay on one line: wider than the cell (as with
+	// "直接接続"), they get smaller; wrapping is the last resort.
+	size, room := float32(25), col.LayoutBounds().W-52
+	if room > 0 {
+		for ; size > 17; size-- {
+			w := float32(18 * 2)
+			for _, m := range []string{"rule", "global", "direct"} {
+				mw, _ := c.MeasureText(0, ui.Span{Text: modeWord(m), Size: size, Weight: 600})
+				w += mw
+			}
+			if w <= room {
+				break
+			}
+		}
+	}
+	col.Children(func() {
 		cellKicker(c, p, "mode", i18n.T("模式", "Mode"))
-		ui.Row(c).Gap(18).Margin(10, 0, 0, 0).AlignItems(ui.Baseline).Children(func() {
+		ui.Row(c).Wrap().GapX(18).GapY(4).Margin(10, 0, 0, 0).AlignItems(ui.Baseline).Children(func() {
 			for _, m := range []string{"rule", "global", "direct"} {
 				on := s.Mode == m
 				b := ui.ButtonBase(c.Key(m)).OnClick(func() {
@@ -1168,7 +1654,7 @@ func (u *UI) modeNormal(c *ui.Context, p *pal) {
 					} else if b.Hovered() {
 						col = p.ink2
 					}
-					shimmer(ui.Text(c, modeWord(m)).FontSize(25).FontWeight(600).TextColor(col).
+					shimmer(dispIn(ui.Text(c, modeWord(m)), p, col).FontSize(size).FontWeight(600).TextColor(col).
 						Transition(ui.ElementTransition{Colors: true, Duration: 160 * time.Millisecond}), on && u.pending("mode"), p)
 					if on {
 						// The underline is one element that flies from word to word.
@@ -1184,7 +1670,7 @@ func (u *UI) modeNormal(c *ui.Context, p *pal) {
 			"global": i18n.T("所有流量都走当前出口，规则暂不生效。", "All traffic goes through the current exit; rules are paused."),
 			"direct": i18n.T("所有流量直接连接，不经过任何节点。", "All traffic connects directly, through no node."),
 		}[s.Mode]
-		ui.Text(c, note).FontSize(12).TextColor(p.mute).Margin(12, 0, 0, 0)
+		ui.Text(c, note).FontSize(12).TextColor(p.mute).Margin(12, 0, 0, 0).MaxLines(2).Ellipsis("…").Tooltip(note)
 	})
 }
 
@@ -1233,7 +1719,7 @@ func (u *UI) modeExpanded(c *ui.Context, p *pal) {
 func section(c *ui.Context, p *pal, title, sub string, content func(), control func()) {
 	ui.Row(c).Gap(18).Padding(14, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).AlignItems(ui.Start).Children(func() {
 		ui.Column(c).Width(180).Gap(3).Children(func() {
-			ui.Text(c, title).FontSize(18).FontWeight(700).TextColor(p.ink)
+			disp(ui.Text(c, title), p).FontSize(18).FontWeight(700).TextColor(p.ink)
 			if sub != "" {
 				ui.Text(c, sub).FontSize(11.5).TextColor(p.mute)
 			}
@@ -1256,6 +1742,9 @@ func (u *UI) entryNames() []string {
 		if t.Tun.Wanted {
 			names = append(names, "TUN")
 		}
+		if t.Gateway.Wanted {
+			names = append(names, i18n.T("网关", "Gateway"))
+		}
 	}
 	return names
 }
@@ -1267,6 +1756,32 @@ func (u *UI) takeoverNormal(c *ui.Context, p *pal) {
 			u.entryWord(c, p, "sys", i18n.T("系统代理", "System proxy"), u.snap.Takeover.System)
 			ui.Box(c).Height(1).BorderStyle(ui.BorderDashed).BorderWidth(1, 0, 0, 0).BorderColor(p.hair)
 			u.entryWord(c, p, "tun", "TUN", u.snap.Takeover.Tun)
+			if u.snap.Takeover.Gateway.Wanted {
+				ui.Box(c).Height(1).BorderStyle(ui.BorderDashed).BorderWidth(1, 0, 0, 0).BorderColor(p.hair)
+				u.gatewayWord(c, p)
+			}
+		})
+	})
+}
+
+// gatewayWord is the gateway's line on the board, under the entries. Not
+// a switch: a click opens the takeover, where its guide is.
+func (u *UI) gatewayWord(c *ui.Context, p *pal) {
+	t := u.snap.Takeover
+	ui.Row(c).Wrap().Justify(ui.Start).Padding(6, 0).GapX(12).GapY(2).AlignItems(ui.Baseline).Children(func() {
+		col := p.faint
+		if t.On {
+			col = p.ink
+		}
+		dispIn(ui.Text(c, i18n.T("网关", "Gateway")), p, col).FontSize(20).FontWeight(600).TextColor(col).NoWrap().Shrink(0).Grow(1)
+		dot, text := u.gatewayStatus(p)
+		ui.Row(c).Gap(6).Shrink(1).MinWidth(0).AlignItems(ui.Center).Children(func() {
+			ui.Box(c).Size(6, 6).Radius(p.r(3)).Background(dot).Shrink(0)
+			tcol := p.mute
+			if dot == p.signal {
+				tcol = p.signal
+			}
+			ui.Text(c, text).FontSize(11.5).TextColor(tcol).Shrink(1).MinWidth(0).MaxLines(1).Ellipsis("…")
 		})
 	})
 }
@@ -1290,7 +1805,7 @@ func (u *UI) entryWord(c *ui.Context, p *pal, id, word string, e Entry) {
 		// The word keeps its single line. When the status doesn't fit beside
 		// it (long English labels in a narrow window) the row wraps and the
 		// status drops under the word instead of splitting it.
-		shimmer(ui.Text(c, word).FontSize(20).FontWeight(600).TextColor(col).NoWrap().Shrink(0).Grow(1).Opacity(flyAlpha()).Transition(fly(entryMatch{id})), busy, p)
+		shimmer(dispIn(ui.Text(c, word), p, col).FontSize(20).FontWeight(600).TextColor(col).NoWrap().Shrink(0).Grow(1).Opacity(flyAlpha()).Transition(fly(entryMatch{id})), busy, p)
 		dot, text, tcol := p.faint, i18n.T("未使用", "Not in use"), p.mute
 		switch {
 		case busy:
@@ -1307,7 +1822,7 @@ func (u *UI) entryWord(c *ui.Context, p *pal, id, word string, e Entry) {
 			text = i18n.T("未使用 · 首次需要授权", "Not in use · Needs approval once")
 		}
 		ui.Row(c).Gap(6).Shrink(1).MinWidth(0).AlignItems(ui.Center).Children(func() {
-			ui.Box(c).Size(6, 6).Radius(3).Background(dot).Shrink(0)
+			ui.Box(c).Size(6, 6).Radius(p.r(3)).Background(dot).Shrink(0)
 			shimmer(ui.Text(c, text).FontSize(11.5).TextColor(tcol).Shrink(1).MinWidth(0), busy, p)
 		})
 	})
@@ -1376,6 +1891,27 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 				u.do(func() error { return u.app.setLan(on) })
 			}
 		})
+		section(c, p, i18n.T("网关", "Gateway"), i18n.T("局域网里的其他设备，把这台 Mac 当网关", "Other devices on the LAN, through this Mac as their gateway"), func() {
+			_, status := u.gatewayStatus(p)
+			addr := i18n.T("没有局域网地址", "No LAN address")
+			if g := t.Gateway; g.IP != "" {
+				link := i18n.T("有线", "Wired")
+				if g.WiFi {
+					link = "Wi‑Fi"
+				}
+				addr = fmt.Sprintf("%s · %s %s", g.IP, g.Iface, link)
+			}
+			rows := [][2]string{{i18n.T("状态", "Status"), status}}
+			if t.Gateway.Wanted {
+				rows = append(rows, [2]string{i18n.T("本机地址", "This Mac"), addr})
+			} else {
+				rows = append(rows, [2]string{i18n.T("作用", "What it does"), gatewayDesc()})
+			}
+			kv(c, p, rows)
+			if u.gatewayShownOn() {
+				ui.Column(c).Margin(12, 0, 0, 0).Children(func() { u.gatewayGuide(c, p, u.toast) })
+			}
+		}, func() { u.gatewaySwitch(c, "gateway", u.toast) })
 	})
 }
 
@@ -1445,7 +1981,7 @@ func (u *UI) routeRow(c *ui.Context, p *pal, r RouteView) {
 	})
 }
 
-func (u *UI) routesExpanded(c *ui.Context, p *pal) {
+func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 	h := &u.home
 	if h.sub != "" {
 		r := u.route(h.sub)
@@ -1454,7 +1990,7 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal) {
 				iconBtn(c.Key("back"), p, "‹", 22, i18n.T("返回路由", "Back to routes")).Margin(0, -6, 0, -10).OnClick(func() { h.sub = "" })
 				swatch(c, p.routeColor(r.ID), 10)
 				u.share(c, routeNameMatch{r.ID}, "route:"+r.ID, func(c *ui.Context) ui.Element {
-					return ui.Text(c, r.Name).FontSize(22).FontWeight(700).TextColor(p.ink)
+					return disp(ui.Text(c, r.Name), p).FontSize(22).FontWeight(700).TextColor(p.ink).NoWrap().Shrink(0)
 				})
 				ui.Text(c, "→").FontSize(18).TextColor(p.faint)
 				n, ok := u.node(r.Node)
@@ -1463,19 +1999,22 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal) {
 						return detailTitle(c, p, "—")
 					}
 					return flagged(c, p, n, 22, func() {
-						shimmer(detailTitle(c, p, n.Display).ContentTransition(morphText), u.pending("node:"+r.ID), p)
+						// Two lines at most: a long name must leave the list its room.
+						shimmer(detailTitle(c, p, n.Display).MaxLines(2).Ellipsis("…").Tooltip(n.Display).ContentTransition(morphText), u.pending("node:"+r.ID), p)
 					})
 				})
 			})
 		}, func() { u.autoSeg(c, p, r.ID) })
-		u.nodePicker(c, p, r.ID)
+		u.nodePicker(c, p, r.ID, w)
 		return
 	}
-	u.detailHead(c, p, "routes", i18n.T("路由", "Route"), func() { detailTitle(c, p, i18n.T("每类流量走哪里", "Where each kind of traffic goes")) }, nil)
+	u.detailHead(c, p, "routes", i18n.T("路由", "Route"), func() { detailTitle(c, p, i18n.T("每类流量走哪里", "Where each kind of traffic goes")) }, func() {
+		btn(c.Key("rules"), p, i18n.T("管理规则", "Manage rules")).OnClick(u.openRules)
+	})
 	ui.Scroll(c).Grow(1).Padding(4, 16, 18, 16).Children(func() {
 		for _, r := range u.snap.Routes {
 			rid := r.ID
-			b := ui.ButtonBase(c.Key(rid)).Row().Gap(16).Padding(12, 10).AlignItems(ui.Center).Radius(8).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2)
+			b := ui.ButtonBase(c.Key(rid)).Row().Gap(16).Padding(12, 10).AlignItems(ui.Center).Radius(p.r(8)).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2)
 			if !r.Direct {
 				b.OnClick(func() { h.sub, h.query, h.region = rid, "", "" })
 				if b.Hovered() {
@@ -1492,7 +2031,11 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal) {
 							return ui.Text(c, r.Name).FontSize(16).FontWeight(700).TextColor(p.ink).NoWrap()
 						})
 					})
-					ui.Text(c, fmt.Sprintf(i18n.T("%[1]d 条规则 · %[3]s", "%d %s · %s"), r.Rules, rulesWord(r.Rules), r.Summary)).
+					summary := r.Summary
+					if r.Mine > 0 {
+						summary = fmt.Sprintf(i18n.T("含你加的 %d 条 · %s", "%d of them yours · %s"), r.Mine, summary)
+					}
+					ui.Text(c, fmt.Sprintf(i18n.T("%[1]d 条规则 · %[3]s", "%d %s · %s"), r.Rules, rulesWord(r.Rules), summary)).
 						FontSize(12).TextColor(p.mute).SingleLine().Shrink(1).Margin(0, 0, 0, 22)
 				})
 				name := i18n.T("直接连接", "Direct")
@@ -1559,7 +2102,7 @@ func speedLine(c *ui.Context, p *pal, t Tick) ui.Element {
 		dv, du := splitRate(t.Down)
 		uv, uu := splitRate(t.Up)
 		ui.Row(c).AlignItems(ui.Baseline).Gap(3).Children(func() {
-			ui.Text(c, "↓ "+dv).FontSize(23).FontWeight(600).FontFeatures("tnum").TextColor(p.ink)
+			disp(ui.Text(c, "↓ "+dv), p).FontSize(23).FontWeight(600).FontFeatures("tnum").TextColor(p.ink)
 			ui.Text(c, du).FontSize(11.5).TextColor(p.mute)
 		})
 		ui.Row(c).AlignItems(ui.Baseline).Gap(3).Children(func() {
@@ -1619,8 +2162,8 @@ func (u *UI) speedExpanded(c *ui.Context, p *pal) {
 			ui.Row(c).Gap(14).Padding(10, 0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 				swatch(c, p.routeColor(r.ID), 10)
 				ui.Text(c, r.Name).FontSize(14).FontWeight(700).TextColor(p.ink).Width(90)
-				ui.Box(c).Grow(1).Height(4).Radius(2).Background(p.hair).Children(func() {
-					ui.Box(c).WidthPercent(float32(r.Share * 100)).FillHeight().Radius(2).Background(p.routeColor(r.ID))
+				ui.Box(c).Grow(1).Height(4).Radius(p.r(2)).Background(p.hair).Children(func() {
+					ui.Box(c).WidthPercent(float32(r.Share * 100)).FillHeight().Radius(p.r(2)).Background(p.routeColor(r.ID))
 				})
 				ui.Text(c, "↓ "+fmtRate(t.ByRoute[r.ID])).FontSize(12).FontFeatures("tnum").TextColor(p.ink).Width(100)
 				ui.Text(c, fmt.Sprintf(i18n.T("今日 %d%%", "Today %d%%"), int(r.Share*100+.5))).FontSize(12).TextColor(p.mute).Width(70)
@@ -1651,14 +2194,15 @@ func (u *UI) appsNormal(c *ui.Context, p *pal) {
 				ui.Row(c.Key(a.App)).Gap(10).AlignItems(ui.Center).Transition(ui.ElementTransition{Animation: &motion}).Children(func() {
 					ui.Row(c).Gap(6).Grow(1).Shrink(1).MinWidth(0).Children(func() {
 						u.share(c, appMatch{a.App}, "app:"+a.App, func(c *ui.Context) ui.Element {
-							return ui.Text(c, a.App).FontSize(12).TextColor(p.ink).NoWrap()
+							// At most most of the room, so the host still shows.
+							return ui.Text(c, a.App).FontSize(12).TextColor(p.ink).MaxLines(1).Ellipsis("…").Shrink(0).MaxWidth(110)
 						})
 						ui.Text(c, a.Host).FontSize(12).TextColor(p.mute).MaxLines(1).Ellipsis("…").Shrink(1).MinWidth(0)
 					})
-					ui.Box(c).Width(64).Height(3).Radius(2).Background(p.hair).Children(func() {
-						ui.Box(c).WidthPercent(float32(a.Down) / float32(peak) * 100).FillHeight().Radius(2).Background(p.routeColor(a.Route))
+					ui.Box(c).Width(64).Height(3).Radius(p.r(2)).Background(p.hair).Shrink(0).Children(func() {
+						ui.Box(c).WidthPercent(float32(a.Down) / float32(peak) * 100).FillHeight().Radius(p.r(2)).Background(p.routeColor(a.Route))
 					})
-					ui.Text(c, fmtRate(a.Down)).FontSize(12).FontFeatures("tnum").TextColor(p.ink2).Width(70).TextAlign(ui.End)
+					ui.Text(c, fmtRate(a.Down)).FontSize(12).FontFeatures("tnum").TextColor(p.ink2).Width(70).Shrink(0).NoWrap().TextAlign(ui.End)
 				})
 			}
 		})
@@ -1681,22 +2225,22 @@ func (u *UI) appsExpanded(c *ui.Context, p *pal) {
 	ui.Scroll(c).Grow(1).Padding(4, 26, 18, 26).Children(func() {
 		for _, a := range apps {
 			app := a.App
-			b := ui.ButtonBase(c.Key(app)).Row().Gap(14).Padding(11, 6).AlignItems(ui.Center).Radius(6).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).
+			b := ui.ButtonBase(c.Key(app)).Row().Gap(14).Padding(11, 6).AlignItems(ui.Center).Radius(p.r(6)).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).
 				OnClick(func() { u.act.filterApp(app); u.page = "activity" })
 			if b.Hovered() {
 				b.Background(p.hover)
 			}
 			b.Children(func() {
 				u.share(c, appMatch{app}, "app:"+app, func(c *ui.Context) ui.Element {
-					return ui.Text(c, app).FontSize(15).FontWeight(700).TextColor(p.ink).Width(160).NoWrap()
+					return ui.Text(c, app).FontSize(15).FontWeight(700).TextColor(p.ink).Width(160).Shrink(0).MaxLines(1).Ellipsis("…").Tooltip(app)
 				})
-				ui.Text(c, a.Host).FontSize(12).TextColor(p.mute).Grow(1).NoWrap()
-				ui.Box(c).Width(140).Height(3).Radius(2).Background(p.hair).Children(func() {
-					ui.Box(c).WidthPercent(float32(a.Down) / float32(peak) * 100).FillHeight().Radius(2).Background(p.routeColor(a.Route))
+				ui.Text(c, a.Host).FontSize(12).TextColor(p.mute).Grow(1).Shrink(1).Basis(0).MinWidth(0).MaxLines(1).Ellipsis("…")
+				ui.Box(c).Width(140).Height(3).Radius(p.r(2)).Background(p.hair).Shrink(0).Children(func() {
+					ui.Box(c).WidthPercent(float32(a.Down) / float32(peak) * 100).FillHeight().Radius(p.r(2)).Background(p.routeColor(a.Route))
 				})
-				ui.Text(c, fmtRate(a.Down)).FontSize(12).FontFeatures("tnum").TextColor(p.ink).Width(90).TextAlign(ui.End)
-				ui.Text(c, fmt.Sprintf(i18n.T("%d 连接", "%d conns"), a.Conns)).FontSize(12).TextColor(p.mute).Width(60)
-				ui.Text(c, "›").FontSize(13).TextColor(p.mute)
+				ui.Text(c, fmtRate(a.Down)).FontSize(12).FontFeatures("tnum").TextColor(p.ink).Width(90).Shrink(0).NoWrap().TextAlign(ui.End)
+				ui.Text(c, fmt.Sprintf(i18n.T("%d 连接", "%d conns"), a.Conns)).FontSize(12).TextColor(p.mute).MinWidth(60).Shrink(0).NoWrap()
+				ui.Text(c, "›").FontSize(13).TextColor(p.mute).Shrink(0)
 			})
 		}
 		if len(apps) == 0 {

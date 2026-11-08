@@ -439,3 +439,46 @@ func TestRouteBackTarget(t *testing.T) {
 		t.Fatalf("Escape in the route list left x %q", u.home.x)
 	}
 }
+
+// TestInactiveWindowFades: the main window's chosen tab is the accent
+// while the window has the user's input, a gray with ink on it while
+// another window has it, and the accent again when it comes back.
+func TestInactiveWindowFades(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		u := fixtureUI()
+		tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: dark})
+		suffix := map[bool]string{false: "", true: "-dark"}[dark]
+		tt.Advance(time.Second)
+		r, ok := tt.Find("代理")
+		if !ok {
+			t.Fatalf("no 代理 tab among %q", tt.Texts())
+		}
+		tab := func() ui.Color {
+			img := tt.Image()
+			s := float32(img.Bounds().Dx()) / 1060
+			c := img.RGBAAt(int((r.X-8)*s), int((r.Y+r.H/2)*s))
+			return ui.RGBA(c.R, c.G, c.B, 1)
+		}
+		p := &lightPal
+		if dark {
+			p = &darkPal
+		}
+		near := func(a, b ui.Color) bool {
+			d := func(x, y uint8) int { return max(int(x)-int(y), int(y)-int(x)) }
+			return d(a.R, b.R)+d(a.G, b.G)+d(a.B, b.B) < 12
+		}
+		if c := tab(); !near(c, p.accent) {
+			t.Errorf("dark %v: active tab %v, not the accent %v", dark, c, p.accent)
+		}
+		tt.SetWindowActive(false)
+		gray := p.paper.Mix(p.ink, inactiveMix(p))
+		if c := tab(); !near(c, gray) {
+			t.Errorf("dark %v: inactive tab %v, not the gray %v", dark, c, gray)
+		}
+		shot(t, tt, "home-inactive"+suffix)
+		tt.SetWindowActive(true)
+		if c := tab(); !near(c, p.accent) {
+			t.Errorf("dark %v: tab %v after coming back, not the accent %v", dark, c, p.accent)
+		}
+	}
+}

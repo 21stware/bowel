@@ -1,9 +1,12 @@
 package main
 
 import (
+	"image"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
 	"github.com/oboo/moho/internal/qr"
@@ -83,5 +86,48 @@ func TestProviderScanMenu(t *testing.T) {
 	tt.Advance(time.Second)
 	if u.prov.input == "" || !tt.HasText("节点链接") {
 		t.Errorf("add bar after a read: %q %q", u.prov.input, tt.Texts())
+	}
+}
+
+// TestScreenSpots puts codes read off the screen's captures on their
+// displays, in DIPs: a Retina capture is twice its display, and a capture
+// whose shape is not that of the display at its index goes to the one it
+// matches.
+func TestScreenSpots(t *testing.T) {
+	displays := []mygo.Display{
+		{Bounds: mygo.Rectangle{X: 0, Y: 0, Width: 1512, Height: 982}, ScaleFactor: 2},
+		{Bounds: mygo.Rectangle{X: -1080, Y: -400, Width: 1080, Height: 1920}, ScaleFactor: 1}, // portrait
+		{Bounds: mygo.Rectangle{X: 1512, Y: 0, Width: 2560, Height: 1440}, ScaleFactor: 1},
+	}
+	codes := []qr.ScreenCode{
+		{Code: qr.Code{Text: "a", Rect: image.Rect(200, 100, 600, 500)}, Display: 0, Size: image.Pt(3024, 1964)},
+		// The second capture is the 2560×1440 display, not the portrait one.
+		{Code: qr.Code{Text: "b", Rect: image.Rect(10, 20, 110, 120)}, Display: 1, Size: image.Pt(2560, 1440)},
+		{Code: qr.Code{Text: "c", Rect: image.Rect(1000, 20, 1100, 120)}, Display: 1, Size: image.Pt(2560, 1440)},
+		{Code: qr.Code{Text: "d", Rect: image.Rect(0, 0, 50, 50)}, Display: 5, Size: image.Pt(800, 600)}, // no such display
+	}
+	got := screenSpots(codes, displays)
+	want := []qrSpots{
+		{Display: displays[0].Bounds, Rects: []mygo.Rectangle{{X: 100, Y: 50, Width: 200, Height: 200}}},
+		{Display: displays[2].Bounds, Rects: []mygo.Rectangle{{X: 10, Y: 20, Width: 100, Height: 100}, {X: 1000, Y: 20, Width: 100, Height: 100}}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("screenSpots =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+// TestQRHintView frames a code with what became of it.
+func TestQRHintView(t *testing.T) {
+	u := providersUIFixture()
+	for _, c := range []struct {
+		ok   bool
+		word string
+	}{{true, "已读取这个二维码"}, {false, "读到了，但不是节点二维码"}} {
+		h := &qrHint{spots: qrSpots{Display: mygo.Rectangle{Width: 1200, Height: 800}, Rects: []mygo.Rectangle{{X: 500, Y: 20, Width: 200, Height: 200}}}, ok: c.ok, shown: true}
+		tt := ui.NewTesterWith(func(cx *ui.Context) { u.qrHintView(cx, h) }, 1200, 800, ui.TesterOptions{})
+		tt.Advance(time.Second)
+		if !tt.HasText(c.word) {
+			t.Errorf("ok=%v: no %q", c.ok, c.word)
+		}
 	}
 }

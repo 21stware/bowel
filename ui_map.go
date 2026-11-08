@@ -104,6 +104,9 @@ var land = func() func(row, col int) bool {
 	}
 }()
 
+// mapFlowPeriod is how long, in milliseconds, a comet takes along its arc.
+const mapFlowPeriod = 3400
+
 // landDots calls dot at every pitch DIPs of r where there is land: the
 // same density however far the map is zoomed, a sketch of where the
 // places are, not a chart of the coasts. One dot is at (ax, ay), where a
@@ -300,6 +303,20 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 	aspect := float64(box.W * span / max(box.H, 1))
 	fitted := fit(places, around, aspect)
 	fitted.span = span
+	// The caption takes the top 50 DIPs of a cell's map: a short one
+	// zooms out until the places, and their labels, sit under it.
+	if v != "expanded" && box.W >= 300 && box.H >= 170 && len(places) > 0 {
+		north := places[0].Lat
+		for _, pl := range places {
+			north = math.Max(north, pl.Lat)
+		}
+		g := float64(50 / box.H)
+		if lat1 := (north - g*fitted.lat0) / (1 - g); lat1 > fitted.lat1 {
+			grow := (fitted.lon1 - fitted.lon0) * ((lat1-fitted.lat0)/(fitted.lat1-fitted.lat0) - 1) / 2
+			fitted.lat1 = lat1
+			fitted.lon0, fitted.lon1 = fitted.lon0-grow, fitted.lon1+grow
+		}
+	}
 
 	h := &u.home
 	e := ui.Box(c.Key("map")).Fill()
@@ -382,15 +399,18 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 	if you != nil {
 		anchorX, anchorY = yx, yy
 	}
-	phase := float32(0)
-	if on {
-		phase = e.Loop("flow", 3400*time.Millisecond, ui.Linear)
-	}
 	small := box.W < 300 || box.H < 170
 	grid := e.AnimateTo("grid", map[bool]float32{true: .6, false: .25}[on], ease)
 
 	e.Draw(func(pt *ui.Painter, r ui.Rect) {
 		at := func(x, y float32) (float32, float32) { return r.X + x*r.W, r.Y + y*r.H }
+		// What moves on its own, the comets and the pulse around you, moves
+		// with the frame's time and asks for frames that only paint: a
+		// frame that builds the view again would build the whole window,
+		// many times a second, for a few dots.
+		now := pt.Now().UnixMilli()
+		phase := float32(now%mapFlowPeriod) / mapFlowPeriod
+		comets := false
 		// Land, as dots: one small square each, on whole pixels (a dot
 		// between them blurs to nothing; a path of thousands loses some).
 		const d = 2
@@ -433,6 +453,7 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 			}
 			// Comets: data on the move, two to an arc, a little quicker in
 			// the middle of the way than at its ends.
+			comets = true
 			along, length := alongQuad(x0, y0, cx, cy, x1, y1)
 			cw := max(w*.9, 2)
 			for k := 0; k < 2; k++ {
@@ -479,7 +500,7 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 				ring.Circle(tx, ty, 9).Dash(0, 2, 3)
 				pt.StrokePath(&ring, 1.5, p.warn)
 				if !small {
-					pt.RichText(tx+14, ty-8, 0, ui.Span{Text: d.label, Font: sans, Size: 12, Weight: 700, Color: p.warn})
+					pt.RichText(tx+14, ty-8, 0, ui.Span{Text: d.label, Font: p.font, Size: 12, Weight: 700, Color: p.warn})
 				}
 				continue
 			}
@@ -500,7 +521,7 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 				if d.head {
 					size, weight = 13, 700
 				}
-				span := ui.Span{Text: d.label, Font: sans, Size: size, Weight: weight, Color: p.ink}
+				span := ui.Span{Text: d.label, Font: p.font, Size: size, Weight: weight, Color: p.ink}
 				lw, lh := pt.MeasureText(0, span)
 				lx := tx + 10
 				if lx+lw > r.X+r.W-6 {
@@ -519,14 +540,17 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 			col = p.faint
 		}
 		pt.FillPath(you.Circle(ox, oy, 5), col)
-		pulse := float32(math.Mod(float64(time.Now().UnixMilli())/60, 14))
+		pulse := float32(math.Mod(float64(now)/60, 14))
 		var ring ui.Path
 		pt.StrokePath(ring.Circle(ox, oy, 8+pulse), 1, col.Alpha(max(0, .3-pulse/46)))
-		pt.RichText(ox+9, oy-22, 0, ui.Span{Text: i18n.T("你", "You"), Font: sans, Size: 13, Weight: 700, Color: col})
+		pt.RichText(ox+9, oy-22, 0, ui.Span{Text: i18n.T("你", "You"), Font: p.font, Size: 13, Weight: 700, Color: col})
+		switch {
+		case comets:
+			pt.AnimationFrameRate(60)
+		case !small:
+			pt.AnimationFrameRate(20) // the pulse, a step every 50 ms
+		}
 	})
-	if !small {
-		c.After(50 * time.Millisecond) // the pulse around 你
-	}
 
 	// Caption and legend.
 	live := 0
@@ -551,7 +575,7 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 		ui.Column(c).Absolute().Right(18).Top(50).Width(270).Gap(8).Children(func() {
 			for _, a := range arcs {
 				rid := a.route
-				b := ui.ButtonBase(c.Key(rid)).Row().Gap(10).Padding(8, 10).Radius(8).Background(p.sheet.Alpha(.88)).Border(1, p.hair).AlignItems(ui.Center).
+				b := ui.ButtonBase(c.Key(rid)).Row().Gap(10).Padding(8, 10).Radius(p.r(8)).Background(p.sheet.Alpha(.88)).Border(1, p.hair).AlignItems(ui.Center).
 					OnClick(func() { u.home.x, u.home.sub = "routes", rid })
 				if !a.live {
 					b.Opacity(.4)
@@ -576,7 +600,7 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 			for _, a := range arcs {
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Opacity(map[bool]float32{true: 1, false: .35}[a.live]).Children(func() {
 					ui.Text(c, u.route(a.route).Name).FontSize(11).TextColor(p.ink2)
-					ui.Box(c).Size(14, 2).Radius(1).Background(p.routeColor(a.route))
+					ui.Box(c).Size(14, 2).Radius(p.r(1)).Background(p.routeColor(a.route))
 				})
 			}
 		})

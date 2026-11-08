@@ -47,21 +47,49 @@ func Installed(path string) bool {
 // administrator's authorisation through osascript to chown root:admin and
 // chmod 4755 it. It returns ErrCanceled when the user canceled.
 func Install(src, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	step, err := InstallStep(src, dst)
+	if err != nil {
 		return err
+	}
+	return Admin(Prompt(), step)
+}
+
+// InstallStep copies src to dst as Install does and returns what is left
+// to do as root, for Admin to run together with other steps under one
+// authorisation.
+func InstallStep(src, dst string) (Step, error) {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return nil, err
 	}
 	// Copy beside dst and rename over it: dst may be an older root-owned
 	// copy, which cannot be written to but can be replaced, the directory
 	// being the user's.
 	tmp, err := copyTemp(src, filepath.Dir(dst))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		_ = os.Remove(tmp)
-		return err
+		return nil, err
 	}
-	return runAdmin(installScript(dst))
+	return installStep(dst), nil
+}
+
+// Step is one shell command run as root: its parts alternate between
+// literal text and paths, which the shell sees as one word each.
+type Step []string
+
+// Prompt is what the administrator dialog says for TUN alone.
+func Prompt() string { return i18n.T(prompt, "bowel needs authorization to turn on TUN mode") }
+
+// Admin runs the steps, one after the other and stopping at the first
+// that fails, as root under a single administrator authorisation; the
+// dialog shows prompt. It returns ErrCanceled when the user canceled.
+func Admin(prompt string, steps ...Step) error {
+	if len(steps) == 0 {
+		return nil
+	}
+	return runAdmin(adminScript(prompt, steps...))
 }
 
 // Uninstall removes dst. A root-owned file in a directory of the user's can
@@ -123,16 +151,22 @@ func shellExpr(parts ...string) string {
 	return strings.Join(b, " & ")
 }
 
-func adminScript(expr string) string {
-	return "do shell script " + expr + " with prompt " + appleString(i18n.T(prompt, "bowel needs authorization to turn on TUN mode")) + " with administrator privileges"
+func adminScript(prompt string, steps ...Step) string {
+	exprs := make([]string, len(steps))
+	for i, st := range steps {
+		exprs[i] = shellExpr(st...)
+	}
+	return "do shell script " + strings.Join(exprs, ` & " && " & `) + " with prompt " + appleString(prompt) + " with administrator privileges"
 }
 
-func installScript(dst string) string {
-	return adminScript(shellExpr("/usr/sbin/chown root:admin ", dst, " && /bin/chmod 4755 ", dst))
+func installStep(dst string) Step {
+	return Step{"/usr/sbin/chown root:admin ", dst, " && /bin/chmod 4755 ", dst}
 }
+
+func installScript(dst string) string { return adminScript(Prompt(), installStep(dst)) }
 
 func uninstallScript(dst string) string {
-	return adminScript(shellExpr("/bin/rm -f ", dst))
+	return adminScript(Prompt(), Step{"/bin/rm -f ", dst})
 }
 
 func runAdmin(script string) error {

@@ -76,3 +76,33 @@ func TestEncodeTooLong(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// TestDecodeCodesWhere finds the square each code fills, as the screen's
+// hint frames it: within two modules of where it was drawn.
+func TestDecodeCodesWhere(t *testing.T) {
+	a, _ := Encode("ss://YWVzOnB3@a.example:8388#A")
+	b, _ := Encode("trojan://pw@hk.example.com:443#香港 01")
+	canvas := image.NewGray(image.Rect(0, 0, 1400, 800))
+	draw.Draw(canvas, canvas.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
+	const k, quiet = 6, 4
+	at := map[string]image.Point{"ss://YWVzOnB3@a.example:8388#A": {60, 90}, "trojan://pw@hk.example.com:443#香港 01": {760, 200}}
+	scaled(canvas, a, 60, 90, k, false)
+	scaled(canvas, b, 760, 200, k, false)
+	codes, err := DecodeCodes(canvas)
+	if err != nil || len(codes) != 2 {
+		t.Fatalf("codes = %v, %v", codes, err)
+	}
+	near := func(x, y int) bool { return x-y <= 2*k && y-x <= 2*k }
+	for _, c := range codes {
+		src := a
+		if c.Text != "ss://YWVzOnB3@a.example:8388#A" {
+			src = b
+		}
+		o := at[c.Text]
+		n := src.Bounds().Dx() - 2*quiet // modules, quiet zone excluded
+		want := image.Rect(o.X+quiet*k, o.Y+quiet*k, o.X+(quiet+n)*k, o.Y+(quiet+n)*k)
+		if !near(c.Rect.Min.X, want.Min.X) || !near(c.Rect.Min.Y, want.Min.Y) || !near(c.Rect.Max.X, want.Max.X) || !near(c.Rect.Max.Y, want.Max.Y) {
+			t.Errorf("%q at %v, want about %v", c.Text, c.Rect, want)
+		}
+	}
+}

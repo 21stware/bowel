@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -36,8 +37,18 @@ type settingsUI struct {
 	toasts []string
 	// section is the page the sidebar has chosen.
 	section string
+	// query is the sidebar's search; while it holds words the pane shows
+	// the options of every section that match them, in place of section.
+	query string
+	findH ui.Handle
+	// lit is what a jump from the search lights up on its page, and
+	// litRun counts the jumps, so that each plays its flash anew.
+	lit    *optLight
+	litRun uint64
 	// busy lists the actions running, by their button's key.
 	busy map[string]bool
+	// rule is 规则's typing.
+	rule ruleEdit
 	// opened counts the times a test's UI, which has no app and so no
 	// windows, was asked to open the window.
 	opened int
@@ -124,7 +135,11 @@ func (u *UI) shownSettings() settings.Settings {
 
 // setOpt changes an option: at once on the page, and in the app. When the
 // app is done the page shows the settings as saved, kept or not.
-func (u *UI) setOpt(fn func(*settings.Settings)) {
+func (u *UI) setOpt(fn func(*settings.Settings)) { u.setOptThen(fn, nil) }
+
+// setOptThen is setOpt, and then, off the main thread and once the change
+// is saved and applied, after.
+func (u *UI) setOptThen(fn func(*settings.Settings), after func()) {
 	next := u.shownSettings().Clone()
 	fn(&next)
 	u.set.over = &next
@@ -135,6 +150,9 @@ func (u *UI) setOpt(fn func(*settings.Settings)) {
 	seq := u.set.seq
 	go func() {
 		err := u.app.updateSettings(fn)
+		if err == nil && after != nil {
+			after()
+		}
 		saved := u.app.settings.Get()
 		u.settingsUpdate(func() {
 			u.snap.Settings = saved
@@ -154,7 +172,7 @@ var gear = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewB
 // settingsButton is the title bar's last control: a gear and its name. It
 // opens the settings window.
 func (u *UI) settingsButton(c *ui.Context, p *pal) {
-	b := ui.ButtonBase(c.Key("settings")).Padding(4, 11).Radius(7).Shrink(0).Tooltip(i18n.T("设置", "Settings") + " ⌘,")
+	b := ui.ButtonBase(c.Key("settings")).Padding(4, 11).Radius(p.r(7)).Shrink(0).Tooltip(i18n.T("设置", "Settings") + " ⌘,")
 	col := p.ink2
 	if b.Hovered() {
 		b.Background(p.hair2)
@@ -170,14 +188,11 @@ func (u *UI) settingsButton(c *ui.Context, p *pal) {
 // ---- The window ----
 
 func (u *UI) settingsView(c *ui.Context) {
-	useAccent(u.shownSettings().Accent)
-	p := palette(c)
-	t := *c.Theme()
-	t.Background, t.Text, t.TextMuted, t.Border = p.paper, p.ink, p.mute, p.hair
-	t.Surface, t.SurfaceHover = p.card, p.paper2
-	accentTheme(&t, p)
-	t.Inverse, t.InverseText = p.ink, p.paper
-	c.SetTheme(&t)
+	useLook(u.shownSettings())
+	p := windowPal(c, palette(c))
+	// The window keeps the system's face, as the Mac's own settings do,
+	// unless the skin has a face of its own.
+	applyTheme(c, p, p.font != sans)
 	c.Root().CaretColor(p.ink)
 	for _, m := range u.set.toasts {
 		c.Toast(m)
@@ -188,21 +203,37 @@ func (u *UI) settingsView(c *ui.Context) {
 			w.Close()
 		}
 	})
+	c.OnShortcut(ui.Cmd, ui.KeyF, func() { u.set.findH.Focus(c) })
 	sec := u.settingsSection()
+	words := searchWords(u.set.query)
+	title, scroll := sec.name(), sec.id
+	if len(words) > 0 {
+		title, scroll = i18n.T("搜索", "Search"), "search"
+	}
 	ui.Row(c).Absolute().Fill().AlignItems(ui.Stretch).Background(p.paper).Children(func() {
 		u.settingsSidebar(c, p)
 		ui.Column(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
 			// The pane's title, in the title bar, which it drags by.
 			ui.Row(c).Height(max(c.TitleBar().Height, 50)).Shrink(0).Padding(0, 26).Gap(12).AlignItems(ui.Center).DragWindow().Children(func() {
-				ui.Text(c, sec.name()).FontSize(17).FontWeight(700).TextColor(p.ink).Grow(1)
+				disp(ui.Text(c, title), p).FontSize(17).FontWeight(700).TextColor(p.ink).Grow(1)
 				if busy := u.pending("settings"); busy {
 					shimmer(ui.Text(c, i18n.T("正在应用…", "Applying…")).FontSize(12).FontWeight(500).TextColor(p.mute), busy, p)
 				}
 			})
-			ui.Scroll(c.Key(sec.id)).Grow(1).Padding(0, 26, 24, 26).Children(func() {
-				ui.Column(c).Children(func() { sec.body(u, c, p, u.shownSettings()) })
+			ui.Scroll(c.Key(scroll)).Grow(1).Padding(0, 26, 24, 26).Children(func() {
+				if len(words) > 0 {
+					u.searchResults(c, p, words)
+				} else {
+					optLit = u.set.lighting(sec.id)
+					if optLit != nil {
+						optLit.dim = !c.WindowActive()
+					}
+					defer func() { optLit = nil }()
+					ui.Column(c).Children(func() { sec.body(u, c, p, u.shownSettings()) })
+				}
 			})
 		})
+		skinDeco(c, p)
 	})
 }
 
@@ -228,11 +259,13 @@ func init() {
 		{"general", "通用", "General", icon(`<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>`), (*UI).generalSection},
 		{"inbound", "入站", "Inbound", icon(`<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>`), (*UI).inboundSection},
 		{"core", "内核", "Core", icon(`<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/>`), (*UI).coreSection},
+		{"rules", "规则", "Rules", icon(`<path d="M4 6h9M4 12h6M4 18h9"/><path d="m15 9 3 3-3 3"/><path d="M10 12h8"/>`), (*UI).rulesSection},
 		{"dns", "DNS", "DNS", icon(`<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"/>`), (*UI).dnsSection},
 		{"sniffer", "嗅探", "Sniffing", icon(`<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/><path d="M8 11h6"/>`), (*UI).snifferSection},
 		{"tun", "TUN", "TUN", icon(`<path d="M12 3 3 8l9 5 9-5-9-5z"/><path d="m3 13 9 5 9-5"/>`), (*UI).tunSection},
 		{"geo", "GeoData", "GeoData", icon(`<circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8"/><path d="M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"/>`), (*UI).geoSection},
 		{"controller", "外部控制", "Controller", icon(`<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/>`), (*UI).controllerSection},
+		{"mcp", "MCP", "MCP", icon(`<path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2M20 14h2M9 13v2M15 13v2"/>`), (*UI).mcpSection},
 		{"about", "关于", "About", icon(`<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>`), (*UI).aboutSection},
 	}
 }
@@ -267,13 +300,31 @@ func coreStateWord(state string) string {
 func (u *UI) settingsSidebar(c *ui.Context, p *pal) {
 	ui.Column(c).Width(196).Shrink(0).Background(p.paper2).BorderWidth(0, 1, 0, 0).BorderColor(p.hair2).Children(func() {
 		ui.Row(c).Height(max(c.TitleBar().Height, 50)).Shrink(0).DragWindow()
-		ui.Sidebar(c.Key("nav"), &u.set.section, func() {
+		ui.Row(c).Shrink(0).Padding(0, 10, 10, 10).Children(func() {
+			ui.SearchField(c.Key("find"), &u.set.query).Bind(&u.set.findH).
+				Placeholder(i18n.T("搜索设置", "Search settings")).Label(i18n.T("搜索设置", "Search settings")).
+				Tooltip(i18n.T("搜索设置", "Search settings") + " ⌘F").Grow(1).Basis(0).MinWidth(0)
+		})
+		// While searching no page is chosen, so a click on any goes to it
+		// and ends the search.
+		sel := u.set.section
+		if len(searchWords(u.set.query)) > 0 {
+			sel = ""
+		}
+		ui.Sidebar(c.Key("nav"), &sel, func() {
 			for _, sec := range settingsSections {
 				ui.SidebarItem(c.Key(sec.id), sec.id, sec.icon, sec.name())
 			}
 		}).Grow(1).Padding(0, 10).Background(p.paper2).Label(i18n.T("设置", "Settings"))
+		if sel != "" && (sel != u.set.section || u.set.query != "") {
+			if u.set.query != "" {
+				u.searchJump(sel, "")
+			} else {
+				u.set.section, u.set.lit = sel, nil
+			}
+		}
 		cs := u.snap.Core
-		ui.Row(c).Gap(7).Padding(12, 18, 16, 18).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Gap(7).Padding(12, 18, 16, 18).AlignItems(ui.Center).MinWidth(0).Children(func() {
 			col := p.faint
 			switch cs.State {
 			case "running":
@@ -283,18 +334,206 @@ func (u *UI) settingsSidebar(c *ui.Context, p *pal) {
 			case "starting":
 				col = p.warn
 			}
-			ui.Box(c).Size(6, 6).Radius(3).Background(col).Shrink(0)
+			ui.Box(c).Size(6, 6).Radius(p.r(3)).Background(col).Shrink(0)
 			ver := "mihomo"
 			if cs.Version != "" {
 				ver += " " + cs.Version
 			}
-			ui.Text(c, ver).FontSize(11.5).TextColor(p.mute).NoWrap().Ellipsis("…").Shrink(1)
+			// MinWidth(0): a line that doesn't wrap is otherwise as wide as
+			// its words, and a long version runs into the pane.
+			ui.Text(c, ver).FontSize(11.5).TextColor(p.mute).NoWrap().Ellipsis("…").Shrink(1).MinWidth(0).Tooltip(ver)
 		})
 	})
 }
 
+// ---- Search ----
+
+// optFinder is the settings search as a frame draws its results: the
+// words typed, and the section being drawn, whose title goes before its
+// first option that matches.
+type optFinder struct {
+	words []string
+	sec   string
+	head  func()
+	jump  func(title string)
+	hits  int
+}
+
+// optFind is the search the settings window is drawing; nil while it
+// shows one section whole. Set and read on the main thread, in one frame.
+var optFind *optFinder
+
+func searchWords(q string) []string { return strings.Fields(strings.ToLower(q)) }
+
+// searching tells whether search results are being drawn, which leave out
+// what isn't an option: a section's note, its headings, its other parts.
+func searching() bool { return optFind != nil }
+
+// optMatch tells whether an option, by its name and what it does, is
+// drawn: always, outside a search; in one, when each word typed is in
+// them or in its section's name. The first in a section draws its title.
+func optMatch(texts ...string) bool {
+	f := optFind
+	if f == nil {
+		return true
+	}
+	hay := strings.ToLower(f.sec + "\n" + strings.Join(texts, "\n"))
+	for _, w := range f.words {
+		if !strings.Contains(hay, w) {
+			return false
+		}
+	}
+	if h := f.head; h != nil {
+		f.head = nil
+		h()
+	}
+	f.hits++
+	return true
+}
+
+// searchResults draws every section's options that match words, under
+// their sections' titles.
+func (u *UI) searchResults(c *ui.Context, p *pal, words []string) {
+	f := &optFinder{words: words}
+	optFind = f
+	defer func() { optFind = nil }()
+	s := u.shownSettings()
+	for _, sec := range settingsSections {
+		f.sec, f.head = sec.name(), func() { u.searchHead(c, p, sec) }
+		f.jump = func(title string) { u.searchJump(sec.id, title) }
+		ui.Column(c.Key(sec.id)).Children(func() { sec.body(u, c, p, s) })
+	}
+	if f.hits == 0 {
+		ui.Text(c, i18n.T("没有相符的设置", "No settings match")).FontSize(13).TextColor(p.mute).Padding(48, 0).AlignSelf(ui.Center)
+	}
+}
+
+// searchHead is a section's title among the search results; a click opens
+// the section and ends the search.
+func (u *UI) searchHead(c *ui.Context, p *pal, sec settingsSection) {
+	ui.Row(c).Padding(16, 0, 0, 0).Children(func() {
+		b := ui.ButtonBase(c.Key("head")).Padding(3, 7, 3, 5).Radius(p.r(6)).Label(sec.name()).
+			Tooltip(i18n.T("打开这一页", "Open this page"))
+		col := p.mute
+		if b.Hovered() {
+			b.Background(p.hair2)
+			col = p.ink2
+		}
+		b.OnClick(func() { u.searchJump(sec.id, "") }).Children(func() {
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, sec.icon).Size(13, 13).TextColor(col)
+				ui.Text(c, sec.name()).FontSize(11.5).FontWeight(700).TextColor(col)
+			})
+		})
+	})
+}
+
+// optLight is what a jump from the search lights up on the section it
+// opens: the one option it named, or else every option the search's words
+// match there. Its titles flash, and the page scrolls to the first.
+type optLight struct {
+	sec    string
+	words  []string
+	title  string
+	run    uint64
+	at     time.Time
+	scroll bool // still to scroll to the first
+	// dim is whether the window is not active, where the flash fades to
+	// gray as AppKit fades an inactive window's selection.
+	dim bool
+}
+
+// optLit is the light of the section being drawn, nil when none; as
+// optFind, set and read on the main thread, in one frame.
+var optLit *optLight
+
+// litFor is how long a jump's flash lasts.
+const litFor = 1900 * time.Millisecond
+
+// litFrames is the flash: on, a blink, on, and fading.
+var litFrames = []ui.Keyframe{
+	{At: 0, Value: 0},
+	{At: 120 * time.Millisecond, Value: 1, Ease: ui.EaseOut},
+	{At: 420 * time.Millisecond, Value: 1},
+	{At: 600 * time.Millisecond, Value: .15, Ease: ui.EaseInOut},
+	{At: 780 * time.Millisecond, Value: 1, Ease: ui.EaseInOut},
+	{At: 1200 * time.Millisecond, Value: 1},
+	{At: litFor, Value: 0, Ease: ui.EaseInOut},
+}
+
+// searchJump ends the search on section sec, lighting the option titled
+// title there, or with none every option the search matched in it.
+func (u *UI) searchJump(sec, title string) {
+	u.set.litRun++
+	u.set.lit = &optLight{sec: sec, words: searchWords(u.set.query), title: title, run: u.set.litRun, at: time.Now(), scroll: true}
+	u.set.section, u.set.query = sec, ""
+}
+
+// lighting is the light for section sec as it is drawn: the last jump's,
+// while it flashes.
+func (s *settingsUI) lighting(sec string) *optLight {
+	l := s.lit
+	if l == nil || l.sec != sec || time.Since(l.at) > litFor+100*time.Millisecond {
+		s.lit = nil
+		return nil
+	}
+	return l
+}
+
+// lights tells whether an option, by its title and what it does, is lit.
+// Without a title named, a word may be in the section's name, as in the
+// search, but one at least must be in the option's own words.
+func (l *optLight) lights(texts []string) bool {
+	if l.title != "" {
+		return len(texts) > 0 && texts[0] == l.title
+	}
+	hay := strings.ToLower(strings.Join(texts, "\n"))
+	own := false
+	for _, w := range l.words {
+		if strings.Contains(hay, w) {
+			own = true
+		} else if sec := sectionByID(l.sec); !strings.Contains(strings.ToLower(sec.name()), w) {
+			return false
+		}
+	}
+	return own
+}
+
+func sectionByID(id string) settingsSection {
+	for _, sec := range settingsSections {
+		if sec.id == id {
+			return sec
+		}
+	}
+	return settingsSection{}
+}
+
+// optFlash lights an option's title, e, when the jump that opened its page
+// lit it: its title, and texts after, the rest of what it says. The first
+// lit comes into view.
+func optFlash(e ui.Element, p *pal, texts ...string) ui.Element {
+	l := optLit
+	if l == nil || !l.lights(texts) {
+		return e
+	}
+	a := e.Keyframes("lit", litFrames, ui.KeyframeOptions{Run: l.run, NonMotion: true})
+	col := p.accent.Alpha(.3 * a)
+	if l.dim {
+		col = p.mute.Alpha(.22 * a)
+	}
+	e.Background(col).Shadow(0, 0, 0, 4, col).Radius(p.r(3))
+	if l.scroll {
+		l.scroll = false
+		e.ScrollIntoView(ui.ScrollIntoViewOptions{Block: ui.ScrollCenter, Animation: &ui.Smooth})
+	}
+	return e
+}
+
 // sectionNote is the line under a section's title saying what it is about.
 func sectionNote(c *ui.Context, p *pal, s string) {
+	if searching() {
+		return
+	}
 	ui.Text(c, s).FontSize(12).TextColor(p.mute).Padding(0, 0, 6, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair)
 }
 
@@ -312,12 +551,35 @@ func (u *UI) generalSection(c *ui.Context, p *pal, s settings.Settings) {
 			u.setOpt(func(s *settings.Settings) { s.Language = l })
 		}
 	})
+	optWide(c, p, i18n.T("皮肤", "Skin"), i18n.T("整个界面的颜色、字体、圆角与质感；主题色随之换成皮肤自己的", "The whole interface's colors, type, corners and texture; the theme color changes to the skin's own"), func() {
+		ui.Row(c).Wrap().Gap(10).Children(func() {
+			for i := range skins {
+				u.skinCard(c, p, &skins[i], skinByID(s.Skin).id == skins[i].id)
+			}
+		})
+	})
 	optRow(c, p, i18n.T("外观", "Appearance"), i18n.T("浅色、深色，或跟随 Mac 的设置", "Light, dark, or as the Mac is set"), func() {
+		if f := skinByID(s.Skin).fixed(); f != "" {
+			word := i18n.T("这款皮肤只有深色", "This skin is dark only")
+			if f == "light" {
+				word = i18n.T("这款皮肤只有浅色", "This skin is light only")
+			}
+			ui.Text(c, word).FontSize(12).TextColor(p.mute)
+			return
+		}
 		names := []string{i18n.T("跟随系统", "System"), i18n.T("浅色", "Light"), i18n.T("深色", "Dark")}
 		sel := max(0, slices.Index(settings.Appearances, s.Appearance))
 		if actSeg(c.Key("appearance"), p, &sel, names).Changed() && settings.Appearances[sel] != s.Appearance {
 			a := settings.Appearances[sel]
 			u.setOpt(func(s *settings.Settings) { s.Appearance = a })
+		}
+	})
+	optRow(c, p, i18n.T("边框", "Borders"), i18n.T("首页各块之间的线：笔直，或像 logo 一样弯曲", "The lines between the home board's blocks: straight, or bending like the logo's"), func() {
+		names := []string{i18n.T("笔直", "Straight"), i18n.T("弯曲", "Twisted")}
+		sel := max(0, slices.Index(settings.BorderStyles, s.Borders))
+		if actSeg(c.Key("borders"), p, &sel, names).Changed() && settings.BorderStyles[sel] != s.Borders {
+			b := settings.BorderStyles[sel]
+			u.setOpt(func(s *settings.Settings) { s.Borders = b })
 		}
 	})
 	optRow(c, p, i18n.T("主题色", "Theme color"), i18n.T("按钮、开关和选中项的颜色", "The color of buttons, switches and what is selected"), func() {
@@ -363,22 +625,71 @@ func (u *UI) generalSection(c *ui.Context, p *pal, s settings.Settings) {
 		func(s *settings.Settings, on bool) { s.StartHidden = on })
 }
 
+// skinCard is one skin to pick: a small board in its own colors, faces,
+// corners and texture, as the Mac's appearance draws it, with its name
+// under it; ringed when it is the one in use.
+func (u *UI) skinCard(c *ui.Context, p *pal, k *skin, on bool) {
+	sp := *k.pal(p.dark)
+	sp.setAccent(k.accent)
+	ring := ui.Transparent
+	b := ui.ButtonBase(c.Key("skin-" + k.id)).Column().Width(158).Gap(7).Padding(4).Radius(p.r(12)).
+		Label(k.name()).Tooltip(k.note())
+	if on {
+		ring = p.ink
+	} else if b.Hovered() {
+		ring = p.hair
+	}
+	b.Border(1.5, ring).OnClick(func() {
+		if !on {
+			u.setOpt(func(s *settings.Settings) { skinPick(s, k.id) })
+		}
+	}).Children(func() {
+		ui.Box(c).Height(92).Radius(max(sp.r(8), 2)).Background(sp.paper).Border(1, p.hair).Clip().Children(func() {
+			ui.Column(c).Padding(9, 10).Gap(5).Children(func() {
+				ui.Row(c).Gap(3).Children(func() {
+					lit(ui.Box(c).Size(26, 8).Radius(sp.r(4)).Background(sp.accent), &sp)
+					ui.Box(c).Size(18, 8).Radius(sp.r(4)).Background(sp.hair)
+					ui.Box(c).Size(18, 8).Radius(sp.r(4)).Background(sp.hair)
+				})
+				disp(ui.Text(c, i18n.T("香港 03", "Tokyo 03")), &sp).FontSize(19).FontWeight(700).TextColor(sp.ink).NoWrap()
+				ui.Row(c).Gap(2).Height(18).AlignItems(ui.End).Children(func() {
+					for i := 0; i < 18; i++ {
+						id := []string{"media", "default", "ai", "dev", "media", "default"}[i%6]
+						h := 5 + 13*hash(i+len(k.id))
+						ui.Box(c).Size(5, h).Background(sp.routeColor(id))
+					}
+				})
+			})
+			if sp.deco != nil {
+				deco := sp.deco
+				ui.Box(c).Absolute().Fill().IgnoreInput(true).Draw(func(pt *ui.Painter, r ui.Rect) { deco(pt, r, &sp) })
+			}
+		})
+		ui.Row(c).Gap(6).Padding(0, 2, 2, 2).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, k.name()).FontSize(12.5).FontWeight(600).TextColor(p.ink)
+			if k.fixed() == "dark" {
+				ui.Text(c, i18n.T("深色", "Dark")).FontSize(10.5).TextColor(p.mute)
+			}
+		})
+	})
+}
+
 // accentSwatch is one theme color to pick: a dot of it, ringed when it
 // is the one in use.
 func (u *UI) accentSwatch(c *ui.Context, p *pal, hex, name string, on bool) {
 	col := p.ink
 	if hex != "ink" {
-		col = ui.Hex(hex)
+		col = ui.Hex(accentHex(hex, p.dark))
 	}
 	ring := ui.Transparent
 	if on {
 		ring = p.ink
 	}
-	ui.ButtonBase(c.Key("accent-"+hex)).Size(26, 26).Radius(13).Padding(3).Border(1.5, ring).
+	ui.ButtonBase(c.Key("accent-"+hex)).Size(26, 26).Radius(p.r(13)).Padding(3).Border(1.5, ring).
 		Label(name).Tooltip(name).OnClick(func() {
 		u.setOpt(func(s *settings.Settings) { s.Accent = hex })
 	}).Children(func() {
-		ui.Box(c).Size(17, 17).Radius(8.5).Background(col).Border(1, p.hair)
+		ui.Box(c).Size(17, 17).Radius(p.r(8.5)).Background(col).Border(1, p.hair)
 	})
 }
 
@@ -401,6 +712,10 @@ func (u *UI) inboundSection(c *ui.Context, p *pal, s settings.Settings) {
 	})
 
 	optHeading(c, p, i18n.T("局域网", "LAN"))
+	optRow(c, p, i18n.T("网关模式", "Gateway mode"), gatewayDesc(), func() { u.gatewaySwitch(c, "gateway", u.settingsToast) })
+	if u.gatewayShownOn() && !searching() {
+		ui.Column(c).Padding(10, 0, 12, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() { u.gatewayGuide(c, p, u.settingsToast) })
+	}
 	lan := i18n.T("同一网络里的设备可以把 bowel 当代理用", "Devices on the same network can use bowel as their proxy")
 	if s.AllowLan && u.snap.Takeover.LanAddr != "" {
 		lan = i18n.T("其他设备连 ", "Other devices connect to ") + u.snap.Takeover.LanAddr
@@ -690,31 +1005,33 @@ func (u *UI) controllerSection(c *ui.Context, p *pal, s settings.Settings) {
 
 func (u *UI) aboutSection(c *ui.Context, p *pal, _ settings.Settings) {
 	cs := u.snap.Core
-	ui.Column(c).Padding(4, 0, 14, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair).Children(func() {
-		ver := cs.Version
-		if ver == "" {
-			ver = "—"
-		}
-		state := coreStateWord(cs.State)
-		if cs.Error != "" {
-			state += " · " + firstLine(cs.Error)
-		}
-		path := u.snap.ConfigPath
-		if path == "" {
-			path = "—"
-		}
-		moho := u.snap.Version
-		if moho == "" {
-			moho = "—"
-		}
-		kv(c, p, [][2]string{
-			{i18n.T("内核版本", "Core version"), ver},
-			{i18n.T("内核状态", "Core state"), state},
-			{i18n.T("运行配置", "Running config"), path},
-			{i18n.T("bowel 版本", "bowel version"), moho},
-			{i18n.T("界面字体", "Interface font"), i18n.T("OPPO Sans 4.0 · © OPPO 广东移动通信有限公司，依 OPPO Sans 字体许可使用", "OPPO Sans 4.0 · © Guangdong OPPO Mobile Telecommunications Corp., Ltd., used under the OPPO Sans font license")},
+	if !searching() {
+		ui.Column(c).Padding(4, 0, 14, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair).Children(func() {
+			ver := cs.Version
+			if ver == "" {
+				ver = "—"
+			}
+			state := coreStateWord(cs.State)
+			if cs.Error != "" {
+				state += " · " + firstLine(cs.Error)
+			}
+			path := u.snap.ConfigPath
+			if path == "" {
+				path = "—"
+			}
+			moho := u.snap.Version
+			if moho == "" {
+				moho = "—"
+			}
+			kv(c, p, [][2]string{
+				{i18n.T("内核版本", "Core version"), ver},
+				{i18n.T("内核状态", "Core state"), state},
+				{i18n.T("运行配置", "Running config"), path},
+				{i18n.T("bowel 版本", "bowel version"), moho},
+				{i18n.T("界面字体", "Interface font"), i18n.T("OPPO Sans 4.0 · © OPPO 广东移动通信有限公司，依 OPPO Sans 字体许可使用", "OPPO Sans 4.0 · © Guangdong OPPO Mobile Telecommunications Corp., Ltd., used under the OPPO Sans font license")},
+			})
 		})
-	})
+	}
 	optRow(c, p, i18n.T("运行配置", "Running config"), i18n.T("bowel 生成、mihomo 正在用的配置文件", "The config file bowel writes and mihomo runs on"), func() {
 		btn(c.Key("reveal"), p, i18n.T("在 Finder 中显示", "Show in Finder")).OnClick(func() {
 			if u.app != nil {
@@ -737,19 +1054,39 @@ func (u *UI) aboutSection(c *ui.Context, p *pal, _ settings.Settings) {
 
 // optHeading starts a group of options within a section.
 func optHeading(c *ui.Context, p *pal, s string) {
+	if searching() {
+		return
+	}
 	ui.Text(c, s).FontSize(11.5).FontWeight(700).TextColor(p.faint).Padding(20, 0, 2, 0)
 }
 
 // optLabel is an option's name and what it does.
 func optLabel(c *ui.Context, p *pal, title, desc string) ui.Element {
 	return ui.Column(c).Gap(2).Children(func() {
-		ui.Text(c, title).FontSize(13).FontWeight(600).TextColor(p.ink)
+		if f := optFind; f != nil && f.jump != nil {
+			// Among search results, the title opens the option's page.
+			jump := f.jump
+			b := ui.ButtonBase(c.Key("title")).AlignSelf(ui.Start).Radius(p.r(3)).Label(title).
+				Tooltip(i18n.T("在设置页中显示", "Show on its page"))
+			col := p.ink
+			if b.Hovered() {
+				col = p.accentLine
+			}
+			b.OnClick(func() { jump(title) }).Children(func() {
+				ui.Text(c, title).FontSize(13).FontWeight(600).TextColor(col)
+			})
+		} else {
+			optFlash(ui.Text(c, title).FontSize(13).FontWeight(600).TextColor(p.ink).AlignSelf(ui.Start), p, title, desc)
+		}
 		ui.Text(c, desc).FontSize(11.5).TextColor(p.mute)
 	})
 }
 
 // optRow is an option with its control on the right.
 func optRow(c *ui.Context, p *pal, title, desc string, control func()) {
+	if !optMatch(title, desc) {
+		return
+	}
 	ui.Row(c).Gap(18).Padding(11, 0).MinHeight(52).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 		optLabel(c, p, title, desc).Grow(1).Basis(0).MinWidth(0)
 		ui.Row(c).Shrink(0).Gap(6).AlignItems(ui.Center).Children(control)
@@ -758,6 +1095,9 @@ func optRow(c *ui.Context, p *pal, title, desc string, control func()) {
 
 // optWide is an option whose control, a long text or a list, goes under it.
 func optWide(c *ui.Context, p *pal, title, desc string, control func()) {
+	if !optMatch(title, desc) {
+		return
+	}
 	ui.Column(c).Gap(8).Padding(11, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 		optLabel(c, p, title, desc)
 		ui.Row(c).Children(control)
@@ -803,7 +1143,7 @@ func (u *UI) optText(c *ui.Context, p *pal, key, label, saved string, width floa
 	if !focused {
 		f.text = saved
 	}
-	in := ui.TextInput(c.Key(key), &f.text).Bind(&f.h).Label(label).Padding(5, 9).Radius(7).
+	in := ui.TextInput(c.Key(key), &f.text).Bind(&f.h).Label(label).Padding(5, 9).Radius(p.r(7)).
 		Background(p.card).Border(1, p.hair).FontSize(12.5).Font("SF Mono, Menlo")
 	if width > 0 {
 		in.Width(width)

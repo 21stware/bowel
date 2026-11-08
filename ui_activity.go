@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,10 +30,12 @@ const (
 )
 
 // actAllApps is the app choice that filters no app, in the interface's
-// language; actIsAllApps knows it in either.
+// language; actIsAllApps knows it in every language.
 func actAllApps() string { return i18n.T("所有应用", "All apps") }
 
-func actIsAllApps(s string) bool { return s == "" || s == "所有应用" || s == "All apps" }
+func actIsAllApps(s string) bool {
+	return s == "" || slices.Contains(i18n.Every("所有应用", "All apps"), s)
+}
 
 // Statuses in the order of the status control; the zero value is active.
 var actStatuses = []string{"active", "closed", "failed", "all"}
@@ -73,6 +76,13 @@ type activityUI struct {
 	polling bool
 
 	list, logList ui.ListState
+
+	// rows is actFiltered's last answer, and what it was for: a frame
+	// asks for it more than once, and each frame after it until the
+	// connections or the filters change.
+	rows    []Conn
+	rowsOf  []Conn
+	rowsKey string
 }
 
 // filterApp opens the page filtered to one app.
@@ -153,11 +163,16 @@ func (a *activityUI) close(u *UI, ids []string) {
 		return
 	}
 	now := time.Now()
+	set := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		set[id] = true
+	}
 	for i := range a.conns {
-		if slices.Contains(ids, a.conns[i].ID) && a.conns[i].Status == "active" {
+		if set[a.conns[i].ID] && a.conns[i].Status == "active" {
 			a.conns[i].Status, a.conns[i].End, a.conns[i].DownRate, a.conns[i].UpRate = "closed", now, 0, 0
 		}
 	}
+	a.rowsKey = "" // changed in place
 	if u.app != nil {
 		u.do(func() error { return u.app.closeConns(ids) })
 	}
@@ -188,6 +203,9 @@ func actNode(c Conn) string {
 // actMatch says whether a connection matches the query: words of the form
 // app:, route: (id or name), node: or host: match that field, others any.
 func (u *UI) actMatch(c Conn, q string) bool {
+	if strings.TrimSpace(q) == "" {
+		return true
+	}
 	rname := strings.ToLower(u.route(c.Route).Name)
 	node := strings.ToLower(actNode(c))
 	host := strings.ToLower(c.Host)
@@ -220,20 +238,39 @@ func (u *UI) actMatch(c Conn, q string) bool {
 // actFiltered is the connections the query and the filters keep, sorted.
 func (u *UI) actFiltered() []Conn {
 	a := &u.act
+	now := time.Now()
+	key := a.sig() + "\x00" + a.sort + "\x00" + strconv.FormatBool(a.asc)
+	if a.sort == "dur" { // the order of the live ones changes with time
+		key += "\x00" + strconv.FormatInt(now.Unix(), 10)
+	}
+	if key == a.rowsKey && sameSlice(a.conns, a.rowsOf) {
+		return a.rows
+	}
+	a.rows, a.rowsOf, a.rowsKey = u.actFilter(now), a.conns, key
+	return a.rows
+}
+
+// sameSlice says whether a and b are the same slice, not equal ones.
+func sameSlice[T any](a, b []T) bool {
+	return len(a) == len(b) && (len(a) == 0 || &a[0] == &b[0])
+}
+
+func (u *UI) actFilter(now time.Time) []Conn {
+	a := &u.act
 	st := a.statusID()
+	allApps := actIsAllApps(a.app)
 	var out []Conn
 	for _, c := range a.conns {
 		switch {
 		case st != "all" && c.Status != st:
 		case a.route != "" && c.Route != a.route:
-		case !actIsAllApps(a.app) && c.App != a.app:
+		case !allApps && c.App != a.app:
 		case a.net != "" && a.net != actAllNet && !strings.EqualFold(c.Network, a.net):
 		case !u.actMatch(c, a.q):
 		default:
 			out = append(out, c)
 		}
 	}
-	now := time.Now()
 	key := func(c Conn) float64 {
 		switch a.sort {
 		case "down":
@@ -382,7 +419,7 @@ func (u *UI) actLive(c *ui.Context, p *pal) {
 		if a.paused {
 			col, label = p.faint, i18n.T("已暂停", "Paused")
 		}
-		ui.Box(c).Size(7, 7).Radius(4).Background(col)
+		ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(col)
 		ui.Text(c, label).FontSize(12).TextColor(p.ink2).NoWrap()
 	})
 	label := i18n.T("❙❙ 暂停", "❙❙ Pause")
@@ -395,9 +432,9 @@ func (u *UI) actLive(c *ui.Context, p *pal) {
 // actSeg is the prototype's .seg: a track of labels, the one chosen raised.
 func actSeg(c *ui.Context, p *pal, sel *int, labels []string) ui.Element {
 	seg := ui.SegmentedBase(c, sel, len(labels))
-	seg.Track.Padding(2).Radius(8).Background(p.hair2).Gap(0).Children(func() {
+	seg.Track.Padding(2).Radius(p.r(8)).Background(p.hair2).Gap(0).Children(func() {
 		for i, l := range labels {
-			s := seg.Segment(i).Padding(3, 11).Radius(6)
+			s := seg.Segment(i).Padding(3, 11).Radius(p.r(6))
 			col, w := p.ink2, 500
 			if i == *sel {
 				s.Background(p.card).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, .12))
@@ -412,7 +449,7 @@ func actSeg(c *ui.Context, p *pal, sel *int, labels []string) ui.Element {
 // actSelect is a small drop-down in the prototype's look.
 func actSelect(c *ui.Context, p *pal, sel *string, options []string, label string) {
 	s := ui.SelectBase(c, sel)
-	s.Trigger.Row().Gap(6).AlignItems(ui.Center).Padding(3, 8).Radius(7).Border(1, p.hair).Background(p.card).Label(label)
+	s.Trigger.Row().Gap(6).AlignItems(ui.Center).Padding(3, 8).Radius(p.r(7)).Border(1, p.hair).Background(p.card).Label(label)
 	if s.Trigger.Hovered() {
 		s.Trigger.BorderColor(p.ink)
 	}
@@ -421,9 +458,9 @@ func actSelect(c *ui.Context, p *pal, sel *string, options []string, label strin
 		actChevron(c, p.mute)
 	})
 	s.Popup(func(panel ui.Element) {
-		panel.Margin(4, 0, 0, 0).Padding(4).Radius(9).Background(p.sheet).Border(1, p.hair).Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, .12)).MinWidth(120)
+		panel.Margin(4, 0, 0, 0).Padding(4).Radius(p.r(9)).Background(p.sheet).Border(1, p.hair).Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, .12)).MinWidth(120)
 		for _, o := range options {
-			item := s.Item(o).Padding(5, 10).Radius(6)
+			item := s.Item(o).Padding(5, 10).Radius(p.r(6))
 			col := p.ink
 			if item.Highlighted() {
 				item.Background(p.ink)
@@ -467,7 +504,7 @@ func (u *UI) actQueryBar(c *ui.Context, p *pal) {
 			if armed {
 				label = fmt.Sprintf(i18n.T("确认断开 %d 个？", "Close %d? Click again"), len(live))
 			}
-			b := ui.ButtonBase(c.Key("closeall")).Padding(5, 11).Radius(7).Disabled(len(live) == 0 && !armed)
+			b := ui.ButtonBase(c.Key("closeall")).Padding(5, 11).Radius(p.r(7)).Disabled(len(live) == 0 && !armed)
 			col := p.signal
 			switch {
 			case armed:
@@ -591,7 +628,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 	rows := u.actFiltered()
 	if !u.snap.Takeover.On && len(a.conns) > 0 {
 		ui.Row(c).Gap(10).Padding(8, 26).Background(p.hair2).AlignItems(ui.Center).Children(func() {
-			ui.Box(c).Size(7, 7).Radius(4).Background(p.faint)
+			ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(p.faint)
 			ui.Text(c, i18n.T("bowel 现在没有接管流量，新的连接不会经过这里。", "bowel is not taking over traffic; new connections won’t show up here.")).FontSize(12).TextColor(p.ink2).Grow(1)
 			btn(c, p, i18n.T("去今日开启 →", "Turn on in Proxy →")).OnClick(func() { u.page = "home" })
 		})
@@ -600,7 +637,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 	head.Children(func() {
 		for i, col := range actCols {
 			if col.sort == "" {
-				t := ui.Text(c, i18n.T(col.zh, col.en)).FontSize(10.5).FontWeight(600).LetterSpacing(.8).TextColor(p.mute).NoWrap()
+				t := ui.Text(c, i18n.T(col.zh, col.en)).FontSize(10.5).FontWeight(600).LetterSpacing(.8).TextColor(p.mute).NoWrap().Ellipsis("…")
 				actCell(t, i)
 				continue
 			}
@@ -628,7 +665,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 	})
 	a.list.Key = func(i int) any { return rows[i].ID }
 	a.list.KeepOffset = true
-	list := ui.List(c.Key("conns"), &a.list, len(rows), func(i int) { u.actRow(c, p, rows[i]) }).
+	list := ui.List(c.Key("conns"), &a.list, len(rows), func(i int) { u.actRow(c, p, i, rows[i]) }).
 		Grow(1).Padding(0, 26, 16, 26).RowWidth(actRowWidth())
 	list.Children(func() {
 		if len(rows) > 0 {
@@ -647,7 +684,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 	head.ScrollWith(list)
 }
 
-func (u *UI) actRow(c *ui.Context, p *pal, cn Conn) {
+func (u *UI) actRow(c *ui.Context, p *pal, i int, cn Conn) {
 	a := &u.act
 	open := a.open == cn.ID
 	id := cn.ID
@@ -664,7 +701,10 @@ func (u *UI) actRow(c *ui.Context, p *pal, cn Conn) {
 			if a.open == id {
 				a.open = ""
 			} else {
+				// Its detail opens under it: a row near the bottom brings
+				// the detail into view rather than open it off the edge.
 				a.open = id
+				a.list.ScrollIntoView(i)
 			}
 		})
 		ink, ink2 := p.ink, p.ink2
@@ -679,7 +719,7 @@ func (u *UI) actRow(c *ui.Context, p *pal, cn Conn) {
 			case "failed":
 				dot = p.signal
 			}
-			actCell(ui.Row(c), 0).Children(func() { ui.Box(c).Size(7, 7).Radius(4).Background(dot) })
+			actCell(ui.Row(c), 0).Children(func() { ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(dot) })
 			actCell(actClip(ui.Text(c, cn.App).FontSize(12).TextColor(ink2)), 1)
 			host := cn.Host
 			if host == "" {
@@ -726,7 +766,7 @@ func (u *UI) actRow(c *ui.Context, p *pal, cn Conn) {
 				if cn.Status != "active" {
 					return
 				}
-				x := ui.ButtonBase(c.Key("x")).Size(26, 26).Margin(-6, -4, -6, -4).Radius(6).Justify(ui.Center).AlignItems(ui.Center).
+				x := ui.ButtonBase(c.Key("x")).Size(26, 26).Margin(-6, -4, -6, -4).Radius(p.r(6)).Justify(ui.Center).AlignItems(ui.Center).
 					Label(i18n.T("断开", "Close")).Tooltip(i18n.T("断开", "Close")).OnClick(func() { a.close(u, []string{id}) })
 				col := p.mute
 				if x.Hovered() {
@@ -747,9 +787,11 @@ func (u *UI) actDetail(c *ui.Context, p *pal, cn Conn) {
 	a := &u.act
 	failed := cn.Status == "failed"
 	kv := func(rows func(pair func(k string, v func()))) {
-		ui.Grid(c).ColumnTracks(ui.Fixed(64), ui.Fr(1)).GapX(12).GapY(5).Grow(1).Basis(0).MinWidth(0).AlignContent(ui.Start).Children(func() {
+		// The labels' column is as wide as its widest: "ネットワーク" is
+		// half again as wide as "网络" and must not break.
+		ui.Grid(c).ColumnTracks(ui.FitContent(), ui.Fr(1)).GapX(12).GapY(5).Grow(1).Basis(0).MinWidth(0).AlignContent(ui.Start).Children(func() {
 			rows(func(k string, v func()) {
-				ui.Text(c, k).FontSize(12).TextColor(p.mute)
+				ui.Text(c, k).FontSize(12).TextColor(p.mute).NoWrap()
 				ui.Box(c).MinWidth(0).Children(v)
 			})
 		})
@@ -782,7 +824,16 @@ func (u *UI) actDetail(c *ui.Context, p *pal, cn Conn) {
 				if cn.Payload != "" {
 					rule += "," + cn.Payload
 				}
-				pair(i18n.T("规则", "Rule"), mono(rule, p.ink))
+				if _, mine := u.ruleOf(cn); mine {
+					pair(i18n.T("规则", "Rule"), func() {
+						ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+							ui.Text(c, rule).Font(actMono).FontSize(11.5).TextColor(p.ink).Shrink(1).MinWidth(0)
+							mineTag(c, p)
+						})
+					})
+				} else {
+					pair(i18n.T("规则", "Rule"), mono(rule, p.ink))
+				}
 				pair(i18n.T("链路", "Chain"), func() { u.actChain(c, p, cn) })
 				exit := i18n.T("本机网络", "Local network")
 				if cn.Node != "" {
@@ -804,9 +855,9 @@ func (u *UI) actDetail(c *ui.Context, p *pal, cn Conn) {
 					pair(i18n.T("错误", "Error"), mono(msg, p.signal))
 				}
 			})
-			ui.Column(c).Gap(6).Width(96).Shrink(0).Children(func() {
+			ui.Column(c).Gap(6).MinWidth(96).Shrink(0).Children(func() {
 				if cn.Status == "active" {
-					b := ui.ButtonBase(c.Key("kill")).Padding(5, 11).Radius(7).Border(1, p.hair).OnClick(func() { a.close(u, []string{cn.ID}) })
+					b := ui.ButtonBase(c.Key("kill")).Padding(5, 11).Radius(p.r(7)).Border(1, p.hair).OnClick(func() { a.close(u, []string{cn.ID}) })
 					if b.Hovered() {
 						b.BorderColor(p.signal)
 					}
@@ -816,6 +867,7 @@ func (u *UI) actDetail(c *ui.Context, p *pal, cn Conn) {
 				if host == "" {
 					host = cn.IP
 				}
+				u.actRouteBtn(c, p, cn)
 				btn(c.Key("copy"), p, i18n.T("复制域名", "Copy domain")).OnClick(func() {
 					c.WriteClipboard(host)
 					u.toasts = append(u.toasts, i18n.T("已复制 ", "Copied ")+host)

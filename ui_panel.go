@@ -66,26 +66,18 @@ func (u *UI) panelShow(apply func()) {
 	u.app.showWindow()
 }
 
-func panelTheme(c *ui.Context, p *pal) {
-	t := *c.Theme()
-	t.Background, t.Text, t.TextMuted, t.Border = p.paper, p.ink, p.mute, p.hair
-	t.Surface, t.SurfaceHover = p.card, p.paper2
-	accentTheme(&t, p)
-	t.Inverse, t.InverseText = p.ink, p.paper
-	t.Font = sans
-	c.SetTheme(&t)
-}
+func panelTheme(c *ui.Context, p *pal) { applyTheme(c, p, true) }
 
 func (u *UI) panelView(c *ui.Context) {
 	c.DisableAnimations() // switches and hovers land at once
-	useAccent(u.shownSettings().Accent)
+	useLook(u.shownSettings())
 	p := palette(c)
 	panelTheme(c, p)
 	c.OnShortcut(ui.Cmd, ui.KeyO, func() { u.panelShow(nil) })
 	c.OnShortcut(ui.Cmd, ui.KeyQ, mygo.App.Quit)
 	c.Root().Background(ui.Transparent)
 	// The flyout's CornerRadius cuts it and its Shadow outlines it: no border here.
-	ui.Column(c).Width(panelWidth).Radius(12).Background(p.paper).Padding(0, 0, 6, 0).Children(func() {
+	ui.Column(c).Width(panelWidth).Radius(p.r(12)).Background(p.paper).Padding(0, 0, 6, 0).Children(func() {
 		u.panelHead(c, p)
 		u.panelIssue(c, p)
 		u.panelSpeed(c, p)
@@ -104,7 +96,7 @@ func (u *UI) panelView(c *ui.Context) {
 func (u *UI) panelHead(c *ui.Context, p *pal) {
 	s := u.snap
 	ui.Row(c).Padding(14, 16, 12, 16).Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Box(c).Size(8, 8).Radius(4).Background(u.stateColor(p))
+		ui.Box(c).Size(8, 8).Radius(p.r(4)).Background(u.stateColor(p))
 		word := stateName(s.State)
 		if !s.Takeover.On {
 			word = stateName(StateOff)
@@ -112,7 +104,7 @@ func (u *UI) panelHead(c *ui.Context, p *pal) {
 		// While the switch applies, and while the core it started comes up,
 		// the word shimmers.
 		starting := u.pending("takeover") || (s.Takeover.On && s.Core.State == "starting")
-		shimmer(ui.Text(c, word).FontSize(21).FontWeight(700).LetterSpacing(-.3).TextColor(p.ink), starting, p)
+		shimmer(disp(ui.Text(c, word), p).FontSize(21).FontWeight(700).LetterSpacing(-.3).TextColor(p.ink), starting, p)
 		if s.Takeover.On && s.Mode != "rule" {
 			ui.Text(c, "· "+panelModeName(s.Mode)).FontSize(12).FontWeight(500).TextColor(p.mute)
 		}
@@ -134,9 +126,9 @@ func (u *UI) panelIssue(c *ui.Context, p *pal) {
 	if is.Level == "error" {
 		col = p.signal
 	}
-	ui.Row(c.Key("issue")).Margin(0, 10, 10, 10).Padding(8, 10).Radius(8).Background(col.Alpha(.11)).Gap(10).AlignItems(ui.Start).
+	ui.Row(c.Key("issue")).Margin(0, 10, 10, 10).Padding(8, 10).Radius(p.r(8)).Background(col.Alpha(.11)).Gap(10).AlignItems(ui.Start).
 		Children(func() {
-			ui.Box(c).Size(3, 14).Radius(2).Background(col).Margin(1, 0, 0, 0)
+			ui.Box(c).Size(3, 14).Radius(p.r(2)).Background(col).Margin(1, 0, 0, 0)
 			ui.Text(c, is.Text).FontSize(12).TextColor(p.ink).Grow(1).Basis(0)
 			if is.Action == "" {
 				return
@@ -264,7 +256,7 @@ func (u *UI) panelNodeList(c *ui.Context, p *pal, r RouteView) {
 }
 
 func panelNodeRow(c *ui.Context, p *pal, key string, checked bool, content func()) ui.Element {
-	b := ui.ButtonBase(c.Key(key)).Row().Gap(8).Padding(5, 10, 5, 6).Radius(6).AlignItems(ui.Center)
+	b := ui.ButtonBase(c.Key(key)).Row().Gap(8).Padding(5, 10, 5, 6).Radius(p.r(6)).AlignItems(ui.Center)
 	if b.Hovered() {
 		b.Background(p.hair2)
 	}
@@ -301,10 +293,10 @@ func (u *UI) panelMode(c *ui.Context, p *pal) {
 	ui.Row(c).Padding(10, 16).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, i18n.T("模式", "Mode")).FontSize(12.5).FontWeight(500).TextColor(p.ink2)
 		ui.Spacer(c)
-		ui.Row(c).Gap(2).Padding(2).Radius(8).Background(p.hair2).Children(func() {
+		ui.Row(c).Gap(2).Padding(2).Radius(p.r(8)).Background(p.hair2).Children(func() {
 			for _, m := range []string{"rule", "global", "direct"} {
 				on := s.Mode == m
-				b := ui.ButtonBase(c.Key("mode-"+m)).Padding(3, 13).Radius(6).Label(panelModeName(m))
+				b := ui.ButtonBase(c.Key("mode-"+m)).Padding(3, 13).Radius(p.r(6)).Label(panelModeName(m))
 				if on {
 					b.Background(p.card).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, .12))
 				}
@@ -329,7 +321,7 @@ func (u *UI) panelMode(c *ui.Context, p *pal) {
 
 // panelCmd is a command row at the bottom, with its shortcut.
 func panelCmd(c *ui.Context, p *pal, key, label, kbd string) ui.Element {
-	b := ui.ButtonBase(c.Key(key)).Row().Padding(6, 10).Margin(0, 6).Radius(7).AlignItems(ui.Center).Label(label)
+	b := ui.ButtonBase(c.Key(key)).Row().Padding(6, 10).Margin(0, 6).Radius(p.r(7)).AlignItems(ui.Center).Label(label)
 	if b.Hovered() {
 		b.Background(p.hair2)
 	}

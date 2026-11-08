@@ -20,6 +20,7 @@ func unknownApp() string { return i18n.T("未知", "Unknown") }
 // connections that went away become closed, new ones become events, and
 // the controller's totals feed today's and this month's traffic.
 func (m *Monitor) apply(s mihomo.Snapshot, now time.Time) {
+	procs := m.findProcesses(s)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -49,11 +50,8 @@ func (m *Monitor) apply(s mihomo.Snapshot, now time.Time) {
 		t, ok := m.active[mc.ID]
 		if !ok {
 			t = &tracked{Conn: convert(mc)}
-			if t.Process == "" && t.App == unknownApp() && m.FindProcess != nil {
-				src, _ := netip.ParseAddrPort(net.JoinHostPort(mc.Metadata.SourceIP, mc.Metadata.SourcePort))
-				if p := m.FindProcess(t.Network, src); p != "" {
-					t.Process, t.App = p, appName("", p)
-				}
+			if p := procs[mc.ID]; p != "" {
+				t.Process, t.App = p, appName("", p)
 			}
 			if first {
 				// Bytes from before the monitor looked are not a rate.
@@ -81,6 +79,7 @@ func (m *Monitor) apply(s mihomo.Snapshot, now time.Time) {
 		sumDown += dDown
 		sumUp += dUp
 		groups[group(t.Chains)] += t.DownRate
+		m.groupBytes[group(t.Chains)] += dDown
 	}
 	for id, t := range m.active {
 		if !seen[id] {
@@ -106,6 +105,45 @@ func (m *Monitor) apply(s mihomo.Snapshot, now time.Time) {
 	m.totals = true
 	m.lastDown, m.lastUp = s.DownloadTotal, s.UploadTotal
 	m.addTotalsLocked(dDown, dUp, now)
+}
+
+// findProcesses names the processes of the connections in s that are new
+// and whose process the core does not know, by id. The lookup reads the
+// system's whole socket list, so it runs with the monitor unlocked: the
+// interface may be reading it meanwhile. Only the poller calls apply, so
+// the connections new here are still new there.
+func (m *Monitor) findProcesses(s mihomo.Snapshot) map[string]string {
+	if m.FindProcess == nil {
+		return nil
+	}
+	type want struct {
+		id, network string
+		src         netip.AddrPort
+	}
+	var ask []want
+	unknown := unknownApp()
+	m.mu.Lock()
+	for _, mc := range s.Connections {
+		if _, ok := m.active[mc.ID]; ok || mc.ID == "" {
+			continue
+		}
+		if m.SkipGroup != "" && len(mc.Chains) > 0 && mc.Chains[len(mc.Chains)-1] == m.SkipGroup {
+			continue // apply does not keep them
+		}
+		if c := convert(mc); c.Process == "" && c.App == unknown {
+			src, _ := netip.ParseAddrPort(net.JoinHostPort(mc.Metadata.SourceIP, mc.Metadata.SourcePort))
+			ask = append(ask, want{mc.ID, c.Network, src})
+		}
+	}
+	m.mu.Unlock()
+	if len(ask) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(ask))
+	for _, w := range ask {
+		out[w.id] = m.FindProcess(w.network, w.src)
+	}
+	return out
 }
 
 func (m *Monitor) closeLocked(t *tracked, now time.Time) {
@@ -164,6 +202,7 @@ func convert(mc mihomo.Connection) Conn {
 		Chains:  mc.Chains,
 		Start:   mc.Start,
 		Status:  "active",
+		Source:  md.SourceIP,
 	}
 	c.Port, _ = strconv.Atoi(md.DestinationPort)
 	return c

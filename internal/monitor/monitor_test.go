@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"net/url"
 	"os"
@@ -182,6 +183,10 @@ func TestPollRates(t *testing.T) {
 	}
 	if s.ByGroup["Proxy"] != 2000 || s.ByGroup["DIRECT"] != 250 {
 		t.Errorf("by group: %+v", s.ByGroup)
+	}
+	// The bytes, not the rates: what a share adds up whatever the polls' pace.
+	if s.GroupBytes["Proxy"] != 4000 || s.GroupBytes["DIRECT"] != 500 {
+		t.Errorf("group bytes: %+v", s.GroupBytes)
 	}
 	if s.TodayDown != 5500 || s.TodayUp != 500 || s.MonthDown != 5500 {
 		t.Errorf("totals: %+v", s)
@@ -372,6 +377,9 @@ rules:
 		t.Fatal(err)
 	}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/ready" {
+			return
+		}
 		chunk := make([]byte, 64<<10)
 		for range 100 {
 			if _, err := w.Write(chunk); err != nil {
@@ -387,6 +395,26 @@ rules:
 	})}
 	go srv.Serve(ln)
 	t.Cleanup(func() { srv.Close() })
+
+	// The controller answers before the core routes anything: until then
+	// the mixed port refuses connections or answers 502 itself, with
+	// nothing in /connections or the log. Wait until a request gets through.
+	proxy, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", mixed))
+	ready := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy), DisableKeepAlives: true}, Timeout: time.Second}
+	for {
+		resp, err := ready.Get("http://" + ln.Addr().String() + "/ready")
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			b, _ := os.ReadFile(filepath.Join(dir, "core.log"))
+			t.Fatalf("core does not route: %v %v\n%s", resp, err, b)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	m := New(filepath.Join(dir, "stats.json"))
 	ticks := make(chan struct{}, 100)
@@ -408,7 +436,6 @@ rules:
 		}
 	}()
 
-	proxy, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", mixed))
 	hc := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy)}, Timeout: 20 * time.Second}
 	dl := make(chan error, 1)
 	go func() {
@@ -416,6 +443,9 @@ rules:
 		if err == nil {
 			_, err = io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
+			if err == nil && resp.StatusCode != http.StatusOK {
+				err = fmt.Errorf("status %s", resp.Status)
+			}
 		}
 		dl <- err
 	}()
@@ -434,7 +464,14 @@ rules:
 		select {
 		case <-ticks:
 		case <-timeout:
-			t.Fatalf("rate %v group %v failure %v; last %+v; conns %+v; logs %+v", sawRate, sawGroup, sawFail, last, m.Conns(), m.Logs(0))
+			b, _ := os.ReadFile(filepath.Join(dir, "core.log"))
+			dlErr := "still running"
+			select {
+			case err := <-dl:
+				dlErr = fmt.Sprint(err)
+			default:
+			}
+			t.Fatalf("rate %v group %v failure %v; last %+v; conns %+v; logs %+v; download: %s\ncore log:\n%s", sawRate, sawGroup, sawFail, last, m.Conns(), m.Logs(0), dlErr, b)
 		}
 		for _, cn := range m.Conns() {
 			if cn.Status == "active" && cn.Port == ln.Addr().(*net.TCPAddr).Port && cn.DownRate > 0 {
@@ -554,4 +591,41 @@ func TestFindProcessAndSkip(t *testing.T) {
 	if !slices.Equal(asked, []string{"tcp 127.0.0.1:50001", "tcp 127.0.0.1:50002"}) {
 		t.Errorf("asked %v", asked)
 	}
+}
+
+// TestPollEvery: Run waits Every between polls, and Wake cuts it short.
+func TestPollEvery(t *testing.T) {
+	polls := make(chan struct{}, 10)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/connections" {
+			polls <- struct{}{}
+			io.WriteString(w, `{"downloadTotal":0,"uploadTotal":0,"connections":[]}`)
+			return
+		}
+		<-r.Context().Done() // the log stream
+	}))
+	defer srv.Close()
+
+	m := New("")
+	m.Every = func() time.Duration { return time.Hour }
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { m.Run(ctx, mihomo.NewTCP(strings.TrimPrefix(srv.URL, "http://"), "")); close(done) }()
+	defer func() { cancel(); <-done }()
+
+	wait := func(what string) {
+		select {
+		case <-polls:
+		case <-time.After(3 * time.Second):
+			t.Fatalf("no poll %s", what)
+		}
+	}
+	wait("at the start")
+	select {
+	case <-polls:
+		t.Fatal("polled again before Every")
+	case <-time.After(1500 * time.Millisecond): // past the 1 s it used to wait
+	}
+	m.Wake()
+	wait("after Wake")
 }

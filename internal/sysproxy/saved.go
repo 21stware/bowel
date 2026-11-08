@@ -19,6 +19,12 @@ type Service struct {
 	Secure Endpoint `json:"secure"`
 	Socks  Endpoint `json:"socks"`
 	Bypass []string `json:"bypass"`
+
+	// Windows only: the automatic configuration, which WinINet puts before
+	// the proxies above. Enable turns it off; Restore puts it back.
+	PAC        string `json:"pac,omitempty"`        // the script's URL, kept while off
+	PACOn      bool   `json:"pacOn,omitempty"`      // the script is used
+	AutoDetect bool   `json:"autoDetect,omitempty"` // WPAD
 }
 
 // Saved is the system proxy of every service, as Snapshot read it, for
@@ -27,15 +33,12 @@ type Saved struct {
 	Services []Service `json:"services"`
 }
 
-// DefaultBypass is macOS's own bypass list for a new service.
-var DefaultBypass = []string{"*.local", "169.254/16"}
-
 func (s *Service) endpoints() []*Endpoint { return []*Endpoint{&s.Web, &s.Secure, &s.Socks} }
 
 // Forget clears what in saved points at the local ports given, so that a
 // snapshot taken while Moho already held the proxy does not bring it back:
 // those proxies are restored to none. A service all of whose proxies were
-// Moho's gets macOS's default bypass list back too, as its own is lost.
+// Moho's gets the system's default bypass list back too, as its own is lost.
 func (saved *Saved) Forget(ports ...int) {
 	for i := range saved.Services {
 		sv := &saved.Services[i]

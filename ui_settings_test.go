@@ -185,6 +185,7 @@ func TestSettingsSections(t *testing.T) {
 		"tun":        {"自动选择网卡", "端点独立 NAT", "MTU", "DNS 劫持"},
 		"geo":        {"自动更新", "更新间隔", "立即更新", "GeoSite"},
 		"controller": {"地址", "密钥"},
+		"rules":      {"新规则", "测试一个地址", "内置规则", "AI 服务"},
 	}
 	for _, lang := range i18n.Languages {
 		i18n.Set(lang)
@@ -373,5 +374,166 @@ func TestSettingsLanguage(t *testing.T) {
 		if !tt.HasText(l.word) || i18n.Lang() != l.lang || u.shownSettings().Language != l.lang {
 			t.Fatalf("in %s: %q", l.name, tt.Texts())
 		}
+	}
+}
+
+// TestSettingsSearch: the sidebar's search shows the options of every
+// section that match, under their sections' titles; a title or a sidebar
+// item opens its section and ends the search.
+func TestSettingsSearch(t *testing.T) {
+	u := fixtureUI()
+	u.snap.Settings = settings.Defaults.Clone()
+	u.snap.Settings.Rules = []routes.UserRule{{Kind: routes.KindSuffix, Value: "anthropic.com", Route: "ai"}}
+	tt := ui.NewTesterWith(u.settingsView, 760, 560, ui.TesterOptions{})
+	tt.Advance(time.Second)
+
+	// ⌘F goes to the field.
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	if !tt.Focused("搜索设置") {
+		t.Fatal("⌘F did not focus the search")
+	}
+	search := func(q string) {
+		t.Helper()
+		tt.Key(ui.Cmd, ui.KeyA)
+		tt.Type(q)
+		tt.Frame()
+		tt.Frame()
+	}
+
+	// Words match options in sections other than the one chosen.
+	search("端口")
+	for _, w := range []string{"搜索", "入站", "混合端口", "SOCKS 端口", "嗅探", "QUIC"} {
+		if !tt.HasText(w) {
+			t.Errorf("searching 端口 lacks %q: %q", w, tt.Texts())
+		}
+	}
+	for _, w := range []string{"开机启动", "日志级别", "bowel 自己的偏好", "允许局域网连接"} {
+		if tt.HasText(w) {
+			t.Errorf("searching 端口 shows %q: %q", w, tt.Texts())
+		}
+	}
+	shot(t, tt, "settings-search")
+
+	// Every word must match, in any case; a section's name counts.
+	search("dns 缓存")
+	if !tt.HasText("清除 DNS 缓存") || tt.HasText("上游服务器") {
+		t.Errorf("searching dns 缓存: %q", tt.Texts())
+	}
+	search("tun mtu")
+	if !tt.HasText("MTU") || tt.HasText("协议栈") {
+		t.Errorf("searching tun mtu: %q", tt.Texts())
+	}
+
+	// Rules are found by what they match and by their route.
+	search("anthropic")
+	if !tt.HasText("anthropic.com") || tt.HasText("新规则") || tt.HasText("测试一个地址") {
+		t.Errorf("searching anthropic: %q", tt.Texts())
+	}
+
+	search("zzzz")
+	if !tt.HasText("没有相符的设置") {
+		t.Errorf("no match says nothing: %q", tt.Texts())
+	}
+
+	// A section's title among the results opens it.
+	search("保活")
+	b, ok := tt.AccessByRole(ui.RoleButton, "内核")
+	if !ok {
+		t.Fatalf("no 内核 title among %q", tt.Texts())
+	}
+	tt.ClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
+	tt.Frame()
+	if u.set.section != "core" || u.set.query != "" || !tt.HasText("mihomo 自己的行为") {
+		t.Errorf("after the title: section %q query %q", u.set.section, u.set.query)
+	}
+
+	// So does a sidebar item, even the one chosen before the search.
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	search("ipv6")
+	if err := tt.Click("内核"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if u.set.section != "core" || u.set.query != "" {
+		t.Errorf("after the sidebar: section %q query %q", u.set.section, u.set.query)
+	}
+}
+
+// TestSettingsSearchJump: a result's title opens its page, scrolled to it,
+// with its title flashing; a section's title lights all it matched there.
+func TestSettingsSearchJump(t *testing.T) {
+	u := fixtureUI()
+	u.snap.Settings = settings.Defaults.Clone()
+	tt := ui.NewTesterWith(u.settingsView, 760, 560, ui.TesterOptions{})
+	tt.Advance(time.Second)
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	tt.Type("健康检查")
+	tt.Frame()
+	b, ok := tt.AccessByRole(ui.RoleButton, "健康检查间隔")
+	if !ok {
+		t.Fatalf("no title to click among %q", tt.Texts())
+	}
+	tt.ClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
+	tt.Frame()
+	if u.set.section != "core" || u.set.query != "" || u.set.lit == nil || u.set.lit.title != "健康检查间隔" {
+		t.Fatalf("after the title: section %q query %q lit %+v", u.set.section, u.set.query, u.set.lit)
+	}
+	tt.Advance(250 * time.Millisecond)
+	shot(t, tt, "settings-search-jump")
+	// In a window that is not active the flash fades to gray, and comes
+	// back as it is again.
+	tt.SetWindowActive(false)
+	if l := u.set.lit; l == nil || !l.dim {
+		t.Errorf("not dimmed in an inactive window: %+v", l)
+	}
+	shot(t, tt, "settings-search-jump-inactive")
+	tt.SetWindowActive(true)
+	if l := u.set.lit; l == nil || l.dim {
+		t.Errorf("still dimmed in the active window: %+v", l)
+	}
+	tt.Advance(600 * time.Millisecond)
+	shot(t, tt, "settings-search-jump-late")
+	r, ok := tt.Find("健康检查间隔")
+	if !ok || r.Y < 50 || r.Y+r.H > 560 {
+		t.Errorf("the option is not in view: %+v %v", r, ok)
+	}
+	// The flash ends, and leaving the page forgets it.
+	if err := tt.Click("DNS"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if u.set.lit != nil {
+		t.Errorf("still lit after leaving: %+v", u.set.lit)
+	}
+
+	// A section's title lights what the words matched there, by the
+	// option's own words, the section's name helping.
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	tt.Type("dns 缓存")
+	tt.Frame()
+	h, ok := tt.AccessByRole(ui.RoleButton, "DNS")
+	if !ok {
+		t.Fatalf("no DNS title among %q", tt.Texts())
+	}
+	tt.ClickAt(h.Bounds.X+h.Bounds.W/2, h.Bounds.Y+h.Bounds.H/2)
+	tt.Frame()
+	l := u.set.lit
+	if l == nil || l.sec != "dns" || l.title != "" {
+		t.Fatalf("after the section's title: %+v", l)
+	}
+	if !l.lights([]string{"清除 DNS 缓存", "忘掉解析结果和 Fake-IP 映射，下次重新解析"}) {
+		t.Error("清除 DNS 缓存 is not lit")
+	}
+	if l.lights([]string{"上游服务器", "DoH、DoT 链接或 IP"}) {
+		t.Error("上游服务器 is lit")
+	}
+	l.words = []string{"tun", "mtu"}
+	l.sec = "tun"
+	if !l.lights([]string{"MTU", "一个包最大多少字节"}) || l.lights([]string{"协议栈", "mixed：TCP 用 system，UDP 用 gVisor"}) {
+		t.Error("tun mtu lights the wrong options")
 	}
 }

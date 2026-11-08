@@ -10,6 +10,9 @@ import (
 	"strings"
 )
 
+// DefaultBypass is macOS's own bypass list for a new service.
+var DefaultBypass = []string{"*.local", "169.254/16"}
+
 // services lists the enabled network services (Wi-Fi, Ethernet, …).
 func services() ([]string, error) {
 	out, err := exec.Command("networksetup", "-listallnetworkservices").Output()
