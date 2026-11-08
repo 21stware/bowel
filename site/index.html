@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>bowel · 流量走哪儿，一眼看清</title>
-<meta name="description" content="bowel 是一个安静的 macOS 代理客户端，基于 mihomo：该走代理的走最好的出口，其余直连；状态是测出来的，出了问题先告诉你。">
-<meta property="og:title" content="bowel · 流量走哪儿，一眼看清">
-<meta property="og:description" content="一个安静的 macOS 代理客户端，基于 mihomo。原生绘制，没有 WebView。">
+<title>bowel · macOS 上的 mihomo 客户端</title>
+<meta name="description" content="bowel 是 macOS 上的 mihomo 客户端：管理节点、路由和规则，查看每条连接，六种皮肤可选。">
+<meta property="og:title" content="bowel · macOS 上的 mihomo 客户端">
+<meta property="og:description" content="macOS 上的 mihomo 客户端。原生绘制，没有 WebView。">
 <meta property="og:image" content="shots/home-zh.webp">
 <meta name="theme-color" content="#f6f4ef" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#171615" media="(prefers-color-scheme: dark)">
@@ -29,8 +29,8 @@
 <header class="nav">
   <a class="brand" href="#top"><img src="icon.png" alt="" width="28" height="28"><span>bowel</span></a>
   <nav class="links">
-    <a href="#features"><span class="zh">功能</span><span class="en">Features</span></a>
     <a href="#skins"><span class="zh">皮肤</span><span class="en">Skins</span></a>
+    <a href="#features"><span class="zh">功能</span><span class="en">Features</span></a>
     <a href="#agents">Agent</a>
     <a href="#download"><span class="zh">下载</span><span class="en">Download</span></a>
   </nav>
@@ -48,12 +48,12 @@
 <section class="hero">
   <p class="kicker"><span class="dot good"></span><span class="zh">macOS 代理客户端 · 基于 mihomo</span><span class="en">macOS proxy client · powered by mihomo</span></p>
   <h1>
-    <span class="zh">流量走哪儿<br>一眼看清</span>
-    <span class="en">See where your<br>traffic actually goes.</span>
+    <span class="zh">连接两端世界</span>
+    <span class="en">Connect two worlds</span>
   </h1>
   <p class="lede">
-    <span class="zh">该走代理的走最优节点，其余直连。平常安安静静；出了问题，先告诉你坏在哪儿，再告诉你怎么修。</span>
-    <span class="en">Proxied traffic picks the best node; everything else stays direct. Stays quiet when working, and points out the problem and fix when it's not.</span>
+    <span class="zh">管理节点、路由和规则，查看每条连接，还有六种皮肤可选。</span>
+    <span class="en">Manage nodes, routes and rules, see every connection, and choose from six skins.</span>
   </p>
   <div class="cta">
     <a class="btn primary" href="https://github.com/21stware/bowel/releases/latest">
@@ -74,148 +74,11 @@
   </div>
 </section>
 
-<!-- Principles -->
-<section class="principles">
-  <div class="principle">
-    <h3><span class="num">01</span><span class="zh">状态先于控制</span><span class="en">Status before controls</span></h3>
-    <p><span class="zh">最显眼的是当前出口节点，边上就是出口地图：从「你」出发，每条路由拉出一条弧线，流量越大线越粗，流动光点就是传输中的数据。</span><span class="en">The largest text is your active exit node. Right next to it is an exit map: arcs stretch from "you" for each route, thickening with traffic, pulsing with live data.</span></p>
-  </div>
-  <div class="principle">
-    <h3><span class="num">02</span><span class="zh">正常时安静，异常时显眼</span><span class="en">Quiet when working, obvious when broken</span></h3>
-    <p><span class="zh">全软件只有一个状态灯。平常不打扰；真碰上故障，一句话讲明原因，处理按钮就在旁边。</span><span class="en">Only one status light in the entire app. It stays silent until something breaks, explaining the issue in one line with a fix right beside it.</span></p>
-  </div>
-  <div class="principle">
-    <h3><span class="num">03</span><span class="zh">状态是测出来的</span><span class="en">Measured, not guessed</span></h3>
-    <p><span class="zh">每 2 秒确认一次系统代理还指向 bowel。被别的程序悄悄改了？状态立刻变红，并提供「重新接管」。</span><span class="en">Every 2 seconds, bowel checks if the system proxy still points to it. Hijacked by another tool? The light turns red with an option to take over again.</span></p>
-  </div>
-</section>
-
-<!-- One light -->
-<section class="lights">
-  <div class="light"><span class="dot good"></span><b><span class="zh">正常</span><span class="en">OK</span></b><small><span class="zh">至少一个入口生效、内核正常、各路由节点可用</span><span class="en">At least one entry works, the core is healthy, and each route's node responds</span></small></div>
-  <div class="light"><span class="dot warn"></span><b><span class="zh">降级</span><span class="en">Degraded</span></b><small><span class="zh">能用但有问题：节点超时、发生故障转移、Provider 快到期</span><span class="en">Usable with issues: a node timed out, failover triggered, or a Provider expires soon</span></small></div>
-  <div class="light"><span class="dot bad"></span><b><span class="zh">异常</span><span class="en">Error</span></b><small><span class="zh">流量走不通：内核挂了、入口被改了、节点全不可用</span><span class="en">Traffic blocked: the core crashed, the entry was changed, or no nodes respond</span></small></div>
-  <div class="light"><span class="dot off"></span><b><span class="zh">未接管</span><span class="en">Off</span></b><small><span class="zh">接管已关闭，流量不经过 bowel</span><span class="en">Takeover is off; traffic bypasses bowel</span></small></div>
-</section>
-
-<!-- Features -->
-<section id="features" class="features">
-
-  <article class="feature">
-    <div class="copy">
-      <p class="tag"><span class="zh">路由</span><span class="en">Routes</span></p>
-      <h2><span class="zh">按用途分路由，<br>每条各选出口。</span><span class="en">Routes by purpose,<br>each with its own exit.</span></h2>
-      <p><span class="zh">默认、AI 服务、流媒体、开发、直连，装好就能用。手动挑节点，或者直接选「自动」：最快测速加故障转移。没有「策略组」，也不见「Selector」。</span><span class="en">Default, AI services, streaming, development, and direct—ready out of the box. Pick a node by hand, or set it to Auto for lowest latency with failover. No policy groups, no selectors.</span></p>
-      <ul class="routes">
-        <li><i style="--c:#2f5bea"></i><span class="zh">默认</span><span class="en">Default</span></li>
-        <li><i style="--c:#7a4de0"></i><span class="zh">AI 服务</span><span class="en">AI services</span></li>
-        <li><i style="--c:#e0457b"></i><span class="zh">流媒体</span><span class="en">Streaming</span></li>
-        <li><i style="--c:#0e9db1"></i><span class="zh">开发</span><span class="en">Development</span></li>
-        <li><i style="--c:#9a968c"></i><span class="zh">直连</span><span class="en">Direct</span></li>
-      </ul>
-    </div>
-    <figure class="shot"><img data-shot="routes" src="shots/routes-zh.webp" width="1060" height="760" loading="lazy" alt="路由的候选节点 / A route's candidate nodes"></figure>
-  </article>
-
-  <article class="feature flip">
-    <div class="copy">
-      <p class="tag"><span class="zh">出口位置</span><span class="en">Exit locations</span></p>
-      <h2><span class="zh">「香港 03」<br>真的在香港吗？</span><span class="en">Is "Hong Kong 03"<br>really in Hong Kong?</span></h2>
-      <p><span class="zh">节点名称不可全信。bowel 通过节点请求 Cloudflare 的 <code>/cdn-cgi/trace</code>，实测出真实的出口位置，并在每个地点旁标明实测、按名称或未知。</span><span class="en">Node names aren't always honest. bowel queries Cloudflare's <code>/cdn-cgi/trace</code> through a node to measure its actual exit location, tagging it as Measured, By name, or Unknown.</span></p>
-      <div class="badges">
-        <span class="badge good"><span class="zh">实测</span><span class="en">Measured</span></span>
-        <span class="badge"><span class="zh">按名称</span><span class="en">By name</span></span>
-        <span class="badge warn"><span class="zh">未知</span><span class="en">Unknown</span></span>
-      </div>
-    </div>
-    <figure class="shot"><img data-shot="map" src="shots/map-zh.webp" width="1060" height="760" loading="lazy" alt="出口地图 / The exit map"></figure>
-  </article>
-
-  <article class="feature">
-    <div class="copy">
-      <p class="tag"><span class="zh">活动</span><span class="en">Activity</span></p>
-      <h2><span class="zh">每条连接，<br>清清楚楚。</span><span class="en">Every connection,<br>plain to see.</span></h2>
-      <p><span class="zh">哪个应用、连到哪里、命中哪条规则、走了哪条路由和出口、速率多快、连了多久。失败标红。点一下「让它走…」，就能把这个网站划给另一条路由；受影响的连接即刻断开重连，马上见效。</span><span class="en">See which app, destination, rule hit, route and exit, speed, and duration. Failed connections glow red. Click <b>Send via…</b> on any entry to switch that site to another route; affected connections drop and reconnect instantly.</span></p>
-      <p class="mono">api.openai.com → openai.com → <span class="zh">AI 服务</span><span class="en">AI services</span></p>
-    </div>
-    <figure class="shot"><img data-shot="activity" src="shots/activity-zh.webp" width="1060" height="760" loading="lazy" alt="日志页 / The log"></figure>
-  </article>
-
-  <article class="feature flip">
-    <div class="copy">
-      <p class="tag">Provider</p>
-      <h2><span class="zh">Provider<br>只负责提供节点。</span><span class="en">Providers<br>only supply nodes.</span></h2>
-      <p><span class="zh">订阅链接、单条节点链接、YAML 文件，或者屏幕与摄像头扫码。已用流量、到期时间、可用节点数，一行看尽。</span><span class="en">Subscription links, pasted node URLs, YAML files, or QR scans via screen and camera. Usage, expiry date, and working nodes—all on one clean line.</span></p>
-      <p class="mono">vmess:// · vless:// · trojan:// · ss:// · hysteria2:// · tuic://</p>
-    </div>
-    <figure class="shot"><img data-shot="providers" src="shots/providers-zh.webp" width="1060" height="760" loading="lazy" alt="提供商页 / Providers"></figure>
-  </article>
-
-  <article class="feature">
-    <div class="copy">
-      <p class="tag"><span class="zh">规则</span><span class="en">Rules</span></p>
-      <h2><span class="zh">你的规则，<br>永远排在最前。</span><span class="en">Your custom rules<br>always come first.</span></h2>
-      <p><span class="zh">域名与子域名、单个主机名、关键词、IP 段，随时指给任意路由，排在内置规则之前。添加前会说明实际效果，还能直接输入地址测试走哪条路由。</span><span class="en">Route domains, subdomains, hostnames, keywords, or IP blocks anywhere ahead of built-in rules. bowel shows what will happen before you save, and lets you test any address on the fly.</span></p>
-    </div>
-    <figure class="shot settings"><img data-shot="settings-rules" src="shots/settings-rules-zh.webp" width="760" height="760" loading="lazy" alt="设置 › 规则 / Settings › Rules"></figure>
-  </article>
-
-</section>
-
-<!-- Agents -->
-<section id="agents" class="agents">
-  <div class="copy">
-    <p class="tag">MCP</p>
-    <h2><span class="zh">交给 Agent 排查。</span><span class="en">Let an agent troubleshoot.</span></h2>
-    <p><span class="zh">bowel 自带 MCP 服务器。Claude Code 等 Agent 可以读取状态、设置、路由、节点、连接和日志，排查网站打不开的根因。读取无需确认；修改设置默认弹窗询问，且每笔修改都能在设置里查到。</span><span class="en">bowel includes a built-in MCP server. Agents like Claude Code can inspect status, settings, routes, nodes, connections, and logs to diagnose site issues. Reading is always allowed; changes ask for confirmation by default, with all edits logged in settings.</span></p>
-    <div class="code">
-      <button class="copy-btn" type="button" data-copy="claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp"><span class="zh">复制</span><span class="en">Copy</span></button>
-      <pre><code><span class="p">$</span> claude mcp add --scope user bowel -- \
-    /Applications/bowel.app/Contents/MacOS/bowel mcp</code></pre>
-    </div>
-    <div class="policy">
-      <span class="on"><span class="zh">询问</span><span class="en">Ask</span></span>
-      <span><span class="zh">总是允许</span><span class="en">Always allow</span></span>
-      <span><span class="zh">不允许</span><span class="en">Don't allow</span></span>
-    </div>
-  </div>
-  <figure class="shot settings dark"><img data-shot="settings-mcp" data-dark="1" src="shots/settings-mcp-zh-dark.webp" width="760" height="760" loading="lazy" alt="设置 › MCP / Settings › MCP"></figure>
-</section>
-
-<!-- More -->
-<section class="grid">
-  <div class="cell">
-    <h3><span class="zh">网关模式</span><span class="en">Gateway mode</span></h3>
-    <p><span class="zh">轻点开关，这台 Mac 就变成局域网网关。电视、游戏机或手机把网关和 DNS 指过来，就能按 bowel 的规则上网。转发、DNS 和 TUN 是否真在工作，都会实际检测。</span><span class="en">One switch turns this Mac into a local gateway. Point your TV, console, or phone's gateway and DNS here, and they route by bowel's rules. Forwarding, DNS, and TUN are all actively verified.</span></p>
-    <div class="lan"><span>📺</span><span>🎮</span><span>📱</span><b>→</b><span class="mac">⌘</span><b>→</b><span>🌐</span></div>
-  </div>
-  <div class="cell">
-    <h3>TUN</h3>
-    <p><span class="zh">接管不认系统代理的程序。第一次开启时只请求一次管理员授权。</span><span class="en">Captures traffic from apps that ignore the system proxy. Requests administrator permission once, the first time you turn it on.</span></p>
-  </div>
-  <div class="cell">
-    <h3><span class="zh">菜单栏</span><span class="en">Menu bar</span></h3>
-    <p><span class="zh">接管开关、默认出口节点列表、规则 / 全局 / 直连切换。图标只分明暗，不在菜单栏里无休止跳动网速。</span><span class="en">Takeover switch, default exit node list, and Rule / Global / Direct mode. The icon stays lit or dark, without jittery speed numbers in your menu bar.</span></p>
-  </div>
-  <div class="cell">
-    <h3><span class="zh">原生绘制</span><span class="en">Native rendering</span></h3>
-    <p><span class="zh">界面由 Go 编写，GPU 直接渲染，不含任何 WebView。主窗口格子像抽屉般展开收起，拉伸变形时内容绝不打乱重排。</span><span class="en">Written in Go and rendered on the GPU—no WebViews. Board cells open and close like drawers, adapting without reshuffling content.</span></p>
-  </div>
-  <div class="cell">
-    <h3><span class="zh">可搜索的设置</span><span class="en">Searchable settings</span></h3>
-    <p><span class="zh">按 ⌘F 搜遍所有设置。敲入「tun mtu」，瞬间定位到 MTU。</span><span class="en">Press ⌘F to search across all settings. Type "tun mtu" to jump straight to MTU.</span></p>
-  </div>
-  <div class="cell">
-    <h3><span class="zh">四种语言</span><span class="en">Four languages</span></h3>
-    <p>简体中文 · 繁體中文 · English · 日本語</p>
-  </div>
-</section>
-
 <!-- Skins -->
 <section id="skins" class="skins">
   <p class="tag"><span class="zh">皮肤</span><span class="en">Skins</span></p>
-  <h2><span class="zh">六种面貌，同一个 bowel。</span><span class="en">Six looks, one bowel.</span></h2>
-  <p class="sub"><span class="zh">换肤改变的是整套视觉：配色、字体、圆角、光晕与底纹，所有核心功能丝毫不变。</span><span class="en">A skin restyles the whole app: colors, typography, corners, glow, and texture. Core features stay identical.</span></p>
+  <h2><span class="zh">六种皮肤</span><span class="en">Six skins</span></h2>
+  <p class="sub"><span class="zh">配色、字体、圆角和质感一起变，底层功能完全一样。</span><span class="en">Colors, typography, corners, and texture all change together, while core features stay identical.</span></p>
   <div class="skin-tabs" role="tablist">
     <button role="tab" aria-selected="true" data-skin="paper" style="--a:#DDFB4C"><i></i><span class="zh">纸墨</span><span class="en">Paper</span></button>
     <button role="tab" data-skin="broadsheet" style="--a:#B3261E"><i></i><span class="zh">报刊</span><span class="en">Broadsheet</span></button>
@@ -237,10 +100,123 @@
   </figure>
 </section>
 
+<!-- Features -->
+<section id="features" class="features">
+
+  <article class="feature">
+    <div class="copy">
+      <p class="tag"><span class="zh">路由</span><span class="en">Routes</span></p>
+      <h2><span class="zh">路由</span><span class="en">Routes</span></h2>
+      <p><span class="zh">按日常、AI、流媒体等用途划分路由，给每条路由挑选出口节点。</span><span class="en">Group traffic by purpose like AI or streaming, and choose an exit node for each route.</span></p>
+      <ul class="routes">
+        <li><i style="--c:#2f5bea"></i><span class="zh">默认</span><span class="en">Default</span></li>
+        <li><i style="--c:#7a4de0"></i><span class="zh">AI 服务</span><span class="en">AI services</span></li>
+        <li><i style="--c:#e0457b"></i><span class="zh">流媒体</span><span class="en">Streaming</span></li>
+        <li><i style="--c:#0e9db1"></i><span class="zh">开发</span><span class="en">Development</span></li>
+        <li><i style="--c:#9a968c"></i><span class="zh">直连</span><span class="en">Direct</span></li>
+      </ul>
+    </div>
+    <figure class="shot"><img data-shot="routes" src="shots/routes-zh.webp" width="1060" height="760" loading="lazy" alt="路由的候选节点 / A route's candidate nodes"></figure>
+  </article>
+
+  <article class="feature flip">
+    <div class="copy">
+      <p class="tag"><span class="zh">出口位置</span><span class="en">Exit locations</span></p>
+      <h2><span class="zh">出口位置</span><span class="en">Exit locations</span></h2>
+      <p><span class="zh">通过节点向 Cloudflare 发送请求，测出真实的出口位置。</span><span class="en">Queries Cloudflare through each node to measure its actual exit location.</span></p>
+      <div class="badges">
+        <span class="badge good"><span class="zh">实测</span><span class="en">Measured</span></span>
+        <span class="badge"><span class="zh">按名称</span><span class="en">By name</span></span>
+        <span class="badge warn"><span class="zh">未知</span><span class="en">Unknown</span></span>
+      </div>
+    </div>
+    <figure class="shot"><img data-shot="map" src="shots/map-zh.webp" width="1060" height="760" loading="lazy" alt="出口地图 / The exit map"></figure>
+  </article>
+
+  <article class="feature">
+    <div class="copy">
+      <p class="tag"><span class="zh">活动</span><span class="en">Activity</span></p>
+      <h2><span class="zh">连接</span><span class="en">Connections</span></h2>
+      <p><span class="zh">查看各个应用的实时连接与流量，也可以随时把网站指给其他路由。</span><span class="en">View live connections and traffic by app, and adjust routes on the fly.</span></p>
+      <p class="mono">api.openai.com → openai.com → <span class="zh">AI 服务</span><span class="en">AI services</span></p>
+    </div>
+    <figure class="shot"><img data-shot="activity" src="shots/activity-zh.webp" width="1060" height="760" loading="lazy" alt="日志页 / The log"></figure>
+  </article>
+
+  <article class="feature flip">
+    <div class="copy">
+      <p class="tag">Provider</p>
+      <h2><span class="zh">节点来源</span><span class="en">Node sources</span></h2>
+      <p><span class="zh">支持导入订阅链接、节点链接、配置文件或通过扫码添加节点。</span><span class="en">Import nodes via subscription URLs, node links, config files, or QR scans.</span></p>
+      <p class="mono">vmess:// · vless:// · trojan:// · ss:// · hysteria2:// · tuic://</p>
+    </div>
+    <figure class="shot"><img data-shot="providers" src="shots/providers-zh.webp" width="1060" height="760" loading="lazy" alt="提供商页 / Providers"></figure>
+  </article>
+
+  <article class="feature">
+    <div class="copy">
+      <p class="tag"><span class="zh">规则</span><span class="en">Rules</span></p>
+      <h2><span class="zh">规则</span><span class="en">Rules</span></h2>
+      <p><span class="zh">支持按域名、关键词或 IP 段添加规则，并能直接测试分流效果。</span><span class="en">Add rules by domain, keyword, or IP block, and test routing directly.</span></p>
+    </div>
+    <figure class="shot settings"><img data-shot="settings-rules" src="shots/settings-rules-zh.webp" width="760" height="760" loading="lazy" alt="设置 › 规则 / Settings › Rules"></figure>
+  </article>
+
+</section>
+
+<!-- Agents -->
+<section id="agents" class="agents">
+  <div class="copy">
+    <p class="tag">MCP</p>
+    <h2><span class="zh">配合 Agent 排查</span><span class="en">Troubleshoot with agents</span></h2>
+    <p><span class="zh">自带 MCP 服务供 Agent 读取状态和排查问题，修改设置默认弹窗询问。</span><span class="en">Includes a built-in MCP server for agents to inspect status, and asks for confirmation by default before changing settings.</span></p>
+    <div class="code">
+      <button class="copy-btn" type="button" data-copy="claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp"><span class="zh">复制</span><span class="en">Copy</span></button>
+      <pre><code><span class="p">$</span> claude mcp add --scope user bowel -- \
+    /Applications/bowel.app/Contents/MacOS/bowel mcp</code></pre>
+    </div>
+    <div class="policy">
+      <span class="on"><span class="zh">询问</span><span class="en">Ask</span></span>
+      <span><span class="zh">总是允许</span><span class="en">Always allow</span></span>
+      <span><span class="zh">不允许</span><span class="en">Don't allow</span></span>
+    </div>
+  </div>
+  <figure class="shot settings dark"><img data-shot="settings-mcp" data-dark="1" src="shots/settings-mcp-zh-dark.webp" width="760" height="760" loading="lazy" alt="设置 › MCP / Settings › MCP"></figure>
+</section>
+
+<!-- More -->
+<section class="grid">
+  <div class="cell">
+    <h3><span class="zh">网关模式</span><span class="en">Gateway mode</span></h3>
+    <p><span class="zh">开启后把当前 Mac 作为局域网网关，供电视、手机或游戏机使用。</span><span class="en">Turn this Mac into a local gateway for your TV, phone, or console.</span></p>
+    <div class="lan"><span>📺</span><span>🎮</span><span>📱</span><b>→</b><span class="mac">⌘</span><b>→</b><span>🌐</span></div>
+  </div>
+  <div class="cell">
+    <h3>TUN</h3>
+    <p><span class="zh">接管不走系统代理的程序，首次开启时需要一次管理员授权。</span><span class="en">Route traffic from apps that bypass system proxies, requiring admin permission once.</span></p>
+  </div>
+  <div class="cell">
+    <h3><span class="zh">菜单栏</span><span class="en">Menu bar</span></h3>
+    <p><span class="zh">在菜单栏切换接管状态、模式与出口节点，图标不显示跳动的网速。</span><span class="en">Switch proxy status, modes, and exit nodes from the menu bar without jittery speed numbers.</span></p>
+  </div>
+  <div class="cell">
+    <h3><span class="zh">原生绘制</span><span class="en">Native rendering</span></h3>
+    <p><span class="zh">界面由 Go 编写，GPU 直接渲染，没有 WebView。</span><span class="en">Written in Go and rendered directly by the GPU, with no WebViews.</span></p>
+  </div>
+  <div class="cell">
+    <h3><span class="zh">可搜索的设置</span><span class="en">Searchable settings</span></h3>
+    <p><span class="zh">支持按 ⌘F 快速搜索和定位各项设置。</span><span class="en">Press ⌘F to search across all settings.</span></p>
+  </div>
+  <div class="cell">
+    <h3><span class="zh">四种语言</span><span class="en">Four languages</span></h3>
+    <p>简体中文 · 繁體中文 · English · 日本語</p>
+  </div>
+</section>
+
 <!-- Download -->
 <section id="download" class="download">
   <img src="icon.png" width="96" height="96" alt="">
-  <h2><span class="zh">打开 bowel，看清流量到底去了哪儿。</span><span class="en">Open bowel and see where your traffic really goes.</span></h2>
+  <h2><span class="zh">开始使用 bowel</span><span class="en">Get started with bowel</span></h2>
   <a class="btn primary big" href="https://github.com/21stware/bowel/releases/latest"><span class="zh">下载 bowel</span><span class="en">Download bowel</span></a>
   <p class="fine"><span class="zh">macOS 12+ · Apple 芯片 · 免费 · 已通过 Apple 公证</span><span class="en">macOS 12+ · Apple silicon · Free · Notarized by Apple</span></p>
   <ol class="steps">
