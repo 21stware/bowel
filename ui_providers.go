@@ -182,7 +182,7 @@ func (u *UI) provHead(c *ui.Context, p *pal) {
 			if busy {
 				label = fmt.Sprintf(i18n.T("正在更新 %d 个订阅…", "Updating %d subscriptions…"), subs)
 			}
-			b := ui.ButtonBase(c).Padding(5, 11).Radius(7).Border(1, p.hair).Label(i18n.T("全部更新", "Update all"))
+			b := ui.ButtonBase(c).Padding(5, 11).Radius(p.r(7)).Border(1, p.hair).Label(i18n.T("全部更新", "Update all"))
 			if b.Hovered() {
 				b.BorderColor(p.ink)
 			}
@@ -204,7 +204,7 @@ func (u *UI) provAddBar(c *ui.Context, p *pal) {
 	adding := u.pending("add")
 	ui.Column(c).Gap(8).Margin(0, 26).Padding(12, 0, 14, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair).Children(func() {
 		ui.Row(c).Gap(10).AlignItems(ui.Start).Children(func() {
-			in := ui.TextAreaBase(c.Key("add"), &pr.input).Lines(1, 5).Grow(1).Basis(0).Padding(9, 12).Radius(10).
+			in := ui.TextAreaBase(c.Key("add"), &pr.input).Lines(1, 5).Grow(1).Basis(0).Padding(9, 12).Radius(p.r(10)).
 				Background(p.card).Border(1, p.hair).FontSize(13).
 				Placeholder(i18n.T("粘贴订阅链接、节点链接或 Clash 配置", "Paste a subscription link, node links or a Clash config")).
 				Label(i18n.T("添加提供商", "Add provider")).
@@ -240,7 +240,7 @@ func (u *UI) provAddBar(c *ui.Context, p *pal) {
 			if adding {
 				label = i18n.T("添加中…", "Adding…")
 			}
-			b := ui.ButtonBase(c).Height(36).MinWidth(84).Padding(0, 18).Justify(ui.Center).Radius(999).Background(p.accent).Label(i18n.T("添加", "Add"))
+			b := ui.ButtonBase(c).Height(36).MinWidth(84).Padding(0, 18).Justify(ui.Center).Radius(p.r(999)).Background(p.accent).Label(i18n.T("添加", "Add"))
 			if strings.TrimSpace(pr.input) == "" && !adding {
 				b.Opacity(.35)
 			}
@@ -365,7 +365,7 @@ func (u *UI) provRow(c *ui.Context, p *pal, pv ProviderView) {
 
 func (u *UI) provName(c *ui.Context, p *pal, pv ProviderView, busy bool, shown int) {
 	ui.Column(c).Gap(3).Grow(1).Basis(0).MinWidth(0).Children(func() {
-		shimmer(ui.Text(c, pv.Name).FontSize(18).FontWeight(700).TextColor(p.ink).MaxLines(1), busy, p)
+		shimmer(disp(ui.Text(c, pv.Name), p).FontSize(18).FontWeight(700).TextColor(p.ink).MaxLines(1), busy, p)
 		src := provKindWord(pv.Kind)
 		if pv.Source != "" {
 			src += " · " + pv.Source
@@ -416,8 +416,8 @@ func provUsage(c *ui.Context, p *pal, pv ProviderView) {
 			if pv.Warn == "quota" {
 				bar = p.warn
 			}
-			ui.Box(c).Height(3).Radius(2).Background(p.hair).Children(func() {
-				ui.Box(c).WidthPercent(frac * 100).FillHeight().Radius(2).Background(bar)
+			ui.Box(c).Height(3).Radius(p.r(2)).Background(p.hair).Children(func() {
+				ui.Box(c).WidthPercent(frac * 100).FillHeight().Radius(p.r(2)).Background(bar)
 			})
 		} else {
 			ui.Text(c, i18n.T("不限流量", "Unlimited")).FontSize(11).TextColor(col)
@@ -488,7 +488,7 @@ func provHealth(c *ui.Context, p *pal, nodes []NodeView) {
 				if n.Delay > 0 {
 					h = max(3, 16-float32(n.Delay)/15)
 				}
-				b := ui.Box(c.Key(i)).Height(h).Radius(1).Background(delayColor(p, n.Delay, true).Alpha(.8))
+				b := ui.Box(c.Key(i)).Height(h).Radius(p.r(1)).Background(delayColor(p, n.Delay, true).Alpha(.8))
 				if len(ns) <= 16 {
 					b.Width(5)
 				} else {
@@ -530,7 +530,7 @@ func (u *UI) provAuto(c *ui.Context, p *pal, pv ProviderView) {
 			opts[i] = provAutoWord(h)
 		}
 		sel := ui.SelectBase(c.Key("auto"), &cur)
-		sel.Trigger.Row().Gap(5).Padding(5, 9).Radius(7).Border(1, p.hair2).AlignItems(ui.Center).Label(i18n.T("自动更新", "Auto update")).Children(func() {
+		sel.Trigger.Row().Gap(5).Padding(5, 9).Radius(p.r(7)).Border(1, p.hair2).AlignItems(ui.Center).Label(i18n.T("自动更新", "Auto update")).Children(func() {
 			ui.Text(c, i18n.T("自动更新", "Auto-update")).FontSize(11.5).TextColor(p.mute).NoWrap()
 			ui.Text(c, cur).FontSize(12).FontWeight(600).TextColor(p.ink).NoWrap()
 			ui.Text(c, "▾").FontSize(9).TextColor(p.mute)
@@ -542,10 +542,10 @@ func (u *UI) provAuto(c *ui.Context, p *pal, pv ProviderView) {
 			sel.Trigger.BorderColor(p.ink)
 		}
 		sel.Popup(func(panel ui.Element) {
-			panel.Margin(4, 0, 0, 0).Padding(4).Radius(9).Background(p.sheet).Border(1, p.hair).
+			panel.Margin(4, 0, 0, 0).Padding(4).Radius(p.r(9)).Background(p.sheet).Border(1, p.hair).
 				Shadow(0, 8, 24, 0, ui.RGBA(0, 0, 0, .14)).MinWidth(130)
 			for _, o := range opts {
-				it := sel.Item(o).Padding(5, 10).Radius(6)
+				it := sel.Item(o).Padding(5, 10).Radius(p.r(6))
 				if it.Highlighted() {
 					it.Background(p.hair2)
 				}
@@ -633,7 +633,7 @@ func (u *UI) provManage(c *ui.Context, p *pal, pv ProviderView) {
 
 // provBtn is btn, or a danger one asking to be pressed again.
 func (u *UI) provBtn(c *ui.Context, p *pal, label string, danger bool) ui.Element {
-	b := ui.ButtonBase(c).Padding(5, 11).Radius(7).Border(1, p.hair).Label(label)
+	b := ui.ButtonBase(c).Padding(5, 11).Radius(p.r(7)).Border(1, p.hair).Label(label)
 	col := p.ink
 	switch {
 	case danger:
@@ -727,7 +727,7 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 		}
 		ui.Text(c, src).Font("SF Mono, Menlo").FontSize(11.5).TextColor(p.ink2).MaxLines(1).Grow(1).Basis(0).MinWidth(0)
 		if pr.renaming == pv.ID {
-			in := ui.TextInput(c.Key("rename"), &pr.newName).Width(220).Padding(4, 9).Radius(7).Background(p.card).
+			in := ui.TextInput(c.Key("rename"), &pr.newName).Width(220).Padding(4, 9).Radius(p.r(7)).Background(p.card).
 				Border(1, p.ink).FontSize(12.5).Label(i18n.T("名称", "Name")).AutoFocus()
 			// Enter keeps the name, as moving the focus away does; Escape
 			// (the page's) goes back.
@@ -770,7 +770,7 @@ func (u *UI) provRename(id, name string) {
 
 func (u *UI) provEmpty(c *ui.Context, p *pal) {
 	ui.Column(c).Gap(6).Padding(30, 0, 0, 0).MaxWidth(720).Children(func() {
-		ui.Text(c, i18n.T("还没有节点来源", "No node sources yet")).FontSize(26).FontWeight(700).TextColor(p.ink)
+		disp(ui.Text(c, i18n.T("还没有节点来源", "No node sources yet")), p).FontSize(26).FontWeight(700).TextColor(p.ink)
 		ui.Text(c, i18n.T("粘贴到上面，回车添加。", "Paste one above and press Enter to add it.")).FontSize(13).TextColor(p.mute)
 		ui.Column(c).Margin(18, 0, 0, 0).Children(func() {
 			for _, k := range [][3]string{
@@ -779,7 +779,7 @@ func (u *UI) provEmpty(c *ui.Context, p *pal) {
 				{i18n.T("本地文件", "Local file"), i18n.T("Clash 配置，点「选择文件…」", "A Clash config; click “Choose file…”"), "~/Downloads/clash.yaml"},
 			} {
 				ui.Row(c).Gap(18).Padding(14, 0).BorderWidth(1, 0, 0, 0).BorderColor(p.hair2).AlignItems(ui.Start).Children(func() {
-					ui.Text(c, k[0]).FontSize(18).FontWeight(700).TextColor(p.ink).Width(110)
+					disp(ui.Text(c, k[0]), p).FontSize(18).FontWeight(700).TextColor(p.ink).Width(110)
 					ui.Column(c).Gap(6).Grow(1).Basis(0).Children(func() {
 						ui.Text(c, k[1]).FontSize(12.5).TextColor(p.ink2)
 						ui.Text(c, k[2]).Font("SF Mono, Menlo").FontSize(11.5).TextColor(p.mute)

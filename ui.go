@@ -102,6 +102,14 @@ type pal struct {
 	accentOf                     string
 	// dark is the dark palette's: the presets have a color for each.
 	dark bool
+	// The skin's (skins.go): font is the face of text, display of big
+	// type; round scales corners, 0 square; glow, when not clear, haloes
+	// big type and what is filled with the accent; deco is the texture laid
+	// over a window.
+	font, display string
+	round         float32
+	glow          ui.Color
+	deco          func(pt *ui.Painter, r ui.Rect, p *pal)
 }
 
 var lightPal = pal{
@@ -110,6 +118,7 @@ var lightPal = pal{
 	hair: ui.RGBA(21, 20, 19, .11), hair2: ui.RGBA(21, 20, 19, .06), hover: ui.RGBA(21, 20, 19, .035),
 	signal: ui.Hex("#e2462b"), good: ui.Hex("#2c9a5a"), warn: ui.Hex("#cf8a12"),
 	route: map[string]ui.Color{"default": ui.Hex("#2f5bea"), "ai": ui.Hex("#7a4de0"), "media": ui.Hex("#e0457b"), "dev": ui.Hex("#0e9db1"), "direct": ui.Hex("#9a968c")},
+	font:  sans, display: sans, round: 1,
 }
 
 var darkPal = pal{
@@ -119,6 +128,7 @@ var darkPal = pal{
 	hair: ui.RGBA(244, 243, 238, .11), hair2: ui.RGBA(244, 243, 238, .06), hover: ui.RGBA(244, 243, 238, .04),
 	signal: ui.Hex("#ff5a3c"), good: ui.Hex("#3fc07a"), warn: ui.Hex("#f0a630"),
 	route: map[string]ui.Color{"default": ui.Hex("#5b80ff"), "ai": ui.Hex("#9a74ff"), "media": ui.Hex("#ff5f93"), "dev": ui.Hex("#22c3d6"), "direct": ui.Hex("#77736b")},
+	font:  sans, display: sans, round: 1,
 }
 
 // themeAccent is the theme color the windows draw with: the settings'
@@ -157,11 +167,9 @@ func inactiveMix(p *pal) float32 {
 	return .14
 }
 
+// palette is the skin's palette (themeSkin) for the Mac's appearance.
 func palette(c *ui.Context) *pal {
-	p := &lightPal
-	if c.Theme().Dark {
-		p = &darkPal
-	}
+	p := skinByID(themeSkin).pal(c.Theme().Dark)
 	if p.accentOf != themeAccent {
 		p.setAccent(themeAccent)
 	}
@@ -270,15 +278,9 @@ var motion = ui.Animation{Duration: 520 * time.Millisecond, Ease: ui.CubicBezier
 // ---- The window ----
 
 func (u *UI) view(c *ui.Context) {
-	useAccent(u.shownSettings().Accent)
+	useLook(u.shownSettings())
 	p := windowPal(c, palette(c))
-	t := *c.Theme()
-	t.Background, t.Text, t.TextMuted, t.Border = p.paper, p.ink, p.mute, p.hair
-	t.Surface, t.SurfaceHover = p.card, p.paper2
-	accentTheme(&t, p)
-	t.Inverse, t.InverseText = p.ink, p.paper
-	t.Font = sans
-	c.SetTheme(&t)
+	applyTheme(c, p, true)
 	// The caret in ink: the accent may be too pale for a line on paper.
 	c.Root().CaretColor(p.ink)
 	for _, m := range u.toasts {
@@ -314,6 +316,7 @@ func (u *UI) view(c *ui.Context) {
 				}
 			})
 		})
+		skinDeco(c, p)
 	})
 }
 
@@ -330,13 +333,13 @@ var pages = []struct{ id, zh, en string }{
 func (u *UI) titleBar(c *ui.Context, p *pal) {
 	bar := c.TitleBar()
 	ui.Row(c).Height(max(bar.Height, 50)).Padding(0, bar.Right+16, 0, bar.Left+14).Gap(16).AlignItems(ui.Center).DragWindow().Children(func() {
-		ui.Row(c).Gap(2).Padding(3).Radius(10).Background(p.hair2).Shrink(0).Children(func() {
+		ui.Row(c).Gap(2).Padding(3).Radius(p.r(10)).Background(p.hair2).Shrink(0).Children(func() {
 			for _, pg := range pages {
 				id := pg.id
 				on := u.page == id
-				b := ui.ButtonBase(c.Key(id)).Padding(4, 16).Radius(7)
+				b := ui.ButtonBase(c.Key(id)).Padding(4, 16).Radius(p.r(7))
 				if on {
-					b.Background(p.accent)
+					lit(b.Background(p.accent), p)
 				}
 				b.OnClick(func() { u.page = id }).Children(func() {
 					ui.Row(c).Gap(6).Children(func() {
@@ -346,7 +349,7 @@ func (u *UI) titleBar(c *ui.Context, p *pal) {
 						}
 						ui.Text(c, i18n.T(pg.zh, pg.en)).FontSize(13).FontWeight(600).TextColor(col)
 						if id == "providers" && u.providerWarn() {
-							ui.Box(c).Size(5, 5).Radius(3).Background(p.warn)
+							ui.Box(c).Size(5, 5).Radius(p.r(3)).Background(p.warn)
 						}
 					})
 				})
@@ -384,8 +387,8 @@ func (u *UI) stateColor(p *pal) ui.Color {
 }
 
 func (u *UI) statePill(c *ui.Context, p *pal) {
-	ui.Row(c).Gap(6).Padding(4, 11).Radius(999).Background(p.hair2).Children(func() {
-		ui.Box(c).Size(7, 7).Radius(4).Background(u.stateColor(p)).Transition(ui.ElementTransition{Colors: true})
+	ui.Row(c).Gap(6).Padding(4, 11).Radius(p.r(999)).Background(p.hair2).Children(func() {
+		ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(u.stateColor(p)).Transition(ui.ElementTransition{Colors: true})
 		ui.Text(c, stateName(u.snap.State)).FontSize(12).FontWeight(600).TextColor(p.ink2)
 	})
 }
@@ -415,7 +418,7 @@ func (u *UI) notice(c *ui.Context, p *pal) {
 		ui.Row(c.Key("notice")).Gap(8).AlignItems(ui.Center).Shrink(1).
 			Transition(ui.ElementTransition{Animation: &motion, Enter: &ui.Motion{Opacity: 0}, Exit: &ui.Motion{Opacity: 0}}).
 			Children(func() {
-				ui.Box(c).Size(7, 7).Radius(4).Background(col).Shrink(0)
+				ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(col).Shrink(0)
 				t := ui.Text(c, is.Text).FontSize(12.5).FontWeight(500).TextColor(p.ink).NoWrap().Ellipsis("…").Shrink(1)
 				if is.Detail != "" {
 					t.Tooltip(is.Detail)
@@ -464,7 +467,7 @@ func pageHead(c *ui.Context, p *pal, kick, title, sub string, morph bool, right 
 		ui.Column(c).Gap(4).Grow(1).Children(func() {
 			kicker(c, p, kick)
 			ui.Row(c).Gap(12).AlignItems(ui.Baseline).Children(func() {
-				t := ui.Text(c, title).FontSize(34).FontWeight(700).LetterSpacing(-.6).TextColor(p.ink).NoWrap()
+				t := disp(ui.Text(c, title), p).FontSize(34).FontWeight(700).LetterSpacing(-.6).TextColor(p.ink).NoWrap()
 				if morph {
 					t.ContentTransition(morphText)
 				}
@@ -495,9 +498,9 @@ func shimmer(e ui.Element, on bool, p *pal) ui.Element {
 
 // pill is the prototype's round button: the accent, or a hairline ghost.
 func pill(c *ui.Context, p *pal, label string, primary bool) ui.Element {
-	b := ui.ButtonBase(c).Padding(7, 14).Radius(999)
+	b := ui.ButtonBase(c).Padding(7, 14).Radius(p.r(999))
 	if primary {
-		b.Background(p.accent)
+		lit(b.Background(p.accent), p)
 	} else {
 		b.Border(1, p.hair)
 	}
@@ -512,7 +515,7 @@ func pill(c *ui.Context, p *pal, label string, primary bool) ui.Element {
 
 // btn is a small outlined button.
 func btn(c *ui.Context, p *pal, label string) ui.Element {
-	b := ui.ButtonBase(c).Padding(5, 11).Radius(7).Border(1, p.hair)
+	b := ui.ButtonBase(c).Padding(5, 11).Radius(p.r(7)).Border(1, p.hair)
 	if b.Hovered() {
 		b.BorderColor(p.ink)
 	}
@@ -524,7 +527,7 @@ func btn(c *ui.Context, p *pal, label string) ui.Element {
 // wash, so it is not just the few pixels of the glyph. Callers pull it
 // into place with negative margins where the glyph has to line up.
 func iconBtn(c *ui.Context, p *pal, glyph string, size float32, label string) ui.Element {
-	b := ui.ButtonBase(c).Size(32, 32).Shrink(0).Radius(8).Justify(ui.Center).AlignItems(ui.Center).
+	b := ui.ButtonBase(c).Size(32, 32).Shrink(0).Radius(p.r(8)).Justify(ui.Center).AlignItems(ui.Center).
 		Label(label).Tooltip(label + " · Esc")
 	col := p.mute
 	if b.Pressed() {
@@ -754,7 +757,7 @@ func locTag(c *ui.Context, p *pal, src string) {
 		text, col = i18n.T("定位中", "Locating"), p.warn
 	}
 	// A tag never breaks: squeezed, its letters would stack one a line.
-	ui.Box(c).Padding(1, 6).Radius(4).Background(col.Alpha(.12)).Shrink(0).Children(func() {
+	ui.Box(c).Padding(1, 6).Radius(p.r(4)).Background(col.Alpha(.12)).Shrink(0).Children(func() {
 		ui.Text(c, text).FontSize(10.5).FontWeight(600).TextColor(col).NoWrap()
 	})
 }

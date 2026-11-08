@@ -29,6 +29,9 @@ type Settings struct {
 	// Borders is how the home board draws its lines: "straight", or
 	// "twisted", bending as the logo's line does.
 	Borders string `json:"borders"`
+	// Skin is the interface's look as a whole: its paper and ink, faces,
+	// corners and texture (Skins). "" is the first, paper.
+	Skin string `json:"skin"`
 
 	// Takeover: which entries the user wants. Whether they are actually in
 	// effect is the status model's business, not stored here.
@@ -65,6 +68,9 @@ type Settings struct {
 // Appearances are the choices of Appearance.
 var Appearances = []string{"system", "light", "dark"}
 
+// Skins are the choices of Skin; the interface (skins.go) draws each.
+var Skins = []string{"paper", "broadsheet", "phosphor", "neon", "blueprint", "sakura"}
+
 // BorderStyles are the choices of Borders.
 var BorderStyles = []string{"straight", "twisted"}
 
@@ -87,6 +93,7 @@ var Defaults = Settings{
 	Accent:      "#DDFB4C",
 	Appearance:  "system",
 	Borders:     "straight",
+	Skin:        "paper",
 	MCPPolicy:   "ask",
 	SystemProxy: true,
 	Paused:      true,
@@ -124,6 +131,9 @@ func Open(dir string) (*Store, error) {
 	}
 	if st.s.Borders == "" {
 		st.s.Borders = Defaults.Borders
+	}
+	if st.s.Skin == "" {
+		st.s.Skin = Defaults.Skin
 	}
 	if st.s.MixedPort == 0 {
 		st.s.MixedPort = Defaults.MixedPort
@@ -185,6 +195,9 @@ func (s Settings) Validate() error {
 	}
 	if !slices.Contains(Appearances, s.Appearance) {
 		return fmt.Errorf(i18n.T("未知外观: %s", "Unknown appearance: %s"), s.Appearance)
+	}
+	if s.Skin != "" && !slices.Contains(Skins, s.Skin) { // "" is paper
+		return fmt.Errorf(i18n.T("未知皮肤: %s", "Unknown skin: %s"), s.Skin)
 	}
 	if s.Borders != "" && !slices.Contains(BorderStyles, s.Borders) { // "" is straight
 		return fmt.Errorf(i18n.T("未知边框样式: %s", "Unknown border style: %s"), s.Borders)

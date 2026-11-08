@@ -197,7 +197,7 @@ func (a *App) copyGeo() {
 func (a *App) start() {
 	// Here, not in newApp: SetSource waits for the main thread, which a
 	// test's goroutine has no loop on.
-	mygo.Theme.SetSource(mygo.ThemeSource(a.settings.Get().Appearance))
+	mygo.Theme.SetSource(mygo.ThemeSource(appearanceOf(a.settings.Get())))
 	registerFonts()
 	a.openAtLogin = mygo.App.OpenAtLogin()
 	a.openWindow()
@@ -735,9 +735,11 @@ func migrateData(dir string) {
 }
 
 // appOnly says whether next differs from old only in what the core does
-// not see: the language, starting hidden, the theme color, the appearance.
+// not see: the language, starting hidden, the theme color, the appearance,
+// the skin and the board's borders.
 func appOnly(old, next settings.Settings) bool {
 	next.Language, next.StartHidden, next.Accent, next.Appearance = old.Language, old.StartHidden, old.Accent, old.Appearance
+	next.Skin, next.Borders = old.Skin, old.Borders
 	next.MCPPolicy = old.MCPPolicy // the MCP server's, not the core's
 	return reflect.DeepEqual(old, next)
 }
@@ -775,8 +777,8 @@ func (a *App) updateSettings(fn func(*settings.Settings)) error {
 		return err
 	}
 	i18n.Set(next.Language)
-	if next.Appearance != old.Appearance {
-		mygo.Theme.SetSource(mygo.ThemeSource(next.Appearance))
+	if appearanceOf(next) != appearanceOf(old) {
+		mygo.Theme.SetSource(mygo.ThemeSource(appearanceOf(next)))
 	}
 	if appOnly(old, next) { // the core does not care
 		a.refresh()

@@ -419,7 +419,7 @@ func (u *UI) actLive(c *ui.Context, p *pal) {
 		if a.paused {
 			col, label = p.faint, i18n.T("已暂停", "Paused")
 		}
-		ui.Box(c).Size(7, 7).Radius(4).Background(col)
+		ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(col)
 		ui.Text(c, label).FontSize(12).TextColor(p.ink2).NoWrap()
 	})
 	label := i18n.T("❙❙ 暂停", "❙❙ Pause")
@@ -432,9 +432,9 @@ func (u *UI) actLive(c *ui.Context, p *pal) {
 // actSeg is the prototype's .seg: a track of labels, the one chosen raised.
 func actSeg(c *ui.Context, p *pal, sel *int, labels []string) ui.Element {
 	seg := ui.SegmentedBase(c, sel, len(labels))
-	seg.Track.Padding(2).Radius(8).Background(p.hair2).Gap(0).Children(func() {
+	seg.Track.Padding(2).Radius(p.r(8)).Background(p.hair2).Gap(0).Children(func() {
 		for i, l := range labels {
-			s := seg.Segment(i).Padding(3, 11).Radius(6)
+			s := seg.Segment(i).Padding(3, 11).Radius(p.r(6))
 			col, w := p.ink2, 500
 			if i == *sel {
 				s.Background(p.card).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, .12))
@@ -449,7 +449,7 @@ func actSeg(c *ui.Context, p *pal, sel *int, labels []string) ui.Element {
 // actSelect is a small drop-down in the prototype's look.
 func actSelect(c *ui.Context, p *pal, sel *string, options []string, label string) {
 	s := ui.SelectBase(c, sel)
-	s.Trigger.Row().Gap(6).AlignItems(ui.Center).Padding(3, 8).Radius(7).Border(1, p.hair).Background(p.card).Label(label)
+	s.Trigger.Row().Gap(6).AlignItems(ui.Center).Padding(3, 8).Radius(p.r(7)).Border(1, p.hair).Background(p.card).Label(label)
 	if s.Trigger.Hovered() {
 		s.Trigger.BorderColor(p.ink)
 	}
@@ -458,9 +458,9 @@ func actSelect(c *ui.Context, p *pal, sel *string, options []string, label strin
 		actChevron(c, p.mute)
 	})
 	s.Popup(func(panel ui.Element) {
-		panel.Margin(4, 0, 0, 0).Padding(4).Radius(9).Background(p.sheet).Border(1, p.hair).Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, .12)).MinWidth(120)
+		panel.Margin(4, 0, 0, 0).Padding(4).Radius(p.r(9)).Background(p.sheet).Border(1, p.hair).Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, .12)).MinWidth(120)
 		for _, o := range options {
-			item := s.Item(o).Padding(5, 10).Radius(6)
+			item := s.Item(o).Padding(5, 10).Radius(p.r(6))
 			col := p.ink
 			if item.Highlighted() {
 				item.Background(p.ink)
@@ -504,7 +504,7 @@ func (u *UI) actQueryBar(c *ui.Context, p *pal) {
 			if armed {
 				label = fmt.Sprintf(i18n.T("确认断开 %d 个？", "Close %d? Click again"), len(live))
 			}
-			b := ui.ButtonBase(c.Key("closeall")).Padding(5, 11).Radius(7).Disabled(len(live) == 0 && !armed)
+			b := ui.ButtonBase(c.Key("closeall")).Padding(5, 11).Radius(p.r(7)).Disabled(len(live) == 0 && !armed)
 			col := p.signal
 			switch {
 			case armed:
@@ -628,7 +628,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 	rows := u.actFiltered()
 	if !u.snap.Takeover.On && len(a.conns) > 0 {
 		ui.Row(c).Gap(10).Padding(8, 26).Background(p.hair2).AlignItems(ui.Center).Children(func() {
-			ui.Box(c).Size(7, 7).Radius(4).Background(p.faint)
+			ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(p.faint)
 			ui.Text(c, i18n.T("bowel 现在没有接管流量，新的连接不会经过这里。", "bowel is not taking over traffic; new connections won’t show up here.")).FontSize(12).TextColor(p.ink2).Grow(1)
 			btn(c, p, i18n.T("去今日开启 →", "Turn on in Proxy →")).OnClick(func() { u.page = "home" })
 		})
@@ -719,7 +719,7 @@ func (u *UI) actRow(c *ui.Context, p *pal, i int, cn Conn) {
 			case "failed":
 				dot = p.signal
 			}
-			actCell(ui.Row(c), 0).Children(func() { ui.Box(c).Size(7, 7).Radius(4).Background(dot) })
+			actCell(ui.Row(c), 0).Children(func() { ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(dot) })
 			actCell(actClip(ui.Text(c, cn.App).FontSize(12).TextColor(ink2)), 1)
 			host := cn.Host
 			if host == "" {
@@ -766,7 +766,7 @@ func (u *UI) actRow(c *ui.Context, p *pal, i int, cn Conn) {
 				if cn.Status != "active" {
 					return
 				}
-				x := ui.ButtonBase(c.Key("x")).Size(26, 26).Margin(-6, -4, -6, -4).Radius(6).Justify(ui.Center).AlignItems(ui.Center).
+				x := ui.ButtonBase(c.Key("x")).Size(26, 26).Margin(-6, -4, -6, -4).Radius(p.r(6)).Justify(ui.Center).AlignItems(ui.Center).
 					Label(i18n.T("断开", "Close")).Tooltip(i18n.T("断开", "Close")).OnClick(func() { a.close(u, []string{id}) })
 				col := p.mute
 				if x.Hovered() {
@@ -857,7 +857,7 @@ func (u *UI) actDetail(c *ui.Context, p *pal, cn Conn) {
 			})
 			ui.Column(c).Gap(6).MinWidth(96).Shrink(0).Children(func() {
 				if cn.Status == "active" {
-					b := ui.ButtonBase(c.Key("kill")).Padding(5, 11).Radius(7).Border(1, p.hair).OnClick(func() { a.close(u, []string{cn.ID}) })
+					b := ui.ButtonBase(c.Key("kill")).Padding(5, 11).Radius(p.r(7)).Border(1, p.hair).OnClick(func() { a.close(u, []string{cn.ID}) })
 					if b.Hovered() {
 						b.BorderColor(p.signal)
 					}

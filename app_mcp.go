@@ -1032,7 +1032,7 @@ func (a *App) settingsPatch(changes map[string]json.RawMessage) ([]byte, error) 
 // settingChoices are the values of the settings that take one of a few.
 func settingChoices() map[string][]string {
 	return map[string][]string{
-		"language": i18n.Languages, "appearance": settings.Appearances, "borders": settings.BorderStyles,
+		"language": i18n.Languages, "appearance": settings.Appearances, "borders": settings.BorderStyles, "skin": settings.Skins,
 		"logLevel": settings.LogLevels, "mode": {"rule", "global", "direct"}, "mcpPolicy": settings.MCPPolicies,
 		"dnsMode": core.DNSModes, "tunStack": core.TunStacks, "findProcess": core.FindProcess, "fingerprint": core.Fingerprints,
 	}

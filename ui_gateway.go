@@ -87,10 +87,10 @@ func gatewayDesc() string {
 // what to look out for. Shown while the gateway is wanted.
 func (u *UI) gatewayGuide(c *ui.Context, p *pal, toast func(string)) {
 	g := u.snap.Takeover.Gateway
-	ui.Column(c.Key("gw-guide")).Gap(12).Padding(14, 16).Radius(10).Background(p.card).Border(1, p.hair).Children(func() {
+	ui.Column(c.Key("gw-guide")).Gap(12).Padding(14, 16).Radius(p.r(10)).Background(p.card).Border(1, p.hair).Children(func() {
 		dot, status := u.gatewayStatus(p)
 		ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
-			ui.Box(c).Size(7, 7).Radius(3.5).Background(dot).Shrink(0)
+			ui.Box(c).Size(7, 7).Radius(p.r(3.5)).Background(dot).Shrink(0)
 			col := p.ink
 			if dot == p.signal {
 				col = p.signal
@@ -196,7 +196,7 @@ func gatewayHowTo(c *ui.Context, p *pal, ip, router string) {
 
 func gatewayTip(c *ui.Context, p *pal, dot ui.Color, text string) {
 	ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
-		ui.Box(c).Size(5, 5).Radius(2.5).Background(dot).Margin(6, 0, 0, 0).Shrink(0)
+		ui.Box(c).Size(5, 5).Radius(p.r(2.5)).Background(dot).Margin(6, 0, 0, 0).Shrink(0)
 		ui.Text(c, text).FontSize(11.5).LineHeight(1.45).TextColor(p.mute).Grow(1).Basis(0).MinWidth(0)
 	})
 }

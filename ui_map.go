@@ -500,7 +500,7 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 				ring.Circle(tx, ty, 9).Dash(0, 2, 3)
 				pt.StrokePath(&ring, 1.5, p.warn)
 				if !small {
-					pt.RichText(tx+14, ty-8, 0, ui.Span{Text: d.label, Font: sans, Size: 12, Weight: 700, Color: p.warn})
+					pt.RichText(tx+14, ty-8, 0, ui.Span{Text: d.label, Font: p.font, Size: 12, Weight: 700, Color: p.warn})
 				}
 				continue
 			}
@@ -521,7 +521,7 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 				if d.head {
 					size, weight = 13, 700
 				}
-				span := ui.Span{Text: d.label, Font: sans, Size: size, Weight: weight, Color: p.ink}
+				span := ui.Span{Text: d.label, Font: p.font, Size: size, Weight: weight, Color: p.ink}
 				lw, lh := pt.MeasureText(0, span)
 				lx := tx + 10
 				if lx+lw > r.X+r.W-6 {
@@ -543,7 +543,7 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 		pulse := float32(math.Mod(float64(now)/60, 14))
 		var ring ui.Path
 		pt.StrokePath(ring.Circle(ox, oy, 8+pulse), 1, col.Alpha(max(0, .3-pulse/46)))
-		pt.RichText(ox+9, oy-22, 0, ui.Span{Text: i18n.T("你", "You"), Font: sans, Size: 13, Weight: 700, Color: col})
+		pt.RichText(ox+9, oy-22, 0, ui.Span{Text: i18n.T("你", "You"), Font: p.font, Size: 13, Weight: 700, Color: col})
 		switch {
 		case comets:
 			pt.AnimationFrameRate(60)
@@ -575,7 +575,7 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 		ui.Column(c).Absolute().Right(18).Top(50).Width(270).Gap(8).Children(func() {
 			for _, a := range arcs {
 				rid := a.route
-				b := ui.ButtonBase(c.Key(rid)).Row().Gap(10).Padding(8, 10).Radius(8).Background(p.sheet.Alpha(.88)).Border(1, p.hair).AlignItems(ui.Center).
+				b := ui.ButtonBase(c.Key(rid)).Row().Gap(10).Padding(8, 10).Radius(p.r(8)).Background(p.sheet.Alpha(.88)).Border(1, p.hair).AlignItems(ui.Center).
 					OnClick(func() { u.home.x, u.home.sub = "routes", rid })
 				if !a.live {
 					b.Opacity(.4)
@@ -600,7 +600,7 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 			for _, a := range arcs {
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Opacity(map[bool]float32{true: 1, false: .35}[a.live]).Children(func() {
 					ui.Text(c, u.route(a.route).Name).FontSize(11).TextColor(p.ink2)
-					ui.Box(c).Size(14, 2).Radius(1).Background(p.routeColor(a.route))
+					ui.Box(c).Size(14, 2).Radius(p.r(1)).Background(p.routeColor(a.route))
 				})
 			}
 		})

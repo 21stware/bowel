@@ -172,7 +172,7 @@ var gear = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewB
 // settingsButton is the title bar's last control: a gear and its name. It
 // opens the settings window.
 func (u *UI) settingsButton(c *ui.Context, p *pal) {
-	b := ui.ButtonBase(c.Key("settings")).Padding(4, 11).Radius(7).Shrink(0).Tooltip(i18n.T("设置", "Settings") + " ⌘,")
+	b := ui.ButtonBase(c.Key("settings")).Padding(4, 11).Radius(p.r(7)).Shrink(0).Tooltip(i18n.T("设置", "Settings") + " ⌘,")
 	col := p.ink2
 	if b.Hovered() {
 		b.Background(p.hair2)
@@ -188,14 +188,11 @@ func (u *UI) settingsButton(c *ui.Context, p *pal) {
 // ---- The window ----
 
 func (u *UI) settingsView(c *ui.Context) {
-	useAccent(u.shownSettings().Accent)
+	useLook(u.shownSettings())
 	p := windowPal(c, palette(c))
-	t := *c.Theme()
-	t.Background, t.Text, t.TextMuted, t.Border = p.paper, p.ink, p.mute, p.hair
-	t.Surface, t.SurfaceHover = p.card, p.paper2
-	accentTheme(&t, p)
-	t.Inverse, t.InverseText = p.ink, p.paper
-	c.SetTheme(&t)
+	// The window keeps the system's face, as the Mac's own settings do,
+	// unless the skin has a face of its own.
+	applyTheme(c, p, p.font != sans)
 	c.Root().CaretColor(p.ink)
 	for _, m := range u.set.toasts {
 		c.Toast(m)
@@ -218,7 +215,7 @@ func (u *UI) settingsView(c *ui.Context) {
 		ui.Column(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
 			// The pane's title, in the title bar, which it drags by.
 			ui.Row(c).Height(max(c.TitleBar().Height, 50)).Shrink(0).Padding(0, 26).Gap(12).AlignItems(ui.Center).DragWindow().Children(func() {
-				ui.Text(c, title).FontSize(17).FontWeight(700).TextColor(p.ink).Grow(1)
+				disp(ui.Text(c, title), p).FontSize(17).FontWeight(700).TextColor(p.ink).Grow(1)
 				if busy := u.pending("settings"); busy {
 					shimmer(ui.Text(c, i18n.T("正在应用…", "Applying…")).FontSize(12).FontWeight(500).TextColor(p.mute), busy, p)
 				}
@@ -236,6 +233,7 @@ func (u *UI) settingsView(c *ui.Context) {
 				}
 			})
 		})
+		skinDeco(c, p)
 	})
 }
 
@@ -336,7 +334,7 @@ func (u *UI) settingsSidebar(c *ui.Context, p *pal) {
 			case "starting":
 				col = p.warn
 			}
-			ui.Box(c).Size(6, 6).Radius(3).Background(col).Shrink(0)
+			ui.Box(c).Size(6, 6).Radius(p.r(3)).Background(col).Shrink(0)
 			ver := "mihomo"
 			if cs.Version != "" {
 				ver += " " + cs.Version
@@ -414,7 +412,7 @@ func (u *UI) searchResults(c *ui.Context, p *pal, words []string) {
 // the section and ends the search.
 func (u *UI) searchHead(c *ui.Context, p *pal, sec settingsSection) {
 	ui.Row(c).Padding(16, 0, 0, 0).Children(func() {
-		b := ui.ButtonBase(c.Key("head")).Padding(3, 7, 3, 5).Radius(6).Label(sec.name()).
+		b := ui.ButtonBase(c.Key("head")).Padding(3, 7, 3, 5).Radius(p.r(6)).Label(sec.name()).
 			Tooltip(i18n.T("打开这一页", "Open this page"))
 		col := p.mute
 		if b.Hovered() {
@@ -523,7 +521,7 @@ func optFlash(e ui.Element, p *pal, texts ...string) ui.Element {
 	if l.dim {
 		col = p.mute.Alpha(.22 * a)
 	}
-	e.Background(col).Shadow(0, 0, 0, 4, col).Radius(3)
+	e.Background(col).Shadow(0, 0, 0, 4, col).Radius(p.r(3))
 	if l.scroll {
 		l.scroll = false
 		e.ScrollIntoView(ui.ScrollIntoViewOptions{Block: ui.ScrollCenter, Animation: &ui.Smooth})
@@ -553,7 +551,22 @@ func (u *UI) generalSection(c *ui.Context, p *pal, s settings.Settings) {
 			u.setOpt(func(s *settings.Settings) { s.Language = l })
 		}
 	})
+	optWide(c, p, i18n.T("皮肤", "Skin"), i18n.T("整个界面的颜色、字体、圆角与质感；主题色随之换成皮肤自己的", "The whole interface's colors, type, corners and texture; the theme color changes to the skin's own"), func() {
+		ui.Row(c).Wrap().Gap(10).Children(func() {
+			for i := range skins {
+				u.skinCard(c, p, &skins[i], skinByID(s.Skin).id == skins[i].id)
+			}
+		})
+	})
 	optRow(c, p, i18n.T("外观", "Appearance"), i18n.T("浅色、深色，或跟随 Mac 的设置", "Light, dark, or as the Mac is set"), func() {
+		if f := skinByID(s.Skin).fixed(); f != "" {
+			word := i18n.T("这款皮肤只有深色", "This skin is dark only")
+			if f == "light" {
+				word = i18n.T("这款皮肤只有浅色", "This skin is light only")
+			}
+			ui.Text(c, word).FontSize(12).TextColor(p.mute)
+			return
+		}
 		names := []string{i18n.T("跟随系统", "System"), i18n.T("浅色", "Light"), i18n.T("深色", "Dark")}
 		sel := max(0, slices.Index(settings.Appearances, s.Appearance))
 		if actSeg(c.Key("appearance"), p, &sel, names).Changed() && settings.Appearances[sel] != s.Appearance {
@@ -612,6 +625,55 @@ func (u *UI) generalSection(c *ui.Context, p *pal, s settings.Settings) {
 		func(s *settings.Settings, on bool) { s.StartHidden = on })
 }
 
+// skinCard is one skin to pick: a small board in its own colors, faces,
+// corners and texture, as the Mac's appearance draws it, with its name
+// under it; ringed when it is the one in use.
+func (u *UI) skinCard(c *ui.Context, p *pal, k *skin, on bool) {
+	sp := *k.pal(p.dark)
+	sp.setAccent(k.accent)
+	ring := ui.Transparent
+	b := ui.ButtonBase(c.Key("skin-" + k.id)).Column().Width(158).Gap(7).Padding(4).Radius(p.r(12)).
+		Label(k.name()).Tooltip(k.note())
+	if on {
+		ring = p.ink
+	} else if b.Hovered() {
+		ring = p.hair
+	}
+	b.Border(1.5, ring).OnClick(func() {
+		if !on {
+			u.setOpt(func(s *settings.Settings) { skinPick(s, k.id) })
+		}
+	}).Children(func() {
+		ui.Box(c).Height(92).Radius(max(sp.r(8), 2)).Background(sp.paper).Border(1, p.hair).Clip().Children(func() {
+			ui.Column(c).Padding(9, 10).Gap(5).Children(func() {
+				ui.Row(c).Gap(3).Children(func() {
+					lit(ui.Box(c).Size(26, 8).Radius(sp.r(4)).Background(sp.accent), &sp)
+					ui.Box(c).Size(18, 8).Radius(sp.r(4)).Background(sp.hair)
+					ui.Box(c).Size(18, 8).Radius(sp.r(4)).Background(sp.hair)
+				})
+				disp(ui.Text(c, i18n.T("香港 03", "Tokyo 03")), &sp).FontSize(19).FontWeight(700).TextColor(sp.ink).NoWrap()
+				ui.Row(c).Gap(2).Height(18).AlignItems(ui.End).Children(func() {
+					for i := 0; i < 18; i++ {
+						id := []string{"media", "default", "ai", "dev", "media", "default"}[i%6]
+						h := 5 + 13*hash(i+len(k.id))
+						ui.Box(c).Size(5, h).Background(sp.routeColor(id))
+					}
+				})
+			})
+			if sp.deco != nil {
+				deco := sp.deco
+				ui.Box(c).Absolute().Fill().IgnoreInput(true).Draw(func(pt *ui.Painter, r ui.Rect) { deco(pt, r, &sp) })
+			}
+		})
+		ui.Row(c).Gap(6).Padding(0, 2, 2, 2).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, k.name()).FontSize(12.5).FontWeight(600).TextColor(p.ink)
+			if k.fixed() == "dark" {
+				ui.Text(c, i18n.T("深色", "Dark")).FontSize(10.5).TextColor(p.mute)
+			}
+		})
+	})
+}
+
 // accentSwatch is one theme color to pick: a dot of it, ringed when it
 // is the one in use.
 func (u *UI) accentSwatch(c *ui.Context, p *pal, hex, name string, on bool) {
@@ -623,11 +685,11 @@ func (u *UI) accentSwatch(c *ui.Context, p *pal, hex, name string, on bool) {
 	if on {
 		ring = p.ink
 	}
-	ui.ButtonBase(c.Key("accent-"+hex)).Size(26, 26).Radius(13).Padding(3).Border(1.5, ring).
+	ui.ButtonBase(c.Key("accent-"+hex)).Size(26, 26).Radius(p.r(13)).Padding(3).Border(1.5, ring).
 		Label(name).Tooltip(name).OnClick(func() {
 		u.setOpt(func(s *settings.Settings) { s.Accent = hex })
 	}).Children(func() {
-		ui.Box(c).Size(17, 17).Radius(8.5).Background(col).Border(1, p.hair)
+		ui.Box(c).Size(17, 17).Radius(p.r(8.5)).Background(col).Border(1, p.hair)
 	})
 }
 
@@ -1004,7 +1066,7 @@ func optLabel(c *ui.Context, p *pal, title, desc string) ui.Element {
 		if f := optFind; f != nil && f.jump != nil {
 			// Among search results, the title opens the option's page.
 			jump := f.jump
-			b := ui.ButtonBase(c.Key("title")).AlignSelf(ui.Start).Radius(3).Label(title).
+			b := ui.ButtonBase(c.Key("title")).AlignSelf(ui.Start).Radius(p.r(3)).Label(title).
 				Tooltip(i18n.T("在设置页中显示", "Show on its page"))
 			col := p.ink
 			if b.Hovered() {
@@ -1081,7 +1143,7 @@ func (u *UI) optText(c *ui.Context, p *pal, key, label, saved string, width floa
 	if !focused {
 		f.text = saved
 	}
-	in := ui.TextInput(c.Key(key), &f.text).Bind(&f.h).Label(label).Padding(5, 9).Radius(7).
+	in := ui.TextInput(c.Key(key), &f.text).Bind(&f.h).Label(label).Padding(5, 9).Radius(p.r(7)).
 		Background(p.card).Border(1, p.hair).FontSize(12.5).Font("SF Mono, Menlo")
 	if width > 0 {
 		in.Width(width)

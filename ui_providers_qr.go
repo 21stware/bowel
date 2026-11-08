@@ -197,13 +197,13 @@ func (u *UI) provCameraDialog(c *ui.Context, p *pal) {
 	ui.Modal(c.Key("camera"), &pr.camOpen, func() {
 		ui.Column(c).Gap(12).Width(520).Children(func() {
 			ui.Text(c, i18n.T("用摄像头扫描二维码", "Scan a QR code with the camera")).FontSize(18).FontWeight(700).TextColor(p.ink)
-			ui.Box(c).Width(520).Height(292).Radius(10).Background(ui.Hex("#000000")).Justify(ui.Center).AlignItems(ui.Center).Children(func() {
+			ui.Box(c).Width(520).Height(292).Radius(p.r(10)).Background(ui.Hex("#000000")).Justify(ui.Center).AlignItems(ui.Center).Children(func() {
 				switch {
 				case pr.camFrame != nil:
 					// Mirrored, as a mirror shows you: the code moves the way
 					// your hand does. It is read as the camera sees it.
 					ui.Image(c, pr.camFrame).Absolute().Fill().Fit(ui.Cover).Scale(-1, 1)
-					ui.Box(c).Size(180, 180).Radius(14).Border(2, ui.RGBA(255, 255, 255, .85))
+					ui.Box(c).Size(180, 180).Radius(p.r(14)).Border(2, ui.RGBA(255, 255, 255, .85))
 				case pr.camErr == "":
 					ui.Text(c, i18n.T("正在打开摄像头…", "Opening the camera…")).FontSize(12.5).TextColor(ui.RGBA(255, 255, 255, .7))
 				}
@@ -264,7 +264,7 @@ func (u *UI) qrHintShow(sp qrSpots, ok bool) {
 // accent; one word above it says what became of it.
 func (u *UI) qrHintView(c *ui.Context, h *qrHint) {
 	c.DisableAnimations()
-	useAccent(u.shownSettings().Accent)
+	useLook(u.shownSettings())
 	p := palette(c)
 	c.Root().Background(ui.Transparent)
 	a := c.Root().Animate("in", map[bool]float32{true: 1, false: 0}[h.shown], qrHintIn)
@@ -280,17 +280,17 @@ func (u *UI) qrHintView(c *ui.Context, h *qrHint) {
 			const pad = 10
 			if len(rs) == 1 {
 				// A shadow wide enough to cover the display dims all but the code.
-				ui.Box(c).Key(i).Absolute().Left(x-pad).Top(y-pad).Size(w+2*pad, hh+2*pad).Radius(14).
+				ui.Box(c).Key(i).Absolute().Left(x-pad).Top(y-pad).Size(w+2*pad, hh+2*pad).Radius(p.r(14)).
 					Shadow(0, 0, 0, 6000, ui.RGBA(0, 0, 0, .32))
 			}
 			s := 1.18 - .18*a // closes in on the code as it shows
-			ui.Box(c).Key(100+i).Absolute().Left(x-pad).Top(y-pad).Size(w+2*pad, hh+2*pad).Radius(14).
+			ui.Box(c).Key(100+i).Absolute().Left(x-pad).Top(y-pad).Size(w+2*pad, hh+2*pad).Radius(p.r(14)).
 				Border(3, edge).Shadow(0, 0, 22, 2, edge.Alpha(.55)).TransformOrigin(.5, .5).Scale(s, s)
 			ty := y - pad - 38
 			if ty < 8 {
 				ty = y + hh + pad + 10 // no room above: below
 			}
-			ui.Row(c).Key(200+i).Absolute().Left(x-pad).Top(ty).Height(30).Padding(0, 13).Radius(15).
+			ui.Row(c).Key(200+i).Absolute().Left(x-pad).Top(ty).Height(30).Padding(0, 13).Radius(p.r(15)).
 				AlignItems(ui.Center).Gap(6).Background(edge).Shadow(0, 4, 14, 0, ui.RGBA(0, 0, 0, .25)).Children(func() {
 				ui.Text(c, word).FontSize(13).FontWeight(600).TextColor(ink).MaxLines(1)
 			})
@@ -336,7 +336,7 @@ func (u *UI) provShareDialog(c *ui.Context, p *pal) {
 			ui.Text(c, provKindWord(kind)).FontSize(11.5).TextColor(p.mute)
 			if pr.shareBmp != nil {
 				// Black on white in either theme, as scanners expect.
-				ui.Box(c).Size(264, 264).Radius(10).Background(ui.Hex("#ffffff")).Children(func() {
+				ui.Box(c).Size(264, 264).Radius(p.r(10)).Background(ui.Hex("#ffffff")).Children(func() {
 					ui.Image(c, pr.shareBmp).Fill().Label(i18n.T("二维码", "QR code"))
 				})
 				ui.Text(c, i18n.T("用 bowel、Clash Meta、Shadowrocket 等扫码添加", "Scan it with bowel, Clash Meta, Shadowrocket, …")).FontSize(12).TextColor(p.mute)

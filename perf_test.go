@@ -81,3 +81,20 @@ func BenchmarkIdleSecond(b *testing.B) {
 		tt.Advance(time.Second)
 	}
 }
+
+// BenchmarkIdleSecondSkins is BenchmarkIdleSecond in each skin: what its
+// texture, painted over the window, adds.
+func BenchmarkIdleSecondSkins(b *testing.B) {
+	for _, k := range skins {
+		b.Run(k.id, func(b *testing.B) {
+			var n int
+			u, tt := perfUI("home", "straight", &n)
+			u.snap.Settings.Skin = k.id
+			tt.Advance(time.Second)
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				tt.Advance(time.Second)
+			}
+		})
+	}
+}

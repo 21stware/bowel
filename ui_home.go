@@ -908,7 +908,7 @@ func (u *UI) detailHead(c *ui.Context, p *pal, cell, label string, title func(),
 }
 
 func detailTitle(c *ui.Context, p *pal, s string) ui.Element {
-	return ui.Text(c, s).FontSize(22).FontWeight(700).TextColor(p.ink)
+	return disp(ui.Text(c, s), p).FontSize(22).FontWeight(700).TextColor(p.ink)
 }
 
 // ---- Compact summaries ----
@@ -963,7 +963,7 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 		compact(c, p, v, id, i18n.T("当前出口", "Current exit"), func(size float32) {
 			u.share(c, exitMatch{"default"}, "exit", func(c *ui.Context) ui.Element {
 				text := func() ui.Element {
-					t := ui.Text(c, val).FontSize(size).FontWeight(600).TextColor(p.ink).ContentTransition(morphText)
+					t := disp(ui.Text(c, val), p).FontSize(size).FontWeight(600).TextColor(p.ink).ContentTransition(morphText)
 					if v == "mini" || v == "strip" {
 						t.NoWrap()
 					} else {
@@ -988,7 +988,7 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 		})
 	case "mode":
 		compact(c, p, v, id, i18n.T("模式", "Mode"), func(size float32) {
-			ui.Text(c, modeWord(s.Mode)).FontSize(size).FontWeight(600).TextColor(p.ink)
+			disp(ui.Text(c, modeWord(s.Mode)), p).FontSize(size).FontWeight(600).TextColor(p.ink)
 		}, modeNote(s.Mode), nil)
 	case "takeover":
 		names := u.entryNames()
@@ -1001,7 +1001,7 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 			col, sub = p.signal, i18n.T("被其他程序改掉了", "Changed by another app")
 		}
 		compact(c, p, v, id, i18n.T("接管", "Takeover"), func(size float32) {
-			t := ui.Text(c, val).FontSize(size).FontWeight(600).TextColor(col)
+			t := dispIn(ui.Text(c, val), p, col).FontSize(size).FontWeight(600).TextColor(col)
 			if v == "mini" || v == "strip" {
 				t.NoWrap()
 			} else {
@@ -1069,7 +1069,7 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 	case "speed":
 		compact(c, p, v, id, i18n.T("此刻速度", "Speed now"), func(size float32) {
 			u.share(c, speedMatch{}, "speed", func(c *ui.Context) ui.Element {
-				return ui.Text(c, "↓ "+fmtRate(u.tick.Down)).FontSize(size).FontWeight(600).TextColor(p.ink).FontFeatures("tnum").NoWrap()
+				return disp(ui.Text(c, "↓ "+fmtRate(u.tick.Down)), p).FontSize(size).FontWeight(600).TextColor(p.ink).FontFeatures("tnum").NoWrap()
 			})
 		}, fmt.Sprintf(i18n.T("↑ %s · 今日 %s", "↑ %s · Today %s"), fmtRate(u.tick.Up), fmtBytes(u.tick.TodayDown)), nil)
 	case "apps":
@@ -1081,7 +1081,7 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 		}
 		compact(c, p, v, id, i18n.T("谁在用", "Who's using it"), func(size float32) {
 			u.share(c, appMatch{top}, "app:"+top, func(c *ui.Context) ui.Element {
-				return ui.Text(c, top).FontSize(size).FontWeight(600).TextColor(p.ink).NoWrap()
+				return disp(ui.Text(c, top), p).FontSize(size).FontWeight(600).TextColor(p.ink).NoWrap()
 			})
 		}, sub, func() {
 			for i, a := range u.tick.Apps {
@@ -1107,8 +1107,8 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 		}
 		compact(c, p, v, id, i18n.T("刚刚", "Just now"), func(size float32) {
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-				ui.Box(c).Size(7, 7).Radius(4).Background(p.good)
-				ui.Text(c, i18n.T("实时", "Live")).FontSize(size).FontWeight(600).TextColor(p.ink)
+				ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(p.good)
+				disp(ui.Text(c, i18n.T("实时", "Live")), p).FontSize(size).FontWeight(600).TextColor(p.ink)
 			})
 		}, "", func() {
 			for i, ev := range u.tick.Events {
@@ -1161,7 +1161,7 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 		size := heroSize(c, headline, room, ok)
 		u.share(c, exitMatch{"default"}, "exit", func(c *ui.Context) ui.Element {
 			text := func() ui.Element {
-				return shimmer(ui.Text(c, headline).FontSize(size).FontWeight(700).LetterSpacing(-.8*size/heroBig).TextColor(p.ink).
+				return shimmer(disp(ui.Text(c, headline), p).FontSize(size).FontWeight(700).LetterSpacing(-.8*size/heroBig).TextColor(p.ink).
 					MaxLines(2).ContentTransition(morphText), switching, p)
 			}
 			if ok {
@@ -1219,7 +1219,7 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 						// stays on one line beside the bars.
 						d, size = i18n.T("超时", "Timeout"), 26
 					}
-					ui.Text(c, d).FontSize(size).NoWrap().FontWeight(600).LetterSpacing(-1).FontFeatures("tnum").TextColor(delayColor(p, ex.Delay, ex.Tested)).ContentTransition(morphText)
+					disp(ui.Text(c, d), p).FontSize(size).NoWrap().FontWeight(600).LetterSpacing(-1).FontFeatures("tnum").TextColor(delayColor(p, ex.Delay, ex.Tested)).ContentTransition(morphText)
 					if ex.Delay > 0 {
 						ui.Text(c, "ms").FontSize(14).FontWeight(500).TextColor(p.mute)
 					}
@@ -1279,7 +1279,7 @@ func heroSize(c *ui.Context, s string, room float32, flag bool) float32 {
 func (u *UI) heroOff(c *ui.Context, p *pal) {
 	ui.Column(c).Fill().Padding(0, 56).Justify(ui.Center).Children(func() {
 		kicker(c, p, "MOHO")
-		ui.Text(c, i18n.T("未接管", "Not taken over")).FontSize(64).FontWeight(700).LetterSpacing(-1.2).TextColor(p.ink).Margin(14, 0, 0, 0).
+		disp(ui.Text(c, i18n.T("未接管", "Not taken over")), p).FontSize(64).FontWeight(700).LetterSpacing(-1.2).TextColor(p.ink).Margin(14, 0, 0, 0).
 			Transition(fly(exitMatch{"default"})).ContentTransition(morphText)
 		ui.Text(c, i18n.T("所有应用都直接连接互联网，流量不经过 bowel。", "Every app connects to the internet directly; no traffic goes through bowel.")).FontSize(15).TextColor(p.ink2).Margin(12, 0, 0, 0)
 		ui.Column(c).Gap(10).Margin(34, 0, 0, 0).MaxWidth(360).Children(func() {
@@ -1298,7 +1298,7 @@ func (u *UI) heroOff(c *ui.Context, p *pal) {
 
 func (u *UI) choice(c *ui.Context, p *pal, id, word, desc string) {
 	busy := u.pending("entry:" + id)
-	b := ui.ButtonBase(c.Key(id)).Column().AlignItems(ui.Start).Padding(14, 18).Radius(12).Border(1, p.hair).Gap(3)
+	b := ui.ButtonBase(c.Key(id)).Column().AlignItems(ui.Start).Padding(14, 18).Radius(p.r(12)).Border(1, p.hair).Gap(3)
 	if b.Hovered() || busy {
 		b.Border(1.5, p.ink).Background(p.card)
 	}
@@ -1310,7 +1310,7 @@ func (u *UI) choice(c *ui.Context, p *pal, id, word, desc string) {
 			u.do(func() error { return u.app.setTun(true) })
 		}
 	}).Children(func() {
-		shimmer(ui.Text(c, word).FontSize(22).FontWeight(700).TextColor(p.ink).Opacity(flyAlpha()).Transition(fly(entryMatch{id})), busy, p)
+		shimmer(disp(ui.Text(c, word), p).FontSize(22).FontWeight(700).TextColor(p.ink).Opacity(flyAlpha()).Transition(fly(entryMatch{id})), busy, p)
 		if busy {
 			msg := i18n.T("正在接管…", "Taking over…")
 			if id == "tun" && u.snap.Takeover.Tun.Status == "install" {
@@ -1361,13 +1361,13 @@ func (u *UI) heroExpanded(c *ui.Context, p *pal, w float32) {
 // autoSeg chooses automatic or manual for a route.
 func (u *UI) autoSeg(c *ui.Context, p *pal, rid string) {
 	r := u.route(rid)
-	ui.Row(c).Padding(2).Radius(8).Background(p.hair2).Children(func() {
+	ui.Row(c).Padding(2).Radius(p.r(8)).Background(p.hair2).Children(func() {
 		for _, opt := range []struct {
 			label string
 			auto  bool
 		}{{i18n.T("自动", "Auto"), true}, {i18n.T("手动", "Manual"), false}} {
 			on := r.Auto == opt.auto
-			b := ui.ButtonBase(c.Key(fmt.Sprint(opt.auto))).Padding(3, 11).Radius(6)
+			b := ui.ButtonBase(c.Key(fmt.Sprint(opt.auto))).Padding(3, 11).Radius(p.r(6))
 			if on {
 				b.Background(p.card).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, .12))
 			}
@@ -1458,7 +1458,7 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 		// then its letters; the chosen one sits on a faint fill.
 		chip := func(r region) {
 			on := h.region == r.id
-			b := ui.ButtonBase(c.Key("r"+r.id)).Row().AlignItems(ui.Center).Gap(regionFlagGap).Padding(4, regionChipPadX).Radius(99)
+			b := ui.ButtonBase(c.Key("r"+r.id)).Row().AlignItems(ui.Center).Gap(regionFlagGap).Padding(4, regionChipPadX).Radius(p.r(99))
 			switch {
 			case on:
 				b.Background(p.hair2)
@@ -1564,7 +1564,7 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 				})
 			})
 			if testing {
-				ui.Box(c).Size(80, 12).Radius(3).Background(sub.Alpha(.2)).Shrink(0)
+				ui.Box(c).Size(80, 12).Radius(p.r(3)).Background(sub.Alpha(.2)).Shrink(0)
 			} else {
 				stabilityBarsIn(c, p, ink.Alpha(.7), n.History, 3, 14).Shrink(0)
 			}
@@ -1654,7 +1654,7 @@ func (u *UI) modeNormal(c *ui.Context, p *pal) {
 					} else if b.Hovered() {
 						col = p.ink2
 					}
-					shimmer(ui.Text(c, modeWord(m)).FontSize(size).FontWeight(600).TextColor(col).
+					shimmer(dispIn(ui.Text(c, modeWord(m)), p, col).FontSize(size).FontWeight(600).TextColor(col).
 						Transition(ui.ElementTransition{Colors: true, Duration: 160 * time.Millisecond}), on && u.pending("mode"), p)
 					if on {
 						// The underline is one element that flies from word to word.
@@ -1719,7 +1719,7 @@ func (u *UI) modeExpanded(c *ui.Context, p *pal) {
 func section(c *ui.Context, p *pal, title, sub string, content func(), control func()) {
 	ui.Row(c).Gap(18).Padding(14, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).AlignItems(ui.Start).Children(func() {
 		ui.Column(c).Width(180).Gap(3).Children(func() {
-			ui.Text(c, title).FontSize(18).FontWeight(700).TextColor(p.ink)
+			disp(ui.Text(c, title), p).FontSize(18).FontWeight(700).TextColor(p.ink)
 			if sub != "" {
 				ui.Text(c, sub).FontSize(11.5).TextColor(p.mute)
 			}
@@ -1773,10 +1773,10 @@ func (u *UI) gatewayWord(c *ui.Context, p *pal) {
 		if t.On {
 			col = p.ink
 		}
-		ui.Text(c, i18n.T("网关", "Gateway")).FontSize(20).FontWeight(600).TextColor(col).NoWrap().Shrink(0).Grow(1)
+		dispIn(ui.Text(c, i18n.T("网关", "Gateway")), p, col).FontSize(20).FontWeight(600).TextColor(col).NoWrap().Shrink(0).Grow(1)
 		dot, text := u.gatewayStatus(p)
 		ui.Row(c).Gap(6).Shrink(1).MinWidth(0).AlignItems(ui.Center).Children(func() {
-			ui.Box(c).Size(6, 6).Radius(3).Background(dot).Shrink(0)
+			ui.Box(c).Size(6, 6).Radius(p.r(3)).Background(dot).Shrink(0)
 			tcol := p.mute
 			if dot == p.signal {
 				tcol = p.signal
@@ -1805,7 +1805,7 @@ func (u *UI) entryWord(c *ui.Context, p *pal, id, word string, e Entry) {
 		// The word keeps its single line. When the status doesn't fit beside
 		// it (long English labels in a narrow window) the row wraps and the
 		// status drops under the word instead of splitting it.
-		shimmer(ui.Text(c, word).FontSize(20).FontWeight(600).TextColor(col).NoWrap().Shrink(0).Grow(1).Opacity(flyAlpha()).Transition(fly(entryMatch{id})), busy, p)
+		shimmer(dispIn(ui.Text(c, word), p, col).FontSize(20).FontWeight(600).TextColor(col).NoWrap().Shrink(0).Grow(1).Opacity(flyAlpha()).Transition(fly(entryMatch{id})), busy, p)
 		dot, text, tcol := p.faint, i18n.T("未使用", "Not in use"), p.mute
 		switch {
 		case busy:
@@ -1822,7 +1822,7 @@ func (u *UI) entryWord(c *ui.Context, p *pal, id, word string, e Entry) {
 			text = i18n.T("未使用 · 首次需要授权", "Not in use · Needs approval once")
 		}
 		ui.Row(c).Gap(6).Shrink(1).MinWidth(0).AlignItems(ui.Center).Children(func() {
-			ui.Box(c).Size(6, 6).Radius(3).Background(dot).Shrink(0)
+			ui.Box(c).Size(6, 6).Radius(p.r(3)).Background(dot).Shrink(0)
 			shimmer(ui.Text(c, text).FontSize(11.5).TextColor(tcol).Shrink(1).MinWidth(0), busy, p)
 		})
 	})
@@ -1990,7 +1990,7 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 				iconBtn(c.Key("back"), p, "‹", 22, i18n.T("返回路由", "Back to routes")).Margin(0, -6, 0, -10).OnClick(func() { h.sub = "" })
 				swatch(c, p.routeColor(r.ID), 10)
 				u.share(c, routeNameMatch{r.ID}, "route:"+r.ID, func(c *ui.Context) ui.Element {
-					return ui.Text(c, r.Name).FontSize(22).FontWeight(700).TextColor(p.ink).NoWrap().Shrink(0)
+					return disp(ui.Text(c, r.Name), p).FontSize(22).FontWeight(700).TextColor(p.ink).NoWrap().Shrink(0)
 				})
 				ui.Text(c, "→").FontSize(18).TextColor(p.faint)
 				n, ok := u.node(r.Node)
@@ -2014,7 +2014,7 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 	ui.Scroll(c).Grow(1).Padding(4, 16, 18, 16).Children(func() {
 		for _, r := range u.snap.Routes {
 			rid := r.ID
-			b := ui.ButtonBase(c.Key(rid)).Row().Gap(16).Padding(12, 10).AlignItems(ui.Center).Radius(8).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2)
+			b := ui.ButtonBase(c.Key(rid)).Row().Gap(16).Padding(12, 10).AlignItems(ui.Center).Radius(p.r(8)).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2)
 			if !r.Direct {
 				b.OnClick(func() { h.sub, h.query, h.region = rid, "", "" })
 				if b.Hovered() {
@@ -2102,7 +2102,7 @@ func speedLine(c *ui.Context, p *pal, t Tick) ui.Element {
 		dv, du := splitRate(t.Down)
 		uv, uu := splitRate(t.Up)
 		ui.Row(c).AlignItems(ui.Baseline).Gap(3).Children(func() {
-			ui.Text(c, "↓ "+dv).FontSize(23).FontWeight(600).FontFeatures("tnum").TextColor(p.ink)
+			disp(ui.Text(c, "↓ "+dv), p).FontSize(23).FontWeight(600).FontFeatures("tnum").TextColor(p.ink)
 			ui.Text(c, du).FontSize(11.5).TextColor(p.mute)
 		})
 		ui.Row(c).AlignItems(ui.Baseline).Gap(3).Children(func() {
@@ -2162,8 +2162,8 @@ func (u *UI) speedExpanded(c *ui.Context, p *pal) {
 			ui.Row(c).Gap(14).Padding(10, 0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 				swatch(c, p.routeColor(r.ID), 10)
 				ui.Text(c, r.Name).FontSize(14).FontWeight(700).TextColor(p.ink).Width(90)
-				ui.Box(c).Grow(1).Height(4).Radius(2).Background(p.hair).Children(func() {
-					ui.Box(c).WidthPercent(float32(r.Share * 100)).FillHeight().Radius(2).Background(p.routeColor(r.ID))
+				ui.Box(c).Grow(1).Height(4).Radius(p.r(2)).Background(p.hair).Children(func() {
+					ui.Box(c).WidthPercent(float32(r.Share * 100)).FillHeight().Radius(p.r(2)).Background(p.routeColor(r.ID))
 				})
 				ui.Text(c, "↓ "+fmtRate(t.ByRoute[r.ID])).FontSize(12).FontFeatures("tnum").TextColor(p.ink).Width(100)
 				ui.Text(c, fmt.Sprintf(i18n.T("今日 %d%%", "Today %d%%"), int(r.Share*100+.5))).FontSize(12).TextColor(p.mute).Width(70)
@@ -2199,8 +2199,8 @@ func (u *UI) appsNormal(c *ui.Context, p *pal) {
 						})
 						ui.Text(c, a.Host).FontSize(12).TextColor(p.mute).MaxLines(1).Ellipsis("…").Shrink(1).MinWidth(0)
 					})
-					ui.Box(c).Width(64).Height(3).Radius(2).Background(p.hair).Shrink(0).Children(func() {
-						ui.Box(c).WidthPercent(float32(a.Down) / float32(peak) * 100).FillHeight().Radius(2).Background(p.routeColor(a.Route))
+					ui.Box(c).Width(64).Height(3).Radius(p.r(2)).Background(p.hair).Shrink(0).Children(func() {
+						ui.Box(c).WidthPercent(float32(a.Down) / float32(peak) * 100).FillHeight().Radius(p.r(2)).Background(p.routeColor(a.Route))
 					})
 					ui.Text(c, fmtRate(a.Down)).FontSize(12).FontFeatures("tnum").TextColor(p.ink2).Width(70).Shrink(0).NoWrap().TextAlign(ui.End)
 				})
@@ -2225,7 +2225,7 @@ func (u *UI) appsExpanded(c *ui.Context, p *pal) {
 	ui.Scroll(c).Grow(1).Padding(4, 26, 18, 26).Children(func() {
 		for _, a := range apps {
 			app := a.App
-			b := ui.ButtonBase(c.Key(app)).Row().Gap(14).Padding(11, 6).AlignItems(ui.Center).Radius(6).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).
+			b := ui.ButtonBase(c.Key(app)).Row().Gap(14).Padding(11, 6).AlignItems(ui.Center).Radius(p.r(6)).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).
 				OnClick(func() { u.act.filterApp(app); u.page = "activity" })
 			if b.Hovered() {
 				b.Background(p.hover)
@@ -2235,8 +2235,8 @@ func (u *UI) appsExpanded(c *ui.Context, p *pal) {
 					return ui.Text(c, app).FontSize(15).FontWeight(700).TextColor(p.ink).Width(160).Shrink(0).MaxLines(1).Ellipsis("…").Tooltip(app)
 				})
 				ui.Text(c, a.Host).FontSize(12).TextColor(p.mute).Grow(1).Shrink(1).Basis(0).MinWidth(0).MaxLines(1).Ellipsis("…")
-				ui.Box(c).Width(140).Height(3).Radius(2).Background(p.hair).Shrink(0).Children(func() {
-					ui.Box(c).WidthPercent(float32(a.Down) / float32(peak) * 100).FillHeight().Radius(2).Background(p.routeColor(a.Route))
+				ui.Box(c).Width(140).Height(3).Radius(p.r(2)).Background(p.hair).Shrink(0).Children(func() {
+					ui.Box(c).WidthPercent(float32(a.Down) / float32(peak) * 100).FillHeight().Radius(p.r(2)).Background(p.routeColor(a.Route))
 				})
 				ui.Text(c, fmtRate(a.Down)).FontSize(12).FontFeatures("tnum").TextColor(p.ink).Width(90).Shrink(0).NoWrap().TextAlign(ui.End)
 				ui.Text(c, fmt.Sprintf(i18n.T("%d 连接", "%d conns"), a.Conns)).FontSize(12).TextColor(p.mute).MinWidth(60).Shrink(0).NoWrap()

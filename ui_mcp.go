@@ -103,7 +103,7 @@ func (u *UI) mcpSnippet(c *ui.Context, p *pal, key, title, desc, text string) {
 	optWide(c, p, title, desc, func() {
 		ui.Row(c).Grow(1).Basis(0).MinWidth(0).Gap(8).AlignItems(ui.Start).Children(func() {
 			ui.Text(c, text).FontSize(11.5).Font("SF Mono, Menlo").TextColor(p.ink2).Selectable().
-				Padding(7, 10).Radius(7).Background(p.card).Border(1, p.hair).Grow(1).Basis(0).MinWidth(0)
+				Padding(7, 10).Radius(p.r(7)).Background(p.card).Border(1, p.hair).Grow(1).Basis(0).MinWidth(0)
 			btn(c.Key(key), p, i18n.T("复制", "Copy")).OnClick(func() {
 				c.WriteClipboard(text)
 				u.settingsToast(i18n.T("已复制", "Copied ") + title)

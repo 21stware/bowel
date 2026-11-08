@@ -144,7 +144,7 @@ func (u *UI) openRules() {
 // mineTag marks what the user made, as against what came with bowel.
 func mineTag(c *ui.Context, p *pal) ui.Element {
 	return ui.Text(c, i18n.T("你的规则", "Yours")).FontSize(10.5).FontWeight(600).TextColor(p.ink2).
-		Padding(1, 6).Radius(5).Background(p.hair2).NoWrap().Shrink(0)
+		Padding(1, 6).Radius(p.r(5)).Background(p.hair2).NoWrap().Shrink(0)
 }
 
 // ---- 设置 > 规则 ----
@@ -273,11 +273,11 @@ func (u *UI) ruleAdder(c *ui.Context, p *pal, s settings.Settings) {
 		u.setRules(r, false)
 		e.text = ""
 	}
-	ui.Column(c).Gap(8).Margin(14, 0, 0, 0).Padding(12, 14).Radius(10).Background(p.card).Border(1, p.hair).Children(func() {
+	ui.Column(c).Gap(8).Margin(14, 0, 0, 0).Padding(12, 14).Radius(p.r(10)).Background(p.card).Border(1, p.hair).Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			in := ui.TextInput(c.Key("rule-text"), &e.text).Bind(&e.h).Label(i18n.T("新规则", "New rule")).
 				Placeholder(i18n.T("openai.com、*.example.com 或 10.0.0.0/8", "openai.com, *.example.com or 10.0.0.0/8")).
-				Padding(6, 10).Radius(7).Background(p.paper).Border(1, p.hair).FontSize(13).Font(actMono).Grow(1).Basis(0).MinWidth(0)
+				Padding(6, 10).Radius(p.r(7)).Background(p.paper).Border(1, p.hair).FontSize(13).Font(actMono).Grow(1).Basis(0).MinWidth(0)
 			if e.h.Focused(c) {
 				in.BorderColor(p.ink)
 			}
@@ -353,7 +353,7 @@ func (u *UI) ruleTester(c *ui.Context, p *pal, s settings.Settings) {
 	ui.Column(c).Gap(8).Padding(10, 0).Children(func() {
 		ui.TextInput(c.Key("rule-test"), &e.test).Label(i18n.T("测试地址", "Address to test")).
 			Placeholder(i18n.T("输入域名或 IP，如 chat.openai.com", "A domain or an IP, as chat.openai.com")).
-			Padding(5, 9).Radius(7).Background(p.card).Border(1, p.hair).FontSize(12.5).Font(actMono)
+			Padding(5, 9).Radius(p.r(7)).Background(p.card).Border(1, p.hair).FontSize(12.5).Font(actMono)
 		host := strings.TrimSpace(e.test)
 		if host == "" {
 			return
