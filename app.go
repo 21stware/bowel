@@ -67,7 +67,8 @@ type App struct {
 	locating    map[string]bool
 	sys         sysproxy.Status
 	proxies     map[string]mihomo.Proxy
-	provNodes   map[string][]string // provider id → node names, in the provider's order
+	provNodes   map[string][]string     // provider id → node names, in the provider's order
+	provProxies map[string]mihomo.Proxy // node name → the proxy as the provider listed it (type/udp/history)
 	// nodesSig is the names /proxies had when provNodes was read, at
 	// nodesAt: the providers' lists are read again when they change.
 	nodesSig   uint64
@@ -135,7 +136,7 @@ func newApp() (*App, error) {
 		loc:  locate.New(filepath.Join(data, "locations.json")),
 		http: &http.Client{Transport: netproxy.Transport()}, coreBin: bin, tunBin: tunBin, probePort: probe,
 		pending: map[string]bool{}, locating: map[string]bool{}, proxies: map[string]mihomo.Proxy{},
-		provNodes: map[string][]string{}, lastNode: map[string]string{}, routeBytes: map[string]int64{},
+		provNodes: map[string][]string{}, provProxies: map[string]mihomo.Proxy{}, lastNode: map[string]string{}, routeBytes: map[string]int64{},
 		gw: gateway.New(osGateway(), filepath.Join(data, "gateway-before.json")),
 	}
 	cm.SafePaths = []string{filepath.Join(data, "providers")}
@@ -384,10 +385,12 @@ func (a *App) refresh() {
 		a.mu.Lock()
 		nodes, stale := a.provNodes, sig != a.nodesSig || time.Since(a.nodesAt) > time.Minute
 		a.mu.Unlock()
+		var provProxies map[string]mihomo.Proxy
 		if err == nil && stale {
 			var pp map[string]mihomo.ProxyProvider
 			if pp, err = c.ProxyProviders(ctx); err == nil {
 				nodes = map[string][]string{}
+				provProxies = map[string]mihomo.Proxy{}
 				for name, p := range pp {
 					id, ok := strings.CutPrefix(name, "p-")
 					if !ok {
@@ -395,6 +398,7 @@ func (a *App) refresh() {
 					}
 					for _, n := range p.Proxies {
 						nodes[id] = append(nodes[id], n.Name)
+						provProxies[n.Name] = n
 					}
 				}
 			}
@@ -403,6 +407,9 @@ func (a *App) refresh() {
 		if err == nil {
 			a.mu.Lock()
 			a.proxies, a.provNodes = px, nodes
+			if provProxies != nil {
+				a.provProxies = provProxies
+			}
 			if stale {
 				a.nodesSig, a.nodesAt = sig, time.Now()
 			}
@@ -1468,7 +1475,7 @@ func (a *App) snapshot() Snapshot {
 	s := a.settings.Get()
 	cs := a.core.Status()
 	a.mu.Lock()
-	sys, px, provNodes, you, sw := a.sys, a.proxies, a.provNodes, a.you, a.switched
+	sys, px, provNodes, provProxies, you, sw := a.sys, a.proxies, a.provNodes, a.provProxies, a.you, a.switched
 	openAtLogin := a.openAtLogin
 	gwp, gwErr := a.gwProbe, a.gwErr
 	pending := make([]string, 0, len(a.pending))
@@ -1522,7 +1529,10 @@ func (a *App) snapshot() Snapshot {
 
 	// Nodes, in their providers' order.
 	view := func(name string) NodeView {
-		p := px[name]
+		p, ok := provProxies[name]
+		if !ok {
+			p = px[name]
+		}
 		v := NodeView{Name: name, Display: a.label(provNodes, name), Provider: providerOf(name), Type: p.Type, UDP: p.UDP, History: []int{}}
 		for _, h := range p.History {
 			v.History = append(v.History, h.Delay)
