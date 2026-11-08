@@ -10,20 +10,26 @@
 #
 # Needs the notary credentials in the keychain once:
 #   xcrun notarytool store-credentials notary --key <AuthKey_….p8> --key-id <id> --issuer <uuid>
+# or, where there is no such keychain (GitHub Actions), the App Store Connect
+# key in NOTARY_KEY (a path), NOTARY_KEY_ID and NOTARY_ISSUER.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-PROFILE="${NOTARY_PROFILE:-notary}"
+if [ -n "${NOTARY_KEY:-}" ]; then
+	AUTH=(--key "$NOTARY_KEY" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER")
+else
+	AUTH=(--keychain-profile "${NOTARY_PROFILE:-notary}")
+fi
 
 go tool mygo build -platform darwin/arm64 -skip-notarize .
 
 DIR="$ROOT/build/darwin-arm64"
 DMG="$(ls -t "$DIR"/*.dmg | head -1)"
 LOG="$(mktemp)"; trap 'rm -f "$LOG"' EXIT
-xcrun notarytool submit "$DMG" --keychain-profile "$PROFILE" --wait >"$LOG" 2>&1 || true
+xcrun notarytool submit "$DMG" "${AUTH[@]}" --wait >"$LOG" 2>&1 || true
 tr '\r' '\n' <"$LOG" | grep -v '^Current status' >&2
 if ! grep -q 'status: Accepted' "$LOG"; then
-	echo "notarization was not accepted; see: xcrun notarytool log <id> --keychain-profile $PROFILE" >&2
+	echo "notarization was not accepted; see: xcrun notarytool log <id> ${AUTH[*]}" >&2
 	exit 1
 fi
 xcrun stapler staple "$DMG"
