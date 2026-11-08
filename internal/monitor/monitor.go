@@ -5,6 +5,7 @@ package monitor
 
 import (
 	"context"
+	"maps"
 	"net/netip"
 	"slices"
 	"sync"
@@ -57,8 +58,12 @@ type Log struct {
 
 // Snapshot is the state of the core's traffic at the last poll.
 type Snapshot struct {
-	Down, Up                      int64            // total rates, bytes/s
-	ByGroup                       map[string]int64 // download rate by chains[len-1] (the rule's target group, or "DIRECT")
+	Down, Up int64            // total rates, bytes/s
+	ByGroup  map[string]int64 // download rate by chains[len-1] (the rule's target group, or "DIRECT")
+	// GroupBytes is the bytes downloaded by group since the monitor was
+	// made, as the polls saw them: what a share of the traffic adds up,
+	// however far apart the polls are.
+	GroupBytes                    map[string]int64
 	Active                        int
 	TodayDown, TodayUp, MonthDown int64
 }
@@ -74,6 +79,10 @@ type Monitor struct {
 	// behind a client socket the core reported without one. Set it before
 	// Run.
 	FindProcess func(network string, src netip.AddrPort) string
+	// Every, if set, is how long to wait before the next poll, asked
+	// after each: longer while no one looks. Wake polls at once. Set it
+	// before Run.
+	Every func() time.Duration
 
 	statsPath string
 	runMu     sync.Mutex // one Run at a time
@@ -88,6 +97,9 @@ type Monitor struct {
 	lastPoll time.Time // zero before the first poll of a Run
 	down, up int64     // total rates at the last poll
 	byGroup  map[string]int64
+	// groupBytes adds up the download by group, across Runs.
+	groupBytes map[string]int64
+	wake       chan struct{}
 
 	totals     bool  // lastDown/lastUp are known
 	lastDown   int64 // the controller's downloadTotal at the last poll
@@ -113,6 +125,8 @@ func New(statsPath string) *Monitor {
 		statsPath:  statsPath,
 		active:     map[string]*tracked{},
 		byGroup:    map[string]int64{},
+		groupBytes: map[string]int64{},
+		wake:       make(chan struct{}, 1),
 		recentFail: map[string]time.Time{},
 		paths:      map[string]string{},
 	}
@@ -122,7 +136,7 @@ func New(statsPath string) *Monitor {
 }
 
 // Run blocks until ctx is done: it polls the core's connections every
-// second and streams its log at level "info". Call it again with a new
+// second (or Every) and streams its log at level "info". Call it again with a new
 // client when the core restarts; a second Run waits for the previous one
 // to return.
 func (m *Monitor) Run(ctx context.Context, c *mihomo.Client) {
@@ -138,7 +152,7 @@ func (m *Monitor) Run(ctx context.Context, c *mihomo.Client) {
 	var wg sync.WaitGroup
 	wg.Go(func() { m.streamLogs(ctx, c) })
 
-	t := time.NewTicker(pollEvery)
+	t := time.NewTimer(pollEvery)
 	defer t.Stop()
 loop:
 	for {
@@ -155,10 +169,16 @@ loop:
 		}
 		m.saveIfDue(time.Now(), false)
 		m.tick()
+		every := pollEvery
+		if m.Every != nil {
+			every = max(m.Every(), pollEvery)
+		}
+		t.Reset(every)
 		select {
 		case <-ctx.Done():
 			break loop
 		case <-t.C:
+		case <-m.wake:
 		}
 	}
 	cancel()
@@ -176,6 +196,15 @@ func (m *Monitor) streamLogs(ctx context.Context, c *mihomo.Client) {
 			return
 		case <-time.After(time.Second):
 		}
+	}
+}
+
+// Wake has Run poll now rather than at its next turn, as when someone
+// starts to look after polls had slowed down. Safe from any goroutine.
+func (m *Monitor) Wake() {
+	select {
+	case m.wake <- struct{}{}:
+	default:
 	}
 }
 
@@ -208,7 +237,7 @@ func (m *Monitor) Now() Snapshot {
 		g[k] = v
 	}
 	return Snapshot{
-		Down: m.down, Up: m.up, ByGroup: g, Active: len(m.active),
+		Down: m.down, Up: m.up, ByGroup: g, GroupBytes: maps.Clone(m.groupBytes), Active: len(m.active),
 		TodayDown: m.stats.TodayDown, TodayUp: m.stats.TodayUp, MonthDown: m.stats.MonthDown,
 	}
 }
@@ -238,6 +267,32 @@ func (m *Monitor) Conns() []Conn {
 		}
 		return 0
 	})
+	return out
+}
+
+// Rate is what an active connection carries now, for totals by app.
+type Rate struct {
+	ID, App, Host, Rule string
+	Group               string // the last of its chains: the group it went through
+	Start               time.Time
+	DownRate, UpRate    int64
+}
+
+// Rates returns the active connections' rates, in no order: Conns without
+// the closed ones, the copies of the chains and the sort, for what is
+// read every second.
+func (m *Monitor) Rates() []Rate {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Rate, 0, len(m.active))
+	for _, t := range m.active {
+		c := &t.Conn
+		r := Rate{ID: c.ID, App: c.App, Host: c.Host, Rule: c.Rule, Start: c.Start, DownRate: c.DownRate, UpRate: c.UpRate}
+		if len(c.Chains) > 0 {
+			r.Group = c.Chains[len(c.Chains)-1]
+		}
+		out = append(out, r)
+	}
 	return out
 }
 

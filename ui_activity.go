@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -75,6 +76,13 @@ type activityUI struct {
 	polling bool
 
 	list, logList ui.ListState
+
+	// rows is actFiltered's last answer, and what it was for: a frame
+	// asks for it more than once, and each frame after it until the
+	// connections or the filters change.
+	rows    []Conn
+	rowsOf  []Conn
+	rowsKey string
 }
 
 // filterApp opens the page filtered to one app.
@@ -155,11 +163,16 @@ func (a *activityUI) close(u *UI, ids []string) {
 		return
 	}
 	now := time.Now()
+	set := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		set[id] = true
+	}
 	for i := range a.conns {
-		if slices.Contains(ids, a.conns[i].ID) && a.conns[i].Status == "active" {
+		if set[a.conns[i].ID] && a.conns[i].Status == "active" {
 			a.conns[i].Status, a.conns[i].End, a.conns[i].DownRate, a.conns[i].UpRate = "closed", now, 0, 0
 		}
 	}
+	a.rowsKey = "" // changed in place
 	if u.app != nil {
 		u.do(func() error { return u.app.closeConns(ids) })
 	}
@@ -190,6 +203,9 @@ func actNode(c Conn) string {
 // actMatch says whether a connection matches the query: words of the form
 // app:, route: (id or name), node: or host: match that field, others any.
 func (u *UI) actMatch(c Conn, q string) bool {
+	if strings.TrimSpace(q) == "" {
+		return true
+	}
 	rname := strings.ToLower(u.route(c.Route).Name)
 	node := strings.ToLower(actNode(c))
 	host := strings.ToLower(c.Host)
@@ -222,20 +238,39 @@ func (u *UI) actMatch(c Conn, q string) bool {
 // actFiltered is the connections the query and the filters keep, sorted.
 func (u *UI) actFiltered() []Conn {
 	a := &u.act
+	now := time.Now()
+	key := a.sig() + "\x00" + a.sort + "\x00" + strconv.FormatBool(a.asc)
+	if a.sort == "dur" { // the order of the live ones changes with time
+		key += "\x00" + strconv.FormatInt(now.Unix(), 10)
+	}
+	if key == a.rowsKey && sameSlice(a.conns, a.rowsOf) {
+		return a.rows
+	}
+	a.rows, a.rowsOf, a.rowsKey = u.actFilter(now), a.conns, key
+	return a.rows
+}
+
+// sameSlice says whether a and b are the same slice, not equal ones.
+func sameSlice[T any](a, b []T) bool {
+	return len(a) == len(b) && (len(a) == 0 || &a[0] == &b[0])
+}
+
+func (u *UI) actFilter(now time.Time) []Conn {
+	a := &u.act
 	st := a.statusID()
+	allApps := actIsAllApps(a.app)
 	var out []Conn
 	for _, c := range a.conns {
 		switch {
 		case st != "all" && c.Status != st:
 		case a.route != "" && c.Route != a.route:
-		case !actIsAllApps(a.app) && c.App != a.app:
+		case !allApps && c.App != a.app:
 		case a.net != "" && a.net != actAllNet && !strings.EqualFold(c.Network, a.net):
 		case !u.actMatch(c, a.q):
 		default:
 			out = append(out, c)
 		}
 	}
-	now := time.Now()
 	key := func(c Conn) float64 {
 		switch a.sort {
 		case "down":

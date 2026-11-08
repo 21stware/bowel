@@ -836,7 +836,7 @@ func (u *UI) viewOf(c *ui.Context, p *pal, id, v string, box ui.Rect) {
 	case "compact":
 		u.compactView(c, p, id, variant(box))
 	default:
-		u.expandedView(c, p, id)
+		u.expandedView(c, p, id, box.W)
 	}
 }
 
@@ -859,16 +859,16 @@ func (u *UI) normalView(c *ui.Context, p *pal, id string) {
 	}
 }
 
-func (u *UI) expandedView(c *ui.Context, p *pal, id string) {
+func (u *UI) expandedView(c *ui.Context, p *pal, id string, w float32) {
 	switch id {
 	case "hero":
-		u.heroExpanded(c, p)
+		u.heroExpanded(c, p, w)
 	case "mode":
 		u.modeExpanded(c, p)
 	case "takeover":
 		u.takeoverExpanded(c, p)
 	case "routes":
-		u.routesExpanded(c, p)
+		u.routesExpanded(c, p, w)
 	case "speed":
 		u.speedExpanded(c, p)
 	case "apps":
@@ -1339,7 +1339,7 @@ func stabilityBarsIn(c *ui.Context, p *pal, ink ui.Color, hist []int, w, h float
 	})
 }
 
-func (u *UI) heroExpanded(c *ui.Context, p *pal) {
+func (u *UI) heroExpanded(c *ui.Context, p *pal, w float32) {
 	ex, ok := u.exitNode()
 	u.detailHead(c, p, "hero", i18n.T("当前出口 · 默认路由 · 选择出口", "Current exit · Default route · Choose exit"), func() {
 		u.share(c, exitMatch{"default"}, "exit", func(c *ui.Context) ui.Element {
@@ -1351,7 +1351,7 @@ func (u *UI) heroExpanded(c *ui.Context, p *pal) {
 			})
 		})
 	}, func() { u.autoSeg(c, p, "default") })
-	u.nodePicker(c, p, "default")
+	u.nodePicker(c, p, "default", w)
 }
 
 // autoSeg chooses automatic or manual for a route.
@@ -1382,8 +1382,46 @@ func (u *UI) autoSeg(c *ui.Context, p *pal, rid string) {
 	})
 }
 
+// The region bar's measures, shared by its layout and peekWidth's sums.
+const (
+	regionBarPad   = 16
+	regionBarGap   = 14
+	regionChipPadX = 10
+	regionChipGap  = 2
+	regionFlag     = 14
+	regionFlagGap  = 6
+	regionSearchW  = 180
+)
+
+// peekWidth is how wide a strip of items widths wide, gap apart, is in
+// avail DIPs. cut is false when they all fit. Otherwise the strip ends in
+// the middle of the last item whose first half fits, so that half shows.
+func peekWidth(widths []float32, gap, avail float32) (w float32, cut bool) {
+	var total float32
+	for i, iw := range widths {
+		if i > 0 {
+			total += gap
+		}
+		total += iw
+	}
+	// Too narrow for even half the first item: let the strip shrink.
+	if total <= avail || len(widths) == 0 || avail < widths[0]/2 {
+		return 0, false
+	}
+	var x float32
+	for _, iw := range widths {
+		if mid := x + iw/2; mid <= avail {
+			w = mid
+		} else {
+			break
+		}
+		x += iw + gap
+	}
+	return w, true
+}
+
 // nodePicker lists every node a route can use, fastest first.
-func (u *UI) nodePicker(c *ui.Context, p *pal, rid string) {
+func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 	h := &u.home
 	r := u.route(rid)
 	testing := u.pending("test:" + rid)
@@ -1398,43 +1436,71 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string) {
 		}
 	}
 	sort.Strings(order)
-	ui.Row(c).Gap(14).Padding(7, 16).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).AlignItems(ui.Center).Children(func() {
+	type region struct{ id, flag, label string }
+	regions := []region{{"", "-", i18n.T("全部", "All")}}
+	for _, cc := range order {
+		regions = append(regions, region{cc, countries[cc], cc})
+	}
+	regions = append(regions, region{"?", "", i18n.T("未知", "Unknown")})
+	label := i18n.T("全部测速", "Test all")
+	if testing {
+		label = i18n.T("测速中…", "Testing…")
+	}
+	// The bar's height leaves the chips 12 DIPs above and below, so the
+	// strip's scroll bar (3–9 DIPs up from its bottom) runs under them
+	// instead of across their labels.
+	ui.Row(c).Gap(regionBarGap).Padding(4, regionBarPad).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).AlignItems(ui.Center).Children(func() {
 		// Each region is a pill: the same round flag the node rows show,
 		// then its letters; the chosen one sits on a faint fill.
-		chip := func(id, flag, label string) {
-			on := h.region == id
-			b := ui.ButtonBase(c.Key("r"+id)).Row().AlignItems(ui.Center).Gap(6).Padding(4, 10).Radius(99)
+		chip := func(r region) {
+			on := h.region == r.id
+			b := ui.ButtonBase(c.Key("r"+r.id)).Row().AlignItems(ui.Center).Gap(regionFlagGap).Padding(4, regionChipPadX).Radius(99)
 			switch {
 			case on:
 				b.Background(p.hair2)
 			case b.Hovered():
 				b.Background(p.hover)
 			}
-			b.OnClick(func() { h.region = id }).Children(func() {
+			b.OnClick(func() { h.region = r.id }).Children(func() {
 				col, wgt := p.mute, 500
 				if on {
 					col, wgt = p.ink, 600
 				}
-				if flag != "-" {
-					flagBadge(c, p, flag, 14)
+				if r.flag != "-" {
+					flagBadge(c, p, r.flag, regionFlag)
 				}
-				ui.Text(c, label).FontSize(12).FontWeight(wgt).TextColor(col).NoWrap()
+				ui.Text(c, r.label).FontSize(12).FontWeight(wgt).TextColor(col).NoWrap()
 			})
 		}
 		// Many regions scroll sideways, so the search and 全部测速 stay.
-		ui.ScrollHorizontal(c.Key("regions")).Gap(2).AlignItems(ui.Center).Shrink(1).MinWidth(0).Children(func() {
-			chip("", "-", i18n.T("全部", "All"))
-			for _, cc := range order {
-				chip(cc, countries[cc], cc)
+		// When they overflow, the strip ends halfway through a chip: the
+		// cut-off half says there is more to scroll to, where a strip that
+		// happened to end between two chips would look complete.
+		widths := make([]float32, len(regions))
+		for i, r := range regions {
+			wgt := 500
+			if h.region == r.id {
+				wgt = 600
 			}
-			chip("?", "", i18n.T("未知", "Unknown"))
+			tw, _ := c.MeasureText(0, ui.Span{Text: r.label, Size: 12, Weight: wgt})
+			widths[i] = 2*regionChipPadX + tw
+			if r.flag != "-" {
+				widths[i] += regionFlag + regionFlagGap
+			}
+		}
+		bw, _ := c.MeasureText(0, ui.Span{Text: label, Size: 12, Weight: 500})
+		avail := w - 2*regionBarPad - 3*regionBarGap - regionSearchW - (bw + 2*11 + 2)
+		strip := ui.ScrollHorizontal(c.Key("regions")).Gap(regionChipGap).Padding(12, 0).AlignItems(ui.Center).Shrink(1).MinWidth(0)
+		if sw, cut := peekWidth(widths, regionChipGap, avail); cut {
+			strip.Width(sw)
+		}
+		strip.Children(func() {
+			for _, r := range regions {
+				chip(r)
+			}
 		})
 		ui.Spacer(c)
-		ui.SearchField(c.Key("q"), &h.query).Placeholder(i18n.T("搜索节点", "Search nodes")).Width(180).Shrink(0)
-		label := i18n.T("全部测速", "Test all")
-		if testing {
-			label = i18n.T("测速中…", "Testing…")
-		}
+		ui.SearchField(c.Key("q"), &h.query).Placeholder(i18n.T("搜索节点", "Search nodes")).Width(regionSearchW).Shrink(0)
 		b := btn(c, p, label).Disabled(testing).Shrink(0)
 		b.OnClick(func() { u.do(func() error { return u.app.testRoute(bg(), rid) }) })
 	})
@@ -1861,7 +1927,7 @@ func (u *UI) routeRow(c *ui.Context, p *pal, r RouteView) {
 	})
 }
 
-func (u *UI) routesExpanded(c *ui.Context, p *pal) {
+func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 	h := &u.home
 	if h.sub != "" {
 		r := u.route(h.sub)
@@ -1885,7 +1951,7 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal) {
 				})
 			})
 		}, func() { u.autoSeg(c, p, r.ID) })
-		u.nodePicker(c, p, r.ID)
+		u.nodePicker(c, p, r.ID, w)
 		return
 	}
 	u.detailHead(c, p, "routes", i18n.T("路由", "Route"), func() { detailTitle(c, p, i18n.T("每类流量走哪里", "Where each kind of traffic goes")) }, nil)

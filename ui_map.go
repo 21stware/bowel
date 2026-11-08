@@ -104,6 +104,9 @@ var land = func() func(row, col int) bool {
 	}
 }()
 
+// mapFlowPeriod is how long, in milliseconds, a comet takes along its arc.
+const mapFlowPeriod = 3400
+
 // landDots calls dot at every pitch DIPs of r where there is land: the
 // same density however far the map is zoomed, a sketch of where the
 // places are, not a chart of the coasts. One dot is at (ax, ay), where a
@@ -396,15 +399,18 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 	if you != nil {
 		anchorX, anchorY = yx, yy
 	}
-	phase := float32(0)
-	if on {
-		phase = e.Loop("flow", 3400*time.Millisecond, ui.Linear)
-	}
 	small := box.W < 300 || box.H < 170
 	grid := e.AnimateTo("grid", map[bool]float32{true: .6, false: .25}[on], ease)
 
 	e.Draw(func(pt *ui.Painter, r ui.Rect) {
 		at := func(x, y float32) (float32, float32) { return r.X + x*r.W, r.Y + y*r.H }
+		// What moves on its own, the comets and the pulse around you, moves
+		// with the frame's time and asks for frames that only paint: a
+		// frame that builds the view again would build the whole window,
+		// many times a second, for a few dots.
+		now := pt.Now().UnixMilli()
+		phase := float32(now%mapFlowPeriod) / mapFlowPeriod
+		comets := false
 		// Land, as dots: one small square each, on whole pixels (a dot
 		// between them blurs to nothing; a path of thousands loses some).
 		const d = 2
@@ -447,6 +453,7 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 			}
 			// Comets: data on the move, two to an arc, a little quicker in
 			// the middle of the way than at its ends.
+			comets = true
 			along, length := alongQuad(x0, y0, cx, cy, x1, y1)
 			cw := max(w*.9, 2)
 			for k := 0; k < 2; k++ {
@@ -533,14 +540,17 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 			col = p.faint
 		}
 		pt.FillPath(you.Circle(ox, oy, 5), col)
-		pulse := float32(math.Mod(float64(time.Now().UnixMilli())/60, 14))
+		pulse := float32(math.Mod(float64(now)/60, 14))
 		var ring ui.Path
 		pt.StrokePath(ring.Circle(ox, oy, 8+pulse), 1, col.Alpha(max(0, .3-pulse/46)))
 		pt.RichText(ox+9, oy-22, 0, ui.Span{Text: i18n.T("你", "You"), Font: sans, Size: 13, Weight: 700, Color: col})
+		switch {
+		case comets:
+			pt.AnimationFrameRate(60)
+		case !small:
+			pt.AnimationFrameRate(20) // the pulse, a step every 50 ms
+		}
 	})
-	if !small {
-		c.After(50 * time.Millisecond) // the pulse around 你
-	}
 
 	// Caption and legend.
 	live := 0

@@ -58,6 +58,14 @@ type Locator struct {
 	slot  chan struct{} // one probe at a time
 	mu    sync.Mutex
 	cache map[string]Result
+	// named is geo.FromName by display name: a snapshot asks for every
+	// node's, every 2 s, and names don't move.
+	named map[string]namedPlace
+}
+
+type namedPlace struct {
+	place geo.Place
+	ok    bool
 }
 
 // New returns a locator whose probes are kept in cachePath (none if empty),
@@ -85,7 +93,20 @@ func (l *Locator) Guess(node, display string) Result {
 	if ok && r.Place != nil && now.Sub(r.At) <= maxAge {
 		return r
 	}
-	if p, ok := geo.FromName(display); ok {
+	l.mu.Lock()
+	n, seen := l.named[display]
+	l.mu.Unlock()
+	if !seen {
+		n.place, n.ok = geo.FromName(display)
+		l.mu.Lock()
+		if l.named == nil || len(l.named) >= 4096 { // names that come and go
+			l.named = map[string]namedPlace{}
+		}
+		l.named[display] = n
+		l.mu.Unlock()
+	}
+	if n.ok {
+		p := n.place
 		return Result{Place: &p, Source: SourceName, At: now}
 	}
 	return Result{Source: SourceUnknown, At: now}

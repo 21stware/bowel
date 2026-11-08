@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -19,6 +21,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -63,19 +66,27 @@ type App struct {
 	sys         sysproxy.Status
 	proxies     map[string]mihomo.Proxy
 	provNodes   map[string][]string // provider id → node names, in the provider's order
-	you         *locate.Result
-	lastNode    map[string]string // route id → node, to notice automatic switches
-	switched    *switchNote
-	shareDay    string
-	routeBytes  map[string]int64 // today's download per route id
-	monCancel   context.CancelFunc
-	lastHash    [32]byte
-	emitQueued  bool
-	win         *mygo.Window
-	ui          *UI
-	tray        *mygo.Tray
-	quitting    bool
-	lastTick    Tick
+	// nodesSig is the names /proxies had when provNodes was read, at
+	// nodesAt: the providers' lists are read again when they change.
+	nodesSig   uint64
+	nodesAt    time.Time
+	you        *locate.Result
+	lastNode   map[string]string // route id → node, to notice automatic switches
+	switched   *switchNote
+	shareDay   string
+	routeBytes map[string]int64 // today's download per route id
+	groupSeen  map[string]int64 // the monitor's GroupBytes when last added in
+	monCancel  context.CancelFunc
+	lastHash   [32]byte
+	emitQueued bool
+	win        *mygo.Window
+	ui         *UI
+	// winShown is whether the main window is shown, kept from its events
+	// for goroutines that may not wait on the main thread to ask.
+	winShown atomic.Bool
+	tray     *mygo.Tray
+	quitting bool
+	lastTick Tick
 }
 
 type switchNote struct {
@@ -123,6 +134,7 @@ func newApp() (*App, error) {
 	cm.SafePaths = []string{filepath.Join(data, "providers")}
 	a.mon.SkipGroup = core.ProbeGroup // the location probe's own traffic
 	a.mon.FindProcess = procinfo.New().Find
+	a.mon.Every = a.pollEvery
 	cm.OnStatus = func(s core.Status) { a.onCoreStatus(s) }
 	a.mon.OnTick(a.onTick)
 	return a, nil
@@ -223,8 +235,9 @@ func (a *App) openWindow() {
 	})
 	// The Dock icon is there while a window is: hidden, Moho lives in
 	// the menu bar alone.
-	win.OnShow(a.syncDock)
-	win.OnHide(a.syncDock)
+	win.OnShow(func() { a.winShown.Store(true); a.mon.Wake(); a.syncDock() })
+	win.OnHide(func() { a.winShown.Store(false); a.syncDock() })
+	a.winShown.Store(!(a.settings.Get().StartHidden && mygo.App.WasOpenedAtLogin()))
 	a.mu.Lock()
 	a.win = win
 	a.mu.Unlock()
@@ -294,6 +307,31 @@ func (a *App) shutdown() {
 	a.core.Stop()
 }
 
+// pollEvery is how often the monitor reads the core's connections: every
+// second while the window or the menu bar panel shows them, every 5 s
+// otherwise. The totals stay exact, as they are the core's own counters;
+// what goes is the rates' detail and connections too short to be seen.
+func (a *App) pollEvery() time.Duration {
+	if a.winShown.Load() {
+		return time.Second
+	}
+	if u := a.uiRef(); u != nil && u.panel.win.Load() != nil {
+		return time.Second
+	}
+	return 5 * time.Second
+}
+
+// nodeSig tells apart the sets of names in px.
+func nodeSig(px map[string]mihomo.Proxy) uint64 {
+	names := slices.Sorted(maps.Keys(px))
+	h := fnv.New64a()
+	for _, n := range names {
+		h.Write([]byte(n))
+		h.Write([]byte{0})
+	}
+	return h.Sum64()
+}
+
 // loop refreshes what the core and the OS say, and runs the periodic jobs.
 func (a *App) loop() {
 	fast := time.NewTicker(2 * time.Second)
@@ -313,29 +351,46 @@ func (a *App) loop() {
 }
 
 func (a *App) refresh() {
-	if s, err := sysproxy.Check(a.settings.Get().MixedPort); err == nil {
-		a.mu.Lock()
-		a.sys = s
-		a.mu.Unlock()
+	// The system proxy is judged only while it is wanted: otherwise no
+	// scutil every 2 s for nothing.
+	if st := a.settings.Get(); a.takeoverOn(st) && st.SystemProxy {
+		if s, err := sysproxy.Check(st.MixedPort); err == nil {
+			a.mu.Lock()
+			a.sys = s
+			a.mu.Unlock()
+		}
 	}
 	if c, err := a.core.Client(); err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		px, err1 := c.Proxies(ctx)
-		pp, err2 := c.ProxyProviders(ctx)
-		cancel()
-		if err1 == nil && err2 == nil {
-			nodes := map[string][]string{}
-			for name, p := range pp {
-				id, ok := strings.CutPrefix(name, "p-")
-				if !ok {
-					continue
-				}
-				for _, n := range p.Proxies {
-					nodes[id] = append(nodes[id], n.Name)
+		px, err := c.Proxies(ctx)
+		// The providers' lists hold the same nodes again, in their order:
+		// read them only when the names change, or a minute on.
+		sig := nodeSig(px)
+		a.mu.Lock()
+		nodes, stale := a.provNodes, sig != a.nodesSig || time.Since(a.nodesAt) > time.Minute
+		a.mu.Unlock()
+		if err == nil && stale {
+			var pp map[string]mihomo.ProxyProvider
+			if pp, err = c.ProxyProviders(ctx); err == nil {
+				nodes = map[string][]string{}
+				for name, p := range pp {
+					id, ok := strings.CutPrefix(name, "p-")
+					if !ok {
+						continue
+					}
+					for _, n := range p.Proxies {
+						nodes[id] = append(nodes[id], n.Name)
+					}
 				}
 			}
+		}
+		cancel()
+		if err == nil {
 			a.mu.Lock()
 			a.proxies, a.provNodes = px, nodes
+			if stale {
+				a.nodesSig, a.nodesAt = sig, time.Now()
+			}
 			a.mu.Unlock()
 			a.noticeSwitches()
 		}
@@ -396,6 +451,9 @@ func (a *App) applyConfig() error {
 	if s.Mode == "global" {
 		a.pointGlobal()
 	}
+	a.mu.Lock()
+	a.nodesAt = time.Time{} // providers may hold other nodes now
+	a.mu.Unlock()
 	a.refresh()
 	return nil
 }
@@ -1218,7 +1276,6 @@ func (a *App) buildTick() Tick {
 	n := a.mon.Now()
 	t := Tick{Down: n.Down, Up: n.Up, ByRoute: map[string]int64{}, Active: n.Active,
 		TodayDown: n.TodayDown, TodayUp: n.TodayUp, MonthDown: n.MonthDown, Apps: []AppRate{}, Events: []Event{}}
-	conns := a.mon.Conns()
 	for g, v := range n.ByGroup {
 		// A DIRECT group can be the direct route or the default's DIRECT; count it as direct.
 		id := a.routeOfGroup(g, "x")
@@ -1226,35 +1283,46 @@ func (a *App) buildTick() Tick {
 			t.ByRoute[id] += v
 		}
 	}
-	// Today's share per route.
+	// Today's share per route: the bytes since the last tick, as the
+	// monitor counted them, however long ago that was.
 	day := time.Now().Format("2006-01-02")
 	a.mu.Lock()
 	if a.shareDay != day {
 		a.shareDay, a.routeBytes = day, map[string]int64{}
 	}
-	for id, v := range t.ByRoute {
-		a.routeBytes[id] += v
+	for g, v := range n.GroupBytes {
+		if d := v - a.groupSeen[g]; d > 0 {
+			if id := a.routeOfGroup(g, "x"); id != "" {
+				a.routeBytes[id] += d
+			}
+		}
 	}
+	a.groupSeen = n.GroupBytes
 	a.mu.Unlock()
 
+	// Each app's busiest connection names its host: the fastest, the
+	// oldest of equals, so that it holds still from one tick to the next.
+	type top struct {
+		rate  int64
+		start time.Time
+		id    string
+	}
 	apps := map[string]*AppRate{}
-	hostRate := map[string]int64{}
-	for _, c := range conns {
-		if c.Status != "active" {
-			continue
-		}
-		v := a.convConn(c)
-		r := apps[v.App]
+	best := map[string]top{}
+	for _, c := range a.mon.Rates() {
+		r := apps[c.App]
 		if r == nil {
-			r = &AppRate{App: v.App}
-			apps[v.App] = r
+			r = &AppRate{App: c.App}
+			apps[c.App] = r
 		}
-		r.Down += v.DownRate
-		r.Up += v.UpRate
+		r.Down += c.DownRate
+		r.Up += c.UpRate
 		r.Conns++
-		if v.DownRate >= hostRate[v.App] {
-			hostRate[v.App] = v.DownRate
-			r.Host, r.Route = v.Host, v.Route
+		b, seen := best[c.App]
+		if !seen || c.DownRate > b.rate || c.DownRate == b.rate &&
+			(c.Start.Before(b.start) || c.Start.Equal(b.start) && c.ID > b.id) {
+			best[c.App] = top{c.DownRate, c.Start, c.ID}
+			r.Host, r.Route = c.Host, a.routeOfGroup(c.Group, c.Rule)
 		}
 	}
 	for _, r := range apps {

@@ -135,7 +135,10 @@ func TestAppFlows(t *testing.T) {
 	}
 	_ = a.setMode("rule")
 
-	// A connection through the mixed port is attributed to a route.
+	// A connection through the mixed port is attributed to a route. As
+	// with the window shown: the monitor polls every second.
+	a.winShown.Store(true)
+	a.mon.Wake()
 	proxyURL, _ := url.Parse("http://127.0.0.1:" + itoa(a.settings.Get().MixedPort))
 	cl := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}, Timeout: 10 * time.Second}
 	go func() { _, _ = cl.Get(page.URL) }()
