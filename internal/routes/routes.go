@@ -3,7 +3,15 @@
 // can serve every route (decision D1 of docs/product-ia.md).
 package routes
 
-import "github.com/oboo/moho/internal/i18n"
+import (
+	"errors"
+	"fmt"
+	"net/url"
+	"slices"
+	"strings"
+
+	"github.com/oboo/moho/internal/i18n"
+)
 
 // Route is a kind of traffic and where it may go.
 type Route struct {
@@ -96,4 +104,74 @@ func Count(rs []Route) int {
 		n += len(r.Rules)
 	}
 	return n
+}
+
+// Target is a site a route is tested against.
+type Target struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
+// MaxTargets is how many sites a route can be tested against. Each is a
+// request through the node every few minutes.
+const MaxTargets = 6
+
+// DefaultTargets are the sites route id is tested against unless the user
+// changes them, the first being the main target. The default route starts
+// with the test URL of the settings, which is added by Settings.TargetsOf.
+func DefaultTargets(id string) []Target {
+	switch id {
+	case Default:
+		return []Target{{"Google", "https://www.google.com"}, {"GitHub", "https://github.com"}}
+	case "ai":
+		return []Target{{"OpenAI", "https://api.openai.com"}, {"Claude", "https://claude.ai"}, {"Gemini", "https://gemini.google.com"}}
+	case "media":
+		return []Target{{"YouTube", "https://www.youtube.com/generate_204"}, {"Netflix", "https://www.netflix.com"},
+			{"Spotify", "https://open.spotify.com"}, {"Disney+", "https://www.disneyplus.com"}}
+	case "dev":
+		// raw, not github.com: that one times out on most nodes when they
+		// are all tested at once, and Auto would count them as dead.
+		return []Target{{"GitHub Raw", "https://raw.githubusercontent.com"}, {"GitHub", "https://github.com"}, {"npm", "https://registry.npmjs.org"},
+			{"Docker Hub", "https://registry-1.docker.io/v2/"}, {"PyPI", "https://pypi.org"}}
+	}
+	return nil
+}
+
+// ParseTarget makes a target of an address as typed: the scheme is optional,
+// and the site's name, its host without "www.", stands for it.
+func ParseTarget(input string) (Target, error) {
+	s := strings.TrimSpace(input)
+	if s != "" && !strings.Contains(s, "://") {
+		s = "https://" + s
+	}
+	u, err := url.Parse(s)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || strings.ContainsAny(u.Host, " \t") {
+		return Target{}, fmt.Errorf(i18n.T("测速站点要是 http 或 https 链接: %s", "A test site must be an http or https link: %s"), input)
+	}
+	return Target{Name: strings.TrimPrefix(u.Hostname(), "www."), URL: s}, nil
+}
+
+// ValidTargets says what is wrong with a list of targets for route id.
+func ValidTargets(id string, list []Target) error {
+	if !slices.ContainsFunc(Template(), func(r Route) bool { return r.ID == id && !r.Direct }) {
+		return fmt.Errorf(i18n.T("路由 %s 不能设置测速站点", "Route %s can't have test sites"), id)
+	}
+	if len(list) == 0 {
+		return errors.New(i18n.T("至少要留一个测速站点", "Keep at least one test site"))
+	}
+	if len(list) > MaxTargets {
+		return fmt.Errorf(i18n.T("一条路由最多 %d 个测速站点", "A route can have at most %d test sites"), MaxTargets)
+	}
+	for i, t := range list {
+		if _, err := ParseTarget(t.URL); err != nil {
+			return err
+		}
+		if t.Name == "" || !strings.Contains(t.URL, "://") {
+			return fmt.Errorf(i18n.T("测速站点要是 http 或 https 链接: %s", "A test site must be an http or https link: %s"), t.URL)
+		}
+		if slices.ContainsFunc(list[:i], func(o Target) bool { return o.URL == t.URL }) {
+			return fmt.Errorf(i18n.T("测速站点 %s 重复了", "Test site %s is there twice"), t.URL)
+		}
+	}
+	return nil
 }

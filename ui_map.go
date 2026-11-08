@@ -285,7 +285,7 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 		if !ok {
 			continue
 		}
-		a := arc{route: r.ID, node: n, place: n.Where.Place, share: r.Share, live: u.active(r.ID)}
+		a := arc{route: r.ID, node: n.On(r.ID), place: n.Where.Place, share: r.Share, live: u.active(r.ID)}
 		arcs = append(arcs, a)
 		if a.place != nil {
 			places = append(places, a.place)

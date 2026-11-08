@@ -11,6 +11,7 @@ package sysproxy
 // but dial-up and VPN entries that have their own.
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 	"unsafe"
@@ -186,7 +187,7 @@ func Snapshot() (Saved, error) {
 
 // Restore puts the LAN settings back as saved has them; with none saved
 // it turns the proxies off.
-func Restore(saved Saved) error {
+func Restore(_ context.Context, saved Saved) error {
 	if len(saved.Services) == 0 {
 		return Disable()
 	}

@@ -143,6 +143,51 @@ func TestHomeBoard(t *testing.T) {
 	}
 }
 
+// Not taken over is the same board: nothing moves or goes away when the
+// last way in is turned off, and the cells still open.
+func TestBoardStaysWhenOff(t *testing.T) {
+	u := fixtureUI()
+	u.snap.Takeover.On, u.snap.State = false, StateOff
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(2 * time.Second)
+	for _, s := range []string{"未接管", "模式", "接管", "系统代理", "TUN"} {
+		if !tt.HasText(s) {
+			t.Errorf("no %q on the board: %q", s, tt.Texts())
+		}
+	}
+	if err := tt.Click("模式"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(2 * time.Second)
+	if u.home.x != "mode" {
+		t.Errorf("the mode cell did not open: %q", u.home.x)
+	}
+}
+
+// Only the switch changes a way of taking over: a click on its name opens
+// the cell, and a click on the switch stays on the board.
+func TestEntrySwitches(t *testing.T) {
+	u := fixtureUI()
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(2 * time.Second)
+	for _, label := range []string{"使用系统代理", "使用 TUN"} {
+		if err := tt.Click(label); err != nil {
+			t.Fatal(err)
+		}
+		tt.Advance(time.Second)
+		if u.home.x != "" {
+			t.Fatalf("%s opened cell %q", label, u.home.x)
+		}
+	}
+	if err := tt.Click("系统代理"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(2 * time.Second)
+	if u.home.x != "takeover" {
+		t.Errorf("the name opened %q", u.home.x)
+	}
+}
+
 func TestHomeMidMorph(t *testing.T) {
 	u := fixtureUI()
 	tt := ui.NewTester(u.view, 1060, 760)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/oboo/moho/internal/gateway"
+	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
 )
 
@@ -125,6 +126,12 @@ type RouteView struct {
 	Direct  bool   `json:"direct"`
 	// Auto: the route picks the fastest node and fails over by itself.
 	Auto bool `json:"auto"`
+	// Targets are the sites the route is tested against. The first, Main,
+	// decides its nodes' delays and what Auto picks; the others are Sites.
+	Main    routes.Target   `json:"main"`
+	Targets []routes.Target `json:"targets,omitempty"`
+	// Sites are the other targets as timed through Node.
+	Sites []SiteDelay `json:"sites,omitempty"`
 	// Node is the node in use (a NodeView name), "" for direct routes.
 	Node string `json:"node"`
 	// Share is the route's part of today's download, 0–1.
@@ -155,11 +162,40 @@ type NodeView struct {
 	Provider string `json:"provider"` // provider id
 	Type     string `json:"type"`
 	UDP      bool   `json:"udp"`
-	// Delay of the last test in ms; 0 failed or untested (see Tested).
+	// Delay of the last test of the default route's main target, in ms; 0
+	// failed or untested (see Tested). On has them for another route.
 	Delay   int     `json:"delay"`
 	Tested  bool    `json:"tested"`
 	History []int   `json:"history"`
 	Where   Located `json:"where"`
+	// Ping is how long the node's server takes to answer this computer, in
+	// ms; 0 no answer so far.
+	Ping int `json:"ping"`
+	// Routes are the node's tests of each route's main target.
+	Routes map[string]NodeTest `json:"routes,omitempty"`
+}
+
+// NodeTest is how a node did on a route's main target.
+type NodeTest struct {
+	Delay   int   `json:"delay"`
+	Tested  bool  `json:"tested"`
+	History []int `json:"history"`
+}
+
+// On is the node with the delays it has on a route's main target.
+func (n NodeView) On(route string) NodeView {
+	if t, ok := n.Routes[route]; ok {
+		n.Delay, n.Tested, n.History = t.Delay, t.Tested, t.History
+	}
+	return n
+}
+
+// SiteDelay is how long a site took through a node, in ms; 0 failed.
+type SiteDelay struct {
+	Name   string `json:"name"`
+	URL    string `json:"url"`
+	Delay  int    `json:"delay"`
+	Tested bool   `json:"tested"`
 }
 
 // Exit is where the default route's traffic leaves.

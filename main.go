@@ -26,7 +26,7 @@ func main() {
 	mygo.App.WhenReady(app.start)
 	// The window hides to the menu bar; quitting comes from the menu.
 	mygo.App.OnWindowAllClosed(func() {})
-	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { app.shutdown() })
+	mygo.App.OnBeforeQuit(app.beforeQuit)
 
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/oboo/moho/internal/routes"
 )
 
@@ -140,5 +142,33 @@ func TestOwnTCPControllerWins(t *testing.T) {
 	s := string(out)
 	if !strings.Contains(s, "127.0.0.1:5555") || strings.Contains(s, "19090") || strings.Contains(s, "s3cret") {
 		t.Errorf("controller:\n%s", s)
+	}
+}
+
+// Each route's automatic group goes by that route's main target.
+func TestAutoGroupsUseMainURLs(t *testing.T) {
+	in := Input{Routes: routes.Template(), Mode: "rule", MixedPort: 17899, LogLevel: "info", ProbePort: 17900,
+		TestURL:   "https://base.example/204",
+		MainURLs:  map[string]string{"media": "https://www.youtube.com/generate_204"},
+		Providers: []ProviderRef{{ID: "aaa", Path: "/tmp/a.txt"}}}
+	cfg, err := BuildConfig(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Groups []struct {
+			Name string `yaml:"name"`
+			URL  string `yaml:"url"`
+		} `yaml:"proxy-groups"`
+	}
+	if err := yaml.Unmarshal(cfg, &out); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, g := range out.Groups {
+		got[g.Name] = g.URL
+	}
+	if got["流媒体·自动"] != "https://www.youtube.com/generate_204" || got["AI 服务·自动"] != in.TestURL {
+		t.Fatalf("groups: %+v", got)
 	}
 }

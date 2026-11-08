@@ -194,6 +194,13 @@ func primary() (iface, router string) {
 	return parseGlobal(string(out))
 }
 
+// PrimaryInterface is the interface the Mac reaches the network through,
+// "" if it has none.
+func PrimaryInterface() string {
+	iface, _ := primary()
+	return iface
+}
+
 func parseGlobal(s string) (iface, router string) {
 	sc := bufio.NewScanner(strings.NewReader(s))
 	for sc.Scan() {

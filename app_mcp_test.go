@@ -26,7 +26,10 @@ func mcpApp(t *testing.T) (a *App, asks *int, answer *[2]bool) {
 	osProxy.enable = func(string, int, []string) error { t.Error("the test tried to enable the system proxy"); return nil }
 	osProxy.disable = func() error { t.Error("the test tried to disable the system proxy"); return nil }
 	osProxy.snapshot = func() (sysproxy.Saved, error) { return sysproxy.Saved{}, nil }
-	osProxy.restore = func(sysproxy.Saved) error { t.Error("the test tried to restore the system proxy"); return nil }
+	osProxy.restore = func(context.Context, sysproxy.Saved) error {
+		t.Error("the test tried to restore the system proxy")
+		return nil
+	}
 	savedAsk := askAgent
 	asks, answer = new(int), new([2]bool)
 	askAgent = func(ctx context.Context, client, what, detail string) (bool, bool, error) {

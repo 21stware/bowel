@@ -50,6 +50,10 @@ type Settings struct {
 	LogLevel  string   `json:"logLevel"`
 	TestURL   string   `json:"testUrl"`
 
+	// RouteTargets are the sites a route is tested against, where the user
+	// changed them from its defaults (TargetsOf).
+	RouteTargets map[string][]routes.Target `json:"routeTargets,omitempty"`
+
 	// Rules are the user's own, before the template's: the newest first.
 	Rules []routes.UserRule `json:"rules"`
 
@@ -162,7 +166,30 @@ func (s Settings) Clone() Settings {
 	s.Bypass = slices.Clone(s.Bypass)
 	s.Rules = slices.Clone(s.Rules)
 	s.Options = s.Options.Clone()
+	if s.RouteTargets != nil {
+		m := make(map[string][]routes.Target, len(s.RouteTargets))
+		for id, t := range s.RouteTargets {
+			m[id] = slices.Clone(t)
+		}
+		s.RouteTargets = m
+	}
 	return s
+}
+
+// TargetsOf is what route id is tested against, its main target first: the
+// user's list, or the route's defaults. The default route's main target is
+// the test URL of the settings.
+func (s Settings) TargetsOf(id string) []routes.Target {
+	if t := s.RouteTargets[id]; len(t) > 0 {
+		return slices.Clone(t)
+	}
+	t := routes.DefaultTargets(id)
+	if id == routes.Default {
+		if main, err := routes.ParseTarget(s.TestURL); err == nil {
+			t = append([]routes.Target{main}, t...)
+		}
+	}
+	return t
 }
 
 // Update changes the settings with fn and saves them.
@@ -181,6 +208,7 @@ func (s *Settings) ResetCore() {
 	d := Defaults.Clone()
 	keep := s.Options
 	s.LogLevel, s.TestURL, s.Bypass, s.Options = d.LogLevel, d.TestURL, d.Bypass, d.Options
+	s.RouteTargets = nil
 	s.HTTPPort, s.SocksPort, s.Authentication, s.LanAllowedIPs = keep.HTTPPort, keep.SocksPort, keep.Authentication, keep.LanAllowedIPs
 	s.ExtController, s.ExtSecret = keep.ExtController, keep.ExtSecret
 }
@@ -240,6 +268,11 @@ func (s Settings) Validate() error {
 		}
 		if slices.ContainsFunc(s.Rules[:i], r.Same) {
 			return fmt.Errorf(i18n.T("规则 %s 重复了", "Rule %s is there twice"), r.Value)
+		}
+	}
+	for id, list := range s.RouteTargets {
+		if err := routes.ValidTargets(id, list); err != nil {
+			return err
 		}
 	}
 	return s.Options.Validate()

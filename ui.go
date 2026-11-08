@@ -35,6 +35,7 @@ type UI struct {
 	home  homeUI
 	act   activityUI
 	prov  providersUI
+	setup setupUI
 	set   settingsUI
 	panel panelUI
 	gw    gatewayUI
@@ -287,35 +288,46 @@ func (u *UI) view(c *ui.Context) {
 		c.Toast(m)
 	}
 	u.toasts = nil
+	u.setupTick()
 	c.OnShortcut(ui.Cmd, ui.KeyW, func() { u.win.Hide() })
-	c.OnShortcut(ui.Cmd, ui.Key1, func() { u.page = "home" })
-	c.OnShortcut(ui.Cmd, ui.Key2, func() { u.page = "activity" })
-	c.OnShortcut(ui.Cmd, ui.Key3, func() { u.page = "providers" })
 	c.OnShortcut(ui.Cmd, ui.KeyComma, u.openSettings)
-	// ⌘V outside a text field, on another page, with a link or node list on
-	// the clipboard: open Provider with it in the add bar. Provider's own
-	// page handles ⌘V itself.
-	if u.page != "providers" && !c.FocusTakesText() && c.Shortcut(ui.Cmd, ui.KeyV) {
-		if s := strings.TrimSpace(c.ReadClipboard()); strings.Contains(s, "://") || strings.Contains(s, "proxies:") {
-			u.page, u.prov.input, u.prov.focus = "providers", s, true
+	if !u.setup.on {
+		c.OnShortcut(ui.Cmd, ui.Key1, func() { u.page = "home" })
+		c.OnShortcut(ui.Cmd, ui.Key2, func() { u.page = "activity" })
+		c.OnShortcut(ui.Cmd, ui.Key3, func() { u.page = "providers" })
+		// ⌘V outside a text field, on another page, with a link or node list on
+		// the clipboard: open Provider with it in the add bar. Provider's own
+		// page handles ⌘V itself.
+		if u.page != "providers" && !c.FocusTakesText() && c.Shortcut(ui.Cmd, ui.KeyV) {
+			if s := strings.TrimSpace(c.ReadClipboard()); strings.Contains(s, "://") || strings.Contains(s, "proxies:") {
+				u.page, u.prov.input, u.prov.focus = "providers", s, true
+			}
 		}
 	}
 
 	ui.Column(c).Fill().Background(p.paper).Children(func() {
-		u.titleBar(c, p)
-		// Pages switch at once: a tab is a place, not a story.
-		ui.Box(c).Grow(1).Children(func() {
-			ui.Column(c.Key(u.page)).Absolute().Fill().Children(func() {
-				switch u.page {
-				case "activity":
-					u.activityPage(c, p)
-				case "providers":
-					u.providersPage(c, p)
-				default:
-					u.homePage(c, p)
-				}
+		if !u.setup.on {
+			ui.Column(c.Key("main")).Grow(1).Children(func() {
+				u.titleBar(c, p)
+				// Pages switch at once: a tab is a place, not a story.
+				ui.Box(c).Grow(1).Children(func() {
+					ui.Column(c.Key(u.page)).Absolute().Fill().Children(func() {
+						switch u.page {
+						case "activity":
+							u.activityPage(c, p)
+						case "providers":
+							u.providersPage(c, p)
+						default:
+							u.homePage(c, p)
+						}
+					})
+				})
 			})
-		})
+		}
+		// After the main column: leaving, it fades off what it covered.
+		if u.setup.on {
+			ui.Box(c.Key("setup")).Absolute().Fill().Background(p.paper).Transition(setupLeave).Children(func() { u.setupPage(c, p) })
+		}
 		skinDeco(c, p)
 	})
 }
@@ -575,14 +587,16 @@ func splitRate(b int64) (string, string) {
 	return v, unit + "/s"
 }
 
-func fmtDelay(n NodeView) string {
+func fmtDelay(n NodeView) string { return fmtMs(n.Delay, n.Tested) }
+
+func fmtMs(ms int, tested bool) string {
 	switch {
-	case !n.Tested:
+	case !tested:
 		return "—"
-	case n.Delay <= 0:
+	case ms <= 0:
 		return i18n.T("超时", "Timeout")
 	}
-	return fmt.Sprintf("%d ms", n.Delay)
+	return fmt.Sprintf("%d ms", ms)
 }
 
 func delayColor(p *pal, ms int, tested bool) ui.Color {
@@ -594,6 +608,22 @@ func delayColor(p *pal, ms int, tested bool) ui.Color {
 	case ms < 120:
 		return p.good
 	case ms < 250:
+		return p.warn
+	}
+	return p.signal
+}
+
+// siteColor is delayColor for a whole request to a site, which takes
+// longer than the small test URL.
+func siteColor(p *pal, ms int, tested bool) ui.Color {
+	switch {
+	case !tested:
+		return p.mute
+	case ms <= 0:
+		return p.signal
+	case ms < 400:
+		return p.good
+	case ms < 900:
 		return p.warn
 	}
 	return p.signal
