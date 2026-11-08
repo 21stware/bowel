@@ -55,6 +55,7 @@ jobs:
       - name: Fetch the mihomo core and geo data
         env:
           GH_TOKEN: ${{ github.token }}
+          MIHOMO_SOURCE_DIR: dist
         run: ./scripts/fetch-core.sh
 
       - name: Import the Developer ID certificate
@@ -91,7 +92,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" build/darwin-arm64/bowel-*-arm64.dmg --verify-tag --generate-notes --title "bowel $TAG"
+        run: gh release create "$TAG" build/darwin-arm64/bowel-*-arm64.dmg dist/mihomo-*-source.tar.gz --verify-tag --generate-notes --title "bowel $TAG"
 
       - name: Build without publishing
         if: env.PUBLISH != 'true'

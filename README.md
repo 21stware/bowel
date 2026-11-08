@@ -109,4 +109,4 @@ bowel was called Moho. The Go module is still `github.com/oboo/moho` and the bun
 
 bowel is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE), which allows noncommercial use only. For a commercial license, [open an issue](https://github.com/21stware/bowel/issues).
 
-The bundled mihomo core stays under GPL-3.0. The flag images in `assets/flags/` and the fonts in `resources/fonts/` are third-party files and keep their own licenses.
+The bundled mihomo core stays under GPL-3.0. The app carries its license in `Contents/Resources/licenses/mihomo/`, and each release attaches the matching source. The flag images in `assets/flags/` and the fonts in `resources/fonts/` are third-party files and keep their own licenses.

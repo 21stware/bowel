@@ -109,4 +109,4 @@ bowel 原名 Moho。Go 模块仍是 `github.com/oboo/moho`，Bundle ID 仍是 `d
 
 bowel 采用 [PolyForm Noncommercial License 1.0.0](LICENSE) 授权，仅限非商业用途。如需商业授权，请[提交 issue](https://github.com/21stware/bowel/issues)。
 
-随应用打包的 mihomo 内核仍适用 GPL-3.0。`assets/flags/` 中的旗帜图片和 `resources/fonts/` 中的字体属于第三方文件，仍适用各自的许可证。
+随应用打包的 mihomo 内核仍适用 GPL-3.0。应用内的 `Contents/Resources/licenses/mihomo/` 附有它的许可证，每个 Release 都附带对应版本的源码。`assets/flags/` 中的旗帜图片和 `resources/fonts/` 中的字体属于第三方文件，仍适用各自的许可证。
