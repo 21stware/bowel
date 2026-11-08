@@ -232,15 +232,15 @@ func (a *App) logErr(err error) {
 	}
 }
 
-// trayIcon draws the template icon, 36×36 px: the logo's spiral in one
+// trayIcon draws the template icon, 36×36 px: the logo's squiggle in one
 // ink, full when on and faded when off. That is all it tells.
 func trayIcon(on bool) []byte {
 	const n = 36
 	cov := make([]float64, n*n)
-	// A touch bolder than the logo, so the line holds at 18 pt.
-	const scale = 34.0 / 200
+	// The squiggle and its stroke span 194 of the logo's 200 units; fill 34 px.
+	const scale = 34.0 / (170 + logoWidth)
 	const o = 18 - 100*scale
-	strokeLogo(logoPoints, cov, n, n, scale, o, o, logoWidth*1.15)
+	strokeLogo(logoPoints, cov, n, n, scale, o, o, logoWidth)
 	ink := 1.0
 	if !on {
 		ink = .4
