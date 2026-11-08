@@ -824,7 +824,16 @@ func (u *UI) actDetail(c *ui.Context, p *pal, cn Conn) {
 				if cn.Payload != "" {
 					rule += "," + cn.Payload
 				}
-				pair(i18n.T("规则", "Rule"), mono(rule, p.ink))
+				if _, mine := u.ruleOf(cn); mine {
+					pair(i18n.T("规则", "Rule"), func() {
+						ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+							ui.Text(c, rule).Font(actMono).FontSize(11.5).TextColor(p.ink).Shrink(1).MinWidth(0)
+							mineTag(c, p)
+						})
+					})
+				} else {
+					pair(i18n.T("规则", "Rule"), mono(rule, p.ink))
+				}
 				pair(i18n.T("链路", "Chain"), func() { u.actChain(c, p, cn) })
 				exit := i18n.T("本机网络", "Local network")
 				if cn.Node != "" {
@@ -858,6 +867,7 @@ func (u *UI) actDetail(c *ui.Context, p *pal, cn Conn) {
 				if host == "" {
 					host = cn.IP
 				}
+				u.actRouteBtn(c, p, cn)
 				btn(c.Key("copy"), p, i18n.T("复制域名", "Copy domain")).OnClick(func() {
 					c.WriteClipboard(host)
 					u.toasts = append(u.toasts, i18n.T("已复制 ", "Copied ")+host)

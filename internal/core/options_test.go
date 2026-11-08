@@ -99,7 +99,9 @@ func TestEveryOptionPassesCore(t *testing.T) {
 	for _, tun := range []bool{false, true} {
 		in := Input{Routes: routes.Template(), Mode: "rule", MixedPort: 17899, LogLevel: "info", AllowLan: true,
 			TestURL: "https://www.gstatic.com/generate_204", ProbePort: 17900, Controller: m.ControllerFields(),
-			Tun: tun, Options: everything(), Providers: []ProviderRef{{ID: "aaa", Path: filepath.Join(dir, "a.txt")}}}
+			Tun: tun, Options: everything(), Providers: []ProviderRef{{ID: "aaa", Path: filepath.Join(dir, "a.txt")}},
+			UserRules: []routes.UserRule{{Kind: "suffix", Value: "example.com", Route: "ai"}, {Kind: "domain", Value: "a.example.org", Route: "direct"},
+				{Kind: "keyword", Value: "tracker", Route: "default"}, {Kind: "ip", Value: "10.0.0.0/8", Route: "media"}, {Kind: "ip", Value: "2001:db8::/32", Route: "dev"}}}
 		cfg, err := BuildConfig(in)
 		if err != nil {
 			t.Fatal(err)

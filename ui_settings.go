@@ -38,6 +38,8 @@ type settingsUI struct {
 	section string
 	// busy lists the actions running, by their button's key.
 	busy map[string]bool
+	// rule is 规则's typing.
+	rule ruleEdit
 	// opened counts the times a test's UI, which has no app and so no
 	// windows, was asked to open the window.
 	opened int
@@ -124,7 +126,11 @@ func (u *UI) shownSettings() settings.Settings {
 
 // setOpt changes an option: at once on the page, and in the app. When the
 // app is done the page shows the settings as saved, kept or not.
-func (u *UI) setOpt(fn func(*settings.Settings)) {
+func (u *UI) setOpt(fn func(*settings.Settings)) { u.setOptThen(fn, nil) }
+
+// setOptThen is setOpt, and then, off the main thread and once the change
+// is saved and applied, after.
+func (u *UI) setOptThen(fn func(*settings.Settings), after func()) {
 	next := u.shownSettings().Clone()
 	fn(&next)
 	u.set.over = &next
@@ -135,6 +141,9 @@ func (u *UI) setOpt(fn func(*settings.Settings)) {
 	seq := u.set.seq
 	go func() {
 		err := u.app.updateSettings(fn)
+		if err == nil && after != nil {
+			after()
+		}
 		saved := u.app.settings.Get()
 		u.settingsUpdate(func() {
 			u.snap.Settings = saved
@@ -228,11 +237,13 @@ func init() {
 		{"general", "通用", "General", icon(`<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>`), (*UI).generalSection},
 		{"inbound", "入站", "Inbound", icon(`<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>`), (*UI).inboundSection},
 		{"core", "内核", "Core", icon(`<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/>`), (*UI).coreSection},
+		{"rules", "规则", "Rules", icon(`<path d="M4 6h9M4 12h6M4 18h9"/><path d="m15 9 3 3-3 3"/><path d="M10 12h8"/>`), (*UI).rulesSection},
 		{"dns", "DNS", "DNS", icon(`<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"/>`), (*UI).dnsSection},
 		{"sniffer", "嗅探", "Sniffing", icon(`<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/><path d="M8 11h6"/>`), (*UI).snifferSection},
 		{"tun", "TUN", "TUN", icon(`<path d="M12 3 3 8l9 5 9-5-9-5z"/><path d="m3 13 9 5 9-5"/>`), (*UI).tunSection},
 		{"geo", "GeoData", "GeoData", icon(`<circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8"/><path d="M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"/>`), (*UI).geoSection},
 		{"controller", "外部控制", "Controller", icon(`<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/>`), (*UI).controllerSection},
+		{"mcp", "MCP", "MCP", icon(`<path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2M20 14h2M9 13v2M15 13v2"/>`), (*UI).mcpSection},
 		{"about", "关于", "About", icon(`<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>`), (*UI).aboutSection},
 	}
 }

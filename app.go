@@ -203,6 +203,7 @@ func (a *App) start() {
 	}()
 	go a.loop()
 	go a.debugDriver()
+	a.startMCP()
 }
 
 func (a *App) openWindow() {
@@ -292,6 +293,7 @@ func (a *App) shutdown() {
 	a.mu.Lock()
 	a.quitting = true
 	a.mu.Unlock()
+	stopMCP()
 	// Never leave the system pointing at a proxy that is gone: put back
 	// what it had before Moho took it over.
 	port := a.settings.Get().MixedPort
@@ -436,7 +438,7 @@ func (a *App) applyConfig() error {
 		}
 	}
 	cfg, err := core.BuildConfig(core.Input{
-		Providers: refs, Routes: a.routes, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
+		Providers: refs, Routes: a.routes, UserRules: s.Rules, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
 		Tun:      s.Tun && a.takeoverOn(s) && tun.Installed(a.tunBin),
 		LogLevel: s.LogLevel, TestURL: s.TestURL, ProbePort: a.probePort, Controller: a.core.ControllerFields(),
 		Options: s.Options,
@@ -721,6 +723,7 @@ func migrateData(dir string) {
 // not see: the language, starting hidden, the theme color, the appearance.
 func appOnly(old, next settings.Settings) bool {
 	next.Language, next.StartHidden, next.Accent, next.Appearance = old.Language, old.StartHidden, old.Accent, old.Appearance
+	next.MCPPolicy = old.MCPPolicy // the MCP server's, not the core's
 	return reflect.DeepEqual(old, next)
 }
 
@@ -1115,6 +1118,68 @@ func (a *App) deleteProvider(id string) error {
 	return a.applyConfig()
 }
 
+// ---- The user's rules ----
+
+// addRule sends r's traffic to its route, in place of an older rule for
+// the same traffic. Connections it matches that went elsewhere are closed,
+// so that the change shows at once: their apps connect again, by the new
+// way. It returns how many were closed.
+func (a *App) addRule(r routes.UserRule) (int, error) {
+	if a.route(r.Route).ID == "" {
+		return 0, errors.New(i18n.T("没有这条路由", "No such route"))
+	}
+	if err := a.updateSettings(func(s *settings.Settings) { s.Rules = routes.Upsert(s.Rules, r) }); err != nil {
+		return 0, err
+	}
+	return a.reroute(r, r.Route), nil
+}
+
+// removeRule takes out the rule for r's traffic, and closes the
+// connections it matched.
+func (a *App) removeRule(r routes.UserRule) (int, error) {
+	if err := a.updateSettings(func(s *settings.Settings) { s.Rules = routes.Remove(s.Rules, r) }); err != nil {
+		return 0, err
+	}
+	return a.reroute(r, ""), nil
+}
+
+// reroute closes the open connections r matches that are not on route
+// keep. A failure only leaves them open: the rule holds for new ones.
+func (a *App) reroute(r routes.UserRule, keep string) int {
+	c, err := a.core.Client()
+	if err != nil {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snap, err := c.Connections(ctx)
+	if err != nil {
+		return 0
+	}
+	var ids []string
+	for _, cn := range snap.Connections {
+		host := cn.Metadata.Host
+		if host == "" {
+			host = cn.Metadata.SniffHost
+		}
+		if !r.Matches(host, cn.Metadata.DestinationIP) {
+			continue
+		}
+		group := ""
+		if len(cn.Chains) > 0 {
+			group = cn.Chains[len(cn.Chains)-1]
+		}
+		if keep == "" || a.routeOfGroup(group, cn.Rule) != keep {
+			ids = append(ids, cn.ID)
+		}
+	}
+	if len(ids) > 0 && a.closeConns(ids) == nil {
+		a.mon.Wake()
+		return len(ids)
+	}
+	return 0
+}
+
 // ---- Activity ----
 
 // routeOfGroup maps a mihomo group name (or DIRECT) to a route id.
@@ -1399,7 +1464,7 @@ func (a *App) snapshot() Snapshot {
 
 	on := a.takeoverOn(s)
 	snap := Snapshot{
-		Mode: s.Mode, Pending: pending, Version: mygo.App.Version(), RuleCount: routes.Count(a.routes),
+		Mode: s.Mode, Pending: pending, Version: mygo.App.Version(), RuleCount: routes.Count(a.routes) + len(s.Rules),
 		Settings: s, ConfigPath: a.core.ConfigPath(), OpenAtLogin: openAtLogin,
 		ControllerTCP: a.core.TCPAddr(),
 		Core:          Core{State: string(cs.State), Version: cs.Version, Error: cs.Error},
@@ -1474,6 +1539,12 @@ func (a *App) snapshot() Snapshot {
 		if r.ID == routes.Default {
 			rv.Rules = 1
 		}
+		for _, u := range s.Rules {
+			if u.Route == r.ID {
+				rv.Mine++
+			}
+		}
+		rv.Rules += rv.Mine
 		if !r.Direct {
 			rv.Auto = px[routes.Group(r)].Now == routes.Auto(r)
 			rv.Node = currentNode(px, r)

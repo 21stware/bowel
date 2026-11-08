@@ -10,6 +10,7 @@ import (
 	_ "image/gif" // the formats a QR code's picture comes in
 	_ "image/jpeg"
 	_ "image/png"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,16 +36,43 @@ func (m *msg) Error() string { return i18n.T(m.zh, m.en) }
 // ErrNone means the picture holds no QR code that reads.
 var ErrNone error = &msg{"没有找到二维码", "No QR code found"}
 
+// Code is a QR code found in a picture: what it says, and the square it
+// fills, quiet zone excluded, in the picture's pixels.
+type Code struct {
+	Text string
+	Rect image.Rectangle
+}
+
 // Decode reads every QR code in a picture, in the order found, without
 // repeats.
 func Decode(img image.Image) ([]string, error) {
+	codes, err := DecodeCodes(img)
+	return texts(codes), err
+}
+
+// texts is what codes say, without repeats.
+func texts(codes []Code) []string {
+	var out []string
+	for _, c := range codes {
+		if c.Text != "" && !slices.Contains(out, c.Text) {
+			out = append(out, c.Text)
+		}
+	}
+	return out
+}
+
+// DecodeCodes reads every QR code in a picture and where it is, in the
+// order found; a code is there once.
+func DecodeCodes(img image.Image) ([]Code, error) {
 	src := gozxing.NewLuminanceSourceFromImage(img)
 	hints := map[gozxing.DecodeHintType]any{gozxing.DecodeHintType_TRY_HARDER: true}
-	var out []string
-	add := func(s string) {
-		if s != "" && !slices.Contains(out, s) {
-			out = append(out, s)
+	var out []Code
+	add := func(r *gozxing.Result) {
+		s := r.GetText()
+		if s == "" || slices.ContainsFunc(out, func(c Code) bool { return c.Text == s }) {
+			return
 		}
+		out = append(out, Code{Text: s, Rect: codeRect(r.GetResultPoints()).Intersect(img.Bounds())})
 	}
 	// Dark on light, then light on dark (a code in a dark theme).
 	for _, s := range []gozxing.LuminanceSource{src, src.Invert()} {
@@ -54,13 +82,13 @@ func Decode(img image.Image) ([]string, error) {
 		}
 		if rs, err := multiqr.NewQRCodeMultiReader().DecodeMultiple(bmp, hints); err == nil {
 			for _, r := range rs {
-				add(r.GetText())
+				add(r)
 			}
 		}
 		if len(out) == 0 {
 			// The multi reader gives up on some pictures the single one reads.
 			if r, err := qrcode.NewQRCodeReader().Decode(bmp, hints); err == nil {
-				add(r.GetText())
+				add(r)
 			}
 		}
 		if len(out) > 0 {
@@ -70,9 +98,55 @@ func Decode(img image.Image) ([]string, error) {
 	return nil, ErrNone
 }
 
+// codeRect is the square a code fills, from the points the reader found:
+// the centers of its three finder patterns (bottom left, top left, top
+// right), maybe an alignment pattern after. The fourth corner is where the
+// other three put it; the edge is three and a half modules out from a
+// finder's center.
+func codeRect(pts []gozxing.ResultPoint) image.Rectangle {
+	if len(pts) == 0 {
+		return image.Rectangle{}
+	}
+	minX, minY, maxX, maxY := math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)
+	grow := func(x, y float64) {
+		minX, minY, maxX, maxY = min(minX, x), min(minY, y), max(maxX, x), max(maxY, y)
+	}
+	for _, p := range pts {
+		grow(p.GetX(), p.GetY())
+	}
+	if len(pts) >= 3 {
+		bl, tl, tr := pts[0], pts[1], pts[2]
+		grow(bl.GetX()+tr.GetX()-tl.GetX(), bl.GetY()+tr.GetY()-tl.GetY())
+	}
+	var module float64
+	n := 0
+	for _, p := range pts[:min(3, len(pts))] {
+		if f, ok := p.(interface{ GetEstimatedModuleSize() float64 }); ok {
+			module += f.GetEstimatedModuleSize()
+			n++
+		}
+	}
+	pad := 0.0
+	if n > 0 {
+		pad = 3.5 * module / float64(n)
+	} else {
+		pad = 0.12 * max(maxX-minX, maxY-minY) // about a version 2 code's
+	}
+	return image.Rect(int(math.Floor(minX-pad)), int(math.Floor(minY-pad)), int(math.Ceil(maxX+pad)), int(math.Ceil(maxY+pad)))
+}
+
 // DecodeBytes reads the QR codes in a picture's data: PNG, JPEG, GIF, WebP
 // or BMP, and on macOS whatever sips converts (HEIC, TIFF, …).
 func DecodeBytes(data []byte) ([]string, error) {
+	img, err := decodeImage(data)
+	if err != nil {
+		return nil, err
+	}
+	return Decode(img)
+}
+
+// decodeImage reads a picture's data.
+func decodeImage(data []byte) (image.Image, error) {
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		img, err = convert(data)
@@ -80,7 +154,7 @@ func DecodeBytes(data []byte) ([]string, error) {
 			return nil, errors.New(i18n.T("无法读取这张图片", "Cannot read this picture"))
 		}
 	}
-	return Decode(img)
+	return img, nil
 }
 
 // DecodeFile reads the QR codes in a picture file.
@@ -124,8 +198,26 @@ var ErrScreen error = &msg{"无法读取屏幕", "Cannot read the screen"}
 // maxDisplays is how many displays ScanScreen reads.
 const maxDisplays = 8
 
-// ScanScreen reads the QR codes on every display.
-func ScanScreen() ([]string, error) {
+// ScreenCode is a QR code on a display: Display is which of the screen's
+// captures it is in (the main display first, as screencapture takes them),
+// Size that capture's size in pixels, and Rect is in its pixels.
+type ScreenCode struct {
+	Code
+	Display int
+	Size    image.Point
+}
+
+// Texts is what codes on the screen say, without repeats.
+func Texts(codes []ScreenCode) []string {
+	cs := make([]Code, len(codes))
+	for i, c := range codes {
+		cs[i] = c.Code
+	}
+	return texts(cs)
+}
+
+// ScanScreen reads the QR codes on every display, and where they are.
+func ScanScreen() ([]ScreenCode, error) {
 	if runtime.GOOS != "darwin" {
 		return nil, errors.ErrUnsupported
 	}
@@ -141,20 +233,21 @@ func ScanScreen() ([]string, error) {
 		args = append(args, filepath.Join(dir, string(rune('a'+i))+".png"))
 	}
 	runErr := exec.Command("/usr/sbin/screencapture", args...).Run()
-	var out []string
+	var out []ScreenCode
 	read := 0
-	for _, f := range args[3:] {
+	for i, f := range args[3:] {
 		data, err := os.ReadFile(f)
 		if err != nil {
 			continue
 		}
 		read++
-		if texts, err := DecodeBytes(data); err == nil {
-			for _, t := range texts {
-				if !slices.Contains(out, t) {
-					out = append(out, t)
-				}
-			}
+		img, err := decodeImage(data)
+		if err != nil {
+			continue
+		}
+		codes, _ := DecodeCodes(img)
+		for _, c := range codes {
+			out = append(out, ScreenCode{Code: c, Display: i, Size: img.Bounds().Size()})
 		}
 	}
 	switch {

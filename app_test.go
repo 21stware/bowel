@@ -14,6 +14,7 @@ import (
 	"github.com/egoist/mygo"
 
 	"github.com/oboo/moho/internal/core"
+	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
 	"github.com/oboo/moho/internal/sysproxy"
 )
@@ -156,6 +157,33 @@ func TestAppFlows(t *testing.T) {
 	}
 	if seen.Route != "direct" { // 127.0.0.1 matches GEOIP,private
 		t.Errorf("connection route %q (rule %s/%s, chain %v)", seen.Route, seen.Rule, seen.Payload, seen.Chain)
+	}
+	// A rule of the user's sends the same address elsewhere, at once.
+	mine := routes.UserRule{Kind: routes.KindIP, Value: "127.0.0.1/32", Route: "ai"}
+	if _, err := a.addRule(mine); err != nil {
+		t.Fatal(err)
+	}
+	if r := routeIn(a.snapshot(), "ai"); r.Mine != 1 {
+		t.Errorf("ai after the rule: %+v", r)
+	}
+	go func() { _, _ = cl.Get(page.URL) }()
+	var again Conn
+	for i := 0; i < 30 && again.ID == ""; i++ {
+		time.Sleep(200 * time.Millisecond)
+		for _, c := range a.connections() {
+			if c.ID != seen.ID && c.Port != 0 && c.Route == "ai" && mine.Matched(c.Rule, c.Payload) {
+				again = c
+			}
+		}
+	}
+	if again.ID == "" {
+		t.Errorf("no connection by the user's rule: %+v", a.connections())
+	}
+	if _, err := a.removeRule(mine); err != nil {
+		t.Fatal(err)
+	}
+	if r := routeIn(a.snapshot(), "ai"); r.Mine != 0 || len(a.settings.Get().Rules) != 0 {
+		t.Errorf("ai after removing the rule: %+v", r)
 	}
 	for _, c := range a.connections() {
 		if len(c.Chain) > 0 && c.Chain[0] == core.ProbeGroup {

@@ -1954,7 +1954,9 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 		u.nodePicker(c, p, r.ID, w)
 		return
 	}
-	u.detailHead(c, p, "routes", i18n.T("路由", "Route"), func() { detailTitle(c, p, i18n.T("每类流量走哪里", "Where each kind of traffic goes")) }, nil)
+	u.detailHead(c, p, "routes", i18n.T("路由", "Route"), func() { detailTitle(c, p, i18n.T("每类流量走哪里", "Where each kind of traffic goes")) }, func() {
+		btn(c.Key("rules"), p, i18n.T("管理规则", "Manage rules")).OnClick(u.openRules)
+	})
 	ui.Scroll(c).Grow(1).Padding(4, 16, 18, 16).Children(func() {
 		for _, r := range u.snap.Routes {
 			rid := r.ID
@@ -1975,7 +1977,11 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 							return ui.Text(c, r.Name).FontSize(16).FontWeight(700).TextColor(p.ink).NoWrap()
 						})
 					})
-					ui.Text(c, fmt.Sprintf(i18n.T("%[1]d 条规则 · %[3]s", "%d %s · %s"), r.Rules, rulesWord(r.Rules), r.Summary)).
+					summary := r.Summary
+					if r.Mine > 0 {
+						summary = fmt.Sprintf(i18n.T("含你加的 %d 条 · %s", "%d of them yours · %s"), r.Mine, summary)
+					}
+					ui.Text(c, fmt.Sprintf(i18n.T("%[1]d 条规则 · %[3]s", "%d %s · %s"), r.Rules, rulesWord(r.Rules), summary)).
 						FontSize(12).TextColor(p.mute).SingleLine().Shrink(1).Margin(0, 0, 0, 22)
 				})
 				name := i18n.T("直接连接", "Direct")

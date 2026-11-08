@@ -10,6 +10,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
 	"github.com/oboo/moho/internal/i18n"
@@ -54,8 +55,8 @@ func (u *UI) provScanBtn(c *ui.Context, p *pal) {
 			u.provCameraOpen()
 		}
 		if m.Item(i18n.T("扫描屏幕上的二维码", "Scan the screen")).
-			Subtitle(i18n.T("网页、聊天窗口里显示的二维码", "A code shown in a web page or a chat")).Chosen() && u.app != nil {
-			u.provQR(u.app.qrScreen)
+			Subtitle(i18n.T("读取所有显示器上露出的二维码，读到的会框出来", "Reads codes in view on every display, and frames the one it read")).Chosen() && u.app != nil {
+			u.provQRScreen()
 		}
 		m.Separator()
 		if m.Item(i18n.T("从图片读取…", "From a picture…")).Chosen() && u.app != nil {
@@ -83,6 +84,26 @@ func (u *UI) provQR(read func(context.Context) (string, error)) {
 		}
 		u.win.Update(func() { u.provQRRead(s) })
 		return nil
+	})
+}
+
+// provQRScreen reads the codes on the screen and frames where they were,
+// so that the user sees which code went into the add bar.
+func (u *UI) provQRScreen() {
+	u.do(func() error {
+		s, spots, err := u.app.qrScreen(bg())
+		if u.win == nil {
+			return err
+		}
+		u.win.Update(func() {
+			for _, sp := range spots {
+				u.qrHintShow(sp, err == nil)
+			}
+			if err == nil && s != "" {
+				u.provQRRead(s)
+			}
+		})
+		return err
 	})
 }
 
@@ -196,6 +217,84 @@ func (u *UI) provCameraDialog(c *ui.Context, p *pal) {
 				u.provBtn(c.Key("cam-cancel"), p, i18n.T("取消", "Cancel"), false).OnClick(func() { pr.camOpen = false })
 			})
 		})
+	})
+}
+
+// ---- Where a code on the screen was ----
+
+// qrHint is a display's frames around the codes read off it, shown for a
+// moment over everything, the mouse going through.
+type qrHint struct {
+	spots qrSpots
+	ok    bool // the codes were nodes: they went into the add bar
+	shown bool
+}
+
+const (
+	qrHintIn   = 280 * time.Millisecond
+	qrHintStay = 1800 * time.Millisecond
+	qrHintOut  = 320 * time.Millisecond
+)
+
+// qrHintShow frames the codes on one display: a panel over all apps, the
+// size of the display, that fades in, stays and fades out. Main thread.
+func (u *UI) qrHintShow(sp qrSpots, ok bool) {
+	if u.app == nil {
+		return
+	}
+	h := &qrHint{spots: sp, ok: ok}
+	b := sp.Display
+	var w *mygo.Window
+	w = mygo.NewWindow(mygo.WindowOptions{
+		Title: i18n.T("二维码位置", "Where the code is"), X: b.X, Y: b.Y, Width: b.Width, Height: b.Height,
+		Frameless: true, Transparent: true, Panel: true, Hidden: true,
+		DisableShadow: true, DisableResize: true, DisableMove: true, SkipTaskbar: true,
+		Content: ui.View(func(c *ui.Context) { u.qrHintView(c, h) }),
+	})
+	w.SetBounds(b) // X and Y of zero would center it
+	w.SetIgnoreMouseEvents(true)
+	w.ShowInactive()
+	// The first frame draws it faded out; from there it fades in.
+	time.AfterFunc(30*time.Millisecond, func() { w.Update(func() { h.shown = true }) })
+	time.AfterFunc(qrHintIn+qrHintStay, func() { w.Update(func() { h.shown = false }) })
+	time.AfterFunc(qrHintIn+qrHintStay+qrHintOut, w.Close)
+}
+
+// qrHintView dims the display but for the code, and frames it with the
+// accent; one word above it says what became of it.
+func (u *UI) qrHintView(c *ui.Context, h *qrHint) {
+	c.DisableAnimations()
+	useAccent(u.shownSettings().Accent)
+	p := palette(c)
+	c.Root().Background(ui.Transparent)
+	a := c.Root().Animate("in", map[bool]float32{true: 1, false: 0}[h.shown], qrHintIn)
+	edge, ink := p.accent, p.onAccent
+	word := i18n.T("已读取这个二维码", "Read this code")
+	if !h.ok {
+		edge, ink, word = p.warn, ui.Hex("#ffffff"), i18n.T("读到了，但不是节点二维码", "Read, but not a code of nodes")
+	}
+	rs := h.spots.Rects
+	ui.Box(c).Absolute().Fill().Opacity(a).Children(func() {
+		for i, r := range rs {
+			x, y, w, hh := float32(r.X), float32(r.Y), float32(r.Width), float32(r.Height)
+			const pad = 10
+			if len(rs) == 1 {
+				// A shadow wide enough to cover the display dims all but the code.
+				ui.Box(c).Key(i).Absolute().Left(x-pad).Top(y-pad).Size(w+2*pad, hh+2*pad).Radius(14).
+					Shadow(0, 0, 0, 6000, ui.RGBA(0, 0, 0, .32))
+			}
+			s := 1.18 - .18*a // closes in on the code as it shows
+			ui.Box(c).Key(100+i).Absolute().Left(x-pad).Top(y-pad).Size(w+2*pad, hh+2*pad).Radius(14).
+				Border(3, edge).Shadow(0, 0, 22, 2, edge.Alpha(.55)).TransformOrigin(.5, .5).Scale(s, s)
+			ty := y - pad - 38
+			if ty < 8 {
+				ty = y + hh + pad + 10 // no room above: below
+			}
+			ui.Row(c).Key(200+i).Absolute().Left(x-pad).Top(ty).Height(30).Padding(0, 13).Radius(15).
+				AlignItems(ui.Center).Gap(6).Background(edge).Shadow(0, 4, 14, 0, ui.RGBA(0, 0, 0, .25)).Children(func() {
+				ui.Text(c, word).FontSize(13).FontWeight(600).TextColor(ink).MaxLines(1)
+			})
+		}
 	})
 }
 

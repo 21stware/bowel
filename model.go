@@ -96,7 +96,8 @@ type RouteView struct {
 	Name    string `json:"name"`
 	Color   string `json:"color"`
 	Summary string `json:"summary"`
-	Rules   int    `json:"rules"`
+	Rules   int    `json:"rules"` // the user's included
+	Mine    int    `json:"mine"`  // the user's rules for it
 	Direct  bool   `json:"direct"`
 	// Auto: the route picks the fastest node and fails over by itself.
 	Auto bool `json:"auto"`

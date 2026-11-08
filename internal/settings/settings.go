@@ -15,6 +15,7 @@ import (
 
 	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/routes"
 )
 
 type Settings struct {
@@ -43,8 +44,16 @@ type Settings struct {
 	LogLevel  string   `json:"logLevel"`
 	TestURL   string   `json:"testUrl"`
 
+	// Rules are the user's own, before the template's: the newest first.
+	Rules []routes.UserRule `json:"rules"`
+
 	// StartHidden: opened at login, Moho stays in the menu bar.
 	StartHidden bool `json:"startHidden"`
+
+	// MCPPolicy is what happens when an agent asks, over MCP, to change
+	// something: "ask" the user each time, "allow" it, or "deny" it.
+	// Reading is always allowed. "" is ask.
+	MCPPolicy string `json:"mcpPolicy"`
 
 	// The core's options, the 设置 window's; their keys sit at this level.
 	core.Options
@@ -56,6 +65,17 @@ var Appearances = []string{"system", "light", "dark"}
 // BorderStyles are the choices of Borders.
 var BorderStyles = []string{"straight", "twisted"}
 
+// MCPPolicies are the choices of MCPPolicy.
+var MCPPolicies = []string{"ask", "allow", "deny"}
+
+// Policy is MCPPolicy, with "" as ask.
+func (s Settings) Policy() string {
+	if s.MCPPolicy == "" {
+		return "ask"
+	}
+	return s.MCPPolicy
+}
+
 // LogLevels are the core's log levels.
 var LogLevels = []string{"debug", "info", "warning", "error", "silent"}
 
@@ -64,6 +84,7 @@ var Defaults = Settings{
 	Accent:      "#DDFB4C",
 	Appearance:  "system",
 	Borders:     "straight",
+	MCPPolicy:   "ask",
 	SystemProxy: true,
 	Paused:      true,
 	Mode:        "rule",
@@ -126,6 +147,7 @@ func (st *Store) Get() Settings {
 // Clone is a copy that shares no lists with s.
 func (s Settings) Clone() Settings {
 	s.Bypass = slices.Clone(s.Bypass)
+	s.Rules = slices.Clone(s.Rules)
 	s.Options = s.Options.Clone()
 	return s
 }
@@ -164,6 +186,9 @@ func (s Settings) Validate() error {
 	if s.Borders != "" && !slices.Contains(BorderStyles, s.Borders) { // "" is straight
 		return fmt.Errorf(i18n.T("未知边框样式: %s", "Unknown border style: %s"), s.Borders)
 	}
+	if s.MCPPolicy != "" && !slices.Contains(MCPPolicies, s.MCPPolicy) { // "" is ask
+		return fmt.Errorf(i18n.T("未知的 agent 变更策略: %s", "Unknown agent change policy: %s"), s.MCPPolicy)
+	}
 	if s.MixedPort < 1 || s.MixedPort > 65535 {
 		return errors.New(i18n.T("端口要在 1 到 65535 之间", "The port must be between 1 and 65535"))
 	}
@@ -185,6 +210,21 @@ func (s Settings) Validate() error {
 			return fmt.Errorf(i18n.T("端口 %d 用了两次", "Port %d is used twice"), p)
 		}
 		ports[p] = true
+	}
+	ids := map[string]bool{}
+	for _, r := range routes.Template() {
+		ids[r.ID] = true
+	}
+	for i, r := range s.Rules {
+		if err := r.Valid(); err != nil {
+			return err
+		}
+		if !ids[r.Route] {
+			return fmt.Errorf(i18n.T("规则 %s 指向不存在的路由", "Rule %s points at a route that doesn't exist"), r.Value)
+		}
+		if slices.ContainsFunc(s.Rules[:i], r.Same) {
+			return fmt.Errorf(i18n.T("规则 %s 重复了", "Rule %s is there twice"), r.Value)
+		}
 	}
 	return s.Options.Validate()
 }

@@ -185,6 +185,7 @@ func TestSettingsSections(t *testing.T) {
 		"tun":        {"自动选择网卡", "端点独立 NAT", "MTU", "DNS 劫持"},
 		"geo":        {"自动更新", "更新间隔", "立即更新", "GeoSite"},
 		"controller": {"地址", "密钥"},
+		"rules":      {"新规则", "测试一个地址", "内置规则", "AI 服务"},
 	}
 	for _, lang := range i18n.Languages {
 		i18n.Set(lang)

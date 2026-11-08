@@ -28,6 +28,7 @@ type ProviderRef struct {
 type Input struct {
 	Providers  []ProviderRef
 	Routes     []routes.Route
+	UserRules  []routes.UserRule // before the routes' own
 	Mode       string
 	MixedPort  int
 	AllowLan   bool
@@ -158,6 +159,18 @@ func BuildConfig(in Input) ([]byte, error) {
 	}
 	var groups []any
 	var rules []string
+	for _, u := range in.UserRules {
+		for _, r := range in.Routes {
+			if r.ID != u.Route {
+				continue
+			}
+			target := routes.Group(r)
+			if r.Direct {
+				target = "DIRECT"
+			}
+			rules = append(rules, withTarget(u.Mihomo(), target))
+		}
+	}
 	for _, r := range in.Routes {
 		if r.Direct {
 			for _, rule := range r.Rules {

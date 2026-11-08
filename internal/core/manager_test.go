@@ -135,3 +135,33 @@ func TestBuildConfigWithoutProviders(t *testing.T) {
 		t.Errorf("unexpected section:\n%s", s)
 	}
 }
+
+// TestUserRulesComeFirst: the user's rules go before the template's, each
+// to its route's group, a direct route's to DIRECT; a rule for a route
+// that is gone is left out.
+func TestUserRulesComeFirst(t *testing.T) {
+	out, err := BuildConfig(Input{Routes: routes.Template(), Mode: "rule", MixedPort: 7899, ProbePort: 7900, TestURL: "x",
+		UserRules: []routes.UserRule{
+			{Kind: "suffix", Value: "openai.com", Route: "direct"},
+			{Kind: "ip", Value: "1.2.3.0/24", Route: "ai"},
+			{Kind: "domain", Value: "x.cn", Route: "default"},
+			{Kind: "suffix", Value: "gone.com", Route: "gone"},
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	mine := strings.Index(s, "- DOMAIN-SUFFIX,openai.com,DIRECT")
+	tpl := strings.Index(s, "- DOMAIN-SUFFIX,openai.com,AI 服务")
+	if mine < 0 || tpl < 0 || mine > tpl {
+		t.Errorf("user rule not before the template's (%d, %d):\n%s", mine, tpl, s)
+	}
+	for _, want := range []string{"- IP-CIDR,1.2.3.0/24,AI 服务,no-resolve", "- DOMAIN,x.cn,默认"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("config lacks %q", want)
+		}
+	}
+	if strings.Contains(s, "gone.com") {
+		t.Error("a rule for a missing route was kept")
+	}
+}
