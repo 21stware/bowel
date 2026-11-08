@@ -3,6 +3,7 @@
 package sysproxy
 
 import (
+	"context"
 	"errors"
 
 	"github.com/oboo/moho/internal/i18n"
@@ -20,5 +21,5 @@ func Enable(host string, port int, bypass []string) error {
 func Disable() error { return nil }
 
 // Snapshot and Restore have nothing to keep where Enable does nothing.
-func Snapshot() (Saved, error) { return Saved{}, nil }
-func Restore(Saved) error      { return nil }
+func Snapshot() (Saved, error)             { return Saved{}, nil }
+func Restore(context.Context, Saved) error { return nil }

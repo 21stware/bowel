@@ -32,7 +32,10 @@ func TestAppFlows(t *testing.T) {
 	osProxy.enable = func(string, int, []string) error { t.Error("the test tried to enable the system proxy"); return nil }
 	osProxy.disable = func() error { t.Error("the test tried to disable the system proxy"); return nil }
 	osProxy.snapshot = func() (sysproxy.Saved, error) { return sysproxy.Saved{}, nil }
-	osProxy.restore = func(sysproxy.Saved) error { t.Error("the test tried to restore the system proxy"); return nil }
+	osProxy.restore = func(context.Context, sysproxy.Saved) error {
+		t.Error("the test tried to restore the system proxy")
+		return nil
+	}
 	defer func() { osProxy = saved }()
 	savedGw := osGateway
 	osGateway = func() gateway.System { return &gwFake{t: t} }

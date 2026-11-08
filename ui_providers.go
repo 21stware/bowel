@@ -105,21 +105,7 @@ func (u *UI) providersPage(c *ui.Context, p *pal) {
 			pr.confirm = ""
 		}
 	}
-	// ⌘V anywhere on the page, outside a text field, pastes into the add bar.
-	if !c.FocusTakesText() && c.Shortcut(ui.Cmd, ui.KeyV) {
-		if s := strings.TrimSpace(c.ReadClipboard()); s != "" {
-			pr.input, pr.focus = s, true
-		} else if u.app != nil {
-			// A picture: a QR code copied or screenshotted.
-			u.provQR(func(context.Context) (string, error) {
-				s, ok, err := u.app.qrClipboard()
-				if !ok && err == nil {
-					return "", nil
-				}
-				return s, err
-			})
-		}
-	}
+	u.provPaste(c)
 	pr.popup = false
 	u.provCameraTick()
 
@@ -153,6 +139,26 @@ func (u *UI) providersPage(c *ui.Context, p *pal) {
 			default:
 				pr.open = ""
 			}
+		})
+	}
+}
+
+// provPaste is ⌘V anywhere on the page, outside a text field: into the add
+// bar, or, for a picture, a QR code copied or screenshotted.
+func (u *UI) provPaste(c *ui.Context) {
+	pr := &u.prov
+	if c.FocusTakesText() || !c.Shortcut(ui.Cmd, ui.KeyV) {
+		return
+	}
+	if s := strings.TrimSpace(c.ReadClipboard()); s != "" {
+		pr.input, pr.focus = s, true
+	} else if u.app != nil {
+		u.provQR(func(context.Context) (string, error) {
+			s, ok, err := u.app.qrClipboard()
+			if !ok && err == nil {
+				return "", nil
+			}
+			return s, err
 		})
 	}
 }
@@ -200,55 +206,75 @@ func (u *UI) provHead(c *ui.Context, p *pal) {
 // ---- Add bar ----
 
 func (u *UI) provAddBar(c *ui.Context, p *pal) {
-	pr := &u.prov
-	adding := u.pending("add")
 	ui.Column(c).Gap(8).Margin(0, 26).Padding(12, 0, 14, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair).Children(func() {
 		ui.Row(c).Gap(10).AlignItems(ui.Start).Children(func() {
-			in := ui.TextAreaBase(c.Key("add"), &pr.input).Lines(1, 5).Grow(1).Basis(0).Padding(9, 12).Radius(p.r(10)).
-				Background(p.card).Border(1, p.hair).FontSize(13).
-				Placeholder(i18n.T("粘贴订阅链接、节点链接或 Clash 配置", "Paste a subscription link, node links or a Clash config")).
-				Label(i18n.T("添加提供商", "Add provider")).
-				OnTextKey(func(k ui.TextKey) bool {
-					if k.Key == ui.KeyEnter && k.Mods == 0 {
-						u.provAdd(k.Text())
-						return true
-					}
-					return false // Shift+Enter breaks the line
-				})
+			in := u.provField(c, p, u.provAdd).Lines(1, 5).Grow(1).Basis(0).Padding(9, 12).Radius(p.r(10)).
+				Background(p.card).Border(1, p.hair).FontSize(13)
 			if in.Focused() {
 				in.BorderColor(p.ink)
 			}
-			if pr.focus {
-				in.Focus()
-				pr.focus = false
-			}
 			u.provScanBtn(c, p)
-			u.provBtn(c, p, i18n.T("选择文件…", "Choose file…"), false).Height(36).OnClick(func() {
-				if u.app == nil || adding {
-					return
-				}
-				u.do(func() error {
-					pv, err := u.app.addProviderFile(bg())
-					if err == nil && pv != nil && u.win != nil {
-						id := pv.ID
-						u.win.Update(func() { u.prov.open = id })
-					}
-					return err
-				})
-			})
-			label := i18n.T("添加", "Add")
-			if adding {
-				label = i18n.T("添加中…", "Adding…")
-			}
-			b := ui.ButtonBase(c).Height(36).MinWidth(84).Padding(0, 18).Justify(ui.Center).Radius(p.r(999)).Background(p.accent).Label(i18n.T("添加", "Add"))
-			if strings.TrimSpace(pr.input) == "" && !adding {
-				b.Opacity(.35)
-			}
-			b.OnClick(func() { u.provAdd(pr.input) }).Children(func() {
-				shimmer(ui.Text(c, label).FontSize(12.5).FontWeight(600).TextColor(p.onAccent), adding, p).TextColor(p.onAccent)
-			})
+			u.provFileBtn(c, p, u.toast)
+			u.provAddBtn(c, p, func() { u.provAdd(u.prov.input) })
 		})
 		u.provDetectLine(c, p)
+	})
+}
+
+// provField is the text area that takes what is pasted, for the add bar
+// and the first run to dress. Enter submits it to add.
+func (u *UI) provField(c *ui.Context, p *pal, add func(string)) ui.Element {
+	pr := &u.prov
+	in := ui.TextAreaBase(c.Key("add"), &pr.input).
+		Placeholder(i18n.T("粘贴订阅链接、节点链接或 Clash 配置", "Paste a subscription link, node links or a Clash config")).
+		Label(i18n.T("添加提供商", "Add provider")).
+		OnTextKey(func(k ui.TextKey) bool {
+			if k.Key == ui.KeyEnter && k.Mods == 0 {
+				add(k.Text())
+				return true
+			}
+			return false // Shift+Enter breaks the line
+		})
+	if pr.focus {
+		in.Focus()
+		pr.focus = false
+	}
+	return in
+}
+
+// provFileBtn is 选择文件…; fail hears what went wrong.
+func (u *UI) provFileBtn(c *ui.Context, p *pal, fail func(string)) {
+	adding := u.pending("add")
+	u.provBtn(c, p, i18n.T("选择文件…", "Choose file…"), false).Height(36).OnClick(func() {
+		if u.app == nil || adding {
+			return
+		}
+		go func() {
+			pv, err := u.app.addProviderFile(bg())
+			switch {
+			case err != nil:
+				fail(err.Error())
+			case pv != nil && u.win != nil:
+				id := pv.ID
+				u.win.Update(func() { u.prov.open = id })
+			}
+		}()
+	})
+}
+
+// provAddBtn is 添加, which shimmers while it adds.
+func (u *UI) provAddBtn(c *ui.Context, p *pal, click func()) {
+	adding := u.pending("add")
+	label := i18n.T("添加", "Add")
+	if adding {
+		label = i18n.T("添加中…", "Adding…")
+	}
+	b := ui.ButtonBase(c).Height(36).MinWidth(84).Padding(0, 18).Justify(ui.Center).Radius(p.r(999)).Background(p.accent).Label(i18n.T("添加", "Add"))
+	if strings.TrimSpace(u.prov.input) == "" && !adding {
+		b.Opacity(.35)
+	}
+	b.OnClick(click).Children(func() {
+		shimmer(ui.Text(c, label).FontSize(12.5).FontWeight(600).TextColor(p.onAccent), adding, p).TextColor(p.onAccent)
 	})
 }
 
@@ -300,14 +326,21 @@ func provDetectDetail(kind, text string) string {
 	return ""
 }
 
-func (u *UI) provAdd(input string) {
+func (u *UI) provAdd(input string) { u.provSubmit(input, u.toast) }
+
+// provSubmit adds what was pasted; fail hears what went wrong.
+func (u *UI) provSubmit(input string, fail func(string)) {
 	input = strings.TrimSpace(input)
 	if input == "" || u.app == nil || u.pending("add") {
 		return
 	}
-	u.do(func() error {
+	go func() {
 		pv, err := u.app.addProvider(bg(), input)
-		if err == nil && u.win != nil {
+		if err != nil {
+			fail(err.Error())
+			return
+		}
+		if u.win != nil {
 			u.win.Update(func() {
 				if strings.TrimSpace(u.prov.input) == input {
 					u.prov.input = ""
@@ -315,8 +348,7 @@ func (u *UI) provAdd(input string) {
 				u.prov.open = pv.ID
 			})
 		}
-		return err
-	})
+	}()
 }
 
 // ---- Rows ----
@@ -650,8 +682,8 @@ func (u *UI) provBtn(c *ui.Context, p *pal, label string, danger bool) ui.Elemen
 func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView) {
 	pr := &u.prov
 	cols := func(cells ...func()) {
-		widths := []float32{22, 0, 0, 100, 0, 64}
-		grow := []float32{0, 1.4, 1.2, 0, 1, 0}
+		widths := []float32{22, 0, 0, 100, 0, 64, 64}
+		grow := []float32{0, 1.4, 1.2, 0, 1, 0, 0}
 		for i, cell := range cells {
 			e := ui.Row(c).Gap(6).AlignItems(ui.Center).MinWidth(0)
 			if widths[i] > 0 {
@@ -659,7 +691,7 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 			} else {
 				e.Grow(grow[i]).Basis(0)
 			}
-			if i == len(cells)-1 {
+			if i >= len(cells)-2 {
 				e.Justify(ui.End)
 			}
 			e.Children(cell)
@@ -669,7 +701,7 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 		return func() { ui.Text(c, s).FontSize(10.5).FontWeight(600).LetterSpacing(.8).TextColor(p.mute) }
 	}
 	ui.Row(c).Gap(12).Padding(9, 0, 7, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
-		cols(func() {}, head(i18n.T("节点", "Node")), head(i18n.T("出口位置", "Exit location")), head(i18n.T("协议", "Protocol")), head(i18n.T("被哪些路由使用", "Used by routes")), head(i18n.T("延迟", "Delay")))
+		cols(func() {}, head(i18n.T("节点", "Node")), head(i18n.T("出口位置", "Exit location")), head(i18n.T("协议", "Protocol")), head(i18n.T("被哪些路由使用", "Used by routes")), head("Ping"), head("URL"))
 	})
 	if len(nodes) == 0 {
 		msg := i18n.T("这个来源还没有节点。", "This source has no nodes yet.")
@@ -705,6 +737,9 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 					if !used {
 						ui.Text(c, "—").FontSize(12).TextColor(p.faint)
 					}
+				},
+				func() {
+					ui.Text(c, fmtMs(n.Ping, n.Ping > 0)).FontSize(12).FontWeight(600).TextColor(delayColor(p, n.Ping, n.Ping > 0)).NoWrap()
 				},
 				func() {
 					ui.Text(c, fmtDelay(n)).FontSize(12).FontWeight(600).TextColor(delayColor(p, n.Delay, n.Tested)).NoWrap()

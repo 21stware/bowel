@@ -14,6 +14,9 @@ var errUnsupported = errors.New("not supported")
 // OS is this system's: outside macOS the gateway only reads the network.
 func OS() System { return other{} }
 
+// PrimaryInterface is unknown outside macOS.
+func PrimaryInterface() string { return "" }
+
 type other struct{}
 
 func (other) Forwarding() (bool, error)         { return false, errUnsupported }

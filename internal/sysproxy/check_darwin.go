@@ -1,8 +1,8 @@
 package sysproxy
 
 import (
+	"context"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 )
@@ -10,7 +10,9 @@ import (
 // Check reads the system proxy with scutil --proxy and tells whether it
 // points at the core's mixed port. It changes nothing.
 func Check(port int) (Status, error) {
-	out, err := exec.Command("scutil", "--proxy").Output()
+	cmd, cancel := command(context.Background(), "scutil", "--proxy")
+	defer cancel()
+	out, err := cmd.Output()
 	if err != nil {
 		return Status{}, fmt.Errorf("scutil --proxy: %w", err)
 	}

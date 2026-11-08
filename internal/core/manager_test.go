@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -163,5 +164,18 @@ func TestUserRulesComeFirst(t *testing.T) {
 	}
 	if strings.Contains(s, "gone.com") {
 		t.Error("a rule for a missing route was kept")
+	}
+}
+
+// TestCloseKeepsCoreDown: after Close nothing starts a core, whatever is
+// still under way when the app quits.
+func TestCloseKeepsCoreDown(t *testing.T) {
+	m, err := New("/nonexistent/mihomo", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Close()
+	if err := m.start(); !errors.Is(err, ErrClosed) {
+		t.Errorf("start after Close: %v", err)
 	}
 }

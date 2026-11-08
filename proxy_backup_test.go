@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -34,7 +35,7 @@ func TestProxyBackup(t *testing.T) {
 	}
 	osProxy.disable = func() error { disabled++; return nil }
 	osProxy.snapshot = func() (sysproxy.Saved, error) { snapshots++; return before, nil }
-	osProxy.restore = func(s sysproxy.Saved) error { restored = append(restored, s); return nil }
+	osProxy.restore = func(_ context.Context, s sysproxy.Saved) error { restored = append(restored, s); return nil }
 
 	a := &App{dataDir: t.TempDir()}
 	s := settings.Settings{MixedPort: port}
@@ -44,7 +45,7 @@ func TestProxyBackup(t *testing.T) {
 	if enabled != 1 || snapshots != 1 || !exists(a.proxyBackup()) {
 		t.Fatalf("enable: enabled %d, snapshots %d, backup %v", enabled, snapshots, exists(a.proxyBackup()))
 	}
-	if err := a.disableProxy(port); err != nil {
+	if err := a.disableProxy(context.Background(), port); err != nil {
 		t.Fatal(err)
 	}
 	want := sysproxy.Saved{Services: []sysproxy.Service{
@@ -58,7 +59,7 @@ func TestProxyBackup(t *testing.T) {
 		t.Fatalf("after restore: disabled %d, backup left %v", disabled, exists(a.proxyBackup()))
 	}
 	// With no copy kept, disabling just turns the proxies off.
-	if err := a.disableProxy(port); err != nil {
+	if err := a.disableProxy(context.Background(), port); err != nil {
 		t.Fatal(err)
 	}
 	if disabled != 1 || len(restored) != 1 {

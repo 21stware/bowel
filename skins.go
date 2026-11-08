@@ -264,8 +264,7 @@ func hash(i int) float32 {
 	return float32(x%10000) / 10000
 }
 
-// decoBroadsheet: newsprint's grain, a fold down the middle, the edges
-// browned.
+// decoBroadsheet: newsprint's grain, the edges browned.
 func decoBroadsheet(pt *ui.Painter, r ui.Rect, p *pal) {
 	speck := p.ink.Alpha(.07)
 	if p.dark {
@@ -278,15 +277,6 @@ func decoBroadsheet(pt *ui.Painter, r ui.Rect, p *pal) {
 		s := 1 / q * float32(1+int(hash(i+7)*2))
 		pt.Fill(ui.Rect{X: x, Y: y, W: s, H: s}, speck, 0)
 	}
-	// The fold: a shade on one side of it, and its crease, catching the
-	// light on paper and in shadow in the dark.
-	fold := r.X + r.W/2
-	shade, crease := ui.Hex("#3a2a10").Alpha(.05), ui.Hex("#ffffff").Alpha(.45)
-	if p.dark {
-		shade, crease = ui.Hex("#000000").Alpha(.18), ui.Hex("#000000").Alpha(.4)
-	}
-	pt.FillGradient(ui.Rect{X: fold - 18, Y: r.Y, W: 18, H: r.H}, ui.LinearGradient{From: shade.Alpha(0), To: shade, Angle: 90}, 0)
-	pt.Fill(ui.Rect{X: fold, Y: r.Y, W: 1 / q, H: r.H}, crease, 0)
 	vignette(pt, r, ui.Hex("#5a3c14"), map[bool]float32{false: .14, true: .3}[p.dark])
 }
 

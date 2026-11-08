@@ -60,6 +60,9 @@ type App struct {
 	gw        *gateway.Gateway
 
 	setMu sync.Mutex // serialises updateSettings
+	// proxyMu is held while the system proxy changes, so that quitting
+	// waits for a change under way instead of being undone by it.
+	proxyMu sync.Mutex
 	// openAtLogin is whether Moho is a login item, as last read.
 	openAtLogin bool
 	mu          sync.Mutex
@@ -70,24 +73,35 @@ type App struct {
 	provNodes   map[string][]string // provider id → node names, in the provider's order
 	// nodesSig is the names /proxies had when provNodes was read, at
 	// nodesAt: the providers' lists are read again when they change.
-	nodesSig   uint64
-	nodesAt    time.Time
-	you        *locate.Result
-	lastNode   map[string]string // route id → node, to notice automatic switches
-	switched   *switchNote
-	shareDay   string
-	routeBytes map[string]int64 // today's download per route id
-	groupSeen  map[string]int64 // the monitor's GroupBytes when last added in
-	monCancel  context.CancelFunc
-	lastHash   [32]byte
-	emitQueued bool
-	win        *mygo.Window
-	ui         *UI
+	nodesSig uint64
+	nodesAt  time.Time
+	// nodeProxies are the providers' nodes as last read. The maps below are
+	// replaced, never changed, so a snapshot can hold on to them.
+	nodeProxies map[string]mihomo.Proxy
+	pings       map[string]pingResult
+	sites       map[string]siteResult // by route id
+	sitesBusy   map[string]bool
+	routeAt     map[string]time.Time // route id → when its main target was last tested
+	pingBusy    atomic.Bool
+	mainBusy    atomic.Bool
+	you         *locate.Result
+	lastNode    map[string]string // route id → node, to notice automatic switches
+	switched    *switchNote
+	shareDay    string
+	routeBytes  map[string]int64 // today's download per route id
+	groupSeen   map[string]int64 // the monitor's GroupBytes when last added in
+	monCancel   context.CancelFunc
+	lastHash    [32]byte
+	emitQueued  bool
+	win         *mygo.Window
+	ui          *UI
 	// winShown is whether the main window is shown, kept from its events
 	// for goroutines that may not wait on the main thread to ask.
 	winShown atomic.Bool
 	tray     *mygo.Tray
 	quitting bool
+	quitOnce sync.Once
+	leaving  bool // beforeQuit is running; main thread only
 	lastTick Tick
 	// The gateway as last measured, and what its last change said.
 	gwProbe   gwProbe
@@ -215,6 +229,10 @@ func (a *App) start() {
 
 func (a *App) openWindow() {
 	u := newUI(a)
+	// Before the window, so that its first frame already knows what there
+	// is: nothing to list opens on the first-run screen.
+	u.setSnapshot(a.snapshot())
+	u.setup.on = len(u.snap.Providers) == 0
 	win := mygo.NewWindow(mygo.WindowOptions{
 		Title: "bowel", Width: 1060, Height: 760, MinWidth: 960, MinHeight: 660,
 		TitleBarStyle: mygo.TitleBarHidden, StateKey: "main",
@@ -231,7 +249,6 @@ func (a *App) openWindow() {
 	a.mu.Lock()
 	a.ui = u
 	a.mu.Unlock()
-	u.setSnapshot(a.snapshot())
 	win.OnClose(func(e *mygo.CloseEvent) {
 		a.mu.Lock()
 		q := a.quitting
@@ -296,31 +313,6 @@ func (a *App) uiRef() *UI {
 	return a.ui
 }
 
-func (a *App) shutdown() {
-	a.mu.Lock()
-	a.quitting = true
-	a.mu.Unlock()
-	stopMCP()
-	// Other devices lose the network now: forwarding goes back as it was
-	// before the gateway, and the Mac may sleep again.
-	if err := a.gw.Disable(); err != nil {
-		log.Println("gateway:", err)
-	}
-	// Never leave the system pointing at a proxy that is gone: put back
-	// what it had before Moho took it over.
-	port := a.settings.Get().MixedPort
-	if s, err := sysproxy.Check(port); err == nil {
-		if s.Ours {
-			if err := a.disableProxy(port); err != nil {
-				log.Println("system proxy:", err)
-			}
-		} else {
-			a.dropProxyBackup() // another program has the proxy now
-		}
-	}
-	a.core.Stop()
-}
-
 // pollEvery is how often the monitor reads the core's connections: every
 // second while the window or the menu bar panel shows them, every 5 s
 // otherwise. The totals stay exact, as they are the core's own counters;
@@ -335,15 +327,29 @@ func (a *App) pollEvery() time.Duration {
 	return 5 * time.Second
 }
 
-// nodeSig tells apart the sets of names in px.
+// nodeSig tells apart the sets of names in px, and of the nodes its groups
+// can use.
 func nodeSig(px map[string]mihomo.Proxy) uint64 {
 	names := slices.Sorted(maps.Keys(px))
 	h := fnv.New64a()
 	for _, n := range names {
 		h.Write([]byte(n))
 		h.Write([]byte{0})
+		for _, m := range px[n].All {
+			h.Write([]byte(m))
+			h.Write([]byte{0})
+		}
 	}
 	return h.Sum64()
+}
+
+// addNodes puts the providers' nodes into px beside the groups.
+func addNodes(px, nodes map[string]mihomo.Proxy) {
+	for name, n := range nodes {
+		if _, group := px[name]; !group {
+			px[name] = n
+		}
+	}
 }
 
 // loop refreshes what the core and the OS say, and runs the periodic jobs.
@@ -364,6 +370,9 @@ func (a *App) loop() {
 	}
 }
 
+// nodesEvery is how often the providers' lists are read when nothing asks.
+const nodesEvery = 15 * time.Second
+
 func (a *App) refresh() {
 	a.probeSoon()
 	// The system proxy is judged only while it is wanted: otherwise no
@@ -378,16 +387,17 @@ func (a *App) refresh() {
 	if c, err := a.core.Client(); err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		px, err := c.Proxies(ctx)
-		// The providers' lists hold the same nodes again, in their order:
-		// read them only when the names change, or a minute on.
+		// /proxies has the groups only. The nodes, and so their tests, are
+		// in the providers' lists: read them when the names change or some
+		// seconds on, since a big subscription makes a long answer.
 		sig := nodeSig(px)
 		a.mu.Lock()
-		nodes, stale := a.provNodes, sig != a.nodesSig || time.Since(a.nodesAt) > time.Minute
+		nodes, known, stale := a.provNodes, a.nodeProxies, sig != a.nodesSig || time.Since(a.nodesAt) > nodesEvery
 		a.mu.Unlock()
 		if err == nil && stale {
 			var pp map[string]mihomo.ProxyProvider
 			if pp, err = c.ProxyProviders(ctx); err == nil {
-				nodes = map[string][]string{}
+				nodes, known = map[string][]string{}, map[string]mihomo.Proxy{}
 				for name, p := range pp {
 					id, ok := strings.CutPrefix(name, "p-")
 					if !ok {
@@ -395,19 +405,24 @@ func (a *App) refresh() {
 					}
 					for _, n := range p.Proxies {
 						nodes[id] = append(nodes[id], n.Name)
+						known[n.Name] = n
 					}
 				}
 			}
 		}
 		cancel()
 		if err == nil {
+			addNodes(px, known)
 			a.mu.Lock()
-			a.proxies, a.provNodes = px, nodes
+			a.proxies, a.provNodes, a.nodeProxies = px, nodes, known
 			if stale {
 				a.nodesSig, a.nodesAt = sig, time.Now()
 			}
 			a.mu.Unlock()
 			a.noticeSwitches()
+			if stale {
+				a.keepMeasured()
+			}
 		}
 	}
 	a.emit()
@@ -454,7 +469,7 @@ func (a *App) applyConfig() error {
 		Providers: refs, Routes: a.routes, UserRules: s.Rules, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
 		Tun:      s.Tun && a.takeoverOn(s) && tun.Installed(a.tunBin),
 		Gateway:  a.gatewayOn(s),
-		LogLevel: s.LogLevel, TestURL: s.TestURL, ProbePort: a.probePort, Controller: a.core.ControllerFields(),
+		LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
 		Options: s.Options,
 	})
 	if err != nil {
@@ -468,7 +483,8 @@ func (a *App) applyConfig() error {
 		a.pointGlobal()
 	}
 	a.mu.Lock()
-	a.nodesAt = time.Time{} // providers may hold other nodes now
+	a.nodesAt = time.Time{}       // providers may hold other nodes now
+	a.routeAt, a.sites = nil, nil // and a reload forgets what each URL did
 	a.mu.Unlock()
 	a.syncGateway()
 	a.refresh()
@@ -490,12 +506,17 @@ var osProxy = struct {
 	enable   func(host string, port int, bypass []string) error
 	disable  func() error
 	snapshot func() (sysproxy.Saved, error)
-	restore  func(sysproxy.Saved) error
+	restore  func(context.Context, sysproxy.Saved) error
 }{sysproxy.Enable, sysproxy.Disable, sysproxy.Snapshot, sysproxy.Restore}
 
 // applySystemProxy makes the OS match the settings. prev are mixed ports
 // the system may still point at, as after the port changed.
 func (a *App) applySystemProxy(prev ...int) {
+	a.proxyMu.Lock()
+	defer a.proxyMu.Unlock()
+	if a.isQuitting() {
+		return // shutdown has put the system proxy back: it stays so
+	}
 	s := a.settings.Get()
 	want := a.takeoverOn(s) && s.SystemProxy
 	cur, err := sysproxy.Check(s.MixedPort)
@@ -508,7 +529,7 @@ func (a *App) applySystemProxy(prev ...int) {
 			log.Println("system proxy:", err)
 		}
 	case !want && cur.Ours:
-		if err := a.disableProxy(s.MixedPort); err != nil {
+		if err := a.disableProxy(context.Background(), s.MixedPort); err != nil {
 			log.Println("system proxy:", err)
 		}
 	case !want:
@@ -552,14 +573,18 @@ func (a *App) enableProxy(s settings.Settings, prev ...int) error {
 }
 
 // disableProxy puts back the system proxy enableProxy kept, or, with no
-// copy kept, turns the proxies off.
-func (a *App) disableProxy(port int) error {
+// copy kept, turns the proxies off. If ctx ends first the copy stays on
+// disk, for the next launch to finish from.
+func (a *App) disableProxy(ctx context.Context, port int) error {
 	b, err := os.ReadFile(a.proxyBackup())
 	var saved sysproxy.Saved
 	if err != nil || json.Unmarshal(b, &saved) != nil {
 		return osProxy.disable()
 	}
-	if err := osProxy.restore(saved); err != nil {
+	if err := osProxy.restore(ctx, saved); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
 		// Never leave it pointing at Moho, whatever else failed.
 		if cur, cerr := sysproxy.Check(port); cerr == nil && cur.Ours {
 			_ = osProxy.disable()
@@ -616,8 +641,8 @@ func (a *App) setSystemProxy(on bool) error {
 	defer done()
 	if _, err := a.settings.Update(func(s *settings.Settings) {
 		s.SystemProxy = on
-		if on {
-			s.Paused = false
+		if on && s.Paused { // both switches showed off: only this one goes on
+			s.Paused, s.Tun = false, false
 		}
 	}); err != nil {
 		return err
@@ -638,8 +663,8 @@ func (a *App) setTun(on bool) error {
 	}
 	if _, err := a.settings.Update(func(s *settings.Settings) {
 		s.Tun = on
-		if on {
-			s.Paused = false
+		if on && s.Paused { // both switches showed off: only this one goes on
+			s.Paused, s.SystemProxy = false, false
 		}
 	}); err != nil {
 		return err
@@ -740,7 +765,10 @@ func migrateData(dir string) {
 func appOnly(old, next settings.Settings) bool {
 	next.Language, next.StartHidden, next.Accent, next.Appearance = old.Language, old.StartHidden, old.Accent, old.Appearance
 	next.Skin, next.Borders = old.Skin, old.Borders
-	next.MCPPolicy = old.MCPPolicy // the MCP server's, not the core's
+	next.MCPPolicy = old.MCPPolicy                 // the MCP server's, not the core's
+	if maps.Equal(mainURLs(old), mainURLs(next)) { // only the main targets are in the config
+		next.RouteTargets = old.RouteTargets
+	}
 	return reflect.DeepEqual(old, next)
 }
 
@@ -898,6 +926,7 @@ func (a *App) selectNode(routeID, node string) error {
 		return err
 	}
 	a.refresh()
+	a.keepMeasured()
 	if node != "" {
 		go a.probe(node)
 	}
@@ -906,6 +935,9 @@ func (a *App) selectNode(routeID, node string) error {
 
 func (a *App) testRoute(ctx context.Context, routeID string) error {
 	r := a.route(routeID)
+	if r.ID == "" || r.Direct {
+		return errors.New(i18n.T("没有这条路由", "No such route"))
+	}
 	c, err := a.core.Client()
 	if err != nil {
 		return err
@@ -914,7 +946,16 @@ func (a *App) testRoute(ctx context.Context, routeID string) error {
 	defer done()
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	_, err = c.GroupDelay(ctx, routes.Group(r), a.settings.Get().TestURL, 5*time.Second)
+	var wg sync.WaitGroup
+	wg.Go(func() { a.pingNodes(a.allNodes()) })
+	wg.Go(func() { a.testSites(routeID) })
+	_, err = c.GroupDelay(ctx, routes.Group(r), a.settings.Get().TargetsOf(routeID)[0].URL, 5*time.Second)
+	wg.Wait()
+	// The new results are in the providers' lists: read them now.
+	a.mu.Lock()
+	a.nodesAt = time.Time{}
+	a.markTested(routeID)
+	a.mu.Unlock()
 	a.refresh()
 	return err
 }
@@ -990,6 +1031,7 @@ func currentNode(px map[string]mihomo.Proxy, r routes.Route) string {
 
 // noticeSwitches records a route's automatic group moving off a failed node.
 func (a *App) noticeSwitches() {
+	s := a.settings.Get()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for _, r := range a.routes {
@@ -1002,7 +1044,7 @@ func (a *App) noticeSwitches() {
 		if prev == "" || prev == n || a.proxies[routes.Group(r)].Now != routes.Auto(r) {
 			continue
 		}
-		if p, ok := a.proxies[prev]; ok && len(p.History) > 0 && p.History[len(p.History)-1].Delay == 0 {
+		if h := a.proxies[prev].HistoryOf(s.TargetsOf(r.ID)[0].URL); len(h) > 0 && h[len(h)-1].Delay == 0 {
 			a.switched = &switchNote{route: r.ID, from: a.label(a.provNodes, prev), to: a.label(a.provNodes, n), at: time.Now()}
 		}
 	}
@@ -1469,6 +1511,7 @@ func (a *App) snapshot() Snapshot {
 	cs := a.core.Status()
 	a.mu.Lock()
 	sys, px, provNodes, you, sw := a.sys, a.proxies, a.provNodes, a.you, a.switched
+	pings, sites := a.pings, a.sites
 	openAtLogin := a.openAtLogin
 	gwp, gwErr := a.gwProbe, a.gwErr
 	pending := make([]string, 0, len(a.pending))
@@ -1521,18 +1564,20 @@ func (a *App) snapshot() Snapshot {
 	snap.Takeover = tk
 
 	// Nodes, in their providers' order.
+	mains := mainURLs(s)
 	view := func(name string) NodeView {
 		p := px[name]
 		v := NodeView{Name: name, Display: a.label(provNodes, name), Provider: providerOf(name), Type: p.Type, UDP: p.UDP, History: []int{}}
-		for _, h := range p.History {
-			v.History = append(v.History, h.Delay)
+		v.Routes = make(map[string]NodeTest, len(mains))
+		for id, u := range mains {
+			v.Routes[id] = nodeTest(p.HistoryOf(u))
 		}
-		if len(v.History) > 12 {
-			v.History = v.History[len(v.History)-12:]
+		t := v.Routes[routes.Default]
+		v.Delay, v.Tested = t.Delay, t.Tested
+		if t.History != nil {
+			v.History = t.History
 		}
-		if len(p.History) > 0 {
-			v.Delay, v.Tested = p.History[len(p.History)-1].Delay, true
-		}
+		v.Ping = pings[name].ms
 		v.Where = located(a.loc.Guess(name, display(name)))
 		if locating[name] {
 			v.Where.Source = "locating"
@@ -1570,6 +1615,8 @@ func (a *App) snapshot() Snapshot {
 			if rv.Node == "DIRECT" {
 				rv.Node = ""
 			}
+			rv.Targets = s.TargetsOf(r.ID)
+			rv.Main, rv.Sites = rv.Targets[0], siteViews(rv.Targets[1:], sites[r.ID], rv.Node)
 		}
 		if total > 0 {
 			rv.Share = float64(routeBytes[r.ID]) / float64(total)
@@ -1622,7 +1669,7 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 			continue
 		}
 		for _, n := range snap.Nodes {
-			if n.Name == r.Node && n.Tested && n.Delay == 0 && (s.Mode == "rule" || r.ID == routes.Default) {
+			if n = n.On(r.ID); n.Name == r.Node && n.Tested && n.Delay == 0 && (s.Mode == "rule" || r.ID == routes.Default) {
 				return StateDegraded, &Issue{Level: "warn", Text: fmt.Sprintf(i18n.T("%s：%s 测速失败", "%s: %s failed the speed test"), r.Name, n.Display), Action: "", Label: ""}
 			}
 		}

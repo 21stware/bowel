@@ -36,6 +36,7 @@ type Input struct {
 	Gateway    bool // LAN devices use this Mac as gateway and DNS (needs Tun): the resolver answers them on port 53, with fake IPs
 	LogLevel   string
 	TestURL    string
+	MainURLs   map[string]string // route id → what its automatic group tests; TestURL where absent
 	ProbePort  int
 	Controller map[string]any
 
@@ -179,8 +180,12 @@ func BuildConfig(in Input) ([]byte, error) {
 			}
 			continue
 		}
+		mainURL := in.MainURLs[r.ID]
+		if mainURL == "" {
+			mainURL = in.TestURL
+		}
 		groups = append(groups,
-			withNodes(map[string]any{"name": routes.Auto(r), "type": "url-test", "url": in.TestURL, "interval": o.URLTestInterval, "tolerance": o.URLTestTolerance, "lazy": true}),
+			withNodes(map[string]any{"name": routes.Auto(r), "type": "url-test", "url": mainURL, "interval": o.URLTestInterval, "tolerance": o.URLTestTolerance, "lazy": true}),
 			withNodes(map[string]any{"name": routes.Group(r), "type": "select"}, routes.Auto(r)),
 		)
 		if r.ID != routes.Default {

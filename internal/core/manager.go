@@ -42,6 +42,14 @@ type Status struct {
 	StartedAt time.Time `json:"startedAt,omitzero"`
 }
 
+// ErrClosed is what starting a core says after Close.
+var ErrClosed = errors.New("the core manager is closed")
+
+const (
+	stopGrace = 3 * time.Second // for the core to exit when asked
+	killGrace = time.Second     // for it to be gone once killed
+)
+
 // Manager owns one mihomo process.
 type Manager struct {
 	Bin string // the mihomo executable
@@ -60,6 +68,7 @@ type Manager struct {
 	client   *mihomo.Client
 	status   Status
 	stopping bool
+	closed   bool // by Close
 	cancel   context.CancelFunc
 
 	// The controller's address: a unix socket, or TCP with a secret on
@@ -204,6 +213,10 @@ func (m *Manager) Restart() error {
 
 func (m *Manager) start() error {
 	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return ErrClosed
+	}
 	if m.cmd != nil {
 		m.mu.Unlock()
 		return nil
@@ -240,6 +253,7 @@ func (m *Manager) start() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.mu.Lock()
 	m.cmd, m.exited, m.cancel = cmd, exited, cancel
+	closed := m.closed
 	m.mu.Unlock()
 
 	go func() {
@@ -267,6 +281,11 @@ func (m *Manager) start() error {
 			m.setStatus(Status{State: Failed, Error: msg})
 		}
 	}()
+
+	if closed { // Close came while this was starting, and saw no process
+		m.Stop()
+		return ErrClosed
+	}
 
 	// Wait for the controller.
 	client := m.newClient()
@@ -332,7 +351,9 @@ func (m *Manager) traffic(ctx context.Context, c *mihomo.Client) {
 	}
 }
 
-// Stop ends the core and waits for it to exit.
+// Stop ends the core and waits for it to exit: stopGrace to go by itself,
+// then killGrace once killed. A process that outlasts both is given up on,
+// and the next start's killStale takes care of it.
 func (m *Manager) Stop() {
 	m.mu.Lock()
 	cmd, exited, cancel := m.cmd, m.exited, m.cancel
@@ -345,10 +366,23 @@ func (m *Manager) Stop() {
 	interrupt(cmd)
 	select {
 	case <-exited:
-	case <-time.After(3 * time.Second):
-		_ = cmd.Process.Kill()
-		<-exited
+		return
+	case <-time.After(stopGrace):
 	}
+	_ = cmd.Process.Kill()
+	select {
+	case <-exited:
+	case <-time.After(killGrace):
+	}
+}
+
+// Close stops the core for good: nothing starts it again, even an Apply
+// under way. For when the app quits.
+func (m *Manager) Close() {
+	m.mu.Lock()
+	m.closed = true
+	m.mu.Unlock()
+	m.Stop()
 }
 
 // Logs returns the latest lines the core printed.

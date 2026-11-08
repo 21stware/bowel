@@ -60,6 +60,14 @@ func (m *Monitor) addTotalsLocked(down, up int64, now time.Time) {
 	m.dirty = true
 }
 
+// Flush waits for Run to end, which its context's cancel has to bring
+// about, and writes what has not been written yet.
+func (m *Monitor) Flush() {
+	m.runMu.Lock()
+	defer m.runMu.Unlock()
+	m.saveIfDue(time.Now(), true)
+}
+
 // saveIfDue writes the stats when they changed and the last write is at
 // least saveEvery old, or always when force is set and they changed.
 func (m *Monitor) saveIfDue(now time.Time, force bool) {

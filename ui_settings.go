@@ -791,7 +791,7 @@ func (u *UI) coreSection(c *ui.Context, p *pal, s settings.Settings) {
 		func(s *settings.Settings, on bool) { s.DisableKeepAlive = on })
 
 	optHeading(c, p, i18n.T("测速", "Testing"))
-	optWide(c, p, i18n.T("测速地址", "Test URL"), i18n.T("测节点延迟和自动选择时请求的地址", "The address requested to test node delay and for automatic selection"), func() {
+	optWide(c, p, i18n.T("测速地址", "Test URL"), i18n.T("Provider 健康检查用的地址；默认路由没改过测速站点时，也是它的主目标。其他路由在各自的节点列表里设置", "Used for provider health checks, and as the default route's main target unless you changed its test sites. Other routes set theirs in their node list"), func() {
 		u.optText(c, p, "testurl", i18n.T("测速地址", "Test URL"), s.TestURL, 0, func(v string) {
 			v = strings.TrimSpace(v)
 			u.setOpt(func(s *settings.Settings) { s.TestURL = v })

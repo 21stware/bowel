@@ -185,7 +185,10 @@ func (a *App) routeMenu(r RouteView, all []NodeView) []*mygo.MenuItem {
 	rid := r.ID
 	items := []*mygo.MenuItem{{Label: i18n.T("自动（最快 + 故障转移）", "Auto (fastest + failover)"), Type: mygo.MenuItemRadio, Checked: r.Auto,
 		Click: func(*mygo.MenuItem, *mygo.Window) { go func() { a.logErr(a.selectNode(rid, "")) }() }}, mygo.Separator()}
-	nodes := append([]NodeView(nil), all...)
+	nodes := make([]NodeView, len(all))
+	for i, n := range all {
+		nodes[i] = n.On(rid)
+	}
 	sort.SliceStable(nodes, func(i, j int) bool { return rank(nodes[i]) < rank(nodes[j]) })
 	if len(nodes) > 15 {
 		nodes = nodes[:15]

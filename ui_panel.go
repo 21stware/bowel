@@ -222,7 +222,10 @@ func (u *UI) panelNodeList(c *ui.Context, p *pal, r RouteView) {
 			choose("")
 		}
 	})
-	nodes := append([]NodeView(nil), u.snap.Nodes...)
+	nodes := make([]NodeView, len(u.snap.Nodes))
+	for i, n := range u.snap.Nodes {
+		nodes[i] = n.On(r.ID)
+	}
 	sort.SliceStable(nodes, func(i, j int) bool { return rankOf(nodes[i]) < rankOf(nodes[j]) })
 	if len(nodes) > panelNodes {
 		nodes = nodes[:panelNodes]

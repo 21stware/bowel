@@ -426,9 +426,11 @@ func (a *App) mcpRoutes(snap Snapshot) []mcpRoute {
 	return out
 }
 
-func mcpNodes(snap Snapshot) []mcpNode {
+// mcpNodes lists the nodes, with their delays on a route's main target.
+func mcpNodes(snap Snapshot, route string) []mcpNode {
 	out := make([]mcpNode, 0, len(snap.Nodes))
 	for _, n := range snap.Nodes {
+		n = n.On(route)
 		v := mcpNode{Name: n.Name, Label: n.Display, Provider: n.Provider, Type: n.Type}
 		if n.Tested {
 			d := n.Delay
@@ -559,7 +561,7 @@ func (a *App) mcpServer() *mcp.Server {
 				Description: "The routes (kinds of traffic: default, ai, media, dev, direct) with the node each uses, and every node with its last delay and location. Every node can serve every proxied route.",
 				Run: func(ctx context.Context, s *mcp.Session, _ json.RawMessage) (any, error) {
 					snap := a.snapshot()
-					return map[string]any{"routes": a.mcpRoutes(snap), "nodes": mcpNodes(snap)}, nil
+					return map[string]any{"routes": a.mcpRoutes(snap), "nodes": mcpNodes(snap, routes.Default)}, nil
 				},
 			},
 			{
@@ -702,7 +704,7 @@ func (a *App) mcpServer() *mcp.Server {
 					}
 					err = a.testRoute(ctx, r.ID)
 					snap := a.snapshot()
-					out := map[string]any{"nodes": mcpNodes(snap)}
+					out := map[string]any{"nodes": mcpNodes(snap, r.ID)}
 					if err != nil {
 						out["error"] = err.Error()
 					}

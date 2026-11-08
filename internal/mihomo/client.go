@@ -136,6 +136,8 @@ type Proxy struct {
 	Hidden  bool      `json:"hidden,omitempty"`
 	Icon    string    `json:"icon,omitempty"`
 	History []History `json:"history"`
+	// Extra holds the tests of each URL apart; History has every test.
+	Extra map[string]URLTests `json:"extra,omitempty"`
 }
 
 type History struct {
@@ -143,6 +145,19 @@ type History struct {
 	Delay int       `json:"delay"`
 }
 
+// URLTests are a proxy's tests of one URL.
+type URLTests struct {
+	Alive   bool      `json:"alive"`
+	History []History `json:"history"`
+}
+
+// HistoryOf is the proxy's tests of url; none if it wasn't tested with it.
+func (p Proxy) HistoryOf(url string) []History {
+	return p.Extra[url].History
+}
+
+// Proxies is GET /proxies: the groups and the built-in proxies. The nodes
+// of proxy-providers are only in ProxyProviders.
 func (c *Client) Proxies(ctx context.Context) (map[string]Proxy, error) {
 	var v struct {
 		Proxies map[string]Proxy `json:"proxies"`
@@ -156,13 +171,15 @@ func (c *Client) Select(ctx context.Context, group, name string) error {
 	return c.do(ctx, http.MethodPut, "/proxies/"+url.PathEscape(group), map[string]string{"name": name}, nil)
 }
 
-// Delay tests one proxy and returns its delay in milliseconds.
-func (c *Client) Delay(ctx context.Context, name, testURL string, timeout time.Duration) (int, error) {
+// NodeDelay requests testURL through a node of a provider and returns how
+// long that took in milliseconds. /proxies/<name>/delay doesn't know
+// provider nodes.
+func (c *Client) NodeDelay(ctx context.Context, provider, name, testURL string, timeout time.Duration) (int, error) {
 	q := url.Values{"url": {testURL}, "timeout": {fmt.Sprint(timeout.Milliseconds())}}
 	var v struct {
 		Delay int `json:"delay"`
 	}
-	err := c.do(ctx, http.MethodGet, "/proxies/"+url.PathEscape(name)+"/delay?"+q.Encode(), nil, &v)
+	err := c.do(ctx, http.MethodGet, "/providers/proxies/"+url.PathEscape(provider)+"/"+url.PathEscape(name)+"/healthcheck?"+q.Encode(), nil, &v)
 	return v.Delay, err
 }
 
@@ -301,6 +318,28 @@ func (c *Client) HealthCheck(ctx context.Context, provider string) error {
 // config's geox-url. It answers before the download ends.
 func (c *Client) UpdateGeo(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, "/configs/geo", map[string]any{}, nil)
+}
+
+// LookupIP resolves host with the core's resolver, which answers real
+// addresses even when the system's DNS is hijacked by TUN. It fails when
+// the config has no dns section.
+func (c *Client) LookupIP(ctx context.Context, host string) (string, error) {
+	var v struct {
+		Answer []struct {
+			Type int    `json:"type"`
+			Data string `json:"data"`
+		} `json:"Answer"`
+	}
+	q := url.Values{"name": {host}, "type": {"A"}}
+	if err := c.do(ctx, http.MethodGet, "/dns/query?"+q.Encode(), nil, &v); err != nil {
+		return "", err
+	}
+	for _, a := range v.Answer {
+		if a.Type == 1 { // A, not a CNAME on the way there
+			return a.Data, nil
+		}
+	}
+	return "", fmt.Errorf("mihomo: no address for %s", host)
 }
 
 // FlushFakeIP forgets the fake-ip mappings.
