@@ -192,10 +192,12 @@ func (u *UI) routeNames() (ids, names []string) {
 func (u *UI) rulesSection(c *ui.Context, p *pal, s settings.Settings) {
 	sectionNote(c, p, i18n.T("你的规则排在内置规则前面，先匹配；改动马上生效。最快的加法：在「日志」里点开一条连接，选「让它走…」。",
 		"Your rules come before the built-in ones and win; changes apply at once. The quickest way to add one: open a connection in Log and choose Send via…"))
-	u.ruleAdder(c, p, s)
+	if !searching() {
+		u.ruleAdder(c, p, s)
+	}
 
 	optHeading(c, p, fmt.Sprintf(i18n.T("你的规则 · %d", "Your rules · %d"), len(s.Rules)))
-	if len(s.Rules) == 0 {
+	if len(s.Rules) == 0 && !searching() {
 		ui.Text(c, i18n.T("还没有。上面输入一个域名，或者在「日志」里从连接生成。", "None yet. Type a domain above, or make one from a connection in Log.")).
 			FontSize(12).TextColor(p.faint).Padding(10, 0)
 	}
@@ -210,6 +212,14 @@ func (u *UI) rulesSection(c *ui.Context, p *pal, s settings.Settings) {
 		if len(mine) == 0 {
 			continue
 		}
+		if searching() { // each rule says its route in its menu
+			for _, r := range mine {
+				if optMatch(r.Value, routes.KindName(r.Kind), routeName(rv.ID)) {
+					u.ruleRow(c, p, r, ids, names)
+				}
+			}
+			continue
+		}
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(12, 0, 2, 0).Children(func() {
 			swatch(c, p.routeColor(rv.ID), 9)
 			ui.Text(c, routeName(rv.ID)).FontSize(12.5).FontWeight(700).TextColor(p.ink)
@@ -221,13 +231,18 @@ func (u *UI) rulesSection(c *ui.Context, p *pal, s settings.Settings) {
 	}
 
 	optHeading(c, p, i18n.T("测试一个地址", "Test an address"))
-	u.ruleTester(c, p, s)
+	if !searching() {
+		u.ruleTester(c, p, s)
+	}
 
 	optHeading(c, p, i18n.T("内置规则", "Built-in rules"))
 	for _, r := range routes.Template() {
 		desc := fmt.Sprintf(i18n.T("%[1]d 条 · %[2]s", "%[1]d · %[2]s"), len(r.Rules), routes.Describe(r))
 		if r.ID == routes.Default {
 			desc = i18n.T("其他规则都没命中的流量", "Traffic no other rule matched")
+		}
+		if !optMatch(routes.Title(r), desc) {
+			continue
 		}
 		ui.Row(c).Gap(10).Padding(8, 0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 			swatch(c, p.routeColor(r.ID), 9).Shrink(0)

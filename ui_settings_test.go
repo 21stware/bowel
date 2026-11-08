@@ -376,3 +376,87 @@ func TestSettingsLanguage(t *testing.T) {
 		}
 	}
 }
+
+// TestSettingsSearch: the sidebar's search shows the options of every
+// section that match, under their sections' titles; a title or a sidebar
+// item opens its section and ends the search.
+func TestSettingsSearch(t *testing.T) {
+	u := fixtureUI()
+	u.snap.Settings = settings.Defaults.Clone()
+	u.snap.Settings.Rules = []routes.UserRule{{Kind: routes.KindSuffix, Value: "anthropic.com", Route: "ai"}}
+	tt := ui.NewTesterWith(u.settingsView, 760, 560, ui.TesterOptions{})
+	tt.Advance(time.Second)
+
+	// ⌘F goes to the field.
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	if !tt.Focused("搜索设置") {
+		t.Fatal("⌘F did not focus the search")
+	}
+	search := func(q string) {
+		t.Helper()
+		tt.Key(ui.Cmd, ui.KeyA)
+		tt.Type(q)
+		tt.Frame()
+		tt.Frame()
+	}
+
+	// Words match options in sections other than the one chosen.
+	search("端口")
+	for _, w := range []string{"搜索", "入站", "混合端口", "SOCKS 端口", "嗅探", "QUIC"} {
+		if !tt.HasText(w) {
+			t.Errorf("searching 端口 lacks %q: %q", w, tt.Texts())
+		}
+	}
+	for _, w := range []string{"开机启动", "日志级别", "bowel 自己的偏好", "允许局域网连接"} {
+		if tt.HasText(w) {
+			t.Errorf("searching 端口 shows %q: %q", w, tt.Texts())
+		}
+	}
+	shot(t, tt, "settings-search")
+
+	// Every word must match, in any case; a section's name counts.
+	search("dns 缓存")
+	if !tt.HasText("清除 DNS 缓存") || tt.HasText("上游服务器") {
+		t.Errorf("searching dns 缓存: %q", tt.Texts())
+	}
+	search("tun mtu")
+	if !tt.HasText("MTU") || tt.HasText("协议栈") {
+		t.Errorf("searching tun mtu: %q", tt.Texts())
+	}
+
+	// Rules are found by what they match and by their route.
+	search("anthropic")
+	if !tt.HasText("anthropic.com") || tt.HasText("新规则") || tt.HasText("测试一个地址") {
+		t.Errorf("searching anthropic: %q", tt.Texts())
+	}
+
+	search("zzzz")
+	if !tt.HasText("没有相符的设置") {
+		t.Errorf("no match says nothing: %q", tt.Texts())
+	}
+
+	// A section's title among the results opens it.
+	search("保活")
+	b, ok := tt.AccessByRole(ui.RoleButton, "内核")
+	if !ok {
+		t.Fatalf("no 内核 title among %q", tt.Texts())
+	}
+	tt.ClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
+	tt.Frame()
+	if u.set.section != "core" || u.set.query != "" || !tt.HasText("mihomo 自己的行为") {
+		t.Errorf("after the title: section %q query %q", u.set.section, u.set.query)
+	}
+
+	// So does a sidebar item, even the one chosen before the search.
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	search("ipv6")
+	if err := tt.Click("内核"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if u.set.section != "core" || u.set.query != "" {
+		t.Errorf("after the sidebar: section %q query %q", u.set.section, u.set.query)
+	}
+}

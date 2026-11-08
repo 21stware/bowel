@@ -36,6 +36,10 @@ type settingsUI struct {
 	toasts []string
 	// section is the page the sidebar has chosen.
 	section string
+	// query is the sidebar's search; while it holds words the pane shows
+	// the options of every section that match them, in place of section.
+	query string
+	findH ui.Handle
 	// busy lists the actions running, by their button's key.
 	busy map[string]bool
 	// rule is 规则's typing.
@@ -197,19 +201,29 @@ func (u *UI) settingsView(c *ui.Context) {
 			w.Close()
 		}
 	})
+	c.OnShortcut(ui.Cmd, ui.KeyF, func() { u.set.findH.Focus(c) })
 	sec := u.settingsSection()
+	words := searchWords(u.set.query)
+	title, scroll := sec.name(), sec.id
+	if len(words) > 0 {
+		title, scroll = i18n.T("搜索", "Search"), "search"
+	}
 	ui.Row(c).Absolute().Fill().AlignItems(ui.Stretch).Background(p.paper).Children(func() {
 		u.settingsSidebar(c, p)
 		ui.Column(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
 			// The pane's title, in the title bar, which it drags by.
 			ui.Row(c).Height(max(c.TitleBar().Height, 50)).Shrink(0).Padding(0, 26).Gap(12).AlignItems(ui.Center).DragWindow().Children(func() {
-				ui.Text(c, sec.name()).FontSize(17).FontWeight(700).TextColor(p.ink).Grow(1)
+				ui.Text(c, title).FontSize(17).FontWeight(700).TextColor(p.ink).Grow(1)
 				if busy := u.pending("settings"); busy {
 					shimmer(ui.Text(c, i18n.T("正在应用…", "Applying…")).FontSize(12).FontWeight(500).TextColor(p.mute), busy, p)
 				}
 			})
-			ui.Scroll(c.Key(sec.id)).Grow(1).Padding(0, 26, 24, 26).Children(func() {
-				ui.Column(c).Children(func() { sec.body(u, c, p, u.shownSettings()) })
+			ui.Scroll(c.Key(scroll)).Grow(1).Padding(0, 26, 24, 26).Children(func() {
+				if len(words) > 0 {
+					u.searchResults(c, p, words)
+				} else {
+					ui.Column(c).Children(func() { sec.body(u, c, p, u.shownSettings()) })
+				}
 			})
 		})
 	})
@@ -278,11 +292,25 @@ func coreStateWord(state string) string {
 func (u *UI) settingsSidebar(c *ui.Context, p *pal) {
 	ui.Column(c).Width(196).Shrink(0).Background(p.paper2).BorderWidth(0, 1, 0, 0).BorderColor(p.hair2).Children(func() {
 		ui.Row(c).Height(max(c.TitleBar().Height, 50)).Shrink(0).DragWindow()
-		ui.Sidebar(c.Key("nav"), &u.set.section, func() {
+		ui.Row(c).Shrink(0).Padding(0, 10, 10, 10).Children(func() {
+			ui.SearchField(c.Key("find"), &u.set.query).Bind(&u.set.findH).
+				Placeholder(i18n.T("搜索设置", "Search settings")).Label(i18n.T("搜索设置", "Search settings")).
+				Tooltip(i18n.T("搜索设置", "Search settings") + " ⌘F").Grow(1).Basis(0).MinWidth(0)
+		})
+		// While searching no page is chosen, so a click on any goes to it
+		// and ends the search.
+		sel := u.set.section
+		if len(searchWords(u.set.query)) > 0 {
+			sel = ""
+		}
+		ui.Sidebar(c.Key("nav"), &sel, func() {
 			for _, sec := range settingsSections {
 				ui.SidebarItem(c.Key(sec.id), sec.id, sec.icon, sec.name())
 			}
 		}).Grow(1).Padding(0, 10).Background(p.paper2).Label(i18n.T("设置", "Settings"))
+		if sel != "" && (sel != u.set.section || u.set.query != "") {
+			u.set.section, u.set.query = sel, ""
+		}
 		cs := u.snap.Core
 		ui.Row(c).Gap(7).Padding(12, 18, 16, 18).AlignItems(ui.Center).MinWidth(0).Children(func() {
 			col := p.faint
@@ -306,8 +334,91 @@ func (u *UI) settingsSidebar(c *ui.Context, p *pal) {
 	})
 }
 
+// ---- Search ----
+
+// optFinder is the settings search as a frame draws its results: the
+// words typed, and the section being drawn, whose title goes before its
+// first option that matches.
+type optFinder struct {
+	words []string
+	sec   string
+	head  func()
+	hits  int
+}
+
+// optFind is the search the settings window is drawing; nil while it
+// shows one section whole. Set and read on the main thread, in one frame.
+var optFind *optFinder
+
+func searchWords(q string) []string { return strings.Fields(strings.ToLower(q)) }
+
+// searching tells whether search results are being drawn, which leave out
+// what isn't an option: a section's note, its headings, its other parts.
+func searching() bool { return optFind != nil }
+
+// optMatch tells whether an option, by its name and what it does, is
+// drawn: always, outside a search; in one, when each word typed is in
+// them or in its section's name. The first in a section draws its title.
+func optMatch(texts ...string) bool {
+	f := optFind
+	if f == nil {
+		return true
+	}
+	hay := strings.ToLower(f.sec + "\n" + strings.Join(texts, "\n"))
+	for _, w := range f.words {
+		if !strings.Contains(hay, w) {
+			return false
+		}
+	}
+	if h := f.head; h != nil {
+		f.head = nil
+		h()
+	}
+	f.hits++
+	return true
+}
+
+// searchResults draws every section's options that match words, under
+// their sections' titles.
+func (u *UI) searchResults(c *ui.Context, p *pal, words []string) {
+	f := &optFinder{words: words}
+	optFind = f
+	defer func() { optFind = nil }()
+	s := u.shownSettings()
+	for _, sec := range settingsSections {
+		f.sec, f.head = sec.name(), func() { u.searchHead(c, p, sec) }
+		ui.Column(c.Key(sec.id)).Children(func() { sec.body(u, c, p, s) })
+	}
+	if f.hits == 0 {
+		ui.Text(c, i18n.T("没有相符的设置", "No settings match")).FontSize(13).TextColor(p.mute).Padding(48, 0).AlignSelf(ui.Center)
+	}
+}
+
+// searchHead is a section's title among the search results; a click opens
+// the section and ends the search.
+func (u *UI) searchHead(c *ui.Context, p *pal, sec settingsSection) {
+	ui.Row(c).Padding(16, 0, 0, 0).Children(func() {
+		b := ui.ButtonBase(c.Key("head")).Padding(3, 7, 3, 5).Radius(6).Label(sec.name()).
+			Tooltip(i18n.T("打开这一页", "Open this page"))
+		col := p.mute
+		if b.Hovered() {
+			b.Background(p.hair2)
+			col = p.ink2
+		}
+		b.OnClick(func() { u.set.section, u.set.query = sec.id, "" }).Children(func() {
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, sec.icon).Size(13, 13).TextColor(col)
+				ui.Text(c, sec.name()).FontSize(11.5).FontWeight(700).TextColor(col)
+			})
+		})
+	})
+}
+
 // sectionNote is the line under a section's title saying what it is about.
 func sectionNote(c *ui.Context, p *pal, s string) {
+	if searching() {
+		return
+	}
 	ui.Text(c, s).FontSize(12).TextColor(p.mute).Padding(0, 0, 6, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair)
 }
 
@@ -423,7 +534,7 @@ func (u *UI) inboundSection(c *ui.Context, p *pal, s settings.Settings) {
 
 	optHeading(c, p, i18n.T("局域网", "LAN"))
 	optRow(c, p, i18n.T("网关模式", "Gateway mode"), gatewayDesc(), func() { u.gatewaySwitch(c, "gateway", u.settingsToast) })
-	if u.gatewayShownOn() {
+	if u.gatewayShownOn() && !searching() {
 		ui.Column(c).Padding(10, 0, 12, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() { u.gatewayGuide(c, p, u.settingsToast) })
 	}
 	lan := i18n.T("同一网络里的设备可以把 bowel 当代理用", "Devices on the same network can use bowel as their proxy")
@@ -715,31 +826,33 @@ func (u *UI) controllerSection(c *ui.Context, p *pal, s settings.Settings) {
 
 func (u *UI) aboutSection(c *ui.Context, p *pal, _ settings.Settings) {
 	cs := u.snap.Core
-	ui.Column(c).Padding(4, 0, 14, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair).Children(func() {
-		ver := cs.Version
-		if ver == "" {
-			ver = "—"
-		}
-		state := coreStateWord(cs.State)
-		if cs.Error != "" {
-			state += " · " + firstLine(cs.Error)
-		}
-		path := u.snap.ConfigPath
-		if path == "" {
-			path = "—"
-		}
-		moho := u.snap.Version
-		if moho == "" {
-			moho = "—"
-		}
-		kv(c, p, [][2]string{
-			{i18n.T("内核版本", "Core version"), ver},
-			{i18n.T("内核状态", "Core state"), state},
-			{i18n.T("运行配置", "Running config"), path},
-			{i18n.T("bowel 版本", "bowel version"), moho},
-			{i18n.T("界面字体", "Interface font"), i18n.T("OPPO Sans 4.0 · © OPPO 广东移动通信有限公司，依 OPPO Sans 字体许可使用", "OPPO Sans 4.0 · © Guangdong OPPO Mobile Telecommunications Corp., Ltd., used under the OPPO Sans font license")},
+	if !searching() {
+		ui.Column(c).Padding(4, 0, 14, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair).Children(func() {
+			ver := cs.Version
+			if ver == "" {
+				ver = "—"
+			}
+			state := coreStateWord(cs.State)
+			if cs.Error != "" {
+				state += " · " + firstLine(cs.Error)
+			}
+			path := u.snap.ConfigPath
+			if path == "" {
+				path = "—"
+			}
+			moho := u.snap.Version
+			if moho == "" {
+				moho = "—"
+			}
+			kv(c, p, [][2]string{
+				{i18n.T("内核版本", "Core version"), ver},
+				{i18n.T("内核状态", "Core state"), state},
+				{i18n.T("运行配置", "Running config"), path},
+				{i18n.T("bowel 版本", "bowel version"), moho},
+				{i18n.T("界面字体", "Interface font"), i18n.T("OPPO Sans 4.0 · © OPPO 广东移动通信有限公司，依 OPPO Sans 字体许可使用", "OPPO Sans 4.0 · © Guangdong OPPO Mobile Telecommunications Corp., Ltd., used under the OPPO Sans font license")},
+			})
 		})
-	})
+	}
 	optRow(c, p, i18n.T("运行配置", "Running config"), i18n.T("bowel 生成、mihomo 正在用的配置文件", "The config file bowel writes and mihomo runs on"), func() {
 		btn(c.Key("reveal"), p, i18n.T("在 Finder 中显示", "Show in Finder")).OnClick(func() {
 			if u.app != nil {
@@ -762,6 +875,9 @@ func (u *UI) aboutSection(c *ui.Context, p *pal, _ settings.Settings) {
 
 // optHeading starts a group of options within a section.
 func optHeading(c *ui.Context, p *pal, s string) {
+	if searching() {
+		return
+	}
 	ui.Text(c, s).FontSize(11.5).FontWeight(700).TextColor(p.faint).Padding(20, 0, 2, 0)
 }
 
@@ -775,6 +891,9 @@ func optLabel(c *ui.Context, p *pal, title, desc string) ui.Element {
 
 // optRow is an option with its control on the right.
 func optRow(c *ui.Context, p *pal, title, desc string, control func()) {
+	if !optMatch(title, desc) {
+		return
+	}
 	ui.Row(c).Gap(18).Padding(11, 0).MinHeight(52).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 		optLabel(c, p, title, desc).Grow(1).Basis(0).MinWidth(0)
 		ui.Row(c).Shrink(0).Gap(6).AlignItems(ui.Center).Children(control)
@@ -783,6 +902,9 @@ func optRow(c *ui.Context, p *pal, title, desc string, control func()) {
 
 // optWide is an option whose control, a long text or a list, goes under it.
 func optWide(c *ui.Context, p *pal, title, desc string, control func()) {
+	if !optMatch(title, desc) {
+		return
+	}
 	ui.Column(c).Gap(8).Padding(11, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 		optLabel(c, p, title, desc)
 		ui.Row(c).Children(control)

@@ -53,6 +53,9 @@ func (u *UI) mcpSection(c *ui.Context, p *pal, s settings.Settings) {
 	exe := mcpCommand()
 	u.mcpSnippet(c, p, "mcpClaude", "Claude Code", i18n.T("在终端运行这条命令", "Run this command in a terminal"), mcpClaudeCommand(exe))
 	u.mcpSnippet(c, p, "mcpJSON", i18n.T("其他客户端", "Other clients"), i18n.T("加到客户端的 MCP 配置里（stdio）；bowel 没开时会自己打开", "Add this to the client's MCP config (stdio); bowel opens itself when it isn't running"), mcpJSON(exe))
+	if searching() {
+		return
+	}
 	state := i18n.T("运行中", "Running")
 	if e := mcpErr.Load(); e == nil {
 		state = "—"
