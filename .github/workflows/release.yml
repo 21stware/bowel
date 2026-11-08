@@ -53,6 +53,8 @@ jobs:
           exit "$missing"
 
       - name: Fetch the mihomo core and geo data
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: ./scripts/fetch-core.sh
 
       - name: Import the Developer ID certificate
