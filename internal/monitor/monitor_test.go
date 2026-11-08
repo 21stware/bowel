@@ -377,6 +377,9 @@ rules:
 		t.Fatal(err)
 	}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/ready" {
+			return
+		}
 		chunk := make([]byte, 64<<10)
 		for range 100 {
 			if _, err := w.Write(chunk); err != nil {
@@ -392,6 +395,26 @@ rules:
 	})}
 	go srv.Serve(ln)
 	t.Cleanup(func() { srv.Close() })
+
+	// The controller answers before the core routes anything: until then
+	// the mixed port refuses connections or answers 502 itself, with
+	// nothing in /connections or the log. Wait until a request gets through.
+	proxy, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", mixed))
+	ready := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy), DisableKeepAlives: true}, Timeout: time.Second}
+	for {
+		resp, err := ready.Get("http://" + ln.Addr().String() + "/ready")
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			b, _ := os.ReadFile(filepath.Join(dir, "core.log"))
+			t.Fatalf("core does not route: %v %v\n%s", resp, err, b)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	m := New(filepath.Join(dir, "stats.json"))
 	ticks := make(chan struct{}, 100)
@@ -413,7 +436,6 @@ rules:
 		}
 	}()
 
-	proxy, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", mixed))
 	hc := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy)}, Timeout: 20 * time.Second}
 	dl := make(chan error, 1)
 	go func() {
@@ -421,6 +443,9 @@ rules:
 		if err == nil {
 			_, err = io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
+			if err == nil && resp.StatusCode != http.StatusOK {
+				err = fmt.Errorf("status %s", resp.Status)
+			}
 		}
 		dl <- err
 	}()
@@ -446,8 +471,6 @@ rules:
 				dlErr = fmt.Sprint(err)
 			default:
 			}
-			who, _ := exec.Command("lsof", "-nP", fmt.Sprintf("-iTCP:%d", mixed), "-sTCP:LISTEN").CombinedOutput()
-			t.Logf("core pid %d; listening on %d:\n%s", cmd.Process.Pid, mixed, who)
 			t.Fatalf("rate %v group %v failure %v; last %+v; conns %+v; logs %+v; download: %s\ncore log:\n%s", sawRate, sawGroup, sawFail, last, m.Conns(), m.Logs(0), dlErr, b)
 		}
 		for _, cn := range m.Conns() {
