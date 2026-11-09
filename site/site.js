@@ -17,7 +17,7 @@
   }
 
   function title() {
-    document.title = lang() === "en" ? "bowel · A mihomo client for macOS" : "bowel · macOS 上的 mihomo 客户端";
+    document.title = lang() === "en" ? "bowel · A cross-platform mihomo client" : "bowel · 跨平台的 mihomo 客户端";
   }
   function setLang(l) {
     root.className = l;

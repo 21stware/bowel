@@ -630,7 +630,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 		ui.Row(c).Gap(10).Padding(8, 26).Background(p.hair2).AlignItems(ui.Center).Children(func() {
 			ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(p.faint)
 			ui.Text(c, i18n.T("bowel 现在没有接管流量，新的连接不会经过这里。", "bowel is not taking over traffic; new connections won’t show up here.")).FontSize(12).TextColor(p.ink2).Grow(1)
-			btn(c, p, i18n.T("去今日开启 →", "Turn on in Proxy →")).OnClick(func() { u.page = "home" })
+			btn(c, p, i18n.T("去代理开启 →", "Turn on in Proxy →")).OnClick(func() { u.page = "home" })
 		})
 	}
 	head := ui.Row(c).Gap(actGap).Padding(9, actPadX+26, 7, actPadX+26).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).ClipX()
@@ -675,7 +675,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 			if !u.snap.Takeover.On && len(a.conns) == 0 {
 				ui.Text(c, i18n.T("流量现在不经过 bowel", "Traffic isn’t going through bowel")).FontSize(17).FontWeight(700).TextColor(p.ink2)
 				ui.Text(c, i18n.T("开启接管后，经过 bowel 的连接会显示在这里。", "Turn on Takeover, and connections through bowel show up here.")).FontSize(12.5).TextColor(p.mute)
-				btn(c, p, i18n.T("去今日开启 →", "Turn on in Proxy →")).Margin(10, 0, 0, 0).OnClick(func() { u.page = "home" })
+				btn(c, p, i18n.T("去代理开启 →", "Turn on in Proxy →")).Margin(10, 0, 0, 0).OnClick(func() { u.page = "home" })
 				return
 			}
 			ui.Text(c, i18n.T("没有符合条件的连接", "No matching connections")).FontSize(12.5).TextColor(p.mute)
