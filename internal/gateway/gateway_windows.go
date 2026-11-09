@@ -32,14 +32,22 @@ import (
 func OS() System { return &windows_{} }
 
 type windows_ struct {
-	mu      sync.Mutex
-	slowAt  time.Time // when wifi and firewall were read
-	wifi    map[string]bool
+	mu       sync.Mutex
+	slowAt   time.Time // when wifi and firewall were read
+	wifi     map[string]bool
 	firewall bool
+	ready    bool      // the NetNat rule was there, as of readyAt
+	readyAt  time.Time // when ready was last read
 }
 
 // natName is the NetNat rule this package creates.
 const natName = "bowel-gw"
+
+// readyTTL is how long Ready trusts its last look. The snapshot asks
+// once a second, and each look is a PowerShell process, so the answer
+// is kept briefly; the state changes only under Prepare and
+// SetForwarding, which drop the cache.
+const readyTTL = 5 * time.Second
 
 // runPowerShell runs a PowerShell one-liner and returns its output.
 func runPowerShell(args ...string) (string, error) {
@@ -86,6 +94,7 @@ func (w *windows_) SetForwarding(on bool) error {
 	if cur, err := w.Forwarding(); err == nil && cur != on {
 		return errors.New(i18n.T("IP 转发没有改过来", "IP forwarding didn't change"))
 	}
+	w.forgetReady()
 	return nil
 }
 
@@ -95,7 +104,34 @@ func (w *windows_) readyOut() string {
 	return out
 }
 
-func (w *windows_) Ready() bool { return psTrue(w.readyOut()) }
+// Ready says whether the NAT rule is there, trusting readyTTL's last
+// look. askReady reads it afresh.
+func (w *windows_) Ready() bool {
+	w.mu.Lock()
+	if time.Since(w.readyAt) < readyTTL {
+		v := w.ready
+		w.mu.Unlock()
+		return v
+	}
+	w.mu.Unlock()
+	return w.askReady()
+}
+
+// askReady reads whether the NAT rule is there, keeping the answer.
+func (w *windows_) askReady() bool {
+	v := psTrue(w.readyOut())
+	w.mu.Lock()
+	w.ready, w.readyAt = v, time.Now()
+	w.mu.Unlock()
+	return v
+}
+
+// forgetReady drops the cached answer, for whoever has just changed it.
+func (w *windows_) forgetReady() {
+	w.mu.Lock()
+	w.readyAt = time.Time{}
+	w.mu.Unlock()
+}
 
 func (w *windows_) Prepare(prompt string, before ...tun.Step) error {
 	iface := lanInterface()
@@ -128,7 +164,8 @@ Set-NetIPInterface -InterfaceAlias '` + psQuote(iface) + `' -AddressFamily IPv4 
 	if err := tun.Admin(prompt, steps...); err != nil {
 		return err
 	}
-	if !w.Ready() {
+	w.forgetReady()
+	if !w.askReady() {
 		return errors.New(i18n.T("授权后仍然无法启用网关", "the gateway still can't be turned on after the authorization"))
 	}
 	return nil
