@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vpn_channel">接続</string>
+    <string name="vpn_running">この端末の通信を処理しています</string>
+    <string name="vpn_permission_lost">bowel に VPN を実行する権限がありません。</string>
+    <string name="core_no_answer">コアが時間内に起動しませんでした。</string>
+    <string name="scan_prompt">QR コードを枠内に合わせてください</string>
+    <string name="camera_needed">QR コードの読み取りにはカメラへのアクセスが必要です。</string>
+    <string name="open_settings">設定を開く</string>
+    <string name="vpn_disconnect">切断</string>
+</resources>

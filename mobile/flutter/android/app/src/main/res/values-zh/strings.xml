@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vpn_channel">连接</string>
+    <string name="vpn_running">正在接管这台手机的流量</string>
+    <string name="vpn_permission_lost">bowel 没有运行 VPN 的权限了。</string>
+    <string name="core_no_answer">内核没有按时启动。</string>
+    <string name="scan_prompt">将二维码放入框内</string>
+    <string name="camera_needed">扫描二维码需要相机权限。</string>
+    <string name="open_settings">去设置</string>
+    <string name="vpn_disconnect">断开</string>
+</resources>
