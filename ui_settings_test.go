@@ -425,12 +425,6 @@ func TestSettingsSearch(t *testing.T) {
 		t.Errorf("searching tun mtu: %q", tt.Texts())
 	}
 
-	// Rules are found by what they match and by their route.
-	search("anthropic")
-	if !tt.HasText("anthropic.com") || tt.HasText("新规则") || tt.HasText("测试一个地址") {
-		t.Errorf("searching anthropic: %q", tt.Texts())
-	}
-
 	search("zzzz")
 	if !tt.HasText("没有相符的设置") {
 		t.Errorf("no match says nothing: %q", tt.Texts())

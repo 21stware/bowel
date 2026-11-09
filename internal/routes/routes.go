@@ -23,20 +23,43 @@ type Route struct {
 	Rules []string `json:"-"`
 	// Direct routes never use a node.
 	Direct bool `json:"direct"`
+	// Reject routes are Direct ones whose traffic is refused, not let out.
+	Reject bool `json:"reject,omitempty"`
+
+	// What Build adds, for the groups as the user has them.
+	Label    string    `json:"-"` // the user's name for it; Name stays the mihomo group's
+	Custom   bool      `json:"-"` // made by the user
+	Policy   Policy    `json:"-"`
+	Services []Service `json:"-"`
 }
 
 // Default is the route that takes what no rule matched.
 const Default = "default"
+
+// Reject is the route whose traffic is refused.
+const Reject = "reject"
 
 // Group is the name of a route's mihomo group; Auto that of its automatic
 // (fastest + failover) group.
 func Group(r Route) string { return r.Name }
 func Auto(r Route) string  { return r.Name + "·自动" }
 
+// Backup is the name of a route's ordered fallback group, and BackupStep
+// that of its i'th place: mihomo keeps a provider's own order inside a
+// group, so each place is a group of one node.
+func Backup(r Route) string            { return r.Name + "·备用" }
+func BackupStep(r Route, i int) string { return fmt.Sprintf("%s·备用·%d", r.Name, i+1) }
+
+// Internal says whether name is one of a route's helper groups.
+func Internal(r Route, name string) bool { return strings.HasPrefix(name, r.Name+"·") }
+
 // Title is a route's name as the interface shows it. Name stays the
 // mihomo group's, in Chinese, so that configs and choices keep across a
 // change of language.
 func Title(r Route) string {
+	if r.Label != "" {
+		return r.Label
+	}
 	if en, ok := titleEn[r.ID]; ok {
 		return i18n.T(r.Name, en)
 	}
@@ -45,20 +68,21 @@ func Title(r Route) string {
 
 // Describe is a route's Summary as the interface shows it.
 func Describe(r Route) string {
-	if en, ok := summaryEn[r.ID]; ok {
+	if en, ok := summaryEn[r.Summary]; ok {
 		return i18n.T(r.Summary, en)
 	}
 	return r.Summary
 }
 
-var titleEn = map[string]string{Default: "Default", "ai": "AI", "media": "Streaming", "dev": "Dev", "direct": "Direct"}
+var titleEn = map[string]string{Default: "Default", "ai": "AI", "media": "Streaming", "dev": "Dev", "direct": "Direct", Reject: "Block"}
 
 var summaryEn = map[string]string{
-	Default:  "Traffic no other rule matched",
-	"ai":     "OpenAI · Claude · Gemini · Perplexity and more",
-	"media":  "YouTube · Netflix · Spotify · Disney+ and more",
-	"dev":    "GitHub · npm · Docker · PyPI · Go and more",
-	"direct": "Mainland China sites · LAN",
+	"没命中其他规则的流量":                              "Traffic no other rule matched",
+	"OpenAI · Claude · Gemini · Perplexity 等": "OpenAI · Claude · Gemini · Perplexity and more",
+	"YouTube · Netflix · Spotify · Disney+ 等": "YouTube · Netflix · Spotify · Disney+ and more",
+	"GitHub · npm · Docker · PyPI · Go 等":     "GitHub · npm · Docker · PyPI · Go and more",
+	"国内网站 · 局域网":                              "Mainland China sites · LAN",
+	"命中规则的连接会被拒绝":                             "Connections matching its rules are refused",
 }
 
 // Template returns the routes in the order their rules apply; the default
@@ -66,35 +90,12 @@ var summaryEn = map[string]string{
 func Template() []Route {
 	return []Route{
 		{ID: Default, Name: "默认", Color: "--r-default", Summary: "没命中其他规则的流量"},
-		{ID: "ai", Name: "AI 服务", Color: "--r-ai", Summary: "OpenAI · Claude · Gemini · Perplexity 等", Rules: suffixes(
-			"openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com", "sora.com",
-			"anthropic.com", "claude.ai", "claude.com", "claudeusercontent.com",
-			"gemini.google.com", "generativelanguage.googleapis.com", "aistudio.google.com", "notebooklm.google.com", "bard.google.com",
-			"perplexity.ai", "x.ai", "grok.com", "poe.com", "cursor.com", "cursor.sh", "cursorapi.com",
-			"mistral.ai", "huggingface.co", "openrouter.ai", "midjourney.com", "character.ai",
-		)},
-		{ID: "media", Name: "流媒体", Color: "--r-media", Summary: "YouTube · Netflix · Spotify · Disney+ 等", Rules: []string{
-			"GEOSITE,youtube", "GEOSITE,netflix", "GEOSITE,spotify", "GEOSITE,disney", "GEOSITE,hbo",
-			"GEOSITE,primevideo", "GEOSITE,twitch", "GEOSITE,tiktok", "GEOSITE,bahamut", "GEOSITE,abema",
-		}},
-		{ID: "dev", Name: "开发", Color: "--r-dev", Summary: "GitHub · npm · Docker · PyPI · Go 等", Rules: suffixes(
-			"github.com", "githubusercontent.com", "githubassets.com", "github.io", "ghcr.io",
-			"npmjs.org", "npmjs.com", "yarnpkg.com", "docker.io", "docker.com", "pypi.org", "pythonhosted.org",
-			"golang.org", "go.dev", "proxy.golang.org", "crates.io", "rust-lang.org", "gitlab.com", "bitbucket.org",
-			"stackoverflow.com", "jsdelivr.net", "unpkg.com", "vercel.com", "brew.sh",
-		)},
-		{ID: "direct", Name: "直连", Color: "--r-direct", Summary: "国内网站 · 局域网", Direct: true, Rules: []string{
-			"GEOSITE,private", "GEOSITE,cn", "GEOIP,private,no-resolve", "GEOIP,CN,no-resolve",
-		}},
+		{ID: "ai", Name: "AI 服务", Color: "--r-ai", Summary: "OpenAI · Claude · Gemini · Perplexity 等", Rules: builtinRules("ai")},
+		{ID: "media", Name: "流媒体", Color: "--r-media", Summary: "YouTube · Netflix · Spotify · Disney+ 等", Rules: builtinRules("media")},
+		{ID: "dev", Name: "开发", Color: "--r-dev", Summary: "GitHub · npm · Docker · PyPI · Go 等", Rules: builtinRules("dev")},
+		{ID: "direct", Name: "直连", Color: "--r-direct", Summary: "国内网站 · 局域网", Direct: true, Rules: builtinRules("direct")},
+		{ID: Reject, Name: "拦截", Color: "--r-reject", Summary: "命中规则的连接会被拒绝", Direct: true, Reject: true},
 	}
-}
-
-func suffixes(domains ...string) []string {
-	out := make([]string, len(domains))
-	for i, d := range domains {
-		out[i] = "DOMAIN-SUFFIX," + d
-	}
-	return out
 }
 
 // Count is the number of rules, MATCH included.
@@ -153,7 +154,7 @@ func ParseTarget(input string) (Target, error) {
 
 // ValidTargets says what is wrong with a list of targets for route id.
 func ValidTargets(id string, list []Target) error {
-	if !slices.ContainsFunc(Template(), func(r Route) bool { return r.ID == id && !r.Direct }) {
+	if id == "direct" || id == Reject { // the groups no node carries
 		return fmt.Errorf(i18n.T("路由 %s 不能设置测速站点", "Route %s can't have test sites"), id)
 	}
 	if len(list) == 0 {

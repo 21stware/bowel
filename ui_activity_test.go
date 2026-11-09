@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -142,9 +143,36 @@ func TestActivityList(t *testing.T) {
 	shot(t, tt, "activity-failed")
 }
 
+// TestActivityBlocked: what a rule refused has its own filter and says so
+// where the others give a duration.
+func TestActivityBlocked(t *testing.T) {
+	u := actUI()
+	now := time.Now()
+	u.act.apply(append(actFixtureConns(), Conn{ID: "blocked-1", App: "Arc", Host: "ads.example.com", Port: 443, Network: "tcp", Rule: "DomainSuffix",
+		Payload: "ads.example.com", Route: "reject", Chain: []string{"拦截"}, Start: now, End: now, Status: "blocked"}), actFixtureLogs())
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	if hasTextPart(tt, "ads.example.com") {
+		t.Errorf("a blocked connection shows under 活跃")
+	}
+	if err := tt.Click("已拦截 1"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	shot(t, tt, "activity-blocked")
+	for _, want := range []string{"ads.example.com", "DomainSuffix", "拦截", "已拦截"} {
+		if !hasTextPart(tt, want) {
+			t.Errorf("list lacks %q: %q", want, tt.Texts())
+		}
+	}
+	if hasTextPart(tt, "registry-1.docker.io") {
+		t.Errorf("other connections show under 已拦截")
+	}
+}
+
 func TestActivitySearch(t *testing.T) {
 	u := actUI()
-	u.act.status = 3 // all
+	u.act.status = slices.Index(actStatuses, "all")
 	tt := ui.NewTester(u.view, 1060, 760)
 	tt.Advance(time.Second)
 	u.act.q = "app:Arc"

@@ -124,8 +124,13 @@ type RouteView struct {
 	Rules   int    `json:"rules"` // the user's included
 	Mine    int    `json:"mine"`  // the user's rules for it
 	Direct  bool   `json:"direct"`
+	Reject  bool   `json:"reject"` // Direct, and its traffic is refused
 	// Auto: the route picks the fastest node and fails over by itself.
 	Auto bool `json:"auto"`
+	// Policy is its strategy, and Broken why that leaves it no way out now:
+	// "scope", "order", "fixed", or "" when it has one.
+	Policy routes.Policy `json:"policy"`
+	Broken string        `json:"broken,omitempty"`
 	// Targets are the sites the route is tested against. The first, Main,
 	// decides its nodes' delays and what Auto picks; the others are Sites.
 	Main    routes.Target   `json:"main"`
@@ -280,7 +285,7 @@ type Conn struct {
 	UpRate   int64     `json:"upRate"`
 	Start    time.Time `json:"start"`
 	End      time.Time `json:"end,omitzero"`
-	Status   string    `json:"status"` // active, closed, failed
+	Status   string    `json:"status"` // active, closed, failed, blocked
 	Error    string    `json:"error,omitempty"`
 }
 

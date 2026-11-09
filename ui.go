@@ -11,6 +11,7 @@ import (
 	"embed"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/oboo/moho/internal/geo"
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
 )
 
@@ -32,13 +34,14 @@ type UI struct {
 	page   string // home, activity, providers
 	toasts []string
 
-	home  homeUI
-	act   activityUI
-	prov  providersUI
-	setup setupUI
-	set   settingsUI
-	panel panelUI
-	gw    gatewayUI
+	home   homeUI
+	routes routesUI
+	act    activityUI
+	prov   providersUI
+	setup  setupUI
+	set    settingsUI
+	panel  panelUI
+	gw     gatewayUI
 }
 
 func newUI(a *App) *UI { return &UI{app: a, page: "home", home: newHomeUI()} }
@@ -262,11 +265,20 @@ func contrast(a, b ui.Color) float64 {
 }
 
 func (p *pal) routeColor(id string) ui.Color {
+	if id == routes.Reject {
+		return p.signal
+	}
 	if col, ok := p.route[id]; ok {
 		return col
 	}
+	if n, err := strconv.Atoi(strings.TrimPrefix(id, "g")); err == nil { // a group the user made
+		return customRouteColors[(n-1)%len(customRouteColors)]
+	}
 	return p.mute
 }
+
+// customRouteColors mark the groups the user made, in turn.
+var customRouteColors = []ui.Color{ui.Hex("#d9722b"), ui.Hex("#3f9d4e"), ui.Hex("#b0902a"), ui.Hex("#c44fc0"), ui.Hex("#4f7f9d"), ui.Hex("#a0694a")}
 
 // sans is the face of all text, headlines included: OPPO Sans, bundled
 // (registerFonts), with the system's for what it lacks or when it did not
@@ -295,6 +307,7 @@ func (u *UI) view(c *ui.Context) {
 		c.OnShortcut(ui.Cmd, ui.Key1, func() { u.page = "home" })
 		c.OnShortcut(ui.Cmd, ui.Key2, func() { u.page = "activity" })
 		c.OnShortcut(ui.Cmd, ui.Key3, func() { u.page = "providers" })
+		c.OnShortcut(ui.Cmd, ui.Key4, func() { u.page = "routes" })
 		// ⌘V outside a text field, on another page, with a link or node list on
 		// the clipboard: open Provider with it in the add bar. Provider's own
 		// page handles ⌘V itself.
@@ -317,6 +330,8 @@ func (u *UI) view(c *ui.Context) {
 							u.activityPage(c, p)
 						case "providers":
 							u.providersPage(c, p)
+						case "routes":
+							u.routesPage(c, p)
 						default:
 							u.homePage(c, p)
 						}
@@ -337,6 +352,7 @@ var pages = []struct{ id, zh, en string }{
 	{"home", "代理", "Proxy"},
 	{"activity", "日志", "Log"},
 	{"providers", "提供商", "Provider"},
+	{"routes", "路由组", "Routes"},
 }
 
 // titleBar: the window's controls, the tabs, what needs attention, and the
@@ -447,6 +463,13 @@ func (u *UI) notice(c *ui.Context, p *pal) {
 						shimmer(ui.Text(c, label).FontSize(12.5).FontWeight(600).Underline().TextColor(p.ink).NoWrap(), busy, p)
 					})
 				}
+				if id, ok := strings.CutPrefix(is.Action, "fix:"); ok {
+					ui.ButtonBase(c.Key("all-auto")).Shrink(0).Padding(5, 6).Margin(-5, -6).OnClick(func() {
+						u.changePolicy(id, func(q *routes.Policy) { q.Mode, q.Regions, q.Providers = routes.ModeAuto, nil, nil })
+					}).Children(func() {
+						ui.Text(c, i18n.T("改用全部节点自动", "Use all nodes")).FontSize(12.5).FontWeight(600).Underline().TextColor(p.ink).NoWrap()
+					})
+				}
 			})
 	})
 }
@@ -459,6 +482,27 @@ func (u *UI) issueAction(action string) {
 		u.page = "activity"
 	case "providers":
 		u.page = "providers"
+	default:
+		if id, ok := strings.CutPrefix(action, "fix:"); ok {
+			u.fixRoute(id)
+		}
+	}
+}
+
+// fixRoute opens where a broken group's strategy can be changed: its card
+// when already on 路由组, otherwise its expansion on 代理.
+func (u *UI) fixRoute(id string) {
+	if u.page == "routes" {
+		u.selectGroup(id)
+		u.routes.pol = true
+		return
+	}
+	u.page = "home"
+	u.home.query, u.home.region = "", ""
+	if id == routes.Default {
+		u.home.x, u.home.sub = "hero", ""
+	} else {
+		u.home.x, u.home.sub = "routes", id
 	}
 }
 

@@ -593,6 +593,71 @@ func TestFindProcessAndSkip(t *testing.T) {
 	}
 }
 
+// TestRejectedConnections: what a rule refused becomes a blocked connection
+// from its log line, once; what only ends in REJECT, or a poll happens to
+// catch, doesn't; and a flood leaves the other connections and the events be.
+func TestRejectedConnections(t *testing.T) {
+	m := New(filepath.Join(t.TempDir(), "stats.json"))
+	m.FindProcess = func(network string, src netip.AddrPort) string {
+		if src.Port() == 53631 {
+			return "/Applications/Arc.app/Contents/MacOS/Arc"
+		}
+		return ""
+	}
+	now := time.Now()
+	info := func(s string) { m.addLog(mihomo.Log{Type: "info", Payload: s}, now) }
+	info("[TCP] 127.0.0.1:50567(curl) --> x.example.com:80 match DomainSuffix(example.com) using REJECT")
+	for range 3 { // a UDP client sends again
+		info("[UDP] 127.0.0.1:53631 --> 192.0.2.7:53 match IPCIDR(192.0.2.0/24) using REJECT")
+	}
+	info("[TCP] [::1]:50600(a (b), uid=501) --> [2001:db8::1]:443 match IPCIDR(2001:db8::/32) using REJECT")
+	info("[TCP] 127.0.0.1:50568(curl) --> y.example.com:80 match Match using AI 服务[REJECT]")
+	info("[TCP] 127.0.0.1:50569(curl) --> z.example.com:80 match Match using DIRECT")
+	m.apply(mihomo.Snapshot{Connections: []mihomo.Connection{fakeConn("flash", 0, 0, now, "REJECT")}}, now)
+
+	byHost := map[string]Conn{}
+	for _, c := range m.Conns() {
+		byHost[c.Host] = c
+	}
+	if len(byHost) != 3 {
+		t.Fatalf("conns %+v", byHost)
+	}
+	c := byHost["x.example.com"]
+	if c.Status != "blocked" || c.App != "curl" || c.Port != 80 || c.Network != "tcp" || c.Rule != "DomainSuffix" || c.Payload != "example.com" ||
+		!slices.Equal(c.Chains, []string{Reject}) || c.Error != "" {
+		t.Errorf("tcp: %+v", c)
+	}
+	if u := byHost["192.0.2.7"]; u.Status != "blocked" || u.App != "Arc" || u.IP != "192.0.2.7" || u.Network != "udp" {
+		t.Errorf("udp: %+v", u)
+	}
+	if v := byHost["2001:db8::1"]; v.App != "a (b)" || v.Port != 443 || v.Payload != "2001:db8::/32" {
+		t.Errorf("ipv6: %+v", v)
+	}
+	if ev := m.Events(0); len(ev) != 0 {
+		t.Errorf("events: %+v", ev)
+	}
+
+	m.addLog(mihomo.Log{Type: "warning", Payload: "[TCP] dial 默认 (match Match/) 127.0.0.1:50002 --> kept.example:443 error: i/o timeout"}, now)
+	for i := range 3 * maxClosed {
+		info(fmt.Sprintf("[TCP] 127.0.0.1:%d --> ad.example:443 match Domain(ad.example) using REJECT", 1024+i))
+	}
+	blocked, kept := 0, false
+	for _, c := range m.Conns() {
+		blocked += b2i(c.Status == "blocked")
+		kept = kept || c.Host == "kept.example"
+	}
+	if blocked != maxClosed || !kept {
+		t.Errorf("after a flood: %d blocked, failed kept %v", blocked, kept)
+	}
+}
+
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // TestPollEvery: Run waits Every between polls, and Wake cuts it short.
 func TestPollEvery(t *testing.T) {
 	polls := make(chan struct{}, 10)

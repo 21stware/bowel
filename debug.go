@@ -1,13 +1,41 @@
 package main
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/egoist/mygo"
+
+	"github.com/oboo/moho/internal/core"
+	"github.com/oboo/moho/internal/settings"
 )
+
+// A development build runs beside the released app on the same Mac. Its
+// data is apart already ("bowel Dev"), so what's left is the ports and the
+// system's one proxy setting.
+const (
+	devMixedPort = 17899
+	devDNSPort   = 11053
+)
+
+// separateFromRelease moves a development build off the released app's
+// ports and starts it without taking over: it is turned on by hand in its
+// window, for as long as that run. A port the user chose stays; the default
+// one is never kept.
+func (a *App) separateFromRelease() {
+	core.LocalDNSPort = devDNSPort
+	if _, err := a.settings.Update(func(s *settings.Settings) {
+		s.Paused = true
+		if s.MixedPort == settings.Defaults.MixedPort {
+			s.MixedPort = devMixedPort
+		}
+	}); err != nil {
+		log.Println("dev separation:", err)
+	}
+}
 
 // debugDriver lets scripts drive a development build: with MOHO_DEBUG_DIR
 // set under `mygo dev`, it runs the command written to <dir>/cmd and

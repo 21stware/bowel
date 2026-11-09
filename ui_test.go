@@ -50,6 +50,7 @@ func fixture() Snapshot {
 			{ID: "media", Name: "流媒体", Summary: "YouTube · Netflix · Spotify · Disney+ 等", Rules: 10, Node: nodes[5].Name, Share: .52},
 			{ID: "dev", Name: "开发", Summary: "GitHub · npm · Docker · PyPI · Go 等", Rules: 24, Auto: true, Node: nodes[3].Name, Share: .04},
 			{ID: "direct", Name: "直连", Summary: "国内网站 · 局域网", Rules: 4, Direct: true, Share: .05},
+			{ID: "reject", Name: "拦截", Summary: "命中规则的连接会被拒绝", Direct: true, Reject: true},
 		},
 		Nodes: nodes,
 		Exit:  &Exit{Node: nodes[0].Name, Where: nodes[0].Where},

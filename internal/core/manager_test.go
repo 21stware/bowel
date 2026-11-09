@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -167,6 +168,32 @@ func TestUserRulesComeFirst(t *testing.T) {
 	}
 }
 
+// TestRejectRoute: a rule of the route that refuses targets REJECT, in its
+// proper place among the rules, and the route has no group of its own.
+func TestRejectRoute(t *testing.T) {
+	out, err := BuildConfig(Input{Routes: routes.Template(), Mode: "rule", MixedPort: 7899, ProbePort: 7900, TestURL: "x",
+		UserRules: []routes.UserRule{
+			{Kind: "suffix", Value: "ads.example.com", Route: routes.Reject},
+			{Kind: "ip", Value: "1.2.3.0/24", Route: routes.Reject},
+			{Kind: "suffix", Value: "example.com", Route: "direct"},
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	for _, want := range []string{"- DOMAIN-SUFFIX,ads.example.com,REJECT", "- IP-CIDR,1.2.3.0/24,REJECT,no-resolve"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("config lacks %q:\n%s", want, s)
+		}
+	}
+	if i, j := strings.Index(s, "ads.example.com,REJECT"), strings.Index(s, "- DOMAIN-SUFFIX,example.com,DIRECT"); j < 0 || i > j {
+		t.Errorf("the more specific rule isn't first (%d, %d)", i, j)
+	}
+	if strings.Contains(s, "name: 拦截") {
+		t.Errorf("the route got a group:\n%s", s)
+	}
+}
+
 // TestCloseKeepsCoreDown: after Close nothing starts a core, whatever is
 // still under way when the app quits.
 func TestCloseKeepsCoreDown(t *testing.T) {
@@ -178,4 +205,92 @@ func TestCloseKeepsCoreDown(t *testing.T) {
 	if err := m.start(); !errors.Is(err, ErrClosed) {
 		t.Errorf("start after Close: %v", err)
 	}
+}
+
+// TestStrategyGroups: a real core takes the groups of all three strategies:
+// a range filters 自动 by exact names, even ones with regex characters, an
+// empty range rejects rather than widens, and the backup list keeps its
+// order.
+func TestStrategyGroups(t *testing.T) {
+	bin := coreBin(t)
+	dir, err := os.MkdirTemp("", "moho")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	geo(t, dir)
+	nodes := "proxies:\n  - {name: \"东京 01\", type: direct}\n  - {name: \"香港 (IEPL) 02\", type: direct}\n  - {name: \"美国 03\", type: direct}\n"
+	_ = os.WriteFile(filepath.Join(dir, "a.txt"), []byte(nodes), 0o600)
+	m, err := New(bin, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	probe, _ := FreePort()
+	tokyo, hk, us := "东京 01"+NodeSep+"aaa", "香港 (IEPL) 02"+NodeSep+"aaa", "美国 03"+NodeSep+"aaa"
+	in := Input{
+		Providers: []ProviderRef{{ID: "aaa", Path: filepath.Join(dir, "a.txt")}},
+		Routes:    routes.Template(), Mode: "rule", MixedPort: mustFree(t), LogLevel: "info",
+		TestURL: "https://www.gstatic.com/generate_204", ProbePort: probe, Controller: m.ControllerFields(),
+		Scopes: map[string][]string{"ai": {hk, tokyo}, "dev": {}},
+		Orders: map[string][]string{"ai": {us, hk}},
+	}
+	cfg, err := BuildConfig(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Apply(cfg); err != nil {
+		t.Fatalf("start: %v\n%s\n%s", err, m.logs.last(10), cfg)
+	}
+	c, _ := m.Client()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	px, err := c.Proxies(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ai, dev routes.Route
+	for _, r := range routes.Template() {
+		switch r.ID {
+		case "ai":
+			ai = r
+		case "dev":
+			dev = r
+		}
+	}
+	auto := px[routes.Auto(ai)].All
+	slices.Sort(auto)
+	want := []string{hk, tokyo}
+	slices.Sort(want)
+	if !slices.Equal(auto, want) {
+		t.Errorf("scoped 自动 = %q, want %q", auto, want)
+	}
+	if got := px[routes.Auto(dev)].All; !slices.Equal(got, []string{"REJECT"}) {
+		t.Errorf("empty range = %q", got)
+	}
+	backup := px[routes.Backup(ai)]
+	if backup.Type != "Fallback" || !slices.Equal(backup.All, []string{routes.BackupStep(ai, 0), routes.BackupStep(ai, 1)}) {
+		t.Fatalf("backup = %+v", backup)
+	}
+	for i, n := range []string{us, hk} {
+		if got := px[routes.BackupStep(ai, i)].All; !slices.Equal(got, []string{n}) {
+			t.Errorf("step %d = %q, want %q", i, got, n)
+		}
+	}
+	// A strategy is only a position of the selector.
+	if err := c.Select(ctx, routes.Group(ai), routes.Backup(ai)); err != nil {
+		t.Errorf("select the backup group: %v", err)
+	}
+	if err := c.Select(ctx, routes.Group(ai), us); err != nil {
+		t.Errorf("select a node out of range: %v", err)
+	}
+}
+
+func mustFree(t *testing.T) int {
+	t.Helper()
+	p, err := FreePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
 }

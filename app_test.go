@@ -7,7 +7,9 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -81,7 +83,7 @@ func TestAppFlows(t *testing.T) {
 	defer a.shutdown()
 
 	s := a.snapshot()
-	if s.State != StateOff || s.Core.State != "running" || len(s.Routes) != 5 || len(s.Nodes) != 0 {
+	if s.State != StateOff || s.Core.State != "running" || len(s.Routes) != 6 || len(s.Nodes) != 0 {
 		t.Fatalf("fresh snapshot: state %s core %+v routes %d nodes %d", s.State, s.Core, len(s.Routes), len(s.Nodes))
 	}
 
@@ -191,6 +193,48 @@ func TestAppFlows(t *testing.T) {
 	}
 	if r := routeIn(a.snapshot(), "ai"); r.Mine != 0 || len(a.settings.Get().Rules) != 0 {
 		t.Errorf("ai after removing the rule: %+v", r)
+	}
+	// The route that refuses: the request never reaches the site.
+	var reached atomic.Int32
+	refused := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached.Add(1) }))
+	defer refused.Close()
+	block := routes.UserRule{Kind: routes.KindIP, Value: "127.0.0.1/32", Route: routes.Reject}
+	if _, err := a.addRule(block); err != nil {
+		t.Fatal(err)
+	}
+	if r := routeIn(a.snapshot(), routes.Reject); r.Mine != 1 || !r.Reject || r.Node != "" {
+		t.Errorf("reject after the rule: %+v", r)
+	}
+	if resp, err := cl.Get(refused.URL); err == nil {
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			t.Error("the blocked request succeeded")
+		}
+	}
+	if n := reached.Load(); n != 0 {
+		t.Errorf("the blocked site was reached %d times", n)
+	}
+	// The core's log tells of it, though a poll would not have caught it.
+	var shown Conn
+	for i := 0; i < 30 && shown.ID == ""; i++ {
+		time.Sleep(100 * time.Millisecond)
+		for _, c := range a.connections() {
+			if c.Status == "blocked" {
+				shown = c
+			}
+		}
+	}
+	if shown.Route != routes.Reject || shown.Rule != "IPCIDR" || shown.Payload != "127.0.0.1/32" || !slices.Equal(shown.Chain, []string{routes.Title(a.route(routes.Reject))}) {
+		t.Errorf("blocked connection: %+v", shown)
+	}
+	if got := a.routeOfGroup("REJECT", "IPCIDR"); got != routes.Reject {
+		t.Errorf("a refused connection is on route %q", got)
+	}
+	if got := a.routeOfGroup("DIRECT", "IPCIDR"); got != "direct" {
+		t.Errorf("a direct connection is on route %q", got)
+	}
+	if _, err := a.removeRule(block); err != nil {
+		t.Fatal(err)
 	}
 	for _, c := range a.connections() {
 		if len(c.Chain) > 0 && c.Chain[0] == core.ProbeGroup {

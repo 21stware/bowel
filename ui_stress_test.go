@@ -488,7 +488,7 @@ func stressActivity(r *stressReport, tag string, w, h int) {
 	tt := ui.NewTester(u.view, w, h)
 	tt.Advance(time.Second)
 	r.snap(tt, "activity-"+tag, w, h)
-	u.act.status = 3
+	u.act.status = slices.Index(actStatuses, "all")
 	tt.Frame()
 	tt.Advance(time.Second)
 	r.snap(tt, "activity-all-"+tag, w, h)
