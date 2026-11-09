@@ -376,16 +376,16 @@ jobs:
         run: gh release download "$TAG" --pattern '*.deb' --pattern '*.rpm' --dir incoming
 
       - name: Check out the current repositories
-        run: git clone --depth 1 --branch gh-pages git@github.com:21stware/packages.git site
+        run: git clone --depth 1 --branch gh-pages git@github.com:21stware/packages.git pkgsite
 
       - name: Add the release
         env:
           PACKAGES_GPG_PRIVATE_KEY: ${{ secrets.PACKAGES_GPG_PRIVATE_KEY }}
-        run: ./scripts/update-package-repo.sh incoming site
+        run: ./scripts/update-package-repo.sh incoming pkgsite
 
       # One commit, force-pushed: a history of packages would grow without end.
       - name: Publish
-        working-directory: site
+        working-directory: pkgsite
         env:
           TAG: ${{ github.ref_name }}
         run: |
