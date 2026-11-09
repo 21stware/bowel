@@ -24,7 +24,7 @@ The product logic is in [product-ia.md](product-ia.md); the approved interaction
 main.go, app.go           wiring: lifecycle, actions, the snapshot and tick
 model.go                   the view model: Snapshot, Tick, Conn, …
 ui.go                      the window: palette, title bar, pages, shared parts
-ui_home.go, ui_map.go      今日: the morphing board and the exit map
+ui_home.go, ui_map.go      代理: the morphing board and the exit map
 ui_activity.go             活动: connections and logs
 ui_providers.go            Provider: add, list, nodes
 ui_rules.go                the user's rules: 日志's 让它走…, 设置 > 规则
@@ -55,6 +55,7 @@ prototype/                 the interaction prototype and its history
 site/                      the website; site/shots/ is rendered by scripts/site-shots.sh
 assets/icon/               the app icon: AppIcon.icon (Icon Composer) and its 1024 px render; iOS compiles it too
 resources/icon.png         the fallback icon, for macOS before 26 and `mygo dev`
+scripts/mobile-brand.sh    writes the Android vectors and Flutter's logo path from the above
 entitlements.plist         the camera, which a Developer ID build's hardened runtime needs
 ```
 
