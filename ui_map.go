@@ -402,15 +402,16 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 	small := box.W < 300 || box.H < 170
 	grid := e.AnimateTo("grid", map[bool]float32{true: .6, false: .25}[on], ease)
 
+	// The map's still parts and its moving ones draw apart. What moves on
+	// its own, the comets and the pulse around you, moves with the frame's
+	// time and asks for frames that only paint; such a frame runs the
+	// moving callback alone, in place of what it painted, and the still
+	// part's operations stay in the scene instead of being recorded and
+	// its labels shaped again, many times a second, for a few dots. While
+	// an animation runs, frames build the view anew and both parts paint;
+	// once it ends, only the moving one.
 	e.Draw(func(pt *ui.Painter, r ui.Rect) {
 		at := func(x, y float32) (float32, float32) { return r.X + x*r.W, r.Y + y*r.H }
-		// What moves on its own, the comets and the pulse around you, moves
-		// with the frame's time and asks for frames that only paint: a
-		// frame that builds the view again would build the whole window,
-		// many times a second, for a few dots.
-		now := pt.Now().UnixMilli()
-		phase := float32(now%mapFlowPeriod) / mapFlowPeriod
-		comets := false
 		// Land, as dots: one small square each, on whole pixels (a dot
 		// between them blurs to nothing; a path of thousands loses some).
 		const d = 2
@@ -448,45 +449,6 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 			// Fainter where it leaves you, full at the exit.
 			ang := float32(math.Atan2(float64(x1-x0), float64(y0-y1)) * 180 / math.Pi)
 			pt.StrokePathGradient(&path, w, ui.LinearGradient{From: d.col.Alpha(d.a * .3), To: d.col.Alpha(d.a * .8), Angle: ang})
-			if d.a < .5 || !on || d.draw < .99 {
-				continue
-			}
-			// Comets: data on the move, two to an arc, a little quicker in
-			// the middle of the way than at its ends.
-			comets = true
-			along, length := alongQuad(x0, y0, cx, cy, x1, y1)
-			cw := max(w*.9, 2)
-			for k := 0; k < 2; k++ {
-				t := frac(phase + d.off + float32(k)/2)
-				s := t - .55*float32(math.Sin(2*math.Pi*float64(t)))/(2*math.Pi)
-				fade := min(1, s/.08, (1-s)/.1)
-				// The trail, in pieces that fade towards its tail.
-				const pieces = 6
-				trail := min(.2, 64/max(length, 1))
-				for j := 0; j < pieces; j++ {
-					f0 := s - trail*float32(pieces-j)/pieces
-					f1 := s - trail*float32(pieces-j-1)/pieces
-					if f1 <= 0 {
-						continue
-					}
-					var seg ui.Path
-					seg.MoveTo(x0, y0).QuadTo(cx, cy, x1, y1).Trim(max(f0, 0), f1)
-					q := float32(j+1) / pieces
-					pt.StrokePath(&seg, cw*(.45+.55*q), d.col.Alpha(fade*q*q))
-				}
-				hx, hy := along(s)
-				var glow, core, glint ui.Path
-				hr := cw/2 + 1.2
-				pt.FillPath(glow.Circle(hx, hy, hr+3), d.col.Alpha(.18*fade))
-				pt.FillPath(core.Circle(hx, hy, hr), d.col.Alpha(fade))
-				pt.FillPath(glint.Circle(hx, hy, max(hr*.45, .9)), ui.RGBA(255, 255, 255, .95*fade))
-				// It lands: a ripple at the exit, as the next one sets off.
-				if t < .3 {
-					u := t / .3
-					var ring ui.Path
-					pt.StrokePath(ring.Circle(x1, y1, 5+11*u), 1.2*(1-u)+.3, d.col.Alpha(.45*(1-u)*(1-u)))
-				}
-			}
 		}
 		seen := map[string]bool{}
 		for _, d := range ds {
@@ -540,10 +502,76 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 			col = p.faint
 		}
 		pt.FillPath(you.Circle(ox, oy, 5), col)
+		pt.RichText(ox+9, oy-22, 0, ui.Span{Text: i18n.T("你", "You"), Font: p.font, Size: 13, Weight: 700, Color: col})
+	})
+	// The moving part, drawn over the still one: the comets, the ripple
+	// where one lands, the pulse around you. It asks for the frames it
+	// needs; the still part above asks for none, so a frame that only
+	// paints again runs this callback alone.
+	e.DrawOver(func(pt *ui.Painter, r ui.Rect) {
+		at := func(x, y float32) (float32, float32) { return r.X + x*r.W, r.Y + y*r.H }
+		now := pt.Now().UnixMilli()
+		phase := float32(now%mapFlowPeriod) / mapFlowPeriod
+		comets := false
+		ox, oy := at(yx, yy)
+		curve := func(d drawn) (float32, float32, float32, float32, float32, float32) {
+			tx, ty := at(d.x, d.y)
+			mx, my := (ox+tx)/2, (oy+ty)/2
+			dx, dy := tx-ox, ty-oy
+			l := float32(math.Hypot(float64(dx), float64(dy)))
+			return ox, oy, mx - dy*.22, my - l*.28, tx, ty
+		}
+		for _, d := range ds {
+			if d.a < .5 || !on || d.draw < .99 {
+				continue
+			}
+			// Comets: data on the move, two to an arc, a little quicker in
+			// the middle of the way than at its ends.
+			comets = true
+			x0, y0, cx, cy, x1, y1 := curve(d)
+			along, length := alongQuad(x0, y0, cx, cy, x1, y1)
+			w := max(d.w, .5)
+			cw := max(w*.9, 2)
+			for k := 0; k < 2; k++ {
+				t := frac(phase + d.off + float32(k)/2)
+				s := t - .55*float32(math.Sin(2*math.Pi*float64(t)))/(2*math.Pi)
+				fade := min(1, s/.08, (1-s)/.1)
+				// The trail, in pieces that fade towards its tail.
+				const pieces = 6
+				trail := min(.2, 64/max(length, 1))
+				for j := 0; j < pieces; j++ {
+					f0 := s - trail*float32(pieces-j)/pieces
+					f1 := s - trail*float32(pieces-j-1)/pieces
+					if f1 <= 0 {
+						continue
+					}
+					var seg ui.Path
+					seg.MoveTo(x0, y0).QuadTo(cx, cy, x1, y1).Trim(max(f0, 0), f1)
+					q := float32(j+1) / pieces
+					pt.StrokePath(&seg, cw*(.45+.55*q), d.col.Alpha(fade*q*q))
+				}
+				hx, hy := along(s)
+				var glow, core, glint ui.Path
+				hr := cw/2 + 1.2
+				pt.FillPath(glow.Circle(hx, hy, hr+3), d.col.Alpha(.18*fade))
+				pt.FillPath(core.Circle(hx, hy, hr), d.col.Alpha(fade))
+				pt.FillPath(glint.Circle(hx, hy, max(hr*.45, .9)), ui.RGBA(255, 255, 255, .95*fade))
+				// It lands: a ripple at the exit, as the next one sets off.
+				if t < .3 {
+					u := t / .3
+					var ring ui.Path
+					pt.StrokePath(ring.Circle(x1, y1, 5+11*u), 1.2*(1-u)+.3, d.col.Alpha(.45*(1-u)*(1-u)))
+				}
+			}
+		}
+		// The pulse around you.
+		col := p.ink
+		if !on {
+			col = p.faint
+		}
 		pulse := float32(math.Mod(float64(now)/60, 14))
 		var ring ui.Path
 		pt.StrokePath(ring.Circle(ox, oy, 8+pulse), 1, col.Alpha(max(0, .3-pulse/46)))
-		pt.RichText(ox+9, oy-22, 0, ui.Span{Text: i18n.T("你", "You"), Font: p.font, Size: 13, Weight: 700, Color: col})
 		switch {
 		case comets:
 			pt.AnimationFrameRate(60)
