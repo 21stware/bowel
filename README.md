@@ -76,18 +76,36 @@ Six skins that change the look of the whole interface.
 
 ## Install
 
-Download the file for your platform from [Releases](https://github.com/21stware/bowel/releases/latest):
+macOS, with [Homebrew](https://brew.sh):
+
+```bash
+brew install --cask 21stware/tap/bowel
+```
+
+Windows, in PowerShell:
+
+```powershell
+irm https://github.com/21stware/bowel/releases/latest/download/install.ps1 | iex
+```
+
+Debian, Ubuntu and Fedora. This adds a signed package repository, so `apt` or `dnf` updates bowel from then on:
+
+```bash
+curl -fsSL https://21stware.github.io/packages/install.sh | sh
+```
+
+Or download the file for your platform from [Releases](https://github.com/21stware/bowel/releases/latest):
 
 | Platform | File | Needs |
 | --- | --- | --- |
 | macOS | `bowel-<version>-arm64.dmg` | macOS 12 or later, Apple silicon |
 | Windows | `bowel-setup-<version>-amd64.exe` or `-arm64.exe` | x64 or Arm64 |
-| Linux | `bowel_<version>_<arch>.deb` or `bowel-<version>-linux-<arch>.tar.gz` | amd64 or arm64 |
+| Linux | `bowel_<version>_<arch>.deb`, `bowel-<version>-1.<rpm arch>.rpm` or `bowel-<version>-linux-<arch>.tar.gz` | amd64 or arm64 |
 | Android | `bowel-<version>-android-arm64.apk` | Android 8.0 or later, arm64 |
 
 - **macOS**: Drag bowel into Applications. The app is signed with a Developer ID and notarized by Apple.
 - **Windows**: Run the installer. It isn't code-signed, so Windows may warn you before it runs.
-- **Linux**: Install the `.deb`, or unpack the archive and run `install.sh`, which installs bowel for your user in `~/.local`.
+- **Linux**: Install the `.deb` or `.rpm`, or unpack the archive and run `install.sh`, which installs bowel for your user in `~/.local`.
 - **Android**: Install the APK, allowing your browser to install apps if asked. Android asks for VPN permission the first time you connect.
 - **iOS**: Not released yet.
 

@@ -76,18 +76,36 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 
 ## 安装
 
-从 [Releases](https://github.com/21stware/bowel/releases/latest) 下载对应平台的安装包：
+macOS，使用 [Homebrew](https://brew.sh)：
+
+```bash
+brew install --cask 21stware/tap/bowel
+```
+
+Windows，在 PowerShell 中运行：
+
+```powershell
+irm https://github.com/21stware/bowel/releases/latest/download/install.ps1 | iex
+```
+
+Debian、Ubuntu 和 Fedora。这条命令会添加一个已签名的软件源，之后由 `apt` 或 `dnf` 更新 bowel：
+
+```bash
+curl -fsSL https://21stware.github.io/packages/install.sh | sh
+```
+
+也可以从 [Releases](https://github.com/21stware/bowel/releases/latest) 下载对应平台的安装包：
 
 | 平台 | 文件 | 要求 |
 | --- | --- | --- |
 | macOS | `bowel-<版本>-arm64.dmg` | macOS 12 或更新版本，Apple 芯片 |
 | Windows | `bowel-setup-<版本>-amd64.exe` 或 `-arm64.exe` | x64 或 Arm64 |
-| Linux | `bowel_<版本>_<架构>.deb` 或 `bowel-<版本>-linux-<架构>.tar.gz` | amd64 或 arm64 |
+| Linux | `bowel_<版本>_<架构>.deb`、`bowel-<版本>-1.<rpm 架构>.rpm` 或 `bowel-<版本>-linux-<架构>.tar.gz` | amd64 或 arm64 |
 | Android | `bowel-<版本>-android-arm64.apk` | Android 8.0 或更新版本，arm64 |
 
 - **macOS**：把 bowel 拖进「应用程序」。安装包用 Developer ID 签名，并经过 Apple 公证。
 - **Windows**：运行安装程序。安装包没有代码签名，运行前 Windows 可能会弹出提示。
-- **Linux**：安装 `.deb`，或解压压缩包后运行 `install.sh`，它会把 bowel 安装到当前用户的 `~/.local`。
+- **Linux**：安装 `.deb` 或 `.rpm`，或解压压缩包后运行 `install.sh`，它会把 bowel 安装到当前用户的 `~/.local`。
 - **Android**：安装 APK，如有提示请允许浏览器安装应用。首次连接时系统会请求 VPN 权限。
 - **iOS**：暂未发布。
 
