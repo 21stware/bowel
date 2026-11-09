@@ -355,6 +355,27 @@ func BuildConfig(in Input) ([]byte, error) {
 			"enable": true, "ipv6": o.IPv6, "enhanced-mode": "normal", "nameserver": []string{"system"},
 			"use-hosts": o.UseHosts, "use-system-hosts": o.UseSystemHosts, "nameserver-policy": policy,
 		}
+	default:
+		// Neither TUN nor the built-in switch nor developer networks: the core
+		// used to be given no resolver at all here. It needs one for the
+		// nodes' own names, not only for the traffic's — a node whose server
+		// is a domain cannot be dialled without it, and ECH asks DNS for its
+		// config before the TLS handshake starts — so exactly those nodes
+		// failed to test while every other provider was fine. Normal mode
+		// answers with real addresses: with no tunnel there is nothing to map
+		// fake ones back from.
+		ns := o.Nameservers
+		if len(ns) == 0 {
+			ns = DefaultNameservers
+		}
+		dns := map[string]any{
+			"enable": true, "ipv6": o.IPv6, "enhanced-mode": "normal", "nameserver": ns,
+			"use-hosts": o.UseHosts, "use-system-hosts": o.UseSystemHosts,
+		}
+		if len(policy) > 0 {
+			dns["nameserver-policy"] = policy
+		}
+		cfg["dns"] = dns
 	}
 	return yaml.Marshal(cfg)
 }

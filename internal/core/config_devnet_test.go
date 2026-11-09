@@ -107,9 +107,14 @@ func TestDevNetworkDNSWithoutTun(t *testing.T) {
 	if got := strs(policy["+.aws"]); !slices.Equal(got, []string{"127.0.0.1:5053"}) {
 		t.Errorf("policy %+v", policy)
 	}
-	// Nothing split: no resolver, as before.
-	if _, ok := build(t, devInput("rule", devnet.Compile(devnet.Options{}, devnet.Env{})))["dns"]; ok {
-		t.Error("a catalog alone starts a resolver")
+	// Nothing split: the resolver is still there — the nodes' own names need
+	// one — but it carries no policy of the overlay's.
+	alone, _ := build(t, devInput("rule", devnet.Compile(devnet.Options{}, devnet.Env{})))["dns"].(map[string]any)
+	if alone == nil || alone["enable"] != true {
+		t.Fatalf("no resolver with nothing split: %v", alone)
+	}
+	if _, ok := alone["nameserver-policy"]; ok {
+		t.Errorf("a catalog alone brings a policy: %+v", alone)
 	}
 }
 
@@ -155,10 +160,19 @@ func TestDevNetworkTun(t *testing.T) {
 
 func TestDevNetworkOffLeavesConfigAlone(t *testing.T) {
 	cfg := build(t, devInput("rule", devnet.Overlay{}))
-	for _, k := range []string{"proxies", "hosts", "dns"} {
+	for _, k := range []string{"proxies", "hosts"} {
 		if _, ok := cfg[k]; ok {
 			t.Errorf("%s is there with nothing to add", k)
 		}
+	}
+	// The resolver is the core's own, not the overlay's: it is there with
+	// nothing to add, and carries none of the overlay.
+	dns, _ := cfg["dns"].(map[string]any)
+	if dns == nil || dns["enable"] != true {
+		t.Fatalf("no resolver of the core's own: %v", dns)
+	}
+	if _, ok := dns["nameserver-policy"]; ok {
+		t.Errorf("the overlay left a policy behind: %+v", dns)
 	}
 }
 
