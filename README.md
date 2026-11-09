@@ -74,10 +74,29 @@ Six skins that change the look of the whole interface.
 
 ## Install
 
-1. Download `bowel-<version>-arm64.dmg` from [Releases](https://github.com/21stware/bowel/releases/latest) and drag bowel into Applications.
-2. Add a provider (a subscription URL, node links or a QR code) and turn on takeover.
+macOS, with [Homebrew](https://brew.sh):
 
-Needs macOS 12 or later. Released builds are for Apple silicon, signed with a Developer ID and notarized by Apple.
+```bash
+brew install --cask 21stware/tap/bowel
+```
+
+Windows, in PowerShell:
+
+```powershell
+irm https://github.com/21stware/bowel/releases/latest/download/install.ps1 | iex
+```
+
+Debian, Ubuntu and Fedora. This adds a signed package repository, so `apt` or `dnf` updates bowel from then on:
+
+```bash
+curl -fsSL https://21stware.github.io/packages/install.sh | sh
+```
+
+Or download an installer from [Releases](https://github.com/21stware/bowel/releases/latest). On a Mac, open `bowel-<version>-arm64.dmg` and drag bowel into Applications.
+
+Then add a provider (a subscription URL, node links or a QR code) and turn on takeover.
+
+On macOS it needs version 12 or later. Released Mac builds are for Apple silicon, signed with a Developer ID and notarized by Apple.
 
 ## Develop
 

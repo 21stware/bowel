@@ -3,6 +3,13 @@
   "identifier": "dev.moho.app",
   "version": "0.2.0",
   "out": "build",
+  "updates": {
+    "publicKey": "swwtdEhMxc+h4Tt910EY87sEMQu3Oe3I+ZFScLiu4dE=",
+    "github": "21stware/bowel"
+  },
+  "linux": {
+    "comment": "A desktop client for mihomo"
+  },
   "macos": {
     "icon": "assets/icon/AppIcon.icon",
     "signingIdentity": "Developer ID Application: Cheng Aobo (R54TY86R4C)",

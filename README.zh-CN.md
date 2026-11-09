@@ -74,10 +74,29 @@ bowel 是 macOS 上的 <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> 
 
 ## 安装
 
-1. 从 [Releases](https://github.com/21stware/bowel/releases/latest) 下载 `bowel-<版本>-arm64.dmg`，把 bowel 拖进「应用程序」。
-2. 打开后添加一个 Provider（订阅链接、节点链接或扫码），打开接管。
+macOS，使用 [Homebrew](https://brew.sh)：
 
-需要 macOS 12 或更新版本，目前发布的是 Apple 芯片版本。安装包用 Developer ID 签名，并经过 Apple 公证。
+```bash
+brew install --cask 21stware/tap/bowel
+```
+
+Windows，在 PowerShell 中运行：
+
+```powershell
+irm https://github.com/21stware/bowel/releases/latest/download/install.ps1 | iex
+```
+
+Debian、Ubuntu 和 Fedora。这条命令会添加一个已签名的软件源，之后由 `apt` 或 `dnf` 更新 bowel：
+
+```bash
+curl -fsSL https://21stware.github.io/packages/install.sh | sh
+```
+
+也可以从 [Releases](https://github.com/21stware/bowel/releases/latest) 下载安装包。在 Mac 上打开 `bowel-<版本>-arm64.dmg`，把 bowel 拖进「应用程序」。
+
+安装后添加一个 Provider（订阅链接、节点链接或扫码），打开接管。
+
+macOS 需要 12 或更新版本，目前发布的 Mac 版本仅支持 Apple 芯片。安装包用 Developer ID 签名，并经过 Apple 公证。
 
 ## 开发
 
