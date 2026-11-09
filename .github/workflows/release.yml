@@ -1,8 +1,25 @@
-# Pushing a tag such as v0.1.0 builds, signs and notarizes the disk image and
-# publishes it as a GitHub release. The tag must match the version in mygo.json.
+# Pushing a tag such as v0.2.0 builds every platform and, once all of them
+# have succeeded, publishes one GitHub release. The tag must match the version
+# in mygo.json; the phone apps take their version from it too.
 #
-# Running this workflow by hand builds with an ad hoc signature and publishes
-# nothing, which checks that the app still builds on the runner.
+# Running this workflow by hand builds everything and publishes nothing: the
+# files stay on the run as artifacts, with an ad hoc signature on macOS and the
+# debug key on Android, which checks that all of it still builds on the runners.
+#
+# A tag needs these repository secrets:
+#   MACOS_CERTIFICATE_P12        Developer ID certificate, base64
+#   MACOS_CERTIFICATE_PASSWORD
+#   NOTARY_KEY_P8                App Store Connect key, the text of the .p8
+#   NOTARY_KEY_ID
+#   NOTARY_ISSUER
+#   ANDROID_KEYSTORE_BASE64      release keystore, base64
+#   ANDROID_KEYSTORE_PASSWORD    no backslashes: it goes in a .properties file
+#   ANDROID_KEY_ALIAS
+#   ANDROID_KEY_PASSWORD
+#
+# The iOS build is unsigned and is attached only when the repository variable
+# PUBLISH_IOS is true: iOS links mihomo (GPL-3.0) into the app, which the
+# PolyForm license and the README's "does not link it" do not cover yet.
 name: Release
 
 on:
@@ -13,44 +30,60 @@ on:
 permissions:
   contents: read
 
+env:
+  PUBLISH: ${{ github.event_name == 'push' }}
+  FLUTTER_VERSION: 3.47.9
+
 jobs:
-  release:
-    # Compiling the Icon Composer app icon needs Xcode 26 or later.
-    runs-on: macos-26
-    permissions:
-      contents: write
-    env:
-      PUBLISH: ${{ github.event_name == 'push' }}
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
+      - id: version
+        run: echo "version=$(jq -r .version mygo.json)" >> "$GITHUB_OUTPUT"
 
       - name: Check the tag and the signing secrets
         if: env.PUBLISH == 'true'
         env:
           TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
           MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          version="$(jq -r .version mygo.json)"
-          if [ "$TAG" != "v$version" ]; then
-            echo "::error::Tag $TAG does not match version $version in mygo.json"
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::Tag $TAG does not match version $VERSION in mygo.json"
             exit 1
           fi
           missing=0
-          for name in MACOS_CERTIFICATE_P12 MACOS_CERTIFICATE_PASSWORD NOTARY_KEY_P8 NOTARY_KEY_ID NOTARY_ISSUER; do
+          for name in MACOS_CERTIFICATE_P12 MACOS_CERTIFICATE_PASSWORD NOTARY_KEY_P8 NOTARY_KEY_ID NOTARY_ISSUER \
+            ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
             if [ -z "${!name}" ]; then
               echo "::error::Repository secret $name is not set"
               missing=1
             fi
           done
           exit "$missing"
+
+  macos:
+    needs: check
+    # Compiling the Icon Composer app icon needs Xcode 26 or later.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
 
       - name: Fetch the mihomo core and geo data
         env:
@@ -87,13 +120,197 @@ jobs:
           ./scripts/release.sh
           rm "$NOTARY_KEY"
 
-      - name: Publish the release
-        if: env.PUBLISH == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" build/darwin-arm64/bowel-*-arm64.dmg dist/mihomo-*-source.tar.gz --verify-tag --generate-notes --title "bowel $TAG"
-
       - name: Build without publishing
         if: env.PUBLISH != 'true'
         run: go tool mygo build -platform darwin/arm64 -skip-notarize -sign - .
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          if-no-files-found: error
+          path: |
+            build/darwin-arm64/bowel-*-arm64.dmg
+            dist/mihomo-*-source.tar.gz
+
+  desktop:
+    needs: check
+    name: ${{ matrix.goos }} ${{ matrix.goarch }}
+    # MyGo needs no cgo, so Ubuntu builds the Windows apps as well.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [windows, linux]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Install NSIS, for the Windows installer
+        if: matrix.goos == 'windows'
+        run: sudo apt-get update && sudo apt-get install -y nsis
+
+      - name: Fetch the mihomo core and geo data
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: ./scripts/fetch-core.sh
+
+      - name: Build
+        run: go tool mygo build -platform "${{ matrix.goos }}/${{ matrix.goarch }}" .
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.goos }}-${{ matrix.goarch }}
+          if-no-files-found: error
+          path: |
+            build/*/bowel-setup-*.exe
+            build/*/bowel-*-linux-*.tar.gz
+            build/*/bowel_*.deb
+
+  android:
+    needs: check
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: mobile/bridge/go.mod
+          cache-dependency-path: mobile/bridge/go.sum
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Install the NDK that mobile/android/build.sh pins
+        run: |
+          ndk="$(sed -n 's/^NDK_VERSION=//p' mobile/android/build.sh)"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$ndk" >/dev/null
+
+      - name: Fetch the geo data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/fetch-core.sh
+
+      - name: Install gomobile
+        working-directory: mobile/bridge
+        run: |
+          version="$(go list -m -f '{{.Version}}' golang.org/x/mobile)"
+          go install "golang.org/x/mobile/cmd/gomobile@$version" "golang.org/x/mobile/cmd/gobind@$version"
+          gomobile init
+
+      - name: Build mihomo, the launcher and the bridge
+        run: ./mobile/android/build.sh
+
+      - name: Install the release key
+        if: env.PUBLISH == 'true'
+        working-directory: mobile/flutter/android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+          {
+            echo "storeFile=$RUNNER_TEMP/release.keystore"
+            echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
+            echo "keyAlias=$ANDROID_KEY_ALIAS"
+            echo "keyPassword=$ANDROID_KEY_PASSWORD"
+          } > key.properties
+
+      - name: Build the app
+        working-directory: mobile/flutter
+        run: |
+          flutter build apk --release --build-name="$VERSION" --build-number="$GITHUB_RUN_NUMBER"
+          mv build/app/outputs/flutter-apk/app-release.apk "bowel-$VERSION-android-arm64.apk"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android
+          if-no-files-found: error
+          path: mobile/flutter/bowel-*-android-arm64.apk
+
+  ios:
+    needs: check
+    runs-on: macos-26
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: mobile/bridge/go.mod
+          cache-dependency-path: mobile/bridge/go.sum
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Fetch the geo data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./scripts/fetch-core.sh
+          cp -R resources/geo mobile/flutter/ios/Runner/geo
+
+      - name: Install gomobile
+        working-directory: mobile/bridge
+        run: |
+          version="$(go list -m -f '{{.Version}}' golang.org/x/mobile)"
+          go install "golang.org/x/mobile/cmd/gomobile@$version" "golang.org/x/mobile/cmd/gobind@$version"
+          gomobile init
+
+      - name: Build the bridge and the tunnel
+        run: ./mobile/bridge/build.sh
+
+      - name: Build the app, unsigned
+        working-directory: mobile/flutter
+        run: |
+          flutter build ios --release --no-codesign --build-name="$VERSION" --build-number="$GITHUB_RUN_NUMBER"
+          mkdir Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qry "bowel-$VERSION-ios-unsigned.ipa" Payload
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ios
+          if-no-files-found: error
+          path: mobile/flutter/bowel-*-ios-unsigned.ipa
+
+  publish:
+    if: github.event_name == 'push'
+    needs: [macos, desktop, android, ios]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: release
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          PUBLISH_IOS: ${{ vars.PUBLISH_IOS }}
+        run: |
+          [ "$PUBLISH_IOS" = true ] || rm -rf release/ios
+          find release -type f -print0 | xargs -0 gh release create "$TAG" --verify-tag --generate-notes --title "bowel $TAG"
