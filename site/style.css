@@ -178,6 +178,7 @@ html.zh .hero h1 { line-height: 1.12; }
 .cell { padding: 30px 30px 34px 0; border-top: 1px solid var(--hair); }
 .cell:not(:nth-child(3n + 1)) { padding-left: 30px; border-left: 1px solid var(--hair); }
 .cell h3 { font-size: 19px; }
+.cell h3 .badge { margin-left: 4px; font-family: var(--sans); font-size: 12px; letter-spacing: 0; vertical-align: 2px; }
 .cell p { color: var(--ink2); margin: 10px 0 0; font-size: 15px; }
 .lan { display: flex; align-items: center; gap: 8px; margin-top: 18px; font-size: 20px; }
 .lan b { color: var(--mute); font-weight: 400; }
@@ -204,9 +205,22 @@ html.zh .hero h1 { line-height: 1.12; }
 .download { margin-top: 160px; padding-top: 90px; padding-bottom: 100px; text-align: center; border-top: 1px solid var(--hair); }
 .download > img { margin: 0 auto 26px; border-radius: 22px; }
 .download .btn { margin-top: 32px; }
-.steps { text-align: left; max-width: 640px; margin: 52px auto 0; padding-left: 22px; color: var(--ink2); }
-.steps li { margin: 0 0 14px; padding-left: 6px; }
-.steps li::marker { color: var(--mute); font-weight: 700; }
+.platforms { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 920px; margin: 52px auto 0; text-align: left; }
+.platform { padding: 22px 24px 24px; border-radius: 12px; background: var(--card); border: 1px solid var(--hair2); }
+.platform h3 { font-size: 21px; }
+.platform p { margin: 8px 0 0; color: var(--ink2); font-size: 15px; }
+.platform .needs { margin-top: 2px; color: var(--mute); font-size: 13.5px; }
+.platform .files { margin-top: 14px; font-size: 13.5px; color: var(--mute); overflow-wrap: anywhere; }
+.platform .files code { display: inline-block; max-width: 100%; }
+.next { max-width: 920px; margin: 28px auto 0; color: var(--ink2); }
+.differ { max-width: 920px; margin: 64px auto 0; text-align: left; }
+.differ h3 { font-size: 19px; }
+.table { margin-top: 14px; overflow-x: auto; }
+.differ table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+.differ th, .differ td { padding: 11px 12px; text-align: left; font-weight: 400; color: var(--ink2); border-top: 1px solid var(--hair); }
+.differ thead th, .differ thead td { border-top: 0; color: var(--mute); font-size: 13.5px; font-weight: 650; }
+.differ tbody th { padding-left: 0; color: var(--ink); font-weight: 600; }
+.differ td.no { color: var(--mute); }
 
 /* Footer */
 .foot {
@@ -239,6 +253,8 @@ html.zh .hero h1 { line-height: 1.12; }
 }
 @media (max-width: 600px) {
   .grid { grid-template-columns: 1fr; }
+  .platforms { grid-template-columns: 1fr; }
+  .differ th, .differ td { padding: 10px 5px; font-size: 13px; }
   .hero { padding-top: 48px; }
   .stage { margin-top: 48px; }
   .panel-float { display: none; }
