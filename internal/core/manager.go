@@ -176,6 +176,7 @@ func (m *Manager) Test(path string) error {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, m.Bin, "-t", "-d", m.Dir, "-f", path)
 	cmd.Env = m.env()
+	setProcAttr(cmd) // on Windows, keeps the check from opening a console window
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf(i18n.T("配置检查失败: %s", "The config check failed: %s"), lastLines(string(out), 3))

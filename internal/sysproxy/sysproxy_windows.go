@@ -67,7 +67,8 @@ var (
 	_ [0]struct{} = [unsafe.Sizeof(perConnOptionList{}) - (8 + 3*ptrSize)]struct{}{}
 )
 
-// str reads or writes a string option's value.
+// str reads a string option's value that WinINet filled in. Writes go
+// through strOption.
 func (o *perConnOption) str() **uint16 { return (**uint16)(unsafe.Pointer(&o.value[0])) }
 
 func setOption(option uintptr, buf unsafe.Pointer, size uintptr) error {
@@ -97,8 +98,12 @@ func strOption(option uint32, s string) (perConnOption, []uint16) {
 	if err != nil { // a NUL in s; none of Moho's strings has one
 		u = []uint16{0}
 	}
+	// The address goes in as the integer the field is: a store through
+	// str()'s **uint16 view of a local is dropped by the compiler, and
+	// WinINet got a NULL string (the proxy on, with no server). The
+	// caller keeps u alive, and heap memory doesn't move.
 	o := perConnOption{option: option}
-	*o.str() = &u[0]
+	o.value[0] = uintptr(unsafe.Pointer(&u[0]))
 	return o, u
 }
 
