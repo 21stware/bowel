@@ -138,6 +138,29 @@ func (l *Locator) Probe(ctx context.Context, c *mihomo.Client, probePort int, no
 	if err != nil {
 		return Result{Source: SourceUnknown, At: l.now()}, err
 	}
+	return l.record(node, body)
+}
+
+// Direct measures where this device is by requesting the trace itself, for
+// when no core is running to send it through. It is only right when nothing
+// tunnels the device's own traffic: under a VPN it would find the VPN's exit.
+// The result is cached as Probe("DIRECT") would be.
+func (l *Locator) Direct(ctx context.Context) (Result, error) {
+	select {
+	case l.slot <- struct{}{}:
+	case <-ctx.Done():
+		return Result{Source: SourceUnknown, At: l.now()}, ctx.Err()
+	}
+	defer func() { <-l.slot }()
+	body, err := fetchTrace(ctx, 0, nil)
+	if err != nil {
+		return Result{Source: SourceUnknown, At: l.now()}, err
+	}
+	return l.record("DIRECT", body)
+}
+
+// record reads a trace answer and caches what it says about node.
+func (l *Locator) record(node, body string) (Result, error) {
 	ip, loc, colo := parseTrace(body)
 	if ip == "" && loc == "" {
 		return Result{Source: SourceUnknown, At: l.now()}, errors.New("trace: no ip or loc in the answer")
@@ -148,19 +171,20 @@ func (l *Locator) Probe(ctx context.Context, c *mihomo.Client, probePort int, no
 	}
 	l.mu.Lock()
 	l.cache[node] = r
-	err = l.saveLocked()
+	err := l.saveLocked()
 	l.mu.Unlock()
 	return r, err
 }
 
 // fetchTrace requests the trace through the probe listener, on a connection
 // of its own: a kept-alive one would still go through the previous node.
+// A probePort of 0 requests it directly.
 func fetchTrace(ctx context.Context, probePort int, login *url.Userinfo) (string, error) {
-	proxy := &url.URL{Scheme: "http", User: login, Host: "127.0.0.1:" + strconv.Itoa(probePort)}
-	client := &http.Client{
-		Timeout:   probeTimeout,
-		Transport: &http.Transport{Proxy: http.ProxyURL(proxy), DisableKeepAlives: true},
+	tr := &http.Transport{DisableKeepAlives: true}
+	if probePort != 0 {
+		tr.Proxy = http.ProxyURL(&url.URL{Scheme: "http", User: login, Host: "127.0.0.1:" + strconv.Itoa(probePort)})
 	}
+	client := &http.Client{Timeout: probeTimeout, Transport: tr}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, traceURL, nil)
 	if err != nil {
 		return "", err
