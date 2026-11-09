@@ -83,6 +83,8 @@ func (a *App) debugRun(dir, cmd string) string {
 		u.win.Update(func() { u.page = arg })
 	case "setup":
 		u.win.Update(func() { u.setupLeave() })
+	case "gw":
+		u.win.Update(func() { u.do(func() error { return u.app.setGateway(arg == "on") }) })
 	case "gateway":
 		// Asks the administrator when it is wanted and not ready yet;
 		// the answer goes to <dir>/gw.out, out only says it started.

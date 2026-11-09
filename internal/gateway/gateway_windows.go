@@ -3,11 +3,13 @@
 package gateway
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -38,6 +40,8 @@ type windows_ struct {
 	firewall bool
 	ready    bool      // the NetNat rule was there, as of readyAt
 	readyAt  time.Time // when ready was last read
+	natOK    bool      // this Windows knows NetNat, as of natAt
+	natAt    time.Time // when natOK was last read
 }
 
 // natName is the NetNat rule this package creates.
@@ -104,6 +108,26 @@ func (w *windows_) readyOut() string {
 	return out
 }
 
+// natSupported says whether this Windows knows NetNat at all: some
+// builds answer Get-NetNat's queries with an invalid-class error, the
+// WMI class being absent, and no amount of consenting changes that. The
+// answer is kept for a minute.
+func (w *windows_) natSupported() bool {
+	w.mu.Lock()
+	if time.Since(w.natAt) < time.Minute {
+		v := w.natOK
+		w.mu.Unlock()
+		return v
+	}
+	w.mu.Unlock()
+	out, err := runPowerShell(`(Get-CimClass -ClassName MSFT_NetNat -Namespace root/StandardCimv2) -ne $null`)
+	v := err == nil && psTrue(out)
+	w.mu.Lock()
+	w.natOK, w.natAt = v, time.Now()
+	w.mu.Unlock()
+	return v
+}
+
 // Ready says whether the NAT rule is there, trusting readyTTL's last
 // look. askReady reads it afresh.
 func (w *windows_) Ready() bool {
@@ -138,14 +162,27 @@ func (w *windows_) Prepare(prompt string, before ...tun.Step) error {
 	if iface == "" {
 		return errors.New(i18n.T("这台电脑没有连上局域网", "This computer isn't on a LAN"))
 	}
+	if !w.natSupported() {
+		return errors.New(i18n.T("这台 Windows 没有 NetNat（网络地址转换），网关模式需要它。请在「启用或关闭 Windows 功能」里补齐后重试",
+			"This Windows has no NetNat (network address translation), which gateway mode needs. Fill it in under Turn Windows features on or off, and try again"))
+	}
 	// One script does all of it: the NAT rule, which lasts, and the LAN
 	// interface's forwarding, which SetForwarding could also do but only
-	// with the same consent.
+	// with the same consent. A failure inside the elevated cmd would
+	// otherwise reach the app as a bare exit status, so the script's
+	// error is written to a file this side reads back.
+	errPath := filepath.Join(os.TempDir(), "bowel-gateway-error.txt")
+	_ = os.Remove(errPath)
 	script := `$ErrorActionPreference = 'Stop'
-if ((Get-NetNat -Name '` + natName + `' -ErrorAction SilentlyContinue) -eq $null) {
-	New-NetNat -Name '` + natName + `' -InternalIPInterfaceAddressPrefix 198.18.0.0/15 | Out-Null
-}
-Set-NetIPInterface -InterfaceAlias '` + psQuote(iface) + `' -AddressFamily IPv4 -Forwarding Enabled`
+try {
+	if ((Get-NetNat -Name '` + natName + `' -ErrorAction SilentlyContinue) -eq $null) {
+		New-NetNat -Name '` + natName + `' -InternalIPInterfaceAddressPrefix 198.18.0.0/15 | Out-Null
+	}
+	Set-NetIPInterface -InterfaceAlias '` + psQuote(iface) + `' -AddressFamily IPv4 -Forwarding Enabled
+} catch {
+	$_ | Out-File -FilePath '` + errPath + `' -Encoding utf8
+	exit 1
+}`
 	f, err := os.CreateTemp("", "bowel-gateway-*.ps1")
 	if err != nil {
 		return err
@@ -162,8 +199,12 @@ Set-NetIPInterface -InterfaceAlias '` + psQuote(iface) + `' -AddressFamily IPv4 
 	steps := append(append([]tun.Step{}, before...),
 		tun.Step{"powershell", " -NoProfile -ExecutionPolicy Bypass -File ", path})
 	if err := tun.Admin(prompt, steps...); err != nil {
+		if b, rerr := os.ReadFile(errPath); rerr == nil && len(bytes.TrimSpace(b)) > 0 {
+			return fmt.Errorf("%s: %s", i18n.T("启用网关的命令失败了", "the gateway's commands failed"), strings.TrimSpace(string(b)))
+		}
 		return err
 	}
+	_ = os.Remove(errPath)
 	w.forgetReady()
 	if !w.askReady() {
 		return errors.New(i18n.T("授权后仍然无法启用网关", "the gateway still can't be turned on after the authorization"))
