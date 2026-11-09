@@ -37,7 +37,7 @@ func TestValidTargets(t *testing.T) {
 		list []Target
 	}{
 		"direct":    {"direct", []Target{a}},
-		"unknown":   {"nope", []Target{a}},
+		"no nodes":  {"direct", []Target{a}},
 		"empty":     {"media", nil},
 		"too many":  {"media", many},
 		"twice":     {"media", []Target{a, a}},

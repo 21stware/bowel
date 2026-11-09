@@ -23,6 +23,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if mygo.IsDev() {
+		app.separateFromRelease()
+	}
 	mygo.App.WhenReady(app.start)
 	// The window hides to the menu bar; quitting comes from the menu.
 	mygo.App.OnWindowAllClosed(func() {})

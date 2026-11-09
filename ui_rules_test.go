@@ -42,80 +42,6 @@ func TestActivityRouteMenu(t *testing.T) {
 	}
 }
 
-// TestRulesSection: 设置 > 规则 lists the user's rules by route, says what
-// a typed rule will do before it is added, adds it on Enter, and tests an
-// address.
-func TestRulesSection(t *testing.T) {
-	for _, dark := range []bool{false, true} {
-		u := fixtureUI()
-		u.snap.Settings = settings.Defaults.Clone()
-		u.snap.Settings.Rules = []routes.UserRule{
-			{Kind: routes.KindSuffix, Value: "openai.com", Route: "direct"},
-			{Kind: routes.KindKeyword, Value: "tracker", Route: "default"},
-			{Kind: routes.KindIP, Value: "10.0.0.0/8", Route: "direct"},
-		}
-		u.set.section = "rules"
-		tt := ui.NewTesterWith(u.settingsView, 760, 640, ui.TesterOptions{Dark: dark})
-		tt.Advance(time.Second)
-		for _, want := range []string{"你的规则 · 3", "openai.com", "tracker", "10.0.0.0/8", "内置规则", "测试一个地址"} {
-			if !tt.HasText(want) {
-				t.Errorf("rules section lacks %q: %q", want, tt.Texts())
-			}
-		}
-		if dark {
-			shot(t, tt, "settings-rules-list-dark")
-			continue
-		}
-		f, ok := tt.AccessByRole(ui.RoleTextField, "新规则")
-		if !ok {
-			t.Fatal("no new-rule field")
-		}
-		tt.ClickAt(f.Bounds.X+f.Bounds.W/2, f.Bounds.Y+f.Bounds.H/2)
-		tt.Frame()
-		tt.Type("https://chat.example.com/x")
-		tt.Frame()
-		if !hasTextPart(tt, "chat.example.com 及其子域名 将走「默认」") {
-			t.Errorf("no preview of the typed rule: %q", tt.Texts())
-		}
-		shot(t, tt, "settings-rules-typing")
-		tt.Key(0, ui.KeyEnter)
-		tt.Frame()
-		tt.Frame()
-		got := u.shownSettings().Rules
-		if len(got) != 4 || got[0] != (routes.UserRule{Kind: routes.KindSuffix, Value: "chat.example.com", Route: "default"}) {
-			t.Errorf("rules after Enter: %+v", got)
-		}
-
-		// A bad one says why, and adds nothing.
-		tt.Type("not a domain")
-		tt.Frame()
-		if !hasTextPart(tt, "不是有效的域名") {
-			t.Errorf("no error for a bad rule: %q", tt.Texts())
-		}
-		tt.Key(ui.Cmd, ui.KeyA)
-		tt.Key(0, ui.KeyBackspace)
-
-		tf, ok := tt.AccessByRole(ui.RoleTextField, "测试地址")
-		if !ok {
-			t.Fatal("no test field")
-		}
-		tt.ClickAt(tf.Bounds.X+tf.Bounds.W/2, tf.Bounds.Y+tf.Bounds.H/2)
-		tt.Frame()
-		tt.Type("api.openai.com")
-		tt.Frame()
-		if !tt.HasText("走「直连」") || !tt.HasText("你的规则") {
-			t.Errorf("test of api.openai.com: %q", tt.Texts())
-		}
-		shot(t, tt, "settings-rules-test")
-		tt.Key(ui.Cmd, ui.KeyA)
-		tt.Type("api.anthropic.com")
-		tt.Frame()
-		if !tt.HasText("走「AI 服务」") || !hasTextPart(tt, "DOMAIN-SUFFIX,anthropic.com") {
-			t.Errorf("test of api.anthropic.com: %q", tt.Texts())
-		}
-	}
-}
-
 // TestRoutesShowMine: the route list counts the user's rules in, and
 // offers to manage them.
 func TestRoutesShowMine(t *testing.T) {
@@ -133,11 +59,11 @@ func TestRoutesShowMine(t *testing.T) {
 		t.Errorf("no count of the user's rules: %q", tt.Texts())
 	}
 	shot(t, tt, "home-routes-mine")
-	if err := tt.Click("管理规则"); err != nil {
+	if err := tt.Click("管理路由组"); err != nil {
 		t.Fatal(err)
 	}
-	if u.set.section != "rules" || u.set.opened != 1 {
-		t.Errorf("管理规则 opened %d windows at %q", u.set.opened, u.set.section)
+	if u.page != "routes" {
+		t.Errorf("管理路由组 went to %q", u.page)
 	}
 }
 

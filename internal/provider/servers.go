@@ -22,6 +22,37 @@ func (s *Store) Servers(id string) map[string]string {
 	return parseServers(b)
 }
 
+// Names are the names of provider id's nodes as its file has them, those
+// without a server of their own (direct, WireGuard's peers) too.
+func (s *Store) Names(id string) []string {
+	b, err := os.ReadFile(s.Path(id))
+	if err != nil {
+		return nil
+	}
+	return parseNames(b)
+}
+
+func parseNames(data []byte) []string {
+	var doc struct {
+		Proxies []struct {
+			Name string `yaml:"name"`
+		} `yaml:"proxies"`
+	}
+	var out []string
+	if yaml.Unmarshal(data, &doc) == nil && len(doc.Proxies) > 0 {
+		for _, p := range doc.Proxies {
+			if p.Name != "" {
+				out = append(out, p.Name)
+			}
+		}
+		return out
+	}
+	for name := range parseServers(data) {
+		out = append(out, name)
+	}
+	return out
+}
+
 // parseServers reads what mihomo reads: Clash YAML, or node links, perhaps
 // in Base64.
 func parseServers(data []byte) map[string]string {

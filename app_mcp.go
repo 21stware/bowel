@@ -353,13 +353,13 @@ func (a *App) rulesDiff(old, next []routes.UserRule) []string {
 // findRoute is the route s names: its id, its Chinese name or its title.
 func (a *App) findRoute(s string) (routes.Route, error) {
 	s = strings.TrimSpace(s)
-	for _, r := range a.routes {
+	for _, r := range a.routes() {
 		if strings.EqualFold(s, r.ID) || s == r.Name || strings.EqualFold(s, routes.Title(r)) {
 			return r, nil
 		}
 	}
-	ids := make([]string, len(a.routes))
-	for i, r := range a.routes {
+	ids := make([]string, len(a.routes()))
+	for i, r := range a.routes() {
 		ids[i] = r.ID
 	}
 	return routes.Route{}, fmt.Errorf("%s: %q (%s)", i18n.T("没有这条路由", "No such route"), s, strings.Join(ids, ", "))
@@ -396,6 +396,8 @@ type mcpRoute struct {
 	Name    string `json:"name"`
 	Summary string `json:"summary"`
 	Direct  bool   `json:"direct"`
+	// Reject: what this route gets is refused, not sent anywhere.
+	Reject bool `json:"reject,omitempty"`
 	// Auto: the route picks its fastest node by itself.
 	Auto bool `json:"auto,omitempty"`
 	// Node is the node it uses now (a node's name), "" for direct.
@@ -417,7 +419,7 @@ type mcpNode struct {
 func (a *App) mcpRoutes(snap Snapshot) []mcpRoute {
 	out := make([]mcpRoute, 0, len(snap.Routes))
 	for _, r := range snap.Routes {
-		v := mcpRoute{ID: r.ID, Name: r.Name, Summary: r.Summary, Direct: r.Direct, Auto: r.Auto, Node: r.Node, UserRules: r.Mine}
+		v := mcpRoute{ID: r.ID, Name: r.Name, Summary: r.Summary, Direct: r.Direct, Reject: r.Reject, Auto: r.Auto, Node: r.Node, UserRules: r.Mine}
 		if r.Node != "" {
 			v.NodeLabel = a.display(r.Node)
 		}
@@ -525,8 +527,8 @@ func str(desc string, enum ...string) map[string]any {
 }
 
 func (a *App) mcpServer() *mcp.Server {
-	routeIDs := make([]string, len(a.routes))
-	for i, r := range a.routes {
+	routeIDs := make([]string, len(a.routes()))
+	for i, r := range a.routes() {
 		routeIDs[i] = r.ID
 	}
 	routeArg := str("A route's id: "+strings.Join(routeIDs, ", ")+".", routeIDs...)
@@ -590,7 +592,7 @@ func (a *App) mcpServer() *mcp.Server {
 					} else {
 						return nil, err
 					}
-					id, rule, mine, sure := routes.Explain(host, a.settings.Get().Rules, a.routes)
+					id, rule, mine, sure := routes.Explain(host, routes.Active(a.routes(), a.settings.Get().Rules), a.routes())
 					out := map[string]any{"host": host, "site": routes.Site(host), "sure": sure, "userRule": mine}
 					if sure {
 						out["route"], out["rule"] = id, rule
@@ -605,7 +607,7 @@ func (a *App) mcpServer() *mcp.Server {
 				Description: "Recent connections, newest first: app, host, route, node, rule and traffic. Filter by a part of the host or app.",
 				Input: obj(map[string]any{
 					"filter": str("Only connections whose host or app contains this."),
-					"status": str("Only these: active, closed or failed.", "active", "closed", "failed"),
+					"status": str("Only these: active, closed, failed or blocked (refused by a rule).", "active", "closed", "failed", "blocked"),
 					"limit":  map[string]any{"type": "integer", "description": "At most this many (default 50, at most 500).", "minimum": 1, "maximum": 500},
 				}),
 				Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
@@ -700,7 +702,7 @@ func (a *App) mcpServer() *mcp.Server {
 						return nil, err
 					}
 					if r.Direct {
-						return nil, errors.New("the direct route uses no node")
+						return nil, errors.New("this route uses no node")
 					}
 					err = a.testRoute(ctx, r.ID)
 					snap := a.snapshot()
@@ -803,7 +805,7 @@ func (a *App) mcpServer() *mcp.Server {
 						return nil, err
 					}
 					if r.Direct {
-						return nil, errors.New("the direct route uses no node")
+						return nil, errors.New("this route uses no node")
 					}
 					node, label := "", i18n.T("自动", "Auto")
 					if !strings.EqualFold(p.Node, "auto") && p.Node != "" {

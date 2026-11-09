@@ -54,7 +54,7 @@ func (a *App) keepMeasured() {
 			}
 		}
 	}
-	for _, r := range a.routes {
+	for _, r := range a.routes() {
 		if r.Direct {
 			continue
 		}
@@ -116,7 +116,7 @@ func (a *App) testMains(ids []string) {
 // mainURLs is each route's main target; direct routes have none.
 func mainURLs(s settings.Settings) map[string]string {
 	out := map[string]string{}
-	for _, r := range routes.Template() {
+	for _, r := range routes.Build(s.Routing, nil) {
 		if !r.Direct {
 			out[r.ID] = s.TargetsOf(r.ID)[0].URL
 		}

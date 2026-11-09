@@ -19,7 +19,9 @@ import (
 type UserRule struct {
 	Kind  string `json:"kind"`  // suffix, domain, keyword, ip
 	Value string `json:"value"` // a domain in ASCII, a keyword, or an IP prefix
-	Route string `json:"route"` // a route id
+	Route string `json:"route"` // a route group's id
+	// Service is the id of the service it is in; "" is the group's 我添加的.
+	Service string `json:"service,omitempty"`
 }
 
 // The kinds of UserRule.
@@ -28,6 +30,8 @@ const (
 	KindDomain  = "domain"  // that name only
 	KindKeyword = "keyword" // any name containing it
 	KindIP      = "ip"      // an address or a range
+	KindGeo     = "geo"     // Moho's own: a GeoSite list
+	KindGeoIP   = "geoip"   // Moho's own: a GeoIP list
 )
 
 // Kinds are the kinds of UserRule, in the order the interface offers them.
@@ -72,6 +76,10 @@ func KindName(kind string) string {
 		return i18n.T("关键词", "Keyword")
 	case KindIP:
 		return i18n.T("IP 段", "IP range")
+	case KindGeo:
+		return i18n.T("内置域名库", "Built-in domain list")
+	case KindGeoIP:
+		return i18n.T("内置 IP 库", "Built-in IP list")
 	}
 	return i18n.T("域名及子域名", "Domain and subdomains")
 }
@@ -239,24 +247,21 @@ func Remove(rules []UserRule, r UserRule) []UserRule {
 }
 
 // Explain says where a connection to host would go and why, as far as can
-// be told without the core: the user's rules, then the template's domain
-// rules. sure is false when GeoSite or GeoIP data would decide; route is
-// then "".
+// be told without the core: rules in the order the core tries them, the
+// domain and address ones. sure is false when GeoSite or GeoIP data would
+// decide; route is then "".
 func Explain(host string, user []UserRule, tpl []Route) (route, rule string, mine, sure bool) {
 	ip := ""
 	if _, err := netip.ParseAddr(host); err == nil {
 		ip, host = host, ""
 	}
-	for _, u := range user {
-		if u.Matches(host, ip) {
-			return u.Route, u.Mihomo(), true, true
+	for _, l := range Lines(tpl, user) {
+		r := ruleOf(l.Text)
+		if r.Kind == KindGeo || r.Kind == KindGeoIP {
+			continue
 		}
-	}
-	for _, r := range tpl {
-		for _, s := range r.Rules {
-			if v, ok := strings.CutPrefix(s, "DOMAIN-SUFFIX,"); ok && (UserRule{Kind: KindSuffix, Value: v}).Matches(host, ip) {
-				return r.ID, s, false, true
-			}
+		if (UserRule{Kind: r.Kind, Value: r.Value}).Matches(host, ip) {
+			return l.Route, l.Text, l.Mine, true
 		}
 	}
 	return "", "", false, false

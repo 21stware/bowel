@@ -38,3 +38,15 @@ func TestParseServersLinks(t *testing.T) {
 		}
 	}
 }
+
+// TestParseNames: nodes with no server of their own still have names.
+func TestParseNames(t *testing.T) {
+	got := parseNames([]byte("proxies:\n  - {name: a, type: direct}\n  - {name: b, type: trojan, server: b.example}\n"))
+	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Errorf("yaml: %q", got)
+	}
+	got = parseNames([]byte("trojan://pw@203.0.113.11:443#hk\n"))
+	if len(got) != 1 || got[0] != "hk" {
+		t.Errorf("links: %q", got)
+	}
+}
