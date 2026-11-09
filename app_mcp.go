@@ -18,6 +18,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"runtime"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -86,19 +87,24 @@ func runMCPBridge() error {
 	return mcp.Bridge(mcpSocket(data), os.Stdin, os.Stdout, startOwnApp)
 }
 
-// startOwnApp opens the .app this executable belongs to, in the
-// background. Outside a bundle (go run, mygo dev) there is nothing to open.
+// startOwnApp opens the app in the background: on macOS the .app this
+// executable belongs to, elsewhere the executable itself, which serves
+// the MCP server when it starts (a second one ends in the first, which
+// mygo's single instance moves aside).
 func startOwnApp() error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
 	exe, _ = filepath.EvalSymlinks(exe)
-	bundle := filepath.Dir(filepath.Dir(filepath.Dir(exe))) // X.app/Contents/MacOS/x
-	if !strings.HasSuffix(bundle, ".app") {
-		return errors.New("not inside an .app; start bowel first")
+	if runtime.GOOS == "darwin" {
+		bundle := filepath.Dir(filepath.Dir(filepath.Dir(exe))) // X.app/Contents/MacOS/x
+		if !strings.HasSuffix(bundle, ".app") {
+			return errors.New("not inside an .app; start bowel first")
+		}
+		return exec.Command("open", "-g", bundle).Run()
 	}
-	return exec.Command("open", "-g", bundle).Run()
+	return exec.Command(exe).Start()
 }
 
 // ---- Approval ----

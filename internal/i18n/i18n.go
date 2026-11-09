@@ -96,6 +96,12 @@ var windowsTable = map[string][4]string{
 		"ユーザー名:パスワード。LAN デバイスは先にログインが必要で、この PC は不要です",
 		"使用者名稱:密碼；區域網路裝置要先登入，本機不用",
 	},
+	"在 Finder 中显示": {
+		"在资源管理器中显示",
+		"Show in Explorer",
+		"エクスプロラーで表示",
+		"在檔案總管中顯示",
+	},
 }
 
 // T is the pair's string in the interface's language.

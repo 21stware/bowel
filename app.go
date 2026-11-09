@@ -946,9 +946,24 @@ func (a *App) readOpenAtLogin() {
 	}
 }
 
-// revealConfig shows the core's runtime config in Finder.
+// revealConfig shows the core's runtime config in the file manager.
 func (a *App) revealConfig() error {
-	return exec.Command("open", "-R", a.core.ConfigPath()).Run()
+	return reveal(a.core.ConfigPath())
+}
+
+// reveal shows a file in the platform's file manager: the Finder selects
+// it, Windows' Explorer opens at it, and Linux's opens its folder.
+func reveal(path string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", "-R", path).Run()
+	case "windows":
+		// Explorer answers exit status 1 even when it opened, so it is
+		// started, not run.
+		return exec.Command("explorer", "/select,"+path).Start()
+	default:
+		return exec.Command("xdg-open", filepath.Dir(path)).Start()
+	}
 }
 
 func (a *App) route(id string) routes.Route {
