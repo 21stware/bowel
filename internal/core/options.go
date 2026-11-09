@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/oboo/moho/internal/devnet"
 	"github.com/oboo/moho/internal/i18n"
 )
 
@@ -82,6 +83,14 @@ type Options struct {
 	SniffParsePureIP     bool     `json:"sniffParsePureIp"`
 	SniffSkip            []string `json:"sniffSkip"`
 
+	// Developer networks, see internal/devnet. On unless turned off, as
+	// settings saved before they existed have none of this.
+	DevOff bool `json:"devNetOff"`
+	// DevOffScenarios are the scenarios switched off.
+	DevOffScenarios []string `json:"devNetOffScenarios"`
+	// DevExtra are the user's own suffixes and networks.
+	DevExtra []string `json:"devNetExtra"`
+
 	// GeoData. GeoUpdateInterval is in hours.
 	GeoAutoUpdate     bool   `json:"geoAutoUpdate"`
 	GeoUpdateInterval int    `json:"geoUpdateInterval"`
@@ -153,7 +162,7 @@ func (o Options) Clone() Options {
 func (o *Options) lists() []*[]string {
 	return []*[]string{&o.Authentication, &o.LanAllowedIPs, &o.Nameservers, &o.DefaultNameservers,
 		&o.Fallback, &o.ProxyNameservers, &o.NameserverPolicy, &o.FakeIPFilter, &o.Hosts, &o.DNSHijack,
-		&o.SniffHTTP, &o.SniffTLS, &o.SniffQUIC, &o.SniffSkip}
+		&o.SniffHTTP, &o.SniffTLS, &o.SniffQUIC, &o.SniffSkip, &o.DevOffScenarios, &o.DevExtra}
 }
 
 // Fill gives the options that cannot be empty their default, for settings
@@ -297,6 +306,17 @@ func (o Options) Validate() error {
 			if !portRange(p) {
 				return fmt.Errorf(i18n.T("嗅探端口要写成 443 或 8080-8880: %s", "Sniffing ports must be like 443 or 8080-8880: %s"), p)
 			}
+		}
+	}
+
+	for _, id := range o.DevOffScenarios {
+		if !devnet.Known(id) {
+			return fmt.Errorf(i18n.T("未知的开发者网络场景: %s", "Unknown developer network scenario: %s"), id)
+		}
+	}
+	for _, e := range o.DevExtra {
+		if !devnet.Valid(e) {
+			return fmt.Errorf(i18n.T("要写成域名后缀或网段, 如 corp.example 或 10.8.0.0/16: %s", "Must be a domain suffix or a network, as corp.example or 10.8.0.0/16: %s"), e)
 		}
 	}
 

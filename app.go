@@ -30,6 +30,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/oboo/moho/internal/core"
+	"github.com/oboo/moho/internal/devnet"
 	"github.com/oboo/moho/internal/gateway"
 	"github.com/oboo/moho/internal/geo"
 	"github.com/oboo/moho/internal/i18n"
@@ -109,6 +110,7 @@ type App struct {
 	gwProbe   gwProbe
 	gwProbing bool
 	gwErr     error
+	dev       devState
 }
 
 type switchNote struct {
@@ -220,11 +222,13 @@ func (a *App) start() {
 	a.setupTray()
 	a.copyGeo()
 	go func() {
+		a.detectDev(2 * time.Second)
 		if err := a.applyConfig(); err != nil {
 			log.Println("core:", err)
 		}
 	}()
 	go a.loop()
+	go a.devLoop()
 	go a.debugDriver()
 	a.startMCP()
 }
@@ -469,17 +473,16 @@ func (a *App) applyConfig() error {
 	}
 	all := a.routes()
 	scopes, orders := a.nodeLists(all)
-	cfg, err := core.BuildConfig(core.Input{
-		Providers: refs, Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
-		Tun:      s.Tun && a.takeoverOn(s) && tun.Installed(a.tunBin),
-		Gateway:  a.gatewayOn(s),
-		LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
-		Options: s.Options,
+	err := a.applyDev(s, func(dev devnet.Overlay) ([]byte, error) {
+		return core.BuildConfig(core.Input{
+			Providers: refs, Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
+			Tun:      s.Tun && a.takeoverOn(s) && tun.Installed(a.tunBin),
+			Gateway:  a.gatewayOn(s),
+			LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
+			Options: s.Options, Dev: dev,
+		})
 	})
 	if err != nil {
-		return err
-	}
-	if err := a.core.Apply(cfg); err != nil {
 		a.emit()
 		return err
 	}
@@ -575,7 +578,14 @@ func (a *App) enableProxy(s settings.Settings, prev ...int) error {
 			return err
 		}
 	}
-	return osProxy.enable("127.0.0.1", s.MixedPort, s.Bypass)
+	bypass := a.bypassOf(s)
+	if err := osProxy.enable("127.0.0.1", s.MixedPort, bypass); err != nil {
+		return err
+	}
+	a.dev.mu.Lock()
+	a.dev.bypass = bypass
+	a.dev.mu.Unlock()
+	return nil
 }
 
 // disableProxy puts back the system proxy enableProxy kept, or, with no
@@ -711,6 +721,18 @@ func (a *App) setMode(mode string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if s := a.settings.Get(); !s.DevOff {
+		// The mode is part of the rules then, so they are what changes.
+		dev := overlayOf(s, a.devEnv())
+		if !dev.Empty() {
+			if err := a.applyConfig(); err != nil {
+				return err
+			}
+			closeRerouted(ctx, c, dev)
+			a.refresh()
+			return nil
+		}
+	}
 	if err := c.Patch(ctx, map[string]any{"mode": mode}); err != nil {
 		return err
 	}
@@ -1598,6 +1620,7 @@ func (a *App) snapshot() Snapshot {
 	}
 	tk.Gateway = gatewayView(s, on, tk.Tun.Status, a.gw.System().Ready(), a.gw.Awake(), gwp, gwErr)
 	snap.Takeover = tk
+	snap.Dev = a.devReport(s, tk.Tun.Status == "on")
 
 	// Nodes, in their providers' order.
 	mains := mainURLs(s)
