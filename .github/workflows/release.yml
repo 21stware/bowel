@@ -17,9 +17,9 @@
 #   ANDROID_KEY_ALIAS
 #   ANDROID_KEY_PASSWORD
 #
-# The iOS build is unsigned and is attached only when the repository variable
-# PUBLISH_IOS is true: iOS links mihomo (GPL-3.0) into the app, which the
-# PolyForm license and the README's "does not link it" do not cover yet.
+# iOS is not released yet and builds, unsigned, only when run by hand: it links
+# mihomo (GPL-3.0) into the app, which the PolyForm license and the README's
+# "does not link it" do not cover.
 name: Release
 
 on:
@@ -245,6 +245,7 @@ jobs:
           path: mobile/flutter/bowel-*-android-arm64.apk
 
   ios:
+    if: github.event_name != 'push'
     needs: check
     runs-on: macos-26
     env:
@@ -295,7 +296,7 @@ jobs:
 
   publish:
     if: github.event_name == 'push'
-    needs: [macos, desktop, android, ios]
+    needs: [macos, desktop, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -310,7 +311,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-          PUBLISH_IOS: ${{ vars.PUBLISH_IOS }}
-        run: |
-          [ "$PUBLISH_IOS" = true ] || rm -rf release/ios
-          find release -type f -print0 | xargs -0 gh release create "$TAG" --verify-tag --generate-notes --title "bowel $TAG"
+        run: find release -type f -print0 | xargs -0 gh release create "$TAG" --verify-tag --generate-notes --title "bowel $TAG"
