@@ -758,7 +758,13 @@ func (a *App) setMode(mode string) error {
 func (a *App) retake() error {
 	done := a.begin("retake")
 	defer done()
-	if err := a.enableProxy(a.settings.Get()); err != nil {
+	// The proxy's writes must not run two at once: wininet rejects racing
+	// per-connection writes, the settings page and this retake having
+	// come around without applySystemProxy's lock.
+	a.proxyMu.Lock()
+	err := a.enableProxy(a.settings.Get())
+	a.proxyMu.Unlock()
+	if err != nil {
 		return err
 	}
 	a.refresh()
@@ -869,7 +875,10 @@ func (a *App) updateSettings(fn func(*settings.Settings)) error {
 		a.applySystemProxy(old.MixedPort) // points the system at the new port
 	} else if !slices.Equal(next.Bypass, old.Bypass) && a.takeoverOn(next) && next.SystemProxy {
 		if cur, err := sysproxy.Check(next.MixedPort); err == nil && cur.Ours {
-			if err := a.enableProxy(next); err != nil {
+			a.proxyMu.Lock()
+			err := a.enableProxy(next)
+			a.proxyMu.Unlock()
+			if err != nil {
 				return err
 			}
 		}

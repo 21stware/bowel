@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -83,6 +84,12 @@ func write(opts []perConnOption, keep ...[]uint16) error {
 	list := perConnOptionList{count: uint32(len(opts)), options: &opts[0]}
 	list.size = uint32(unsafe.Sizeof(list))
 	err := setOption(optPerConnection, unsafe.Pointer(&list), unsafe.Sizeof(list))
+	if err != nil {
+		// A write that lands while a previous one's refresh notification
+		// is still moving can be refused; one more try, after it settles.
+		time.Sleep(150 * time.Millisecond)
+		err = setOption(optPerConnection, unsafe.Pointer(&list), unsafe.Sizeof(list))
+	}
 	runtime.KeepAlive(opts)
 	runtime.KeepAlive(keep)
 	if err != nil {
