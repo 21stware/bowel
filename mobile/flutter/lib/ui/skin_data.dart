@@ -1,0 +1,73 @@
+// Generated from prototype/mobile.html, which took them from skins.go and ui.go.
+import 'dart:ui';
+
+import 'skin.dart';
+
+const skinDefs = <String, SkinDef>{
+  'paper': SkinDef(
+    name: '纸墨',
+    accentL: Color(0xFF7A9E00),
+    accentD: Color(0xFFDDFB4C),
+    light: Palette(paper: Color(0xFFF6F4EF), paper2: Color(0xFFEFECE5), card: Color(0xFFFBFAF7), sheet: Color(0xFFFDFCF9), ink: Color(0xFF151413), ink2: Color(0xFF3B3936), mute: Color(0xFF8B877E), faint: Color(0xFFC2BDB2), hair: Color(0x1C151413), hair2: Color(0x0F151413), hover: Color(0x09151413), signal: Color(0xFFE2462B), good: Color(0xFF2C9A5A), warn: Color(0xFFCF8A12), routes: [Color(0xFF2F5BEA), Color(0xFF7A4DE0), Color(0xFFE0457B), Color(0xFF0E9DB1), Color(0xFF9A968C)]),
+    dark: Palette(paper: Color(0xFF171615), paper2: Color(0xFF242321), card: Color(0xFF201F1D), sheet: Color(0xFF242321), ink: Color(0xFFF3F1EC), ink2: Color(0xFFCFCCC5), mute: Color(0xFF8E8A82), faint: Color(0xFF4D4A45), hair: Color(0x1CF4F3EE), hair2: Color(0x0FF4F3EE), hover: Color(0x0AF4F3EE), signal: Color(0xFFFF5A3C), good: Color(0xFF3FC07A), warn: Color(0xFFF0A630), routes: [Color(0xFF5B80FF), Color(0xFF9A74FF), Color(0xFFFF5F93), Color(0xFF22C3D6), Color(0xFF77736B)]),
+    font: 'OPPO Sans',
+    disp: 'OPPO Sans',
+    round: 1,
+    glow: null,
+  ),
+  'broadsheet': SkinDef(
+    name: '报刊',
+    accentL: Color(0xFFB3261E),
+    accentD: Color(0xFFB3261E),
+    light: Palette(paper: Color(0xFFEFE7D4), paper2: Color(0xFFE7DEC8), card: Color(0xFFF5EEDD), sheet: Color(0xFFF8F2E4), ink: Color(0xFF1B1712), ink2: Color(0xFF3E372D), mute: Color(0xFF7F7461), faint: Color(0xFFBCB098), hair: Color(0x331B1712), hair2: Color(0x171B1712), hover: Color(0x0A1B1712), signal: Color(0xFFB3261E), good: Color(0xFF2F6B3A), warn: Color(0xFFA8700C), routes: [Color(0xFF1F3F74), Color(0xFF6B3D7A), Color(0xFFB3261E), Color(0xFF2B6A66), Color(0xFF8A8170)]),
+    dark: Palette(paper: Color(0xFF1A1814), paper2: Color(0xFF2A261F), card: Color(0xFF24211B), sheet: Color(0xFF2A261F), ink: Color(0xFFEFE6D0), ink2: Color(0xFFCDC3AB), mute: Color(0xFF8F8670), faint: Color(0xFF4E483B), hair: Color(0x2EEFE6D0), hair2: Color(0x14EFE6D0), hover: Color(0x0AEFE6D0), signal: Color(0xFFE0533F), good: Color(0xFF6FB87A), warn: Color(0xFFE2A540), routes: [Color(0xFF7D9BD1), Color(0xFFB48AC4), Color(0xFFE0705F), Color(0xFF66B3A9), Color(0xFF857C69)]),
+    font: 'OPPO Sans',
+    disp: 'Georgia',
+    round: 0.3,
+    glow: null,
+  ),
+  'phosphor': SkinDef(
+    name: '荧光屏',
+    accentL: null,
+    accentD: Color(0xFF46F08A),
+    light: null,
+    dark: Palette(paper: Color(0xFF050B07), paper2: Color(0xFF0E1D12), card: Color(0xFF0B170E), sheet: Color(0xFF0E1D12), ink: Color(0xFFA6FFBC), ink2: Color(0xFF74DC8F), mute: Color(0xFF3F8F55), faint: Color(0xFF1E4A2A), hair: Color(0x336EFF96), hair2: Color(0x176EFF96), hover: Color(0x0D6EFF96), signal: Color(0xFFFF5F4A), good: Color(0xFF5DFF8A), warn: Color(0xFFFFC24A), routes: [Color(0xFF46F08A), Color(0xFFF5C542), Color(0xFFFF7A59), Color(0xFF39D5FF), Color(0xFF3F8F55)]),
+    font: 'Menlo',
+    disp: 'Menlo',
+    round: 0,
+    glow: Color(0x8C46F08A),
+  ),
+  'neon': SkinDef(
+    name: '霓虹',
+    accentL: null,
+    accentD: Color(0xFFFF3FA4),
+    light: null,
+    dark: Palette(paper: Color(0xFF0D0A1F), paper2: Color(0xFF1C163F), card: Color(0xFF171233), sheet: Color(0xFF1C163F), ink: Color(0xFFF6F2FF), ink2: Color(0xFFCBC2F2), mute: Color(0xFF857CB6), faint: Color(0xFF3B3468), hair: Color(0x2EBEA0FF), hair2: Color(0x17BEA0FF), hover: Color(0x0FBEA0FF), signal: Color(0xFFFF3B6B), good: Color(0xFF2BFFC6), warn: Color(0xFFFFD23F), routes: [Color(0xFF3BD8FF), Color(0xFFB46BFF), Color(0xFFFF3FA4), Color(0xFF2BFFC6), Color(0xFF6C6699)]),
+    font: 'OPPO Sans',
+    disp: 'Futura',
+    round: 1.3,
+    glow: Color(0x99FF3FA4),
+  ),
+  'blueprint': SkinDef(
+    name: '蓝图',
+    accentL: null,
+    accentD: Color(0xFFFFD166),
+    light: null,
+    dark: Palette(paper: Color(0xFF0E3363), paper2: Color(0xFF15457F), card: Color(0xFF123E76), sheet: Color(0xFF15457F), ink: Color(0xFFF0F7FF), ink2: Color(0xFFC7DEF6), mute: Color(0xFF86ABD4), faint: Color(0xFF3F6CA3), hair: Color(0x42DCECFF), hair2: Color(0x1CDCECFF), hover: Color(0x0FDCECFF), signal: Color(0xFFFF7A59), good: Color(0xFF7DFFB3), warn: Color(0xFFFFD166), routes: [Color(0xFFFFFFFF), Color(0xFFFFD166), Color(0xFFFF8FA3), Color(0xFF7DE3FF), Color(0xFF86ABD4)]),
+    font: 'OPPO Sans',
+    disp: 'DIN Alternate',
+    round: 0.25,
+    glow: null,
+  ),
+  'sakura': SkinDef(
+    name: '樱',
+    accentL: Color(0xFFE45A8A),
+    accentD: Color(0xFFE45A8A),
+    light: Palette(paper: Color(0xFFFBF2F0), paper2: Color(0xFFF6E7E4), card: Color(0xFFFFF9F7), sheet: Color(0xFFFFFBFA), ink: Color(0xFF2E1C23), ink2: Color(0xFF5C4049), mute: Color(0xFFA1838C), faint: Color(0xFFDCC2C8), hair: Color(0x21783246), hair2: Color(0x11783246), hover: Color(0x09783246), signal: Color(0xFFDE4358), good: Color(0xFF3A9A6C), warn: Color(0xFFD18A24), routes: [Color(0xFF6C7FD8), Color(0xFFA468D6), Color(0xFFE45A8A), Color(0xFF35A6A1), Color(0xFFB49AA1)]),
+    dark: Palette(paper: Color(0xFF1E1419), paper2: Color(0xFF302029), card: Color(0xFF2A1C23), sheet: Color(0xFF302029), ink: Color(0xFFF8E9EE), ink2: Color(0xFFDCC3CC), mute: Color(0xFFA08590), faint: Color(0xFF56404A), hair: Color(0x24FFC8DC), hair2: Color(0x12FFC8DC), hover: Color(0x0BFFC8DC), signal: Color(0xFFFF6B7F), good: Color(0xFF5FD39A), warn: Color(0xFFF2B04A), routes: [Color(0xFF8E9CFF), Color(0xFFC792FF), Color(0xFFFF7FAE), Color(0xFF4FD1C9), Color(0xFF8A7480)]),
+    font: 'OPPO Sans',
+    disp: 'Arial Rounded MT Bold',
+    round: 1.6,
+    glow: null,
+  ),
+};

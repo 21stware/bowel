@@ -47,6 +47,9 @@ func (m *Monitor) apply(s mihomo.Snapshot, now time.Time) {
 		if m.SkipGroup != "" && len(mc.Chains) > 0 && mc.Chains[len(mc.Chains)-1] == m.SkipGroup {
 			continue
 		}
+		if len(mc.Chains) > 0 && mc.Chains[len(mc.Chains)-1] == Reject {
+			continue // the log has it; a poll only catches some
+		}
 		t, ok := m.active[mc.ID]
 		if !ok {
 			t = &tracked{Conn: convert(mc)}

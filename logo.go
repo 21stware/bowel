@@ -7,6 +7,8 @@ package main
 
 import (
 	"math"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // logoWidth is the squiggle's stroke in logoPoints' units; the logo's box is
@@ -75,6 +77,14 @@ var logoPoints = []float64{
 	182.2, 95.0, 182.5, 96.3, 182.7, 97.6, 183.0, 98.8, 183.2, 100.1, 183.4, 101.3, 183.6, 102.6, 183.8, 103.9,
 	183.9, 105.1, 184.1, 106.4, 184.3, 107.7, 184.4, 109.0, 184.5, 110.3, 184.6, 111.5, 184.7, 112.6, 184.7, 113.7,
 	184.8, 114.9, 184.9, 115.9, 184.9, 117.0, 185.0, 117.6,
+}
+
+// logoTile is the app's icon inside the window: the theme color and the
+// logo's line, as the first run's art draws them.
+func logoTile(c *ui.Context, p *pal, size float32) ui.Element {
+	fill, line := setupColors(p)
+	return ui.Box(c).Size(size, size).Shrink(0).Radius(size * .225).Background(fill).AccessHidden(true).
+		Draw(func(pt *ui.Painter, r ui.Rect) { setupDraw(pt, r, line, 1, -1, 0, nil) })
 }
 
 // strokeLogo paints the line through pts (logoPoints) into

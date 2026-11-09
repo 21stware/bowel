@@ -34,7 +34,7 @@ type Conn struct {
 	Down, Up                   int64    // totals
 	DownRate, UpRate           int64    // bytes/s over the last poll
 	Start, End                 time.Time
-	Status                     string // "active", "closed", "failed"
+	Status                     string // "active", "closed", "failed", "blocked"
 	Error                      string
 	// Source is the client's address: this Mac's own, or another
 	// device's on the LAN.
@@ -94,6 +94,7 @@ type Monitor struct {
 	mu       sync.Mutex
 	active   map[string]*tracked
 	closed   []Conn // oldest first; only the last maxClosed count
+	blocked  []Conn // the same, apart: a busy block list mustn't push out the rest
 	events   []Event
 	logs     []Log
 	seq      int64
@@ -245,17 +246,21 @@ func (m *Monitor) Now() Snapshot {
 	}
 }
 
-// Conns returns the active connections and the last 300 closed or failed
-// ones, newest Start first.
+// Conns returns the active connections, the last 300 closed or failed ones
+// and the last 300 blocked ones, newest Start first.
 func (m *Monitor) Conns() []Conn {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	closed := last(m.closed, maxClosed)
-	out := make([]Conn, 0, len(m.active)+len(closed))
+	blocked := last(m.blocked, maxClosed)
+	out := make([]Conn, 0, len(m.active)+len(closed)+len(blocked))
 	for _, t := range m.active {
 		out = append(out, cloneConn(t.Conn))
 	}
 	for _, c := range closed {
+		out = append(out, cloneConn(c))
+	}
+	for _, c := range blocked {
 		out = append(out, cloneConn(c))
 	}
 	slices.SortStableFunc(out, func(a, b Conn) int {

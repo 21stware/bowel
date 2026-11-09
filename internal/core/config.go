@@ -2,13 +2,23 @@ package core
 
 import (
 	"errors"
+	"fmt"
+	"maps"
+	"regexp"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/oboo/moho/internal/devnet"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/routes"
 )
+
+// LocalDNSPort is where the core's resolver listens on this Mac, when it
+// has one and devices on the LAN don't use it. A development build moves
+// it, to run beside the released app.
+var LocalDNSPort = 1053
 
 // NodeSep separates a node's own name from the provider marker Moho appends
 // (mihomo would otherwise see duplicate names across providers). Display
@@ -26,25 +36,54 @@ type ProviderRef struct {
 
 // Input is everything the runtime config is made of.
 type Input struct {
-	Providers  []ProviderRef
-	Routes     []routes.Route
-	UserRules  []routes.UserRule // before the routes' own
-	Mode       string
-	MixedPort  int
-	AllowLan   bool
-	Tun        bool
-	Gateway    bool // LAN devices use this Mac as gateway and DNS (needs Tun): the resolver answers them on port 53, with fake IPs
-	LogLevel   string
-	TestURL    string
-	MainURLs   map[string]string // route id → what its automatic group tests; TestURL where absent
+	Providers []ProviderRef
+	Routes    []routes.Route
+	UserRules []routes.UserRule // sorted in with the routes' own, the more specific first
+	Mode      string
+	MixedPort int
+	AllowLan  bool
+	Tun       bool
+	Gateway   bool // LAN devices use this Mac as gateway and DNS (needs Tun): the resolver answers them on port 53, with fake IPs
+	LogLevel  string
+	TestURL   string
+	MainURLs  map[string]string // route id → what its automatic group tests; TestURL where absent
+	// Scopes are the nodes a route's automatic group may pick from, by
+	// route id; every node where absent. An empty list is no node at all:
+	// a range is never widened on its own.
+	Scopes map[string][]string
+	// Orders are the nodes of a route's fallback group, first preferred,
+	// by route id. Routes absent have no such group.
+	Orders     map[string][]string
 	ProbePort  int
 	Controller map[string]any
+
+	// Dev keeps the machine's own networks off the proxy; see devnet.
+	Dev devnet.Overlay
 
 	// Options are the 设置 window's; zero values fall back to Moho's.
 	Options
 }
 
 func providerName(id string) string { return "p-" + id }
+
+// providerOf is the provider a node's full name says it came from.
+func providerOf(node string) string {
+	if i := strings.LastIndex(node, NodeSep); i >= 0 {
+		return node[i+len(NodeSep):]
+	}
+	return ""
+}
+
+// exactly is a group filter that keeps just these node names. mihomo
+// splits a filter at backticks, so one in a name is matched by any
+// character.
+func exactly(names []string) string {
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = strings.ReplaceAll(regexp.QuoteMeta(n), "`", ".")
+	}
+	return "^(?:" + strings.Join(quoted, "|") + ")$"
+}
 
 // withTarget puts the target before a rule's trailing options:
 // "GEOIP,CN,no-resolve" + DIRECT → "GEOIP,CN,DIRECT,no-resolve".
@@ -56,16 +95,23 @@ func withTarget(rule, target string) string {
 }
 
 // BuildConfig writes the mihomo config: one file proxy-provider per enabled
-// provider, two groups per route (a selector, and an automatic url-test
-// group the selector can point at), the rules of the template, and a
-// listener bound to the probe group.
+// provider, a selector per route with the groups it can point at (an
+// automatic url-test one, and a fallback one if it has an order), every
+// rule, the more specific first, and a listener bound to the probe group.
 func BuildConfig(in Input) ([]byte, error) {
 	o := in.Options.Clone()
 	o.Fill()
+	dev := in.Dev
+	// The core ignores rules outside rule mode, and with them the way to
+	// this machine's own networks; see rulesFor.
+	mode := in.Mode
+	if !dev.Empty() {
+		mode = "rule"
+	}
 	cfg := map[string]any{
 		"mixed-port":          in.MixedPort,
 		"allow-lan":           in.AllowLan,
-		"mode":                in.Mode,
+		"mode":                mode,
 		"log-level":           in.LogLevel,
 		"ipv6":                o.IPv6,
 		"unified-delay":       o.UnifiedDelay,
@@ -109,17 +155,27 @@ func BuildConfig(in Input) ([]byte, error) {
 		cfg["external-controller"] = o.ExtController
 		cfg["secret"] = o.ExtSecret
 	}
-	if len(o.Hosts) > 0 {
-		hosts := map[string]any{}
-		for _, h := range o.Hosts {
-			if k, v, ok := Pair(h); ok {
-				hosts[k] = v
-			}
+	hosts := map[string]any{}
+	for k, v := range dev.Hosts {
+		hosts[k] = v
+	}
+	for _, h := range o.Hosts {
+		if k, v, ok := Pair(h); ok {
+			hosts[k] = v
 		}
+	}
+	if len(hosts) > 0 {
 		cfg["hosts"] = hosts
 	}
+	if len(dev.Outbounds) > 0 {
+		var out []any
+		for _, b := range dev.Outbounds {
+			out = append(out, map[string]any{"name": b.Name, "type": "direct", "interface-name": b.Iface})
+		}
+		cfg["proxies"] = out
+	}
 	if o.Sniff {
-		cfg["sniffer"] = map[string]any{
+		sniffer := map[string]any{
 			"enable": true, "override-destination": o.SniffOverride,
 			"force-dns-mapping": o.SniffForceDNSMapping, "parse-pure-ip": o.SniffParsePureIP,
 			"sniff": map[string]any{
@@ -129,6 +185,10 @@ func BuildConfig(in Input) ([]byte, error) {
 			},
 			"skip-domain": o.SniffSkip,
 		}
+		if len(dev.SniffSkip) > 0 {
+			sniffer["skip-dst-address"] = dev.SniffSkip
+		}
+		cfg["sniffer"] = sniffer
 	}
 
 	use := []string{}
@@ -160,37 +220,58 @@ func BuildConfig(in Input) ([]byte, error) {
 		return g
 	}
 	var groups []any
-	var rules []string
-	for _, u := range in.UserRules {
-		for _, r := range in.Routes {
-			if r.ID != u.Route {
-				continue
-			}
-			target := routes.Group(r)
-			if r.Direct {
-				target = "DIRECT"
-			}
-			rules = append(rules, withTarget(u.Mihomo(), target))
-		}
-	}
 	for _, r := range in.Routes {
 		if r.Direct {
-			for _, rule := range r.Rules {
-				rules = append(rules, withTarget(rule, "DIRECT"))
-			}
 			continue
 		}
 		mainURL := in.MainURLs[r.ID]
 		if mainURL == "" {
 			mainURL = in.TestURL
 		}
-		groups = append(groups,
-			withNodes(map[string]any{"name": routes.Auto(r), "type": "url-test", "url": mainURL, "interval": o.URLTestInterval, "tolerance": o.URLTestTolerance, "lazy": true}),
-			withNodes(map[string]any{"name": routes.Group(r), "type": "select"}, routes.Auto(r)),
-		)
-		if r.ID != routes.Default {
-			for _, rule := range r.Rules {
-				rules = append(rules, withTarget(rule, routes.Group(r)))
+		auto := map[string]any{"name": routes.Auto(r), "type": "url-test", "url": mainURL, "interval": o.URLTestInterval, "tolerance": o.URLTestTolerance, "lazy": true}
+		if names, scoped := in.Scopes[r.ID]; !scoped {
+			auto = withNodes(auto)
+		} else if len(names) == 0 {
+			auto["proxies"] = []string{"REJECT"} // nothing in range: no way out, not another way out
+		} else {
+			auto["use"], auto["filter"] = use, exactly(names)
+		}
+		groups = append(groups, auto)
+		members := []string{routes.Auto(r)}
+		if order, ok := in.Orders[r.ID]; ok {
+			backup := map[string]any{"name": routes.Backup(r), "type": "fallback", "url": mainURL, "interval": o.URLTestInterval, "lazy": true}
+			var steps []string
+			for i, n := range order {
+				step := routes.BackupStep(r, i)
+				steps = append(steps, step)
+				groups = append(groups, map[string]any{"name": step, "type": "select", "use": []string{providerName(providerOf(n))}, "filter": exactly([]string{n})})
+			}
+			if len(steps) == 0 {
+				steps = []string{"REJECT"}
+			}
+			backup["proxies"] = steps
+			groups = append(groups, backup)
+			members = append(members, routes.Backup(r))
+		}
+		groups = append(groups, withNodes(map[string]any{"name": routes.Group(r), "type": "select"}, members...))
+	}
+	var mine, rest []string
+	for _, l := range routes.Lines(in.Routes, in.UserRules) {
+		for _, r := range in.Routes {
+			if r.ID != l.Route {
+				continue
+			}
+			target := routes.Group(r)
+			switch {
+			case r.Reject:
+				target = "REJECT"
+			case r.Direct:
+				target = "DIRECT"
+			}
+			if l.Mine && dev.Covers(l.Text) {
+				mine = append(mine, withTarget(l.Text, target))
+			} else {
+				rest = append(rest, withTarget(l.Text, target))
 			}
 		}
 	}
@@ -203,7 +284,7 @@ func BuildConfig(in Input) ([]byte, error) {
 	if def.Name == "" {
 		return nil, errors.New(i18n.T("模板里没有默认路由", "The template has no default route"))
 	}
-	rules = append(rules, "MATCH,"+routes.Group(def))
+	rules := rulesFor(in.Mode, dev, mine, rest, routes.Group(def))
 	groups = append(groups, withNodes(map[string]any{"name": ProbeGroup, "type": "select"}, "DIRECT"))
 	cfg["proxy-groups"] = groups
 	cfg["rules"] = rules
@@ -220,13 +301,18 @@ func BuildConfig(in Input) ([]byte, error) {
 		if o.TunDevice != "" {
 			tun["device"] = o.TunDevice
 		}
+		if len(dev.TunExclude) > 0 {
+			tun["route-exclude-address"] = dev.TunExclude
+		}
 		cfg["tun"] = tun
 	}
 	gateway := in.Tun && in.Gateway
 	if gateway {
 		o.DNSMode = "fake-ip"
 	}
-	if in.Tun || o.DNS {
+	policy := dnsPolicy(o.NameserverPolicy, dev.Policy)
+	switch {
+	case in.Tun || o.DNS:
 		dns := map[string]any{
 			"enable": true, "ipv6": o.IPv6, "enhanced-mode": o.DNSMode,
 			"default-nameserver": o.DefaultNameservers,
@@ -238,7 +324,7 @@ func BuildConfig(in Input) ([]byte, error) {
 		}
 		if o.DNSMode == "fake-ip" {
 			dns["fake-ip-range"] = o.FakeIPRange
-			dns["fake-ip-filter"] = o.FakeIPFilter
+			dns["fake-ip-filter"] = devnet.Merge(o.FakeIPFilter, dev.FakeIPFilter)
 		}
 		if len(o.Fallback) > 0 {
 			dns["fallback"] = o.Fallback
@@ -246,22 +332,65 @@ func BuildConfig(in Input) ([]byte, error) {
 		if len(o.ProxyNameservers) > 0 {
 			dns["proxy-server-nameserver"] = o.ProxyNameservers
 		}
-		if len(o.NameserverPolicy) > 0 {
-			policy := map[string][]string{}
-			for _, p := range o.NameserverPolicy {
-				if k, v, ok := Pair(p); ok {
-					policy[k] = append(policy[k], v)
-				}
+		for _, pattern := range dev.SystemDNS {
+			if _, ok := policy[pattern]; !ok {
+				policy[pattern] = []string{"system"}
 			}
+		}
+		if len(policy) > 0 {
 			dns["nameserver-policy"] = policy
 		}
 		switch {
 		case gateway:
 			dns["listen"] = "0.0.0.0:53"
 		case in.Tun:
-			dns["listen"] = "127.0.0.1:1053"
+			dns["listen"] = fmt.Sprintf("127.0.0.1:%d", LocalDNSPort)
 		}
 		cfg["dns"] = dns
+	case len(dev.Policy) > 0:
+		// Without a resolver of its own the core asks the system's servers
+		// directly, which knows nothing of split DNS: this resolver is the
+		// system's too, but for the domains that have servers of their own.
+		cfg["dns"] = map[string]any{
+			"enable": true, "ipv6": o.IPv6, "enhanced-mode": "normal", "nameserver": []string{"system"},
+			"use-hosts": o.UseHosts, "use-system-hosts": o.UseSystemHosts, "nameserver-policy": policy,
+		}
 	}
 	return yaml.Marshal(cfg)
+}
+
+// rulesFor is the rule list. Outside rule mode the core would ignore the
+// list and send everything one way, so the mode becomes the list's last
+// line and the routes' rules are left out: the way to this machine's own
+// networks stays, and all else goes as the mode says.
+func rulesFor(mode string, dev devnet.Overlay, mine, rest []string, def string) []string {
+	var own []string
+	for _, r := range dev.Rules {
+		own = append(own, withTarget(r.Text, r.Target))
+	}
+	switch {
+	case dev.Empty() || mode == "rule":
+		return slices.Concat(mine, own, rest, []string{"MATCH," + def})
+	case mode == "global":
+		return append(own, "MATCH,GLOBAL")
+	}
+	return append(own, "MATCH,DIRECT")
+}
+
+// dnsPolicy is the user's "pattern=server" entries, and those of dev for
+// the patterns the user says nothing about.
+func dnsPolicy(user []string, dev []devnet.Policy) map[string][]string {
+	policy := map[string][]string{}
+	for _, p := range user {
+		if k, v, ok := Pair(p); ok {
+			policy[k] = append(policy[k], v)
+		}
+	}
+	mine := maps.Clone(policy)
+	for _, p := range dev {
+		if _, ok := mine[p.Pattern]; !ok {
+			policy[p.Pattern] = append(policy[p.Pattern], p.Server)
+		}
+	}
+	return policy
 }

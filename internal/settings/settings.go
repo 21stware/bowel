@@ -54,8 +54,10 @@ type Settings struct {
 	// changed them from its defaults (TargetsOf).
 	RouteTargets map[string][]routes.Target `json:"routeTargets,omitempty"`
 
-	// Rules are the user's own, before the template's: the newest first.
+	// Rules are the user's own, the newest first.
 	Rules []routes.UserRule `json:"rules"`
+	// Routing is what the user changed about route groups and services.
+	Routing routes.Plan `json:"routing,omitzero"`
 
 	// StartHidden: opened at login, Moho stays in the menu bar.
 	StartHidden bool `json:"startHidden"`
@@ -113,6 +115,7 @@ type Store struct {
 	path string
 	mu   sync.Mutex
 	s    Settings
+	gen  uint64 // counts changes
 }
 
 func Open(dir string) (*Store, error) {
@@ -155,6 +158,13 @@ func Open(dir string) (*Store, error) {
 	return st, nil
 }
 
+// Gen counts the changes so far.
+func (st *Store) Gen() uint64 {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.gen
+}
+
 func (st *Store) Get() Settings {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -165,6 +175,7 @@ func (st *Store) Get() Settings {
 func (s Settings) Clone() Settings {
 	s.Bypass = slices.Clone(s.Bypass)
 	s.Rules = slices.Clone(s.Rules)
+	s.Routing = s.Routing.Clone()
 	s.Options = s.Options.Clone()
 	if s.RouteTargets != nil {
 		m := make(map[string][]routes.Target, len(s.RouteTargets))
@@ -178,15 +189,17 @@ func (s Settings) Clone() Settings {
 
 // TargetsOf is what route id is tested against, its main target first: the
 // user's list, or the route's defaults. The default route's main target is
-// the test URL of the settings.
+// the test URL of the settings, and so is that of a group the user made.
 func (s Settings) TargetsOf(id string) []routes.Target {
 	if t := s.RouteTargets[id]; len(t) > 0 {
 		return slices.Clone(t)
 	}
 	t := routes.DefaultTargets(id)
-	if id == routes.Default {
+	if id == routes.Default || len(t) == 0 && id != "direct" && id != routes.Reject { // a group the user made has only this
 		if main, err := routes.ParseTarget(s.TestURL); err == nil {
 			t = append([]routes.Target{main}, t...)
+		} else if id != routes.Default {
+			t = routes.DefaultTargets(routes.Default)
 		}
 	}
 	return t
@@ -197,6 +210,7 @@ func (st *Store) Update(fn func(*Settings)) (Settings, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	fn(&st.s)
+	st.gen++
 	b, _ := json.MarshalIndent(st.s, "", "  ")
 	return st.s.Clone(), os.WriteFile(st.path, b, 0o600)
 }
@@ -255,8 +269,11 @@ func (s Settings) Validate() error {
 		}
 		ports[p] = true
 	}
+	if err := s.Routing.Check(); err != nil {
+		return err
+	}
 	ids := map[string]bool{}
-	for _, r := range routes.Template() {
+	for _, r := range routes.Build(s.Routing, nil) {
 		ids[r.ID] = true
 	}
 	for i, r := range s.Rules {
@@ -271,6 +288,9 @@ func (s Settings) Validate() error {
 		}
 	}
 	for id, list := range s.RouteTargets {
+		if !ids[id] {
+			return fmt.Errorf(i18n.T("路由 %s 不能设置测速站点", "Route %s can't have test sites"), id)
+		}
 		if err := routes.ValidTargets(id, list); err != nil {
 			return err
 		}

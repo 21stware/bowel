@@ -30,6 +30,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/oboo/moho/internal/core"
+	"github.com/oboo/moho/internal/devnet"
 	"github.com/oboo/moho/internal/gateway"
 	"github.com/oboo/moho/internal/geo"
 	"github.com/oboo/moho/internal/i18n"
@@ -49,7 +50,6 @@ type App struct {
 	dataDir   string
 	settings  *settings.Store
 	providers *provider.Store
-	routes    []routes.Route
 	core      *core.Manager
 	mon       *monitor.Monitor
 	loc       *locate.Locator
@@ -59,7 +59,10 @@ type App struct {
 	probePort int
 	gw        *gateway.Gateway
 
-	setMu sync.Mutex // serialises updateSettings
+	setMu     sync.Mutex // serialises updateSettings
+	routesMu  sync.Mutex // guards the two below: see routes
+	routesNow []routes.Route
+	routesAt  uint64
 	// proxyMu is held while the system proxy changes, so that quitting
 	// waits for a change under way instead of being undone by it.
 	proxyMu sync.Mutex
@@ -107,6 +110,7 @@ type App struct {
 	gwProbe   gwProbe
 	gwProbing bool
 	gwErr     error
+	dev       devState
 }
 
 type switchNote struct {
@@ -147,7 +151,7 @@ func newApp() (*App, error) {
 		return nil, err
 	}
 	a := &App{
-		dataDir: data, settings: st, providers: ps, routes: routes.Template(), core: cm,
+		dataDir: data, settings: st, providers: ps, core: cm,
 		mon:  monitor.New(filepath.Join(data, "stats.json")),
 		loc:  locate.New(filepath.Join(data, "locations.json")),
 		http: &http.Client{Transport: netproxy.Transport()}, coreBin: bin, tunBin: tunBin, probePort: probe,
@@ -221,11 +225,13 @@ func (a *App) start() {
 	a.setupTray()
 	a.copyGeo()
 	go func() {
+		a.detectDev(2 * time.Second)
 		if err := a.applyConfig(); err != nil {
 			log.Println("core:", err)
 		}
 	}()
 	go a.loop()
+	go a.devLoop()
 	go a.debugDriver()
 	a.startMCP()
 }
@@ -468,23 +474,26 @@ func (a *App) applyConfig() error {
 			refs = append(refs, core.ProviderRef{ID: p.ID, Path: a.providers.Path(p.ID)})
 		}
 	}
-	cfg, err := core.BuildConfig(core.Input{
-		Providers: refs, Routes: a.routes, UserRules: s.Rules, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
-		Tun:      s.Tun && a.takeoverOn(s) && tun.Installed(a.tunBin),
-		Gateway:  a.gatewayOn(s),
-		LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
-		Options: s.Options,
+	all := a.routes()
+	scopes, orders := a.nodeLists(all)
+	err := a.applyDev(s, func(dev devnet.Overlay) ([]byte, error) {
+		return core.BuildConfig(core.Input{
+			Providers: refs, Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
+			Tun:      s.Tun && a.takeoverOn(s) && tun.Installed(a.tunBin),
+			Gateway:  a.gatewayOn(s),
+			LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
+			Options: s.Options, Dev: dev,
+		})
 	})
 	if err != nil {
-		return err
-	}
-	if err := a.core.Apply(cfg); err != nil {
 		a.emit()
 		return err
 	}
 	if s.Mode == "global" {
 		a.pointGlobal()
 	}
+	a.adoptSelections()
+	logPolicyErr(a.followPolicies())
 	a.mu.Lock()
 	a.nodesAt = time.Time{}       // providers may hold other nodes now
 	a.routeAt, a.sites = nil, nil // and a reload forgets what each URL did
@@ -572,7 +581,14 @@ func (a *App) enableProxy(s settings.Settings, prev ...int) error {
 			return err
 		}
 	}
-	return osProxy.enable("127.0.0.1", s.MixedPort, s.Bypass)
+	bypass := a.bypassOf(s)
+	if err := osProxy.enable("127.0.0.1", s.MixedPort, bypass); err != nil {
+		return err
+	}
+	a.dev.mu.Lock()
+	a.dev.bypass = bypass
+	a.dev.mu.Unlock()
+	return nil
 }
 
 // disableProxy puts back the system proxy enableProxy kept, or, with no
@@ -716,6 +732,18 @@ func (a *App) setMode(mode string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if s := a.settings.Get(); !s.DevOff {
+		// The mode is part of the rules then, so they are what changes.
+		dev := overlayOf(s, a.devEnv())
+		if !dev.Empty() {
+			if err := a.applyConfig(); err != nil {
+				return err
+			}
+			closeRerouted(ctx, c, dev)
+			a.refresh()
+			return nil
+		}
+	}
 	if err := c.Patch(ctx, map[string]any{"mode": mode}); err != nil {
 		return err
 	}
@@ -776,7 +804,10 @@ func migrateData(dir string) {
 func appOnly(old, next settings.Settings) bool {
 	next.Language, next.StartHidden, next.Accent, next.Appearance = old.Language, old.StartHidden, old.Accent, old.Appearance
 	next.Skin, next.Borders = old.Skin, old.Borders
-	next.MCPPolicy = old.MCPPolicy                 // the MCP server's, not the core's
+	next.MCPPolicy = old.MCPPolicy                  // the MCP server's, not the core's
+	if routingCoreSame(old.Routing, next.Routing) { // a strategy is a selector's position
+		next.Routing = old.Routing
+	}
 	if maps.Equal(mainURLs(old), mainURLs(next)) { // only the main targets are in the config
 		next.RouteTargets = old.RouteTargets
 	}
@@ -820,8 +851,12 @@ func (a *App) updateSettings(fn func(*settings.Settings)) error {
 		mygo.Theme.SetSource(mygo.ThemeSource(appearanceOf(next)))
 	}
 	if appOnly(old, next) { // the core does not care
+		var err error
+		if !reflect.DeepEqual(old.Routing, next.Routing) {
+			err = a.followPolicies()
+		}
 		a.refresh()
-		return nil
+		return err
 	}
 	if err := a.applyConfig(); err != nil {
 		// Back to what worked, so that the next start does not fail too.
@@ -908,7 +943,7 @@ func (a *App) revealConfig() error {
 }
 
 func (a *App) route(id string) routes.Route {
-	for _, r := range a.routes {
+	for _, r := range a.routes() {
 		if r.ID == id {
 			return r
 		}
@@ -916,27 +951,21 @@ func (a *App) route(id string) routes.Route {
 	return routes.Route{}
 }
 
+// selectNode pins a route group to node; "" sends it back to the fastest.
 func (a *App) selectNode(routeID, node string) error {
 	r := a.route(routeID)
 	if r.ID == "" || r.Direct {
 		return errors.New(i18n.T("没有这条路由", "No such route"))
 	}
-	c, err := a.core.Client()
-	if err != nil {
+	if _, err := a.core.Client(); err != nil {
 		return err
 	}
 	done := a.begin("node:" + routeID)
 	defer done()
-	target := node
-	if node == "" {
-		target = routes.Auto(r)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := c.Select(ctx, routes.Group(r), target); err != nil {
+	err := a.updateSettings(func(s *settings.Settings) { s.Routing.PickNode(routeID, node) })
+	if err != nil {
 		return err
 	}
-	a.refresh()
 	a.keepMeasured()
 	if node != "" {
 		go a.probe(node)
@@ -1013,7 +1042,7 @@ func (a *App) locateExits(force bool) {
 	px := a.proxies
 	a.mu.Unlock()
 	seen := map[string]bool{}
-	for _, r := range a.routes {
+	for _, r := range a.routes() {
 		if r.Direct {
 			continue
 		}
@@ -1028,16 +1057,22 @@ func (a *App) locateExits(force bool) {
 	}
 }
 
-// currentNode is the node a route uses now, following its automatic group.
+// currentNode is the node a route uses now, following the groups its
+// selector points through. "" if it has none: REJECT, in a range or list
+// with nothing in it.
 func currentNode(px map[string]mihomo.Proxy, r routes.Route) string {
 	g, ok := px[routes.Group(r)]
 	if !ok {
 		return ""
 	}
-	if g.Now == routes.Auto(r) {
-		return px[routes.Auto(r)].Now
+	n := g.Now
+	for i := 0; i < 4 && routes.Internal(r, n); i++ {
+		n = px[n].Now
 	}
-	return g.Now
+	if routes.Internal(r, n) || n == "REJECT" {
+		return ""
+	}
+	return n
 }
 
 // noticeSwitches records a route's automatic group moving off a failed node.
@@ -1045,14 +1080,14 @@ func (a *App) noticeSwitches() {
 	s := a.settings.Get()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	for _, r := range a.routes {
+	for _, r := range a.routes() {
 		if r.Direct {
 			continue
 		}
 		n := currentNode(a.proxies, r)
 		prev := a.lastNode[r.ID]
 		a.lastNode[r.ID] = n
-		if prev == "" || prev == n || a.proxies[routes.Group(r)].Now != routes.Auto(r) {
+		if now := a.proxies[routes.Group(r)].Now; prev == "" || prev == n || (now != routes.Auto(r) && now != routes.Backup(r)) {
 			continue
 		}
 		if h := a.proxies[prev].HistoryOf(s.TargetsOf(r.ID)[0].URL); len(h) > 0 && h[len(h)-1].Delay == 0 {
@@ -1198,7 +1233,10 @@ func (a *App) addRule(r routes.UserRule) (int, error) {
 	if a.route(r.Route).ID == "" {
 		return 0, errors.New(i18n.T("没有这条路由", "No such route"))
 	}
-	if err := a.updateSettings(func(s *settings.Settings) { s.Rules = routes.Upsert(s.Rules, r) }); err != nil {
+	if err := a.updateSettings(func(s *settings.Settings) {
+		s.Routing.Claim(s.Rules, r)
+		s.Rules = routes.Upsert(s.Rules, r)
+	}); err != nil {
 		return 0, err
 	}
 	return a.reroute(r, r.Route), nil
@@ -1252,16 +1290,19 @@ func (a *App) reroute(r routes.UserRule, keep string) int {
 
 // ---- Activity ----
 
-// routeOfGroup maps a mihomo group name (or DIRECT) to a route id.
+// routeOfGroup maps a mihomo group name (or DIRECT, REJECT) to a route id.
 func (a *App) routeOfGroup(group, rule string) string {
-	for _, r := range a.routes {
-		if !r.Direct && (group == routes.Group(r) || group == routes.Auto(r)) {
+	for _, r := range a.routes() {
+		if !r.Direct && (group == routes.Group(r) || routes.Internal(r, group)) {
 			return r.ID
 		}
 	}
+	if group == "REJECT" { // a route's empty range shows as the route's group
+		return routes.Reject
+	}
 	if group == "DIRECT" && rule != "" && rule != "Match" {
-		for _, r := range a.routes {
-			if r.Direct {
+		for _, r := range a.routes() {
+			if r.Direct && !r.Reject {
 				return r.ID
 			}
 		}
@@ -1323,15 +1364,26 @@ func providerOf(node string) string {
 // groupTitle is a chain's step as the interface shows it: a route's group
 // by the route's title, anything else (a node, DIRECT) as it is.
 func (a *App) groupTitle(name string) string {
-	for _, r := range a.routes {
+	for _, r := range a.routes() {
 		switch name {
 		case routes.Group(r):
 			return routes.Title(r)
 		case routes.Auto(r):
 			return routes.Title(r) + i18n.T("·自动", " · Auto")
+		case routes.Backup(r):
+			return routes.Title(r) + i18n.T("·备用", " · Backup")
 		}
 	}
 	return name
+}
+
+func (a *App) isBackupStep(name string) bool {
+	for _, r := range a.routes() {
+		if strings.HasPrefix(name, routes.Backup(r)+"·") {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) convConn(c monitor.Conn) Conn {
@@ -1346,7 +1398,13 @@ func (a *App) convConn(c monitor.Conn) Conn {
 		Status: c.Status, Error: c.Error,
 	}
 	for i := len(c.Chains) - 1; i >= 0; i-- {
+		if a.isBackupStep(c.Chains[i]) {
+			continue // one node's own group: says nothing the node doesn't
+		}
 		v.Chain = append(v.Chain, a.groupTitle(a.display(c.Chains[i])))
+	}
+	if c.Status == "blocked" {
+		v.Chain = []string{routes.Title(a.route(routes.Reject))}
 	}
 	if len(c.Chains) > 1 || (len(c.Chains) == 1 && c.Chains[0] != "DIRECT" && group != c.Chains[0]) {
 		v.Node = a.display(c.Chains[0])
@@ -1536,7 +1594,7 @@ func (a *App) snapshot() Snapshot {
 
 	on := a.takeoverOn(s)
 	snap := Snapshot{
-		Mode: s.Mode, Pending: pending, Version: mygo.App.Version(), RuleCount: routes.Count(a.routes) + len(s.Rules),
+		Mode: s.Mode, Pending: pending, Version: mygo.App.Version(), RuleCount: routes.Count(a.routes()) + len(routes.Active(a.routes(), s.Rules)),
 		Settings: s, ConfigPath: a.core.ConfigPath(), OpenAtLogin: openAtLogin,
 		ControllerTCP: a.core.TCPAddr(),
 		Core:          Core{State: string(cs.State), Version: cs.Version, Error: cs.Error},
@@ -1573,6 +1631,7 @@ func (a *App) snapshot() Snapshot {
 	}
 	tk.Gateway = gatewayView(s, on, tk.Tun.Status, a.gw.System().Ready(), a.gw.Awake(), gwp, gwErr)
 	snap.Takeover = tk
+	snap.Dev = a.devReport(s, tk.Tun.Status == "on")
 
 	// Nodes, in their providers' order.
 	mains := mainURLs(s)
@@ -1609,8 +1668,8 @@ func (a *App) snapshot() Snapshot {
 	for _, v := range routeBytes {
 		total += v
 	}
-	for _, r := range a.routes {
-		rv := RouteView{ID: r.ID, Name: routes.Title(r), Color: r.Color, Summary: routes.Describe(r), Rules: len(r.Rules), Direct: r.Direct}
+	for _, r := range a.routes() {
+		rv := RouteView{ID: r.ID, Name: routes.Title(r), Color: r.Color, Summary: routes.Describe(r), Rules: len(r.Rules), Direct: r.Direct, Reject: r.Reject}
 		if r.ID == routes.Default {
 			rv.Rules = 1
 		}
@@ -1621,13 +1680,14 @@ func (a *App) snapshot() Snapshot {
 		}
 		rv.Rules += rv.Mine
 		if !r.Direct {
-			rv.Auto = px[routes.Group(r)].Now == routes.Auto(r)
+			rv.Policy, rv.Auto = r.Policy, r.Policy.Mode == routes.ModeAuto
 			rv.Node = currentNode(px, r)
 			if rv.Node == "DIRECT" {
 				rv.Node = ""
 			}
 			rv.Targets = s.TargetsOf(r.ID)
 			rv.Main, rv.Sites = rv.Targets[0], siteViews(rv.Targets[1:], sites[r.ID], rv.Node)
+			rv.Broken = brokenWhy(r.Policy, snap.Nodes, r.ID)
 		}
 		if total > 0 {
 			rv.Share = float64(routeBytes[r.ID]) / float64(total)
@@ -1674,6 +1734,15 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 	}
 	if sw != nil && time.Since(sw.at) < 10*time.Minute {
 		return StateDegraded, &Issue{Level: "warn", Text: fmt.Sprintf(i18n.T("%s：%s 不可用，已换到 %s", "%s: %s is down, switched to %s"), routes.Title(a.route(sw.route)), sw.from, sw.to), Action: "activity", Label: i18n.T("查看", "View")}
+	}
+	var broken []RouteView
+	for _, r := range snap.Routes {
+		if r.Broken != "" && (s.Mode == "rule" || r.ID == routes.Default) {
+			broken = append(broken, r)
+		}
+	}
+	if len(broken) > 0 {
+		return StateDegraded, a.brokenIssue(broken[0], snap.Nodes, len(broken)-1)
 	}
 	for _, r := range snap.Routes {
 		if r.Direct || r.Node == "" {

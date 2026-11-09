@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vpn_channel">Connection</string>
+    <string name="vpn_running">Taking over this phone\'s traffic</string>
+    <string name="vpn_permission_lost">bowel no longer has permission to run a VPN.</string>
+    <string name="core_no_answer">The core did not start in time.</string>
+    <string name="scan_prompt">Point the camera at a QR code</string>
+    <string name="camera_needed">Allow camera access to scan a QR code.</string>
+    <string name="open_settings">Open Settings</string>
+    <string name="vpn_disconnect">Disconnect</string>
+</resources>

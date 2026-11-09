@@ -38,7 +38,7 @@ func actIsAllApps(s string) bool {
 }
 
 // Statuses in the order of the status control; the zero value is active.
-var actStatuses = []string{"active", "closed", "failed", "all"}
+var actStatuses = []string{"active", "closed", "failed", "blocked", "all"}
 
 // Log levels in the order of the level control; the zero value is all.
 var actLevels = []struct{ id, zh, en, tag string }{
@@ -530,7 +530,7 @@ func (u *UI) actQueryBar(c *ui.Context, p *pal) {
 		ui.Row(c).Gap(16).Padding(2, 0, 10, 0).AlignItems(ui.Center).Children(func() {
 			actSeg(c.Key("status"), p, &a.status, []string{
 				fmt.Sprintf(i18n.T("活跃 %d", "Active %d"), a.count("active")), fmt.Sprintf(i18n.T("已关闭 %d", "Closed %d"), a.count("closed")),
-				fmt.Sprintf(i18n.T("失败 %d", "Failed %d"), a.count("failed")), i18n.T("全部", "All")})
+				fmt.Sprintf(i18n.T("失败 %d", "Failed %d"), a.count("failed")), fmt.Sprintf(i18n.T("已拦截 %d", "Blocked %d"), a.count("blocked")), i18n.T("全部", "All")})
 			ui.Row(c).Gap(14).AlignItems(ui.Center).Shrink(1).MinWidth(0).ClipX().Children(func() {
 				chip := func(id, label string, mark bool) {
 					on := a.route == id
@@ -718,6 +718,8 @@ func (u *UI) actRow(c *ui.Context, p *pal, i int, cn Conn) {
 				dot = p.faint
 			case "failed":
 				dot = p.signal
+			case "blocked":
+				dot = p.warn
 			}
 			actCell(ui.Row(c), 0).Children(func() { ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(dot) })
 			actCell(actClip(ui.Text(c, cn.App).FontSize(12).TextColor(ink2)), 1)
@@ -750,7 +752,7 @@ func (u *UI) actRow(c *ui.Context, p *pal, i int, cn Conn) {
 				actCell(ui.Text(c, s).FontSize(12).FontFeatures("tnum").TextColor(col).NoWrap().TextAlign(ui.End), i)
 			}
 			num(6, rate, ink)
-			if cn.Status == "failed" && cn.Down == 0 && cn.Up == 0 {
+			if (cn.Status == "failed" || cn.Status == "blocked") && cn.Down == 0 && cn.Up == 0 {
 				num(7, "—", p.mute)
 				num(8, "—", p.mute)
 			} else {
@@ -759,6 +761,8 @@ func (u *UI) actRow(c *ui.Context, p *pal, i int, cn Conn) {
 			}
 			if cn.Status == "failed" {
 				num(9, i18n.T("失败", "Failed"), p.signal)
+			} else if cn.Status == "blocked" {
+				num(9, i18n.T("已拦截", "Blocked"), p.warn)
 			} else {
 				num(9, actFmtDur(actDuration(cn, time.Now())), ink2)
 			}
@@ -824,16 +828,20 @@ func (u *UI) actDetail(c *ui.Context, p *pal, cn Conn) {
 				if cn.Payload != "" {
 					rule += "," + cn.Payload
 				}
-				if _, mine := u.ruleOf(cn); mine {
-					pair(i18n.T("规则", "Rule"), func() {
-						ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-							ui.Text(c, rule).Font(actMono).FontSize(11.5).TextColor(p.ink).Shrink(1).MinWidth(0)
+				_, mine := u.ruleOf(cn)
+				pair(i18n.T("规则", "Rule"), func() {
+					ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+						ui.Text(c, rule).Font(actMono).FontSize(11.5).TextColor(p.ink).Shrink(1).MinWidth(0)
+						if mine {
 							mineTag(c, p)
-						})
+						}
+						if group, svc, ok := u.ruleHome(cn); ok {
+							ui.ButtonBase(c.Key("see-rule")).Shrink(0).OnClick(func() { u.openRoutes(group, svc) }).Children(func() {
+								ui.Text(c, i18n.T("查看", "View")).FontSize(11.5).FontWeight(600).Underline().TextColor(p.ink).NoWrap()
+							})
+						}
 					})
-				} else {
-					pair(i18n.T("规则", "Rule"), mono(rule, p.ink))
-				}
+				})
 				pair(i18n.T("链路", "Chain"), func() { u.actChain(c, p, cn) })
 				exit := i18n.T("本机网络", "Local network")
 				if cn.Node != "" {

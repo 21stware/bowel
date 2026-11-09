@@ -47,8 +47,6 @@ type settingsUI struct {
 	litRun uint64
 	// busy lists the actions running, by their button's key.
 	busy map[string]bool
-	// rule is 规则's typing.
-	rule ruleEdit
 	// opened counts the times a test's UI, which has no app and so no
 	// windows, was asked to open the window.
 	opened int
@@ -259,10 +257,10 @@ func init() {
 		{"general", "通用", "General", icon(`<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>`), (*UI).generalSection},
 		{"inbound", "入站", "Inbound", icon(`<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>`), (*UI).inboundSection},
 		{"core", "内核", "Core", icon(`<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/>`), (*UI).coreSection},
-		{"rules", "规则", "Rules", icon(`<path d="M4 6h9M4 12h6M4 18h9"/><path d="m15 9 3 3-3 3"/><path d="M10 12h8"/>`), (*UI).rulesSection},
 		{"dns", "DNS", "DNS", icon(`<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"/>`), (*UI).dnsSection},
 		{"sniffer", "嗅探", "Sniffing", icon(`<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/><path d="M8 11h6"/>`), (*UI).snifferSection},
 		{"tun", "TUN", "TUN", icon(`<path d="M12 3 3 8l9 5 9-5-9-5z"/><path d="m3 13 9 5 9-5"/>`), (*UI).tunSection},
+		{"devnet", "开发者网络", "Developer networks", icon(`<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3"/><path d="M13 15h4"/>`), (*UI).devnetSection},
 		{"geo", "GeoData", "GeoData", icon(`<circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8"/><path d="M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"/>`), (*UI).geoSection},
 		{"controller", "外部控制", "Controller", icon(`<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/>`), (*UI).controllerSection},
 		{"mcp", "MCP", "MCP", icon(`<path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2M20 14h2M9 13v2M15 13v2"/>`), (*UI).mcpSection},
@@ -1006,6 +1004,17 @@ func (u *UI) controllerSection(c *ui.Context, p *pal, s settings.Settings) {
 func (u *UI) aboutSection(c *ui.Context, p *pal, _ settings.Settings) {
 	cs := u.snap.Core
 	if !searching() {
+		moho := u.snap.Version
+		if moho == "" {
+			moho = "—"
+		}
+		ui.Row(c).AlignItems(ui.Center).Gap(14).Padding(4, 0, 18, 0).Children(func() {
+			logoTile(c, p, 56)
+			ui.Column(c).Gap(2).Children(func() {
+				ui.Text(c, "bowel").FontSize(21).FontWeight(700).TextColor(p.ink)
+				ui.Text(c, moho).FontSize(12.5).TextColor(p.mute)
+			})
+		})
 		ui.Column(c).Padding(4, 0, 14, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair).Children(func() {
 			ver := cs.Version
 			if ver == "" {
@@ -1019,15 +1028,10 @@ func (u *UI) aboutSection(c *ui.Context, p *pal, _ settings.Settings) {
 			if path == "" {
 				path = "—"
 			}
-			moho := u.snap.Version
-			if moho == "" {
-				moho = "—"
-			}
 			kv(c, p, [][2]string{
 				{i18n.T("内核版本", "Core version"), ver},
 				{i18n.T("内核状态", "Core state"), state},
 				{i18n.T("运行配置", "Running config"), path},
-				{i18n.T("bowel 版本", "bowel version"), moho},
 				{i18n.T("代理内核", "Proxy core"), i18n.T("mihomo · GPL-3.0 · 不提供任何担保 · 许可证随应用附带，源码见 github.com/21stware/bowel/releases", "mihomo · GPL-3.0 · no warranty · license included in the app, source at github.com/21stware/bowel/releases")},
 				{i18n.T("界面字体", "Interface font"), i18n.T("OPPO Sans 4.0 · © OPPO 广东移动通信有限公司，依 OPPO Sans 字体许可使用", "OPPO Sans 4.0 · © Guangdong OPPO Mobile Telecommunications Corp., Ltd., used under the OPPO Sans font license")},
 			})

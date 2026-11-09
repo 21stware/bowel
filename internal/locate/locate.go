@@ -61,6 +61,8 @@ type Locator struct {
 	// named is geo.FromName by display name: a snapshot asks for every
 	// node's, every 2 s, and names don't move.
 	named map[string]namedPlace
+	// Login, when set, gives the probe listener's user and password.
+	Login func() *url.Userinfo
 }
 
 type namedPlace struct {
@@ -128,7 +130,11 @@ func (l *Locator) Probe(ctx context.Context, c *mihomo.Client, probePort int, no
 	if err := c.Select(ctx, ProbeGroup, node); err != nil {
 		return Result{Source: SourceUnknown, At: l.now()}, fmt.Errorf("select %s: %w", node, err)
 	}
-	body, err := fetchTrace(ctx, probePort)
+	var login *url.Userinfo
+	if l.Login != nil {
+		login = l.Login()
+	}
+	body, err := fetchTrace(ctx, probePort, login)
 	if err != nil {
 		return Result{Source: SourceUnknown, At: l.now()}, err
 	}
@@ -149,8 +155,8 @@ func (l *Locator) Probe(ctx context.Context, c *mihomo.Client, probePort int, no
 
 // fetchTrace requests the trace through the probe listener, on a connection
 // of its own: a kept-alive one would still go through the previous node.
-func fetchTrace(ctx context.Context, probePort int) (string, error) {
-	proxy := &url.URL{Scheme: "http", Host: "127.0.0.1:" + strconv.Itoa(probePort)}
+func fetchTrace(ctx context.Context, probePort int, login *url.Userinfo) (string, error) {
+	proxy := &url.URL{Scheme: "http", User: login, Host: "127.0.0.1:" + strconv.Itoa(probePort)}
 	client := &http.Client{
 		Timeout:   probeTimeout,
 		Transport: &http.Transport{Proxy: http.ProxyURL(proxy), DisableKeepAlives: true},
