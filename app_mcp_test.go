@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -303,7 +304,7 @@ func TestMCPCommand(t *testing.T) {
 	if err := json.Unmarshal([]byte(mcpJSON("/x/bowel")), &cfg); err != nil || cfg["mcpServers"]["bowel"].Command != "/x/bowel" || cfg["mcpServers"]["bowel"].Args[0] != "mcp" {
 		t.Errorf("json: %v %v", cfg, err)
 	}
-	if p := mcpSocket("/short"); p != "/short/mcp.sock" {
+	if p := mcpSocket("/short"); p != filepath.Join("/short", "mcp.sock") {
 		t.Errorf("socket: %s", p)
 	}
 	if p := mcpSocket("/" + strings.Repeat("x", 120)); len(p) > 100 {

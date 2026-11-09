@@ -35,7 +35,13 @@ func TestHomeGateway(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		u := gatewayFixture()
 		suffix := map[bool]string{false: "", true: "-dark"}[dark]
-		tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: dark})
+		// The takeover detail lays the gateway guide out only while it fits:
+		// at 760 high the tail of the card (the two addresses on) comes out
+		// with zero-size boxes and the how-to after it never lays out, so
+		// the copy button has no area to click. 1000 high shows the whole
+		// card. Worth a look at how Scroll lays content taller than
+		// itself, whatever the platform's mono face does to the height.
+		tt := ui.NewTesterWith(u.view, 1060, 1000, ui.TesterOptions{Dark: dark})
 		tt.Advance(time.Second)
 		if !tt.HasText("网关") || !tt.HasText("生效中 · 2 台设备在用") {
 			t.Fatalf("board: %q", tt.Texts())
