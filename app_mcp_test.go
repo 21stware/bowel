@@ -106,7 +106,7 @@ func TestMCPPolicy(t *testing.T) {
 
 	// Refused.
 	setPolicy(t, a, "deny")
-	for _, name := range []string{"get_status", "get_settings", "list_routes", "list_rules", "get_whitelists", "list_providers", "list_connections", "get_logs"} {
+	for _, name := range []string{"get_status", "get_settings", "list_routes", "list_rules", "get_whitelists", "get_dev_network", "list_providers", "list_connections", "get_logs"} {
 		if _, err := callTool(t, srv, s, name, nil); err != nil {
 			t.Errorf("%s under deny: %v", name, err)
 		}

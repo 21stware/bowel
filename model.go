@@ -52,6 +52,8 @@ type Snapshot struct {
 	// ControllerTCP is Moho's own controller address when it fell back to
 	// TCP; the dashboards' controller is then that one.
 	ControllerTCP string `json:"controllerTcp,omitempty"`
+	// Dev is what the developer networks page shows.
+	Dev DevNet `json:"dev"`
 }
 
 // Issue is the news line: shown only when degraded or broken.

@@ -15,6 +15,7 @@ The product logic is in [product-ia.md](product-ia.md); the approved interaction
 - **TUN.** The first time you turn it on, macOS asks for an administrator's authorisation. bowel then copies the core to `~/Library/Application Support/bowel/bin/` and makes it setuid root (`internal/tun`), the approach early Clash Verge used. A launchd helper would be the cleaner long-term design.
 - **Gateway mode** (`internal/gateway`, `app_gateway.go`, `ui_gateway.go`). One switch lets other devices on the LAN set their gateway and DNS to this Mac and follow bowel's rules. bowel turns IPv4 forwarding on through a sudoers rule that allows exactly the two `sysctl` commands (checked with `visudo`, installed in the same prompt as TUN), keeps the Mac awake, and puts DNS on `0.0.0.0:53` with fake-ip. The original forwarding value is kept in `gateway-before.json`, so a crash is undone on the next start. Forwarding, port 53 and TUN are measured; a gateway that is wanted but doesn't work makes the state 降级.
 - **Skins** (`skins.go`). Six looks for the whole interface: 纸墨 Paper (the default), 报刊 Broadsheet, 荧光屏 Phosphor, 霓虹 Neon, 蓝图 Blueprint and 樱 Sakura. A skin is a palette, the faces of text and big type, corner roundness, a glow and a texture; what the interface does is the same in every skin.
+- **Developer networks** (`internal/devnet`, `app_devnet.go`, `ui_devnet.go`; cases and reasons in `docs/dev-network.md`). A catalog of what is local everywhere, plus what bowel reads of this Mac every 20 seconds (Tailscale, VPN routes, split DNS), compile into an overlay on the core's config and the system proxy's bypass list. It is never saved, so no migration and nothing left behind. Tailscale and VPNs get a direct outbound bound to their interface, because under TUN the core's DIRECT uses the default interface. In global and direct mode the core runs in rule mode with the overlay and a single `MATCH`, so the LAN and the tailnet are not sent to a node.
 - **Agents (MCP)** (`internal/mcp`, `app_mcp.go`, `ui_mcp.go`). bowel serves an MCP server on a unix socket in its data folder (`mcp.sock`, this user only). `bowel mcp` bridges an agent's stdio to it and opens the app when it isn't running, so an agent registers it as an ordinary stdio server: `claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp` (设置 > MCP has the command and a JSON snippet to copy). Agents can always read: status, settings (secrets hidden), routes and nodes, rules, where a host would go, connections, logs, and the three whitelists (direct sites, the system proxy's bypass list, LAN addresses). Changes (mode, takeover, a route's node, rules, whitelists, settings by key, providers, DNS) follow `mcpPolicy`: `ask` (the default: a dialog shows what would change, and can let the rest of that connection through), `allow` or `deny`. Only the user can change the policy. 设置 > MCP lists the changes agents asked for.
 
 ## Layout
@@ -35,6 +36,7 @@ ui_panel.go, tray.go       the menu bar icon, its panel and its menu
 logo.go                    the logo's squiggle, which the menu bar icon is drawn from
 debug.go                   a script hook for development builds (MOHO_DEBUG_DIR)
 internal/core              mihomo process, runtime config, the core's options (Options)
+internal/devnet            what stays off the proxy: the scenarios, this machine's networks, the overlay on the config
 internal/mihomo            controller client
 internal/provider          providers: detect, download, store
 internal/routes            the routing template, and the user's rules
@@ -51,7 +53,7 @@ internal/mcp               a small MCP server (stdio framing over a unix socket)
 app_mcp.go, ui_mcp.go      the agents' tools and their policy; 设置 > MCP
 prototype/                 the interaction prototype and its history
 site/                      the website; site/shots/ is rendered by scripts/site-shots.sh
-assets/icon/               the app icon: AppIcon.icon (Icon Composer) and its 1024 px render
+assets/icon/               the app icon: AppIcon.icon (Icon Composer) and its 1024 px render; iOS compiles it too
 resources/icon.png         the fallback icon, for macOS before 26 and `mygo dev`
 entitlements.plist         the camera, which a Developer ID build's hardened runtime needs
 ```
