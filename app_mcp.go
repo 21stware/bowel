@@ -735,7 +735,7 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "set_takeover", Title: "Set the takeover", Destructive: true,
-				Description: "Turns bowel's takeover of this Mac's traffic on or off, and chooses its entries: the system proxy and TUN (all traffic; the first time macOS asks the user for an administrator's password). Give only what should change.",
+				Description: "Turns bowel's takeover of this computer's traffic on or off, and chooses its entries: the system proxy and TUN (all traffic; the first time, the system asks the user for an administrator's consent). Give only what should change.",
 				Input: obj(map[string]any{
 					"enabled":     map[string]any{"type": "boolean", "description": "Take over traffic at all (false pauses it, keeping the entries)."},
 					"systemProxy": map[string]any{"type": "boolean", "description": "Use the system proxy."},
@@ -1145,7 +1145,7 @@ func (a *App) whitelistEdit(ctx context.Context, s *mcp.Session, raw json.RawMes
 	return out, nil
 }
 
-const mcpInstructions = `bowel is the user's macOS client for the mihomo proxy core. Providers supply nodes; routes are kinds of traffic (default, ai, media, dev, direct), each proxied route using one node or picking the fastest itself ("auto"). The user's own rules come before the built-in ones.
+const mcpInstructions = `bowel is the user's client for the mihomo proxy core. Providers supply nodes; routes are kinds of traffic (default, ai, media, dev, direct), each proxied route using one node or picking the fastest itself ("auto"). The user's own rules come before the built-in ones.
 
 Read freely: get_status first, then get_settings, list_routes, list_rules, explain, list_connections, get_logs, get_whitelists.
 

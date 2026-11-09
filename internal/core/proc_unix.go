@@ -3,6 +3,7 @@
 package core
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"strconv"
@@ -32,4 +33,10 @@ func killStale(pidFile string) {
 		return
 	}
 	_ = syscall.Kill(pid, syscall.SIGTERM)
+}
+
+// startElevatedProc is not supported outside Windows: there, the core
+// needs no elevation for TUN, the setuid copy being enough.
+func startElevatedProc(bin, dir, config, safePaths string) (coreProc, int, error) {
+	return nil, 0, errors.New("elevating the core is not supported here")
 }

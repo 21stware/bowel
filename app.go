@@ -139,6 +139,9 @@ func newApp() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	// On Windows the core starts over, as the administrator, when TUN is
+	// wanted (see setTun).
+	cm.SetElevate(st.Get().Tun)
 	probe, err := core.FreePort()
 	if err != nil {
 		return nil, err
@@ -660,6 +663,14 @@ func (a *App) setTun(on bool) error {
 		// The core must be the setuid copy from now on.
 		a.core.Stop()
 		a.core.SetBin(a.tunBin)
+	}
+	if on && runtime.GOOS == "windows" {
+		// A running core can't gain the rights TUN needs: start it over
+		// as the administrator, which asks once, at the next start.
+		a.core.SetElevate(true)
+		a.core.Stop()
+	} else if !on && runtime.GOOS == "windows" {
+		a.core.SetElevate(false)
 	}
 	if _, err := a.settings.Update(func(s *settings.Settings) {
 		s.Tun = on

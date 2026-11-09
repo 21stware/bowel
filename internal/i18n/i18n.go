@@ -5,7 +5,10 @@
 // and to Simplified Chinese for Traditional.
 package i18n
 
-import "sync/atomic"
+import (
+	"runtime"
+	"sync/atomic"
+)
 
 // Languages are the interface's languages, in the order the settings list them.
 var Languages = []string{"zh", "zh-Hant", "en", "ja"}
@@ -58,9 +61,54 @@ func Lang() string {
 // En says whether the interface is in English.
 func En() bool { return lang.Load() == en }
 
+// windowsTable rephrases strings the macOS build phrases around a Mac
+// for the Windows build, which asks for the administrator its own way
+// and names its own system. Each key is the macOS pair's zh string; each
+// value is the string in each language, in the constants' order.
+var windowsTable = map[string][4]string{
+	"未使用 · 第一次开启时，macOS 会请求管理员授权": {
+		"未使用 · 第一次开启时，Windows 会请求管理员授权",
+		"Not in use · The first time it's turned on, Windows asks for an administrator's authorization",
+		"未使用 · 初めてオンにするとき、Windows が管理者の許可を求めます",
+		"未使用 · 第一次開啟時，Windows 會要求管理者授權",
+	},
+	"macOS 的 TUN 网卡名要以 utun 开头, 如 utun1024": {
+		"TUN 网卡名，留空用默认",
+		"The TUN device's name; leave it empty for the default",
+		"TUN インターフェイス名。空欄なら既定の名前を使います",
+		"TUN 網卡名稱，留空用預設",
+	},
+	"浅色、深色，或跟随 Mac 的设置": {
+		"浅色、深色，或跟随系统的设置",
+		"Light, dark, or as the system is set",
+		"ライト、ダーク、またはシステムの設定に従う",
+		"淺色、深色，或跟隨系統的設定",
+	},
+	"登录 Mac 时自动打开 bowel": {
+		"登录 Windows 时自动打开 bowel",
+		"Open bowel when you log in to Windows",
+		"Windows にログインしたときに bowel を自動的に開きます",
+		"登入 Windows 時自動打開 bowel",
+	},
+	"用户名:密码；局域网设备要先登录，本机不用": {
+		"用户名:密码；局域网设备要先登录，本机不用",
+		"user:password; LAN devices sign in first, this computer never does",
+		"ユーザー名:パスワード。LAN デバイスは先にログインが必要で、この PC は不要です",
+		"使用者名稱:密碼；區域網路裝置要先登入，本機不用",
+	},
+}
+
 // T is the pair's string in the interface's language.
 func T(zhs, ens string) string {
-	switch lang.Load() {
+	l := lang.Load()
+	if runtime.GOOS == "windows" {
+		if s, ok := windowsTable[zhs]; ok {
+			if v := s[l]; v != "" {
+				return v
+			}
+		}
+	}
+	switch l {
 	case en:
 		return ens
 	case ja:

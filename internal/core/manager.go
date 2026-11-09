@@ -50,6 +50,19 @@ const (
 	killGrace = time.Second     // for it to be gone once killed
 )
 
+// coreProc is a core this manager started and watches: the usual child
+// of exec.Cmd, or, on Windows with TUN, the elevated core behind a
+// ShellExecuteEx handle, which is no child and has no pipes (the
+// controller serves the logs).
+type coreProc interface {
+	wait() error
+	kill() error
+}
+
+// errCanceled is what the elevated start reports when the administrator
+// declined the prompt.
+var errCanceled = errors.New("canceled")
+
 // Manager owns one mihomo process.
 type Manager struct {
 	Bin string // the mihomo executable
@@ -63,7 +76,10 @@ type Manager struct {
 	OnTraffic func(mihomo.Traffic)
 
 	mu       sync.Mutex
+	startMu  sync.Mutex // held across a whole start, whose prompt can block
 	cmd      *exec.Cmd
+	el       coreProc // the elevated core on Windows (TUN)
+	elevate  bool     // start the core elevated (Windows, TUN)
 	exited   chan struct{}
 	client   *mihomo.Client
 	status   Status
@@ -136,6 +152,17 @@ func (m *Manager) newClient() *mihomo.Client {
 
 // SetBin changes the executable the next start uses (the setuid copy that
 // TUN needs, once installed).
+// SetElevate says whether the core starts elevated (Windows, TUN); it
+// takes effect at the next start.
+func (m *Manager) SetElevate(on bool) {
+	if runtime.GOOS != "windows" {
+		return
+	}
+	m.mu.Lock()
+	m.elevate = on
+	m.mu.Unlock()
+}
+
 func (m *Manager) SetBin(bin string) {
 	m.mu.Lock()
 	m.Bin = bin
@@ -212,12 +239,16 @@ func (m *Manager) Restart() error {
 }
 
 func (m *Manager) start() error {
+	// One start at a time: an elevated start blocks on the administrator
+	// prompt, and a second one let through meanwhile would race the first.
+	m.startMu.Lock()
+	defer m.startMu.Unlock()
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
 		return ErrClosed
 	}
-	if m.cmd != nil {
+	if m.cmd != nil || m.el != nil {
 		m.mu.Unlock()
 		return nil
 	}
@@ -235,52 +266,58 @@ func (m *Manager) start() error {
 	}
 	m.setStatus(Status{State: Starting})
 
-	cmd := exec.Command(m.Bin, "-d", m.Dir, "-f", m.ConfigPath())
-	cmd.Dir = m.Dir
-	cmd.Env = m.env()
-	setProcAttr(cmd)
-	pr, pw := io.Pipe()
-	cmd.Stdout, cmd.Stderr = pw, pw
-	if err := cmd.Start(); err != nil {
-		pw.Close()
-		m.setStatus(Status{State: Failed, Error: err.Error()})
-		return err
-	}
-	_ = os.WriteFile(filepath.Join(m.Dir, "mihomo.pid"), []byte(strconv.Itoa(cmd.Process.Pid)), 0o600)
-	go m.readLogs(pr)
-
 	exited := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	m.mu.Lock()
-	m.cmd, m.exited, m.cancel = cmd, exited, cancel
-	closed := m.closed
-	m.mu.Unlock()
-
-	go func() {
-		err := cmd.Wait()
-		pw.Close()
-		cancel()
-		// The status changes before exited closes, so that Stop and start
-		// see it once they return.
-		defer close(exited)
-		m.mu.Lock()
-		stopping := m.stopping
-		m.cmd, m.client = nil, nil
-		m.mu.Unlock()
-		_ = os.Remove(filepath.Join(m.Dir, "mihomo.pid"))
-		if stopping {
-			m.setStatus(Status{State: Stopped})
-		} else {
-			msg := i18n.T("内核意外退出", "The core quit unexpectedly")
-			if err != nil {
-				msg += ": " + err.Error()
+	pid := 0
+	closed := false
+	if m.elevate { // Windows, TUN: the core runs as the administrator
+		el, epid, err := startElevatedProc(m.Bin, m.Dir, m.ConfigPath(), m.safePathsEnv())
+		if err != nil {
+			cancel()
+			if errors.Is(err, errCanceled) {
+				err = errors.New(i18n.T("已取消管理员授权", "The administrator's consent was canceled"))
 			}
-			if l := m.logs.last(2); l != "" {
-				msg += "\n" + l
-			}
-			m.setStatus(Status{State: Failed, Error: msg})
+			m.setStatus(Status{State: Failed, Error: err.Error()})
+			return err
 		}
-	}()
+		pid = epid
+		_ = os.WriteFile(filepath.Join(m.Dir, "mihomo.pid"), []byte(strconv.Itoa(pid)), 0o600)
+		m.mu.Lock()
+		m.el, m.exited, m.cancel = el, exited, cancel
+		closed = m.closed
+		m.mu.Unlock()
+		go func() {
+			err := el.wait()
+			cancel()
+			m.onExit(err, exited)
+		}()
+	} else {
+		cmd := exec.Command(m.Bin, "-d", m.Dir, "-f", m.ConfigPath())
+		cmd.Dir = m.Dir
+		cmd.Env = m.env()
+		setProcAttr(cmd)
+		pr, pw := io.Pipe()
+		cmd.Stdout, cmd.Stderr = pw, pw
+		if err := cmd.Start(); err != nil {
+			pw.Close()
+			cancel()
+			m.setStatus(Status{State: Failed, Error: err.Error()})
+			return err
+		}
+		pid = cmd.Process.Pid
+		_ = os.WriteFile(filepath.Join(m.Dir, "mihomo.pid"), []byte(strconv.Itoa(pid)), 0o600)
+		go m.readLogs(pr)
+		m.mu.Lock()
+		m.cmd, m.exited, m.cancel = cmd, exited, cancel
+		closed = m.closed
+		m.mu.Unlock()
+		go func() {
+			err := cmd.Wait()
+			pw.Close()
+			cancel()
+			m.onExit(err, exited)
+		}()
+	}
 
 	if closed { // Close came while this was starting, and saw no process
 		m.Stop()
@@ -306,7 +343,7 @@ func (m *Manager) start() error {
 			m.mu.Lock()
 			m.client = client
 			m.mu.Unlock()
-			m.setStatus(Status{State: Running, Version: v.Version, PID: cmd.Process.Pid, StartedAt: time.Now()})
+			m.setStatus(Status{State: Running, Version: v.Version, PID: pid, StartedAt: time.Now()})
 			if m.OnTraffic != nil { // a stream no one reads costs a decode a second
 				go m.traffic(ctx, client)
 			}
@@ -320,6 +357,29 @@ func (m *Manager) start() error {
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
+}
+
+// onExit records that the core exited: the status first, so that Stop
+// and start see it once they return, then exited closes.
+func (m *Manager) onExit(err error, exited chan struct{}) {
+	defer close(exited)
+	m.mu.Lock()
+	stopping := m.stopping
+	m.cmd, m.el, m.client = nil, nil, nil
+	m.mu.Unlock()
+	_ = os.Remove(filepath.Join(m.Dir, "mihomo.pid"))
+	if stopping {
+		m.setStatus(Status{State: Stopped})
+		return
+	}
+	msg := i18n.T("内核意外退出", "The core quit unexpectedly")
+	if err != nil {
+		msg += ": " + err.Error()
+	}
+	if l := m.logs.last(2); l != "" {
+		msg += "\n" + l
+	}
+	m.setStatus(Status{State: Failed, Error: msg})
 }
 
 // proxiesLoaded reports whether the core has built its proxies and groups.
@@ -357,19 +417,28 @@ func (m *Manager) traffic(ctx context.Context, c *mihomo.Client) {
 func (m *Manager) Stop() {
 	m.mu.Lock()
 	cmd, exited, cancel := m.cmd, m.exited, m.cancel
+	el := m.el
 	m.stopping = true
 	m.mu.Unlock()
-	if cmd == nil {
+	if cmd == nil && el == nil {
 		return
 	}
 	cancel()
-	interrupt(cmd)
+	if cmd != nil {
+		interrupt(cmd)
+	} else {
+		_ = el.kill()
+	}
 	select {
 	case <-exited:
 		return
 	case <-time.After(stopGrace):
 	}
-	_ = cmd.Process.Kill()
+	if cmd != nil {
+		_ = cmd.Process.Kill()
+	} else {
+		_ = el.kill()
+	}
 	select {
 	case <-exited:
 	case <-time.After(killGrace):
@@ -470,6 +539,17 @@ func (m *Manager) env() []string {
 		env = append(env, "SAFE_PATHS="+strings.Join(m.SafePaths, string(os.PathListSeparator)))
 	}
 	return env
+}
+
+// safePathsEnv is the SAFE_PATHS value, "" when there is none. The core
+// started as the administrator gets its environment from the shell that
+// ShellExecuteEx opens, not from us, so startElevatedProc passes this
+// along on its command line instead.
+func (m *Manager) safePathsEnv() string {
+	if len(m.SafePaths) == 0 {
+		return ""
+	}
+	return strings.Join(m.SafePaths, string(os.PathListSeparator))
 }
 
 // FreePort returns a loopback TCP port nothing listens on now.

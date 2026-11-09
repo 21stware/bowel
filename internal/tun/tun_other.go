@@ -1,4 +1,4 @@
-//go:build !darwin
+//go:build !darwin && !windows
 
 // Package tun installs the core so that it can open a TUN device.
 package tun
