@@ -33,21 +33,22 @@ src="$GOMODCACHE/github.com/metacubex/mihomo@$MIHOMO_VERSION"
 # Bringing up a TUN on Android makes mihomo read /data/system/packages.list,
 # which apps may not open. Per-app rules live in VpnService here, so that step
 # is dropped at build time. The cmfa tag drops it too, but also removes the
-# controller endpoints the bridge reloads through.
-overlay="$(mktemp -d)"
-trap 'rm -rf "$overlay"' EXIT
-android_tun="$src/listener/sing_tun/server_android.go"
-perl -0pe 's/(func \(l \*Listener\) buildAndroidRules\(tunOptions \*tun\.Options\) error \{\n).*?\n\}\n/$1\treturn nil\n}\n/s' \
-	"$android_tun" >"$overlay/server_android.go"
-if cmp -s "$android_tun" "$overlay/server_android.go"; then
+# controller endpoints the bridge reloads through. It is patched in a copy, as
+# go does not allow -overlay to replace files in the module cache.
+patched="$(mktemp -d)"
+trap 'rm -rf "$patched"' EXIT
+cp -R "$src/." "$patched"
+chmod -R u+w "$patched"
+android_tun=listener/sing_tun/server_android.go
+perl -0pi -e 's/(func \(l \*Listener\) buildAndroidRules\(tunOptions \*tun\.Options\) error \{\n).*?\n\}\n/$1\treturn nil\n}\n/s' \
+	"$patched/$android_tun"
+if cmp -s "$src/$android_tun" "$patched/$android_tun"; then
 	echo "buildAndroidRules not found in mihomo $MIHOMO_VERSION" >&2
 	exit 1
 fi
-printf '{"Replace":{"%s":"%s"}}' "$android_tun" "$overlay/server_android.go" >"$overlay/overlay.json"
 
 echo "building mihomo $MIHOMO_VERSION"
-(cd "$src" && env "${build_env[@]}" go build -trimpath -buildmode=pie -tags with_gvisor \
-	-overlay "$overlay/overlay.json" \
+(cd "$patched" && env "${build_env[@]}" go build -trimpath -buildmode=pie -tags with_gvisor \
 	-ldflags "-s -w -X github.com/metacubex/mihomo/constant.Version=$MIHOMO_VERSION" \
 	-o "$jni/libmihomo.so" .)
 
