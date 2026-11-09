@@ -156,6 +156,7 @@ html.zh .hero h1 { line-height: 1.12; }
   background: #121110; color: #f3f1ec;
   --ink2: #cfccc5; --mute: #8e8a82; --hair: rgba(244, 243, 238, .12); --hair2: rgba(244, 243, 238, .07);
 }
+.agents .copy { min-width: 0; }
 .agents .tag { color: var(--accent); }
 .code { position: relative; margin-top: 28px; border-radius: 12px; background: #1d1c1a; border: 1px solid var(--hair); }
 .code pre { margin: 0; padding: 18px 20px; overflow-x: auto; font: 14px/1.7 var(--mono); color: #e9e6df; }
@@ -253,6 +254,9 @@ html.zh .hero h1 { line-height: 1.12; }
 }
 @media (max-width: 600px) {
   .grid { grid-template-columns: 1fr; }
+  .code pre { padding-top: 44px; }
+  .policy span { white-space: nowrap; }
+  .policy span span { padding: 0; }
   .platforms { grid-template-columns: 1fr; }
   .differ th, .differ td { padding: 10px 5px; font-size: 13px; }
   .hero { padding-top: 48px; }
