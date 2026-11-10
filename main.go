@@ -27,6 +27,13 @@ func main() {
 		}
 		return
 	}
+	// One app per user, for the data folder, the core and the system proxy
+	// are its alone. This one hands over to the app that is running. After
+	// the commands above, which run beside the app; a development build has
+	// a lock of its own, as it has a data folder of its own.
+	if !mygo.App.RequestSingleInstanceLock() {
+		return
+	}
 	app, err := newApp()
 	if err != nil {
 		log.Fatal(err)
@@ -34,6 +41,7 @@ func main() {
 	if mygo.IsDev() {
 		app.separateFromRelease()
 	}
+	mygo.App.OnSecondInstance(app.onSecondInstance)
 	mygo.App.WhenReady(app.start)
 	// The window hides to the menu bar; quitting comes from the menu.
 	mygo.App.OnWindowAllClosed(func() {})

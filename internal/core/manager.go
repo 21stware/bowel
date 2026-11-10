@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -35,8 +36,10 @@ const (
 
 // Status is what the UI shows about the core.
 type Status struct {
-	State     State     `json:"state"`
-	Version   string    `json:"version,omitempty"`
+	State   State  `json:"state"`
+	Version string `json:"version,omitempty"`
+	// Error is why the core failed or, while it runs, the proxy port it
+	// could not open.
 	Error     string    `json:"error,omitempty"`
 	PID       int       `json:"pid,omitempty"`
 	StartedAt time.Time `json:"startedAt,omitzero"`
@@ -59,17 +62,21 @@ type Manager struct {
 	SafePaths []string
 
 	// OnStatus and OnTraffic are called from the manager's goroutines.
-	OnStatus  func(Status)
-	OnTraffic func(mihomo.Traffic)
+	OnStatus func(Status)
+	// OnListenError is called when Status's Error changes while the core
+	// runs, which unlike OnStatus says the core itself did not change.
+	OnListenError func()
+	OnTraffic     func(mihomo.Traffic)
 
-	mu       sync.Mutex
-	cmd      *exec.Cmd
-	exited   chan struct{}
-	client   *mihomo.Client
-	status   Status
-	stopping bool
-	closed   bool // by Close
-	cancel   context.CancelFunc
+	mu        sync.Mutex
+	cmd       *exec.Cmd
+	exited    chan struct{}
+	client    *mihomo.Client
+	status    Status
+	listenErr string // the proxy port the running core could not open
+	stopping  bool
+	closed    bool // by Close
+	cancel    context.CancelFunc
 
 	// The controller's address: a unix socket, or TCP with a secret on
 	// Windows, chosen once per run of the app.
@@ -146,7 +153,11 @@ func (m *Manager) SetBin(bin string) {
 func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.status
+	s := m.status
+	if s.State == Running {
+		s.Error = m.listenErr
+	}
+	return s
 }
 
 // Client returns the controller client, or an error while the core is not
@@ -210,6 +221,7 @@ func (m *Manager) Apply(cfg []byte) error {
 	if c, err := m.Client(); err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
+		m.setListenErr("") // a reload tries a port again, and says so if it fails
 		return c.Reload(ctx, m.ConfigPath())
 	}
 	return m.start()
@@ -240,6 +252,7 @@ func (m *Manager) start() error {
 		return err
 	}
 	killStale(filepath.Join(m.Dir, "mihomo.pid"))
+	m.setListenErr("")
 	if m.socket != "" {
 		_ = os.Remove(m.socket)
 	}
@@ -407,6 +420,30 @@ func (m *Manager) readLogs(r io.Reader) {
 	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	for sc.Scan() {
 		m.logs.add(sc.Text())
+		m.noteListenError(sc.Text())
+	}
+}
+
+// proxyListenFailed is what mihomo logs for a proxy port it cannot open. It
+// goes on without the port, its controller answering as usual, so this line
+// is all there is to tell that nothing is listening. The DNS listener and
+// the like are not the proxy, and have their own line.
+var proxyListenFailed = regexp.MustCompile(`Start (?:Mixed\(http\+socks\)|HTTP|SOCKS) server error: listen \S+ \S*:(\d+): bind:`)
+
+func (m *Manager) noteListenError(line string) {
+	if g := proxyListenFailed.FindStringSubmatch(line); g != nil {
+		m.setListenErr(fmt.Sprintf(i18n.T("端口 %s 被其他程序占用或被系统保留，代理没有在监听。关掉那个程序后重启 bowel，或换一个端口", "Port %s is taken by another program or reserved by the system, so the proxy isn't listening. Close that program and restart bowel, or choose another port"), g[1]))
+	}
+}
+
+func (m *Manager) setListenErr(msg string) {
+	m.mu.Lock()
+	changed := m.listenErr != msg
+	m.listenErr = msg
+	fn := m.OnListenError
+	m.mu.Unlock()
+	if changed && fn != nil {
+		fn()
 	}
 }
 
