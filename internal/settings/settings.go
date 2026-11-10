@@ -134,6 +134,7 @@ func Open(dir string) (*Store, error) {
 	st := &Store{path: filepath.Join(dir, "settings.json"), s: Defaults.Clone()}
 	if b, err := os.ReadFile(st.path); err == nil {
 		_ = json.Unmarshal(b, &st.s)
+		st.s.IPv6 = migrateIPv6(b, st.s.IPv6)
 	}
 	if st.s.Language == "" {
 		st.s.Language = Defaults.Language
@@ -164,6 +165,20 @@ func Open(dir string) (*Store, error) {
 	}
 	st.s.Options.Fill()
 	return st, nil
+}
+
+// migrateIPv6 turns the true of a file from before the modes into Auto:
+// the whole file is written on every save, so true says nothing of what the
+// user wanted, and it was what broke networks without IPv6. On is saved as
+// "on", so this happens once.
+func migrateIPv6(file []byte, mode core.IPv6Mode) core.IPv6Mode {
+	var old struct {
+		IPv6 json.RawMessage `json:"ipv6"`
+	}
+	if json.Unmarshal(file, &old) == nil && string(old.IPv6) == "true" {
+		return core.IPv6Auto
+	}
+	return mode
 }
 
 // Gen counts the changes so far.

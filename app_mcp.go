@@ -562,6 +562,7 @@ func (a *App) mcpServer() *mcp.Server {
 						"providers": len(snap.Providers), "activeConnections": t.Active,
 						"traffic":     map[string]int64{"downBps": t.Down, "upBps": t.Up, "todayDown": t.TodayDown, "todayUp": t.TodayUp, "monthDown": t.MonthDown},
 						"agentPolicy": a.settings.Get().Policy(), "version": snap.Version,
+						"ipv6": a.ipv6Report(),
 					}, nil
 				},
 			},
@@ -1079,10 +1080,16 @@ func (a *App) settingsPatch(changes map[string]json.RawMessage) ([]byte, error) 
 	return b, nil
 }
 
+// ipv6Report is the IPv6 setting and what it comes to on this network.
+func (a *App) ipv6Report() map[string]any {
+	mode, found := a.settings.Get().IPv6, a.devEnv().IPv6
+	return map[string]any{"mode": string(mode), "enabled": mode.Enabled(found.Usable), "found": found}
+}
+
 // settingChoices are the values of the settings that take one of a few.
 func settingChoices() map[string][]string {
 	return map[string][]string{
-		"language": i18n.Languages, "appearance": settings.Appearances, "borders": settings.BorderStyles, "skin": settings.Skins,
+		"ipv6": core.IPv6Modes, "language": i18n.Languages, "appearance": settings.Appearances, "borders": settings.BorderStyles, "skin": settings.Skins,
 		"logLevel": settings.LogLevels, "mode": {"rule", "global", "direct"}, "mcpPolicy": settings.MCPPolicies,
 		"dnsMode": core.DNSModes, "tunStack": core.TunStacks, "findProcess": core.FindProcess, "fingerprint": core.Fingerprints,
 	}

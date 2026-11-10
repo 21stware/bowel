@@ -21,6 +21,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/oboo/moho/internal/core"
+	"github.com/oboo/moho/internal/devnet"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/settings"
 )
@@ -743,6 +744,23 @@ func (u *UI) inboundSection(c *ui.Context, p *pal, s settings.Settings) {
 	})
 }
 
+// ipv6Note says what the IPv6 setting does, and what Auto is doing now.
+func ipv6Note(mode core.IPv6Mode, st devnet.IPv6State) string {
+	switch {
+	case mode == core.IPv6Off:
+		return i18n.T("只用 IPv4", "IPv4 only")
+	case mode == core.IPv6On:
+		return i18n.T("总是解析和连接 IPv6 地址，当前网络没有 IPv6 时可能连不上", "Always resolve and connect to IPv6 addresses. Sites may fail on a network without IPv6")
+	case st.Usable:
+		return fmt.Sprintf(i18n.T("现在已启用：%s 上的 IPv6 可用", "On now: IPv6 works on %s"), st.Iface)
+	case st.Reason == devnet.IPv6NoAddress:
+		return i18n.T("现在已停用：当前网络没有公网 IPv6 地址", "Off now: this network has no public IPv6 address")
+	case st.Reason == devnet.IPv6Unreachable:
+		return i18n.T("现在已停用：当前网络的 IPv6 连不通", "Off now: IPv6 doesn't reach the internet on this network")
+	}
+	return i18n.T("只在当前网络真正有 IPv6 时启用", "On only while the current network really has IPv6")
+}
+
 func (u *UI) coreSection(c *ui.Context, p *pal, s settings.Settings) {
 	sectionNote(c, p, i18n.T("mihomo 自己的行为", "How mihomo itself behaves"))
 	optRow(c, p, i18n.T("日志级别", "Log level"), i18n.T("「日志」页里内核日志的详细程度", "How detailed the core's log on the Log page is"), func() {
@@ -750,7 +768,13 @@ func (u *UI) coreSection(c *ui.Context, p *pal, s settings.Settings) {
 			u.setOpt(func(s *settings.Settings) { s.LogLevel = v })
 		})
 	})
-	u.optSwitch(c, p, "ipv6", "IPv6", i18n.T("解析和连接 IPv6 地址", "Resolve and connect to IPv6 addresses"), s.IPv6, func(s *settings.Settings, on bool) { s.IPv6 = on })
+	optRow(c, p, "IPv6", ipv6Note(s.IPv6, u.snap.Dev.Env.IPv6), func() {
+		labels := []string{i18n.T("关闭", "Off"), i18n.T("自动", "Auto"), i18n.T("开启", "On")}
+		sel := max(0, slices.Index(core.IPv6Modes, string(s.IPv6)))
+		if actSeg(c.Key("ipv6"), p, &sel, labels).Changed() && core.IPv6Modes[sel] != string(s.IPv6) {
+			u.setOpt(func(s *settings.Settings) { s.IPv6 = core.IPv6Mode(core.IPv6Modes[sel]) })
+		}
+	})
 	u.optSwitch(c, p, "unified", i18n.T("统一延迟", "Unified delay"), i18n.T("测速时扣掉握手，不同协议的延迟可以直接比较", "Leave out the handshake when testing, so delays of different protocols compare"), s.UnifiedDelay,
 		func(s *settings.Settings, on bool) { s.UnifiedDelay = on })
 	u.optSwitch(c, p, "tcpc", i18n.T("TCP 并发", "TCP concurrent"), i18n.T("一个域名有多个 IP 时同时连，用最先连上的", "When a domain has several IPs, dial them all and use the first to connect"), s.TCPConcurrent,

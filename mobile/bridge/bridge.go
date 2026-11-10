@@ -631,6 +631,9 @@ func (x *bridge) writeConfig() error {
 	scopes, orders := x.nodeLists(all)
 	opts := s.Options.Clone()
 	opts.FindProcess, opts.Interface = "off", ""
+	if opts.IPv6 == core.IPv6Auto {
+		opts.IPv6 = core.IPv6On // nothing here reads the network: as it always was
+	}
 	raw, err := core.BuildConfig(core.Input{
 		Providers: refs, Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders,
 		Mode: s.Mode, Tun: true, LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: probePort, Options: opts,
