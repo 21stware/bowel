@@ -255,6 +255,7 @@ func (a *App) start() {
 	go a.updateLoop()
 	go a.devLoop()
 	go a.refreshTools()
+	go a.probeSources()
 	go a.debugDriver()
 	a.startMCP()
 }
@@ -1884,6 +1885,7 @@ func (a *App) snapshot() Snapshot {
 	snap.Takeover = tk
 	snap.Dev = a.devReport(s, tk.Tun.Status == "on")
 	snap.Tools = a.toolsView()
+	snap.Sources = a.sourcesView()
 
 	// Nodes, in their providers' order.
 	mains := mainURLs(s)

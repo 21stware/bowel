@@ -71,6 +71,8 @@ type Snapshot struct {
 	Dev DevNet `json:"dev"`
 	// Tools are the developer tools found.
 	Tools []devtools.Tool `json:"tools,omitempty"`
+	// Sources are where the package tools download from.
+	Sources []devtools.Source `json:"sources,omitempty"`
 	// Update is a new version of bowel and how far installing it has got.
 	Update *UpdateView `json:"update,omitempty"`
 	// UpdateInfo is the rest of what the update's interface shows.

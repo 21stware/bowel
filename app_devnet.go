@@ -155,6 +155,7 @@ func (a *App) devLoop() {
 		a.devSync()
 		if a.tools.ticks++; a.tools.ticks%toolsEvery == 0 {
 			a.refreshTools()
+			a.probeSources()
 		}
 	}
 }
