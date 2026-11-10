@@ -68,6 +68,9 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 - **出口位置实测**：通过 Cloudflare 请求实测节点真实的出口所在地。
 - **网关模式**（macOS）：支持作为局域网网关为电视、游戏机和手机提供代理服务。
 - **TUN**（macOS）：接管不遵循系统代理设置的应用程序流量。
+- **开发工具**（macOS）：Docker、终端和 Git 不读系统代理，bowel 列出哪些没有接入，点一下写好它们自己的配置，撤销时原样删除。
+- **下载源**（macOS）：实测 npm、pip、Go 和 Cargo 的官方源与各个镜像，点一下换源；当前的源连不上时，一键换到最快的那个，或让它重新走节点。
+- **内网直连**（macOS）：局域网、Tailscale 和公司 VPN 的地址自动直连，全局模式下也一样。
 - **MCP**：内置 MCP 服务器，供 Claude Code 等 Agent 读取状态、排查网络问题，改设置前默认先问你。下面是 macOS 的命令，Windows 和 Linux 上请换成 bowel 程序所在的路径。
   ```bash
   claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp

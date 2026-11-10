@@ -40,7 +40,12 @@ type homeUI struct {
 	toolArmed  string
 	toolsArmed bool
 	toolsAt    time.Time
-	hist       []Tick // the last 90 seconds
+	// The download sources under them: the list shown, and the source
+	// whose other ways are listed.
+	srcList bool
+	srcOpen string
+	srcAt   time.Time
+	hist    []Tick // the last 90 seconds
 
 	// What each cell showed in the last frame, and a view folding away.
 	shown   map[string]shownView
@@ -1891,6 +1896,7 @@ func (u *UI) modeNormal(c *ui.Context, p *pal) {
 		}
 		ui.Text(c, note).FontSize(12).TextColor(p.mute).Margin(12, 0, 0, 0).MaxLines(2).Ellipsis("…").Tooltip(note)
 		u.modeToolsLine(c, p)
+		u.modeSourcesLine(c, p)
 	})
 }
 
@@ -1919,6 +1925,7 @@ func (u *UI) modeExpanded(c *ui.Context, p *pal) {
 			})
 		}
 		u.toolsSection(c, p)
+		u.sourcesSection(c, p)
 	})
 }
 

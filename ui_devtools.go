@@ -169,9 +169,11 @@ func (u *UI) toolsSection(c *ui.Context, p *pal) {
 	if !h.toolsList {
 		return
 	}
-	for _, t := range list {
-		u.toolRow(c, p, t)
-	}
+	nested(c, p, func() {
+		for _, t := range list {
+			u.toolRow(c, p, t)
+		}
+	})
 }
 
 func (u *UI) toolsUndoAll(c *ui.Context, p *pal) {

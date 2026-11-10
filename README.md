@@ -68,6 +68,9 @@ Six skins that change the look of the whole interface.
 - **Measured exit locations**: Verify true exit locations through Cloudflare trace.
 - **Gateway mode** (macOS): Turn this Mac into a LAN gateway for devices like TVs and consoles.
 - **TUN** (macOS): Intercept traffic from applications that ignore system proxy settings.
+- **Developer tools** (macOS): Docker, the terminal and Git ignore the system proxy. bowel lists which ones aren't connected, writes their own config in one click, and removes it cleanly when you undo.
+- **Download sources** (macOS): Measures the official source and each mirror for npm, pip, Go and Cargo, and switches in one click. When the current source stops answering, one click moves you to the fastest one that does, or sends it through a node again.
+- **Private networks** (macOS): Addresses on your LAN, Tailscale and company VPN go direct automatically, in global mode too.
 - **MCP**: Built-in MCP server for Claude Code and other agents to read status and troubleshoot connections. It asks you before changing settings by default. The command below is for macOS; on Windows and Linux, use the path of the bowel program.
   ```bash
   claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp
