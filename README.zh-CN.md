@@ -124,8 +124,45 @@ curl -fsSL https://21stware.github.io/packages/install.sh | sh
 | 扫描屏幕上的二维码 | 支持 | 支持 | 支持 | 不支持 |
 | 用摄像头扫描二维码 | 支持 | 不支持 | 不支持 | 支持 |
 | MCP 服务器 | 支持 | 支持 | 支持 | 不支持 |
+| 命令行和 `bowel daemon` | 支持 | 支持 | 支持 | 不支持 |
 
 第一次开启 TUN 时需要管理员授权一次：macOS 是系统自己的对话框，Windows 是用户账户控制（UAC），Linux 通过 polkit（`pkexec`）。Linux 上的系统代理是 GNOME 的（Cinnamon、MATE、Budgie 等桌面共用它）或 KDE 的；其他桌面请使用 TUN，或让应用自行连接混合端口，默认是 7899。各系统具体有什么、缺什么，见 [docs/platform-parity.md](docs/platform-parity.md)。Android 版可以选择不经过 VPN 的应用。
+
+## 命令行
+
+同一个程序也是命令行，用来操作运行中的 bowel。macOS 上它在 `/Applications/bowel.app/Contents/MacOS/bowel`，可以链接到 `PATH` 里（`ln -s /Applications/bowel.app/Contents/MacOS/bowel /usr/local/bin/bowel`），或直接写完整路径。不带命令运行时，和以前一样打开应用。
+
+```bash
+bowel status                      # 状态灯、模式、接管、各路由的节点、流量
+bowel on                          # 开始接管（系统代理）；bowel off 恢复原样
+bowel mode global                 # rule | global | direct
+bowel routes                      # 路由和各自使用的节点
+bowel route use ai auto           # 给路由选节点，或 auto 自动
+bowel nodes --test                # 重新测速后列出节点
+bowel providers add <地址|文件>    # 还有 list、update、remove、enable、disable
+bowel rules add openai.com ai     # 还有 list、remove、test <地址>
+bowel conns --watch               # 持续显示新连接和结束的连接
+bowel logs -f --level warning     # 持续输出内核日志
+bowel settings set logLevel debug # 还有 list、get
+bowel tun on                      # 以及 bowel gateway on
+bowel tui                         # 全屏界面
+```
+
+`bowel tui` 是同一套功能的全屏界面：概览、连接、日志、规则、Provider 和设置六个页面，实时刷新。概览页有一组开关（接管、系统代理、TUN、网关模式、允许局域网）和路由列表：在开关上按回车或空格切换，在路由上按回车选节点（`t` 测速），`m` 切换模式，`a` 添加订阅。设置页可以修改任意一项设置。`/` 过滤连接，`?` 查看全部按键。会改变网络的操作先问 y/n。通过 SSH 也能用：`ssh server -t bowel tui`。
+
+每个命令都有 `--help` 和例子。读取类命令支持 `--json`，`logs -f` 和 `conns --watch` 加上它后每行输出一个 JSON 对象。输出不是终端或设置了 `NO_COLOR` 时，不显示颜色和进度动画。退出码：0 成功，1 执行失败（例如 bowel 没在运行），2 命令写错了。`bowel completion bash|zsh|fish|powershell` 输出补全脚本。
+
+**无窗口运行。** `bowel daemon` 不开窗口、菜单栏图标和 Dock 图标，只运行内核、监控和命令行通道。它在前台运行，收到 SIGINT、SIGTERM 或 `bowel stop` 后退出，并像应用退出时一样恢复系统代理，适合交给 systemd、launchd 或服务包装器托管。用 `BOWEL_DATA_DIR`（或 `--data-dir`）可以给它单独的数据目录。daemon 不会自动升级。daemon 运行时再打开应用不会有反应，需要先停掉 daemon。
+
+```ini
+# /etc/systemd/system/bowel.service
+[Service]
+ExecStart=/opt/bowel/bowel daemon
+Environment=BOWEL_DATA_DIR=/var/lib/bowel
+Restart=on-failure
+```
+
+**Agent。** 你自己敲的命令不会被询问。由 agent 运行的命令（Claude Code、Codex、Cursor 等，按它们的环境变量识别）和 MCP 用同一个策略：询问、允许或拒绝。daemon 没有窗口可以弹框，策略为“询问”时会拒绝 agent 的变更；可以用 `bowel settings set mcpPolicy allow` 放行，这条命令只有你自己能执行。
 
 ## 开发
 

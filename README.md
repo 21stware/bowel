@@ -124,8 +124,45 @@ Some features depend on the platform:
 | Scan QR codes on the screen | Yes | Yes | Yes | No |
 | Scan QR codes with the camera | Yes | No | No | Yes |
 | MCP server | Yes | Yes | Yes | No |
+| Command line and `bowel daemon` | Yes | Yes | Yes | No |
 
 TUN asks for an administrator once, the first time you turn it on: macOS in its own dialog, Windows in a User Account Control prompt, Linux through polkit (`pkexec`). On Linux the system proxy is GNOME's, which Cinnamon, MATE, Budgie and others share, or KDE's; on another desktop use TUN, or point your applications at the mixed port, 7899 by default. What each system has and lacks is listed in [docs/platform-parity.md](docs/platform-parity.md). On Android, you can choose apps that stay outside the VPN.
+
+## Command line
+
+The same program is a command line for the running bowel. On macOS it is `/Applications/bowel.app/Contents/MacOS/bowel`; link it into your `PATH` (`ln -s /Applications/bowel.app/Contents/MacOS/bowel /usr/local/bin/bowel`) or use the full path. Run without a command, it opens the app as before.
+
+```bash
+bowel status                      # the light, mode, takeover, each route's node, traffic
+bowel on                          # take over (system proxy); bowel off puts it back
+bowel mode global                 # rule | global | direct
+bowel routes                      # routes and the node each uses
+bowel route use ai auto           # choose a route's node, or auto
+bowel nodes --test                # nodes with fresh delays
+bowel providers add <url|file>    # also: list, update, remove, enable, disable
+bowel rules add openai.com ai     # also: list, remove, test <address>
+bowel conns --watch               # connections as they open and end
+bowel logs -f --level warning     # follow the core's log
+bowel settings set logLevel debug # also: list, get
+bowel tun on                      # and: bowel gateway on
+bowel tui                         # all of it on a full screen
+```
+
+`bowel tui` is the same on a whole terminal: pages for the overview, connections, logs, rules, Providers and settings, kept current. The overview has the switches (takeover, system proxy, TUN, gateway mode, allow LAN) and the routes: Enter or Space turns a switch, Enter on a route chooses its node (`t` tests the delays), `m` switches the mode and `a` adds a subscription. The settings page changes any setting by key. `/` filters connections and `?` lists the keys. A change asks y/n first. It works over SSH: `ssh server -t bowel tui`.
+
+Every command has `--help` with examples. Reading commands take `--json`, and `logs -f` and `conns --watch` print one JSON object per line with it. Colors and progress go away when the output is not a terminal or `NO_COLOR` is set. Exit codes are 0 for done, 1 when it failed (for example bowel isn't running) and 2 for a wrong command line. `bowel completion bash|zsh|fish|powershell` prints a completion script.
+
+**Without a window.** `bowel daemon` runs bowel with no window, menu bar icon or Dock icon: the core, the monitors and the command line's socket only. It stays in the foreground and stops on SIGINT, SIGTERM or `bowel stop`, putting the system proxy back as the app does, so systemd, launchd or a service wrapper can keep it. `BOWEL_DATA_DIR` (or `--data-dir`) gives it a data folder of its own. The daemon does not update itself. Opening the app while the daemon runs does nothing: stop the daemon first.
+
+```ini
+# /etc/systemd/system/bowel.service
+[Service]
+ExecStart=/opt/bowel/bowel daemon
+Environment=BOWEL_DATA_DIR=/var/lib/bowel
+Restart=on-failure
+```
+
+**Agents.** Commands you type are not asked about. A command run by an agent (Claude Code, Codex, Cursor and others are recognised by their environment) follows the same policy as MCP: ask, allow or deny. The daemon has no window to ask in, so under "ask" it refuses an agent's change; allow them with `bowel settings set mcpPolicy allow`, which only you can run.
 
 ## Develop
 
