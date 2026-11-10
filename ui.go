@@ -44,6 +44,7 @@ type UI struct {
 	prov   providersUI
 	setup  setupUI
 	set    settingsUI
+	clog   changelogUI
 	panel  panelUI
 	gw     gatewayUI
 }
@@ -389,6 +390,7 @@ func (u *UI) titleBar(c *ui.Context, p *pal) {
 			}
 		})
 		u.notice(c, p)
+		u.updateNotice(c, p)
 		u.statePill(c, p)
 		u.settingsButton(c, p)
 	})
@@ -459,10 +461,12 @@ func (u *UI) notice(c *ui.Context, p *pal) {
 					t.Tooltip(is.Text)
 				}
 				if is.Action != "" {
-					busy := is.Action == "retake" && u.pending("retake")
+					busy := (is.Action == "retake" || is.Action == "tun-update") && u.pending(is.Action)
 					label := is.Label
-					if busy {
+					if busy && is.Action == "retake" {
 						label = i18n.T("正在重新接管…", "Retaking…")
+					} else if busy {
+						label = i18n.T("正在更新…", "Updating…")
 					}
 					ui.ButtonBase(c).Shrink(0).Padding(5, 6).Margin(-5, -6).OnClick(func() { u.issueAction(is.Action) }).Children(func() {
 						shimmer(ui.Text(c, label).FontSize(12.5).FontWeight(600).Underline().TextColor(p.ink).NoWrap(), busy, p)
@@ -483,6 +487,8 @@ func (u *UI) issueAction(action string) {
 	switch action {
 	case "retake":
 		u.do(u.app.retake)
+	case "tun-update":
+		u.do(u.app.updateTun)
 	case "activity":
 		u.page = "activity"
 	case "providers":

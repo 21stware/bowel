@@ -212,7 +212,17 @@ func (st *Store) Update(fn func(*Settings)) (Settings, error) {
 	fn(&st.s)
 	st.gen++
 	b, _ := json.MarshalIndent(st.s, "", "  ")
-	return st.s.Clone(), os.WriteFile(st.path, b, 0o600)
+	return st.s.Clone(), writeAtomic(st.path, b)
+}
+
+// writeAtomic replaces the file whole, so that quitting or restarting in the
+// middle of a save leaves the old settings and not half of the new ones.
+func writeAtomic(path string, b []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // ResetCore puts the core's options back to Moho's defaults. What decides
