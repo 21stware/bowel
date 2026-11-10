@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- 新增命令行：`bowel status`、`on`/`off`、`mode`、`routes`、`nodes`、`providers`、`rules`、`conns`、`logs`、`settings` 等，支持 `--json` 和 shell 补全；`bowel daemon` 可以不开窗口运行，适合服务器和 SSH
+- 新增终端全屏界面 `bowel tui`：概览、连接、日志、规则、Provider、设置六个页面，可以开关接管和 TUN、添加订阅、选节点、测速、切换模式、增删规则、修改设置
 - 「默认」路由组改名为「其他流量」，排在列表最后；路由列表用一条线表示规则依次匹配、没命中的落到这里
 - 「其他流量」可以选择直接连接：没命中规则的网站不走节点，命中规则的流量仍走各自的节点；全局模式仍走节点
 
