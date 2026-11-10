@@ -183,7 +183,8 @@ func (a *App) devSync() {
 }
 
 // syncBypass gives the system proxy the bypass list as it stands, if it
-// differs and the system proxy is still bowel's.
+// differs and the system proxy is still bowel's. A write of bowel's that the
+// OS refused gets its next try here too, since nothing else comes round.
 func (a *App) syncBypass() {
 	a.proxyMu.Lock()
 	defer a.proxyMu.Unlock()
@@ -194,6 +195,7 @@ func (a *App) syncBypass() {
 	if !a.takeoverOn(s) || !s.SystemProxy {
 		return
 	}
+	a.retryWrite(s)
 	a.dev.mu.Lock()
 	last := a.dev.bypass
 	a.dev.mu.Unlock()

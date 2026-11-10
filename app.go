@@ -76,7 +76,8 @@ type App struct {
 	pending     map[string]bool
 	locating    map[string]bool
 	sys         sysproxy.Status
-	proxyErr    string // why the last try to take the system proxy failed
+	proxyErr    string       // why the last try to take the system proxy failed
+	failed      *failedWrite // that try, if the OS refused it: see retryWrite
 	proxies     map[string]mihomo.Proxy
 	provNodes   map[string][]string // provider id → node names, in the provider's order
 	// nodesSig is the names /proxies had when provNodes was read, at
@@ -621,9 +622,9 @@ func (a *App) enableProxy(s settings.Settings, prev ...int) error {
 // stays, it first replaces that with what the system has, without ports.
 // A failure is kept for the status to tell: it is not another program's doing.
 func (a *App) pointProxy(s settings.Settings, ports []int, keep bool) error {
-	err := a.writeProxy(s, ports, keep)
+	failed, err := a.writeProxy(s, ports, keep)
 	a.mu.Lock()
-	a.proxyErr = ""
+	a.proxyErr, a.failed = "", failed
 	if err != nil {
 		a.proxyErr = firstLine(err.Error())
 	}
@@ -631,29 +632,121 @@ func (a *App) pointProxy(s settings.Settings, ports []int, keep bool) error {
 	return err
 }
 
-func (a *App) writeProxy(s settings.Settings, ports []int, keep bool) error {
+// writeProxy says, when the OS refused the write, what retryWrite needs to
+// try it again. The copy on disk is done by then, whatever the write left.
+func (a *App) writeProxy(s settings.Settings, ports []int, keep bool) (*failedWrite, error) {
 	if !keep {
 		saved, err := osProxy.snapshot()
 		if err != nil {
-			return fmt.Errorf("reading the system proxy: %w", err)
+			return nil, fmt.Errorf("reading the system proxy: %w", err)
 		}
 		saved.Forget(ports...)
 		b, err := json.MarshalIndent(saved, "", "  ")
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if err := os.WriteFile(a.proxyBackup(), b, 0o600); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	bypass := a.bypassOf(s)
 	if err := osProxy.enable("127.0.0.1", s.MixedPort, bypass); err != nil {
-		return err
+		left, serr := osProxy.snapshot()
+		if serr != nil {
+			return nil, err // no telling later whether another program came
+		}
+		return &failedWrite{left: left, inputs: a.writeInputs(s)}, err
 	}
 	a.dev.mu.Lock()
 	a.dev.bypass = bypass
 	a.dev.mu.Unlock()
-	return nil
+	return nil, nil
+}
+
+// proxyRetries is how many times a write the OS refused is tried again. With
+// the waits of retryWrite that is over some ten minutes, enough for what
+// passes; a write that can never work costs a handful of tries, on every OS,
+// without telling the errors apart.
+const proxyRetries = 5
+
+// failedWrite is a write of the system proxy that the OS refused. Fields
+// change under proxyMu only.
+type failedWrite struct {
+	left   sysproxy.Saved // the system proxy just after it
+	inputs string         // what the write was made from: see writeInputs
+	tries  int            // tried again so many times
+	wait   int            // devLoop ticks before the next try
+}
+
+// writeInputs is what a write depends on besides the OS: when it changes, a
+// write that failed may work, and the tries start over.
+func (a *App) writeInputs(s settings.Settings) string {
+	env := a.devEnv()
+	return strings.Join(append([]string{env.PrimaryIface, overlayOf(s, env).Fingerprint()}, s.Bypass...), "\n")
+}
+
+// coreUp says whether there is a core for the system proxy to point at.
+var coreUp = func(a *App) bool { return a.core.Status().State == core.Running }
+
+// retryWrite tries again a write of the system proxy that the OS refused.
+// That is bowel finishing what it was asked to do, unlike taking the proxy
+// back from another program, which only the user decides: so nothing happens
+// without a failure of bowel's own on record, and once the system proxy is
+// no longer as the failure left it, bowel lets it be. The caller holds proxyMu.
+func (a *App) retryWrite(s settings.Settings) {
+	a.mu.Lock()
+	f, why := a.failed, a.proxyErr
+	if why == "" {
+		a.failed = nil
+	}
+	a.mu.Unlock()
+	if f == nil || why == "" || !coreUp(a) {
+		return
+	}
+	if in := a.writeInputs(s); in != f.inputs {
+		f.inputs, f.tries, f.wait = in, 0, 0
+	}
+	if f.tries >= proxyRetries {
+		return
+	}
+	if f.wait > 0 {
+		f.wait--
+		return
+	}
+	cur, err := sysproxy.Check(s.MixedPort)
+	if err != nil || cur.Ours {
+		return // the next refresh clears the failure of a proxy that is ours
+	}
+	now, err := osProxy.snapshot()
+	if err != nil {
+		return
+	}
+	if !reflect.DeepEqual(now, f.left) {
+		a.mu.Lock()
+		a.failed = nil
+		a.mu.Unlock()
+		log.Println("system proxy: changed since the failed write, not trying again")
+		return
+	}
+	// The copy on disk is from before the first failure. What the system has
+	// now may be half of bowel's write, so it must not replace that copy.
+	err = a.pointProxy(s, []int{s.MixedPort}, exists(a.proxyBackup()))
+	if err == nil {
+		log.Println("system proxy: taken over on try", f.tries+2)
+		return
+	}
+	tries := f.tries + 1
+	a.mu.Lock()
+	if a.failed != nil {
+		a.failed.tries, a.failed.wait = tries, 1<<tries-1
+	}
+	a.mu.Unlock()
+	if firstLine(err.Error()) != why {
+		log.Println("system proxy:", err)
+	}
+	if tries == proxyRetries {
+		log.Println("system proxy: giving up after", tries+1, "tries:", why)
+	}
 }
 
 // disableProxy puts back the system proxy enableProxy kept, or, with no
