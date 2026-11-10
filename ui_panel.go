@@ -198,6 +198,8 @@ func (u *UI) panelNodes(c *ui.Context, p *pal) {
 			note = i18n.T("流量不经过 bowel", "Traffic isn’t going through bowel")
 		case s.Mode == "direct":
 			note = i18n.T("直连模式：不经过任何节点", "Direct mode: no node is used")
+		case r.ID == "default" && r.Direct && s.Imported == nil:
+			note = i18n.T("没命中规则的流量直接连接 · 在 bowel 里可以改", "Traffic no rule matches goes direct · Change it in bowel")
 		case len(s.Nodes) == 0:
 			note = i18n.T("还没有节点 · 在 bowel 里添加提供商", "No nodes yet · Add a provider in bowel")
 		case r.Reject:

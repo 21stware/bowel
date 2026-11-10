@@ -371,7 +371,7 @@ func BuildConfig(in Input) ([]byte, error) {
 func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any, use []string, withNodes func(map[string]any, ...string) map[string]any) ([]any, []string, error) {
 	var groups []any
 	for _, r := range in.Routes {
-		if r.Direct {
+		if !r.NodeGroups() {
 			continue
 		}
 		mainURL := in.MainURLs[r.ID]
@@ -444,7 +444,11 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 	if def.Name == "" {
 		return nil, nil, errors.New(i18n.T("模板里没有默认路由", "The template has no default route"))
 	}
-	return groups, rulesFor(in.Mode, dev, mine, rest, routes.Group(def)), nil
+	match := routes.Group(def)
+	if def.Direct {
+		match = "DIRECT"
+	}
+	return groups, rulesFor(in.Mode, dev, mine, rest, match), nil
 }
 
 // rulesFor is the rule list. Outside rule mode the core would ignore the

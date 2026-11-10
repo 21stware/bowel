@@ -846,7 +846,7 @@ func (x *bridge) logs() []logData {
 func ruleText(kind, payload string) string {
 	switch kind {
 	case "", "Match":
-		return i18n.T("未命中，走默认", "No rule matched, default route")
+		return i18n.T("未命中，归其他流量", "No rule matched, Other")
 	case "DomainSuffix":
 		return i18n.T("域名后缀 ", "Domain suffix ") + payload
 	case "Domain":

@@ -268,3 +268,44 @@ func TestAdoptSelections(t *testing.T) {
 		t.Errorf("default adopted %+v", q)
 	}
 }
+
+// TestDefaultDirectInTheApp: going direct changes the core's config, what
+// no rule matched counts as the default route, and it shows no exit node;
+// in global mode the default route goes by its nodes again.
+func TestDefaultDirectInTheApp(t *testing.T) {
+	var off, on routes.Plan
+	on.ChangePolicy(routes.Default, func(q *routes.Policy) { q.Direct = true })
+	off.ChangePolicy(routes.Default, func(*routes.Policy) {})
+	if routingCoreSame(off, on) {
+		t.Error("going direct would not reach the core")
+	}
+	a, _ := routingApp(t, nil)
+	changeRouting(t, a, func(p *routes.Plan) {
+		p.ChangePolicy(routes.Default, func(q *routes.Policy) { q.Direct = true })
+	})
+	if cfg := coreConfig(t, a); !strings.Contains(cfg, "- MATCH,DIRECT") {
+		t.Errorf("the core's rules:\n%s", cfg)
+	}
+	if got := a.routeOfGroup("DIRECT", "Match"); got != routes.Default {
+		t.Errorf("unmatched traffic is on route %q", got)
+	}
+	if got := a.routeOfGroup("DIRECT", "GeoIP"); got != "direct" {
+		t.Errorf("traffic a rule sent direct is on route %q", got)
+	}
+	snap := a.snapshot()
+	if last := snap.Routes[len(snap.Routes)-1]; last.ID != routes.Default || !last.Direct || last.Node != "" {
+		t.Errorf("last route: %+v", last)
+	}
+	if snap.Exit != nil {
+		t.Errorf("an exit while going direct: %+v", snap.Exit)
+	}
+	if err := a.setMode("global"); err != nil {
+		t.Fatal(err)
+	}
+	if r := routeIn(a.snapshot(), routes.Default); r.Direct || r.Node == "" {
+		t.Errorf("global mode: %+v", r)
+	}
+	if now := coreProxies(t, a)["GLOBAL"].Now; now != "默认" {
+		t.Errorf("global mode is on %q", now)
+	}
+}

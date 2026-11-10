@@ -425,3 +425,49 @@ func TestRuleSetImportPanel(t *testing.T) {
 		t.Error("the panel stayed")
 	}
 }
+
+// TestDefaultExitChoice: 其他流量 comes last, chooses its exit before its
+// node strategy, and has no strategy while it goes direct.
+func TestDefaultExitChoice(t *testing.T) {
+	for _, direct := range []bool{false, true} {
+		u := routesFixture()
+		for i := range u.snap.Routes {
+			if u.snap.Routes[i].ID == routes.Default {
+				u.snap.Routes[i].Direct = direct
+			}
+		}
+		u.snap.Settings.Routing.ChangePolicy(routes.Default, func(q *routes.Policy) { q.Direct = direct })
+		tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})
+		tt.Advance(time.Second)
+		if err := tt.Click("其他流量"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Advance(time.Second)
+		for _, want := range []string{"走节点", "直接连接", "不经过节点，用本机网络", "以上规则都没命中"} {
+			if !hasTextPart(tt, want) {
+				t.Errorf("direct=%v lacks %q: %q", direct, want, tt.Texts())
+			}
+		}
+		if got := hasTextPart(tt, "节点策略"); got == direct {
+			t.Errorf("direct=%v: node strategy shown is %v", direct, got)
+		}
+		if got := hasTextPart(tt, "当前网络打不开的网站"); got != direct {
+			t.Errorf("direct=%v: warning shown is %v", direct, got)
+		}
+		shot(t, tt, map[bool]string{false: "routes-other", true: "routes-other-direct"}[direct])
+
+		u = fixtureUI()
+		for i := range u.snap.Routes {
+			if u.snap.Routes[i].ID == routes.Default {
+				u.snap.Routes[i].Direct = direct
+			}
+		}
+		u.home.x = "routes"
+		tt = ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})
+		tt.Advance(2 * time.Second)
+		if !hasTextPart(tt, "以上规则都没命中") || !hasTextPart(tt, "其他流量") {
+			t.Errorf("home list: %q", tt.Texts())
+		}
+		shot(t, tt, map[bool]string{false: "home-routes", true: "home-routes-direct"}[direct])
+	}
+}

@@ -55,14 +55,14 @@ func (a *App) keepMeasured() {
 		}
 	}
 	for _, r := range a.routes() {
-		if r.Direct {
+		if !r.NodeGroups() {
 			continue
 		}
 		if now.Sub(a.routeAt[r.ID]) > speedAge {
-			mains = append(mains, r.ID)
+			mains = append(mains, r.ID) // the default route's are every node's delay
 		}
 		n, res := currentNode(a.proxies, r), a.sites[r.ID]
-		if providerOf(n) != "" && (res.node != n || now.Sub(res.at) > speedAge) {
+		if !r.Direct && providerOf(n) != "" && (res.node != n || now.Sub(res.at) > speedAge) {
 			sites = append(sites, r.ID)
 		}
 	}
@@ -117,7 +117,7 @@ func (a *App) testMains(ids []string) {
 func mainURLs(s settings.Settings) map[string]string {
 	out := map[string]string{}
 	for _, r := range routes.Build(s.Routing, nil) {
-		if !r.Direct {
+		if r.NodeGroups() {
 			out[r.ID] = s.TargetsOf(r.ID)[0].URL
 		}
 	}
@@ -294,7 +294,7 @@ func (a *App) testSites(routeID string) {
 // dead on it and stop choosing.
 func (a *App) setRouteTargets(routeID string, list []routes.Target) error {
 	r := a.route(routeID)
-	if r.ID == "" || r.Direct {
+	if r.ID == "" || !r.NodeGroups() {
 		return errors.New(i18n.T("没有这条路由", "No such route"))
 	}
 	done := a.begin("targets:" + routeID)

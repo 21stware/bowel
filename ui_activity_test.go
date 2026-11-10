@@ -197,7 +197,7 @@ func TestActivitySearch(t *testing.T) {
 		"host:docker":           2,
 		"直连":                    2,
 		"anthropic":             1,
-		"app:arc route:默认":      2,
+		"app:arc route:其他流量":      2,
 		"youtube 142.250.66.46": 1,
 		"nothing-like-this":     0,
 	} {
