@@ -43,7 +43,7 @@ Import subscription links, node URLs, YAML configs, or QR codes, with data usage
 <img src="site/shots/providers-en.webp" width="880" alt="Providers">
 
 ### Menu bar
-Toggle system proxy takeover, switch proxy modes, and select default nodes from the menu bar, or from the system tray on Windows and Linux.
+Toggle system proxy takeover, switch proxy modes, and pick the node for traffic no rule matches from the menu bar, or from the system tray on Windows and Linux.
 
 <img src="site/shots/panel-en.webp" width="300" alt="Menu bar panel">
 

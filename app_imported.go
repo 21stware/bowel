@@ -101,10 +101,10 @@ func importedRoutes(im *core.Imported) []routes.Route {
 	switch match {
 	case "", "DIRECT":
 		def = direct(routes.Default, "DIRECT", false)
-		def.Label = i18n.T("默认", "Default")
+		def.Label = i18n.T("其他流量", "Other")
 	case "REJECT", "REJECT-DROP":
 		def = direct(routes.Default, match, true)
-		def.Label = i18n.T("默认", "Default")
+		def.Label = i18n.T("其他流量", "Other")
 	default:
 		def = route(routes.Default, match)
 	}

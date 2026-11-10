@@ -45,7 +45,7 @@ func fixture() Snapshot {
 		Takeover: Takeover{On: true, Port: 7899, System: Entry{Wanted: true, Status: "on"}, Tun: Entry{Status: "install"},
 			Bypass: []string{"localhost", "127.0.0.1", "*.local", "192.168.0.0/16"}},
 		Routes: []RouteView{
-			{ID: "default", Name: "默认", Summary: "没命中其他规则的流量", Rules: 1, Auto: true, Node: nodes[0].Name, Share: .31},
+			{ID: "default", Name: "其他流量", Summary: "没命中任何规则的流量", Rules: 1, Auto: true, Node: nodes[0].Name, Share: .31},
 			{ID: "ai", Name: "AI 服务", Summary: "OpenAI · Claude · Gemini · Perplexity 等", Rules: 26, Node: nodes[6].Name, Share: .08},
 			{ID: "media", Name: "流媒体", Summary: "YouTube · Netflix · Spotify · Disney+ 等", Rules: 10, Node: nodes[5].Name, Share: .52},
 			{ID: "dev", Name: "开发", Summary: "GitHub · npm · Docker · PyPI · Go 等", Rules: 24, Auto: true, Node: nodes[3].Name, Share: .04},

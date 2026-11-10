@@ -32,6 +32,10 @@ type Policy struct {
 	Providers []string `json:"providers,omitempty"` // ModeAuto: provider ids; none is all
 	Order     []string `json:"order,omitempty"`     // ModeOrder: node names, first preferred
 	Fixed     string   `json:"fixed,omitempty"`     // ModeFixed: a node name
+	// Direct, on the default route only, sends what no rule matched out
+	// without a node. The strategy stays: global mode goes by it, and so
+	// does the route when this is turned off.
+	Direct bool `json:"direct,omitempty"`
 }
 
 // Scoped says whether the automatic group picks from less than every node.
@@ -179,6 +183,9 @@ func Build(p Plan, users []UserRule) []Route {
 		r.Label, r.Policy = g.Name, g.Policy.clone()
 		if r.Policy.Mode == "" {
 			r.Policy.Mode = ModeAuto
+		}
+		if g.ID == Default && g.Policy.Direct {
+			r.Direct = true
 		}
 		out = append(out, r)
 	}
@@ -675,14 +682,17 @@ func (p Plan) Check() error {
 		if strings.TrimSpace(t) == "" {
 			return errors.New(i18n.T("名字不能为空", "The name can't be empty"))
 		}
+		if m := r.Policy.Mode; !slices.Contains(Modes, m) {
+			return fmt.Errorf(i18n.T("未知的节点策略: %s", "Unknown node strategy: %s"), m)
+		}
+		if r.ID == Default {
+			continue // named 其他流量 after people had named groups, so it can share a name
+		}
 		// 拦截 arrived after people had named groups, so it can share a name.
 		if seen[t] && r.ID != Reject {
 			return fmt.Errorf(i18n.T("已经有同名的路由组: %s", "There's already a route group called %s"), t)
 		}
 		seen[t] = true
-		if m := r.Policy.Mode; !slices.Contains(Modes, m) {
-			return fmt.Errorf(i18n.T("未知的节点策略: %s", "Unknown node strategy: %s"), m)
-		}
 	}
 	return nil
 }

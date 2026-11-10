@@ -162,7 +162,7 @@ func TestCustomGroups(t *testing.T) {
 	if c := p.AddGroup(nil, "x"); c != "g1" {
 		t.Errorf("freed id not reused: %q", c)
 	}
-	if GroupNameError(all, a, "") == "" || GroupNameError(all, a, "默认") == "" || GroupNameError(all, a, "全新") != "" {
+	if GroupNameError(all, a, "") == "" || GroupNameError(all, a, "其他流量") == "" || GroupNameError(all, a, "全新") != "" {
 		t.Error("group name check")
 	}
 }
@@ -317,5 +317,45 @@ func TestExplainLooksInsideRuleSets(t *testing.T) {
 	// Without a way to look inside, as on mobile.
 	if r, _, _, _ := Explain("api.anthropic.com", nil, all); r != "ai" {
 		t.Errorf("%s", r)
+	}
+}
+
+// TestDefaultGoesDirect: the default route can go without a node, and only
+// it can; its strategy is kept, and its node groups with it.
+func TestDefaultGoesDirect(t *testing.T) {
+	var p Plan
+	p.SetStrategy(Default, ModeFixed, "hk")
+	p.ChangePolicy(Default, func(q *Policy) { q.Direct = true })
+	p.ChangePolicy("ai", func(q *Policy) { q.Direct = true }) // a hand-edited file
+	all := Build(p, nil)
+	route := func(id string) Route { return all[slices.IndexFunc(all, func(r Route) bool { return r.ID == id })] }
+	def := route(Default)
+	if !def.Direct || !def.NodeGroups() || def.Policy.Mode != ModeFixed || def.Policy.Fixed != "hk" {
+		t.Errorf("default: %+v", def)
+	}
+	if ai := route("ai"); ai.Direct || !ai.NodeGroups() {
+		t.Errorf("ai: %+v", ai)
+	}
+	if d := route("direct"); !d.Direct || d.NodeGroups() {
+		t.Errorf("direct: %+v", d)
+	}
+	if err := p.Check(); err != nil {
+		t.Error(err)
+	}
+}
+
+// TestDefaultRouteName: the interface says 其他流量; the core's group keeps
+// its name, and a group the user already called that doesn't break the plan.
+func TestDefaultRouteName(t *testing.T) {
+	var p Plan
+	id := p.AddGroup(nil, "其他流量 2")
+	p.group(id).Name = "其他流量"
+	all := Build(p, nil)
+	def := all[slices.IndexFunc(all, func(r Route) bool { return r.ID == Default })]
+	if Title(def) != "其他流量" || Group(def) != "默认" {
+		t.Errorf("title %q, group %q", Title(def), Group(def))
+	}
+	if err := p.Check(); err != nil {
+		t.Error(err)
 	}
 }

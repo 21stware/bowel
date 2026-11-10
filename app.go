@@ -1144,7 +1144,7 @@ func (a *App) route(id string) routes.Route {
 // selectNode pins a route group to node; "" sends it back to the fastest.
 func (a *App) selectNode(routeID, node string) error {
 	r := a.route(routeID)
-	if r.ID == "" || r.Direct {
+	if r.ID == "" || !r.NodeGroups() {
 		return errors.New(i18n.T("没有这条路由", "No such route"))
 	}
 	if a.importedNow() != nil {
@@ -1168,7 +1168,7 @@ func (a *App) selectNode(routeID, node string) error {
 
 func (a *App) testRoute(ctx context.Context, routeID string) error {
 	r := a.route(routeID)
-	if r.ID == "" || r.Direct {
+	if r.ID == "" || !r.NodeGroups() {
 		return errors.New(i18n.T("没有这条路由", "No such route"))
 	}
 	c, err := a.core.Client()
@@ -1465,6 +1465,32 @@ func (a *App) reroute(r routes.UserRule, keep string) int {
 	return a.rerouteBy(r.Matches, keep)
 }
 
+// closeUnmatched closes the connections no rule matched, so that a change
+// of where they go shows. It reports how many it closed.
+func (a *App) closeUnmatched() int {
+	c, err := a.core.Client()
+	if err != nil {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snap, err := c.Connections(ctx)
+	if err != nil {
+		return 0
+	}
+	var ids []string
+	for _, cn := range snap.Connections {
+		if cn.Rule == "Match" {
+			ids = append(ids, cn.ID)
+		}
+	}
+	if len(ids) > 0 && a.closeConns(ids) == nil {
+		a.mon.Wake()
+		return len(ids)
+	}
+	return 0
+}
+
 // rerouteBy is reroute for whatever match catches.
 func (a *App) rerouteBy(match func(host, ip string) bool, keep string) int {
 	c, err := a.core.Client()
@@ -1513,9 +1539,18 @@ func (a *App) routeOfGroup(group, rule string) string {
 	if group == "REJECT" { // a route's empty range shows as the route's group
 		return routes.Reject
 	}
-	if group == "DIRECT" && rule != "" && rule != "Match" {
+	if group != "DIRECT" {
+		return ""
+	}
+	if rule == "Match" { // what no rule matched, when the default route goes direct
+		if a.route(routes.Default).Policy.Direct {
+			return routes.Default
+		}
+		return ""
+	}
+	if rule != "" {
 		for _, r := range a.routes() {
-			if r.Direct && !r.Reject {
+			if r.Direct && !r.Reject && r.ID != routes.Default {
 				return r.ID
 			}
 		}
@@ -1888,6 +1923,9 @@ func (a *App) snapshot() Snapshot {
 		total += v
 	}
 	for _, r := range a.routes() {
+		if r.ID == routes.Default && r.Policy.Direct && s.Mode == "global" {
+			r.Direct = false // global mode has no rules to miss: it goes by the nodes
+		}
 		rv := RouteView{ID: r.ID, Name: routes.Title(r), Color: r.Color, Summary: routes.Describe(r), Rules: len(r.Rules), Direct: r.Direct, Reject: r.Reject}
 		if r.ID == routes.Default {
 			rv.Rules = 1
@@ -1916,10 +1954,17 @@ func (a *App) snapshot() Snapshot {
 		}
 		snap.Routes = append(snap.Routes, rv)
 	}
+	// What the rest fall through to is listed after them.
+	if i := slices.IndexFunc(snap.Routes, func(r RouteView) bool { return r.ID == routes.Default }); i >= 0 {
+		last := snap.Routes[i]
+		snap.Routes = append(slices.Delete(snap.Routes, i, i+1), last)
+	}
 
 	// Exit and the user's place.
-	if n := a.listedNode(currentNode(px, a.route(routes.Default)), provNodes); n != "" && n != "DIRECT" {
-		snap.Exit = &Exit{Node: n, Where: view(n).Where}
+	if def := a.route(routes.Default); !def.Direct || def.Policy.Direct && s.Mode == "global" {
+		if n := a.listedNode(currentNode(px, def), provNodes); n != "" && n != "DIRECT" {
+			snap.Exit = &Exit{Node: n, Where: view(n).Where}
+		}
 	}
 	if you != nil {
 		l := located(*you)
