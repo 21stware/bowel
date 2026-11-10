@@ -111,6 +111,7 @@ type App struct {
 	gwProbing bool
 	gwErr     error
 	dev       devState
+	tools     toolsState
 }
 
 type switchNote struct {
@@ -229,6 +230,7 @@ func (a *App) start() {
 	}()
 	go a.loop()
 	go a.devLoop()
+	go a.refreshTools()
 	go a.debugDriver()
 	a.startMCP()
 }
@@ -1621,6 +1623,7 @@ func (a *App) snapshot() Snapshot {
 	tk.Gateway = gatewayView(s, on, tk.Tun.Status, a.gw.System().Ready(), a.gw.Awake(), gwp, gwErr)
 	snap.Takeover = tk
 	snap.Dev = a.devReport(s, tk.Tun.Status == "on")
+	snap.Tools = a.toolsView()
 
 	// Nodes, in their providers' order.
 	mains := mainURLs(s)

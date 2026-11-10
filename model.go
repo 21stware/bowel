@@ -8,6 +8,7 @@ package main
 import (
 	"time"
 
+	"github.com/oboo/moho/internal/devtools"
 	"github.com/oboo/moho/internal/gateway"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
@@ -54,6 +55,8 @@ type Snapshot struct {
 	ControllerTCP string `json:"controllerTcp,omitempty"`
 	// Dev is what the developer networks page shows.
 	Dev DevNet `json:"dev"`
+	// Tools are the developer tools found.
+	Tools []devtools.Tool `json:"tools,omitempty"`
 }
 
 // Issue is the news line: shown only when degraded or broken.

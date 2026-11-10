@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -118,6 +120,9 @@ func (a *App) devLoop() {
 			return
 		}
 		a.devSync()
+		if a.tools.ticks++; a.tools.ticks%toolsEvery == 0 {
+			a.refreshTools()
+		}
 	}
 }
 
@@ -188,6 +193,8 @@ type DevNet struct {
 	Warnings []string `json:"warnings,omitempty"`
 	// Exports is a line for a shell, that points it at the proxy.
 	Exports string `json:"exports"`
+	// Unsets is the line that takes it off again.
+	Unsets string `json:"unsets"`
 }
 
 // devReport is the page's data. ownTun: bowel's TUN is one of the tunnels
@@ -196,7 +203,7 @@ func (a *App) devReport(s settings.Settings, ownTun bool) DevNet {
 	a.dev.mu.Lock()
 	env, fellBack := a.dev.env, a.dev.fellBack
 	a.dev.mu.Unlock()
-	r := DevNet{Env: env, Exports: exportsFor(s, overlayOf(s, env))}
+	r := DevNet{Env: env, Exports: exportsFor(s, overlayOf(s, env)), Unsets: unsetLine(shellKind())}
 	if s.DevOff {
 		return r
 	}
@@ -225,6 +232,50 @@ func exportsFor(s settings.Settings, dev devnet.Overlay) string {
 	if len(noProxy) == 0 {
 		noProxy = []string{"localhost", "127.0.0.1", "::1"}
 	}
-	http, socks := fmt.Sprintf("http://127.0.0.1:%d", s.MixedPort), fmt.Sprintf("socks5://127.0.0.1:%d", s.MixedPort)
-	return fmt.Sprintf(`export https_proxy=%s http_proxy=%s all_proxy=%s no_proxy="%s"`, http, http, socks, strings.Join(noProxy, ","))
+	return exportLine(shellKind(), s.MixedPort, noProxy)
+}
+
+// shellKind is the syntax of the user's shell: "fish", or "posix" for zsh,
+// bash and the rest.
+func shellKind() string {
+	if filepath.Base(os.Getenv("SHELL")) == "fish" {
+		return "fish"
+	}
+	return "posix"
+}
+
+// proxyVars are set in both cases: curl ignores HTTP_PROXY, and some tools
+// read only the capitals. There is no all_proxy: https_proxy already covers
+// what it would, and a socks5:// one makes tools without SOCKS support, as
+// Python's httpx, fail when they start.
+var proxyVars = []string{"http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"}
+
+// exportLine points a shell at the proxy on port.
+func exportLine(kind string, port int, noProxy []string) string {
+	addr, no := fmt.Sprintf("http://127.0.0.1:%d", port), strings.Join(noProxy, ",")
+	var parts []string
+	if kind == "fish" {
+		for _, v := range proxyVars {
+			parts = append(parts, fmt.Sprintf("set -gx %s %s", v, addr))
+		}
+		return strings.Join(append(parts, fmt.Sprintf(`set -gx no_proxy "%s"`, no), fmt.Sprintf(`set -gx NO_PROXY "%s"`, no)), "; ")
+	}
+	for _, v := range proxyVars {
+		parts = append(parts, v+"="+addr)
+	}
+	return "export " + strings.Join(parts, " ") + fmt.Sprintf(` no_proxy="%[1]s" NO_PROXY="%[1]s"`, no)
+}
+
+// unsetLine takes a shell off the proxy. all_proxy too, which earlier
+// versions of exportLine set.
+func unsetLine(kind string) string {
+	vars := append(slices.Clone(proxyVars), "all_proxy", "ALL_PROXY", "no_proxy", "NO_PROXY")
+	if kind == "fish" {
+		parts := make([]string, len(vars))
+		for i, v := range vars {
+			parts[i] = "set -e " + v
+		}
+		return strings.Join(parts, "; ")
+	}
+	return "unset " + strings.Join(vars, " ")
 }

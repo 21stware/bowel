@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"sort"
 	"sync/atomic"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -74,7 +75,7 @@ func (u *UI) panelView(c *ui.Context) {
 	p := palette(c)
 	panelTheme(c, p)
 	c.OnShortcut(ui.Cmd, ui.KeyO, func() { u.panelShow(nil) })
-	c.OnShortcut(ui.Cmd, ui.KeyQ, mygo.App.Quit)
+	c.OnShortcut(ui.Cmd, ui.KeyQ, u.askQuit)
 	c.Root().Background(ui.Transparent)
 	// The flyout's CornerRadius cuts it and its Shadow outlines it: no border here.
 	ui.Column(c).Width(panelWidth).Radius(p.r(12)).Background(p.paper).Padding(0, 0, 6, 0).Children(func() {
@@ -86,8 +87,9 @@ func (u *UI) panelView(c *ui.Context) {
 		panelRule(c, p)
 		u.panelMode(c, p)
 		panelRule(c, p)
+		u.panelCopyProxy(c, p)
 		panelCmd(c, p, "open", i18n.T("打开 bowel", "Open bowel"), "⌘O").OnClick(func() { u.panelShow(nil) })
-		panelCmd(c, p, "quit", i18n.T("退出 bowel", "Quit bowel"), "⌘Q").OnClick(mygo.App.Quit)
+		panelCmd(c, p, "quit", i18n.T("退出 bowel", "Quit bowel"), "⌘Q").OnClick(u.askQuit)
 	})
 }
 
@@ -333,6 +335,19 @@ func panelCmd(c *ui.Context, p *pal, key, label, kbd string) ui.Element {
 	return b.Children(func() {
 		ui.Text(c, label).FontSize(13).TextColor(p.ink).Grow(1)
 		ui.Text(c, kbd).FontSize(12).TextColor(p.mute)
+	})
+}
+
+// panelCopyProxy copies the command that puts a terminal window on the
+// proxy. The panel stays open, so the row itself says it is done.
+func (u *UI) panelCopyProxy(c *ui.Context, p *pal) {
+	label := i18n.T("复制终端代理命令", "Copy terminal proxy command")
+	if c.Now().Sub(u.panelCopied) < 2*time.Second {
+		label = i18n.T("已复制", "Copied")
+	}
+	panelCmd(c, p, "copy-proxy", label, "").OnClick(func() {
+		c.WriteClipboard(u.snap.Dev.Exports)
+		u.panelCopied = c.Now()
 	})
 }
 
