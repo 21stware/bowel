@@ -199,9 +199,12 @@ func (u *UI) autoSeg(c *ui.Context, p *pal, rid string) {
 	})
 }
 
-// chip is one choice of a row of toggles.
-func chip(c *ui.Context, p *pal, key, label string, on bool, onClick func()) {
-	b := ui.ButtonBase(c.Key(key)).Padding(3, 10).Radius(p.r(99)).Shrink(0)
+// chip is one choice of a row of toggles. It keeps the width widest takes
+// chosen, the widest its label gets, so that in a row that wraps, choosing
+// never moves a chip to another line from under the pointer.
+func chip(c *ui.Context, p *pal, key, label, widest string, on bool, onClick func()) {
+	tw, _ := c.MeasureText(0, ui.Span{Text: widest, Size: 12, Weight: 600})
+	b := ui.ButtonBase(c.Key(key)).Padding(3, 10).Radius(p.r(99)).Shrink(0).MinWidth(tw + 20).Justify(ui.Center)
 	switch {
 	case on:
 		b.Background(p.hair2)
@@ -225,24 +228,12 @@ func toggled(list []string, v string) []string {
 
 // scopeRows is 自动最快's range: which nodes the fastest is picked from.
 func (u *UI) scopeRows(c *ui.Context, p *pal, rid string, q routes.Policy) {
-	seen := map[string]bool{}
-	var regions []string
-	for _, n := range u.snap.Nodes {
-		if pl := n.Where.Place; pl != nil && !seen[pl.Country] {
-			seen[pl.Country] = true
-			regions = append(regions, pl.Country)
-		}
-	}
-	slices.Sort(regions)
-	for _, r := range q.Regions { // one chosen that has no node now still shows
-		if !seen[r] {
-			regions = append(regions, r)
-		}
-	}
 	row := func(key, label string, body func()) {
-		ui.Row(c.Key(key)).Gap(10).AlignItems(ui.Center).Children(func() {
+		ui.Row(c.Key(key)).Gap(10).AlignItems(ui.Baseline).Children(func() {
 			ui.Text(c, label).FontSize(11.5).TextColor(p.mute).NoWrap().Width(30).Shrink(0)
-			ui.ScrollHorizontal(c.Key("chips")).Gap(2).AlignItems(ui.Center).Shrink(1).MinWidth(0).Children(body)
+			// Wrapped, not scrolled: a row this short would be half covered
+			// by its scroll bar, which takes presses before the chips do.
+			ui.Row(c.Key("chips")).Wrap().GapX(2).GapY(4).AlignItems(ui.Center).Grow(1).Shrink(1).Basis(0).MinWidth(0).Children(body)
 		})
 	}
 	count := func(match func(NodeView) bool) string {
@@ -256,27 +247,26 @@ func (u *UI) scopeRows(c *ui.Context, p *pal, rid string, q routes.Policy) {
 	}
 	ui.Column(c).Gap(6).Padding(10, 26).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 		row("regions", i18n.T("地区", "Where"), func() {
-			chip(c, p, "all", i18n.T("全部", "All"), len(q.Regions) == 0, func() { u.changePolicy(rid, func(q *routes.Policy) { q.Regions = nil }) })
-			for _, r := range regions {
-				label := r + count(func(n NodeView) bool {
-					return n.Where.Place != nil && n.Where.Place.Country == r && (len(q.Providers) == 0 || slices.Contains(q.Providers, n.Provider))
-				})
-				chip(c, p, r, label, slices.Contains(q.Regions, r), func() {
-					u.changePolicy(rid, func(q *routes.Policy) { q.Regions = toggled(q.Regions, r) })
-				})
-			}
+			u.regionChips(c, p, rid, q, func(r string) (label, widest string) {
+				in := func(n NodeView) bool { return n.Where.Place != nil && n.Where.Place.Country == r }
+				return r + count(func(n NodeView) bool {
+					return in(n) && (len(q.Providers) == 0 || slices.Contains(q.Providers, n.Provider))
+				}), r + count(in)
+			})
 		})
 		row("providers", i18n.T("来源", "From"), func() {
-			chip(c, p, "all", i18n.T("全部", "All"), len(q.Providers) == 0, func() { u.changePolicy(rid, func(q *routes.Policy) { q.Providers = nil }) })
+			all := i18n.T("全部", "All")
+			chip(c, p, "all", all, all, len(q.Providers) == 0, func() { u.changePolicy(rid, func(q *routes.Policy) { q.Providers = nil }) })
 			for _, pv := range u.snap.Providers {
 				if !pv.Enabled {
 					continue
 				}
 				id := pv.ID
+				in := func(n NodeView) bool { return n.Provider == id }
 				label := pv.Name + count(func(n NodeView) bool {
-					return n.Provider == id && (len(q.Regions) == 0 || n.Where.Place != nil && slices.Contains(q.Regions, n.Where.Place.Country))
+					return in(n) && (len(q.Regions) == 0 || n.Where.Place != nil && slices.Contains(q.Regions, n.Where.Place.Country))
 				})
-				chip(c, p, id, label, slices.Contains(q.Providers, id), func() {
+				chip(c, p, id, label, pv.Name+count(in), slices.Contains(q.Providers, id), func() {
 					u.changePolicy(rid, func(q *routes.Policy) { q.Providers = toggled(q.Providers, id) })
 				})
 			}
