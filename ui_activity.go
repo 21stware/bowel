@@ -888,7 +888,9 @@ func (u *UI) actDetail(c *ui.Context, p *pal, cn Conn) {
 				if host == "" {
 					host = cn.IP
 				}
-				u.actRouteBtn(c, p, cn)
+				if u.snap.Imported == nil {
+					u.actRouteBtn(c, p, cn)
+				}
 				btn(c.Key("copy"), p, i18n.T("复制域名", "Copy domain")).OnClick(func() {
 					c.WriteClipboard(host)
 					u.toasts = append(u.toasts, i18n.T("已复制 ", "Copied ")+host)

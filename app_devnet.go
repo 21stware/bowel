@@ -63,9 +63,11 @@ func overlayOf(s settings.Settings, env devnet.Env) devnet.Overlay {
 	if s.DevOff {
 		return devnet.Overlay{}
 	}
-	return devnet.Compile(devnet.Options{
-		Disabled: s.DevOffScenarios, Extra: s.DevExtra, Proxied: proxiedRules(routes.Build(s.Routing, s.Rules), s.Rules),
-	}, env)
+	var proxied []string
+	if s.ImportedRouting == "" { // the user's rules are paused under an imported config
+		proxied = proxiedRules(routes.Build(s.Routing, s.Rules), s.Rules)
+	}
+	return devnet.Compile(devnet.Options{Disabled: s.DevOffScenarios, Extra: s.DevExtra, Proxied: proxied}, env)
 }
 
 // proxiedRules are the user's active rules that lead to a proxy or a block,

@@ -72,6 +72,9 @@ func (u *UI) openRoutes(group, svc string) {
 
 // ruleHome is where in 路由组 the rule a connection matched lives.
 func (u *UI) ruleHome(cn Conn) (group, svc string, ok bool) {
+	if u.snap.Imported != nil {
+		return "", "", false // the rule is the config's: nowhere here to show it
+	}
 	st := u.shownSettings()
 	sv, found := routes.FindMatched(routes.Build(st.Routing, st.Rules), cn.Rule, cn.Payload)
 	return sv.Group, sv.ID, found
@@ -193,6 +196,9 @@ func (u *UI) stratSeg(c *ui.Context, p *pal, rid string) {
 // autoSeg is what a group's in-place expansion offers: its strategy, and
 // the way to what it carries.
 func (u *UI) autoSeg(c *ui.Context, p *pal, rid string) {
+	if u.snap.Imported != nil {
+		return // a group's strategy is its kind, and the config's
+	}
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 		btn(c.Key("services"), p, i18n.T("服务和规则", "Services and rules")).OnClick(func() { u.openRoutes(rid, "") })
 		u.stratSeg(c, p, rid)
@@ -348,6 +354,10 @@ func (u *UI) delayWord(r RouteView) (string, ui.Color, bool) {
 // ---- The page ----
 
 func (u *UI) routesPage(c *ui.Context, p *pal) {
+	if u.snap.Imported != nil {
+		u.importedPage(c, p)
+		return
+	}
 	s := u.shownSettings()
 	all := routes.Build(s.Routing, s.Rules)
 	st := &u.routes

@@ -65,6 +65,7 @@ type App struct {
 	setMu     sync.Mutex // serialises updateSettings
 	routesMu  sync.Mutex // guards the two below: see routes
 	routesNow []routes.Route
+	imp       importedCache // the routing of a provider's own config, if in use
 	routesAt  uint64
 	// proxyMu is held while the system proxy changes, so that quitting
 	// waits for a change under way instead of being undone by it.
@@ -171,6 +172,7 @@ func newApp() (*App, error) {
 		provNodes: map[string][]string{}, lastNode: map[string]string{}, routeBytes: map[string]int64{},
 		gw: gateway.New(osGateway(), filepath.Join(data, "gateway-before.json")),
 	}
+	ps.Vet = a.vetUpdate
 	a.tunStale.Store(stale)
 	cm.SafePaths = []string{filepath.Join(data, "providers"), sets.Dir()}
 	a.keepRuleSets()
@@ -425,8 +427,12 @@ func (a *App) refresh() {
 			var pp map[string]mihomo.ProxyProvider
 			if pp, err = c.ProxyProviders(ctx); err == nil {
 				nodes, known = map[string][]string{}, map[string]mihomo.Proxy{}
+				im := a.importedNow()
 				for name, p := range pp {
 					id, ok := strings.CutPrefix(name, "p-")
+					if im != nil && slices.Contains(im.ProviderNames(), name) { // the nodes of a source's own provider count as its
+						id, ok = a.settings.Get().ImportedRouting, true
+					}
 					if !ok {
 						continue
 					}
@@ -485,24 +491,10 @@ func (a *App) takeoverOn(s settings.Settings) bool { return !s.Paused && (s.Syst
 
 // applyConfig rebuilds the runtime config and makes the core use it.
 func (a *App) applyConfig() error {
+	a.dropImported() // a provider's file, or whether it is in use, may have changed
 	s := a.settings.Get()
-	var refs []core.ProviderRef
-	for _, p := range a.providers.List() {
-		if p.Enabled {
-			refs = append(refs, core.ProviderRef{ID: p.ID, Path: a.providers.Path(p.ID)})
-		}
-	}
-	all := a.routes()
-	scopes, orders := a.nodeLists(all)
-	err := a.applyDev(s, func(dev devnet.Overlay) ([]byte, error) {
-		return core.BuildConfig(core.Input{
-			Providers: refs, RuleSets: a.ruleSetRefs(s), Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
-			Tun:      s.Tun && a.takeoverOn(s) && tun.Installed(a.tunBin),
-			Gateway:  a.gatewayOn(s),
-			LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
-			Options: s.Options, Dev: dev,
-		})
-	})
+	im := a.importedNow()
+	err := a.applyDev(s, func(dev devnet.Overlay) ([]byte, error) { return a.buildConfig(s, dev, im) })
 	if err != nil {
 		a.emit()
 		return err
@@ -519,6 +511,26 @@ func (a *App) applyConfig() error {
 	a.syncGateway()
 	a.refresh()
 	return nil
+}
+
+// buildConfig is the core's config for s; im, if not nil, is the routing to
+// use in place of the route groups.
+func (a *App) buildConfig(s settings.Settings, dev devnet.Overlay, im *core.Imported) ([]byte, error) {
+	var refs []core.ProviderRef
+	for _, p := range a.providers.List() {
+		if p.Enabled {
+			refs = append(refs, core.ProviderRef{ID: p.ID, Path: a.providers.Path(p.ID)})
+		}
+	}
+	all := a.routes()
+	scopes, orders := a.nodeLists(all)
+	return core.BuildConfig(core.Input{
+		Providers: refs, RuleSets: a.ruleSetRefs(s), Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
+		Tun:      s.Tun && a.takeoverOn(s) && tun.Installed(a.tunBin),
+		Gateway:  a.gatewayOn(s),
+		LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
+		Options: s.Options, Dev: dev, Imported: im,
+	})
 }
 
 // pointGlobal makes global mode use the default route.
@@ -995,6 +1007,9 @@ func (a *App) selectNode(routeID, node string) error {
 	if r.ID == "" || r.Direct {
 		return errors.New(i18n.T("没有这条路由", "No such route"))
 	}
+	if a.importedNow() != nil {
+		return a.selectMember(routes.Group(r), a.sourceName(node))
+	}
 	if _, err := a.core.Client(); err != nil {
 		return err
 	}
@@ -1103,8 +1118,14 @@ func currentNode(px map[string]mihomo.Proxy, r routes.Route) string {
 	if !ok {
 		return ""
 	}
+	if g.Now == "" {
+		return routes.Group(r) // a rule of an imported config may name a node
+	}
 	n := g.Now
 	for i := 0; i < 4 && routes.Internal(r, n); i++ {
+		n = px[n].Now
+	}
+	for i := 0; i < 16 && px[n].Now != ""; i++ { // an imported group's members may be groups
 		n = px[n].Now
 	}
 	if routes.Internal(r, n) || n == "REJECT" {
@@ -1238,7 +1259,7 @@ func (a *App) setProviderEnabled(id string, on bool) error {
 	if _, err := a.providers.SetEnabled(id, on); err != nil {
 		return err
 	}
-	return a.applyConfig()
+	return a.applyConfig() // a disabled source's routing stops, and comes back with it
 }
 
 func (a *App) renameProvider(id, name string) error {
@@ -1259,6 +1280,11 @@ func (a *App) deleteProvider(id string) error {
 	if err := a.providers.Delete(id); err != nil {
 		return err
 	}
+	if a.settings.Get().ImportedRouting == id {
+		if _, err := a.settings.Update(func(s *settings.Settings) { s.ImportedRouting = "" }); err != nil {
+			return err
+		}
+	}
 	return a.applyConfig()
 }
 
@@ -1269,6 +1295,9 @@ func (a *App) deleteProvider(id string) error {
 // so that the change shows at once: their apps connect again, by the new
 // way. It returns how many were closed.
 func (a *App) addRule(r routes.UserRule) (int, error) {
+	if err := a.rulesEditable(); err != nil {
+		return 0, err
+	}
 	if a.route(r.Route).ID == "" {
 		return 0, errors.New(i18n.T("没有这条路由", "No such route"))
 	}
@@ -1639,7 +1668,7 @@ func (a *App) snapshot() Snapshot {
 	on := a.takeoverOn(s)
 	snap := Snapshot{
 		Update: a.updateView(), UpdateInfo: a.updateInfo(),
-		Mode: s.Mode, Pending: pending, Version: mygo.App.Version(), RuleCount: routes.Count(a.routes()) + len(routes.Active(a.routes(), s.Rules)),
+		Mode: s.Mode, Pending: pending, Version: mygo.App.Version(), RuleCount: a.ruleCount(s),
 		Settings: s, ConfigPath: a.core.ConfigPath(), OpenAtLogin: openAtLogin, RuleSets: a.ruleSetViews(s),
 		ControllerTCP: a.core.TCPAddr(),
 		Core:          Core{State: string(cs.State), Version: cs.Version, Error: cs.Error},
@@ -1710,6 +1739,8 @@ func (a *App) snapshot() Snapshot {
 	}
 
 	// Routes.
+	im := a.importedNow()
+	snap.Imported = a.importedView(s, im, px, provNodes)
 	var total int64
 	for _, v := range routeBytes {
 		total += v
@@ -1720,14 +1751,17 @@ func (a *App) snapshot() Snapshot {
 			rv.Rules = 1
 		}
 		for _, u := range s.Rules {
-			if u.Route == r.ID {
+			if u.Route == r.ID && im == nil { // the user's rules are paused under an imported config
 				rv.Mine++
 			}
 		}
 		rv.Rules += rv.Mine
+		if im != nil {
+			rv.Group = routes.Group(r)
+		}
 		if !r.Direct {
 			rv.Policy, rv.Auto = r.Policy, r.Policy.Mode == routes.ModeAuto
-			rv.Node = currentNode(px, r)
+			rv.Node = a.listedNode(currentNode(px, r), provNodes)
 			if rv.Node == "DIRECT" {
 				rv.Node = ""
 			}
@@ -1742,7 +1776,7 @@ func (a *App) snapshot() Snapshot {
 	}
 
 	// Exit and the user's place.
-	if n := currentNode(px, a.route(routes.Default)); n != "" && n != "DIRECT" {
+	if n := a.listedNode(currentNode(px, a.route(routes.Default)), provNodes); n != "" && n != "DIRECT" {
 		snap.Exit = &Exit{Node: n, Where: view(n).Where}
 	}
 	if you != nil {
@@ -1808,6 +1842,9 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 			return StateDegraded, &Issue{Level: "warn", Text: fmt.Sprintf(i18n.T("%s 快到期了", "%s expires soon"), p.Name), Action: "providers", Label: i18n.T("查看", "View")}
 		}
 	}
+	if is := a.importedIssue(s, snap); is != nil {
+		return StateOK, is
+	}
 	// Nothing is wrong yet, so the light stays green.
 	if s.Tun && a.tunStale.Load() {
 		return StateOK, &Issue{Level: "warn", Text: i18n.T("TUN 内核需要更新", "The TUN core needs updating"), Detail: i18n.T("bowel 升级后带了新内核，TUN 还在用旧的。授权一次就能换上，网络会中断几秒。", "This version of bowel has a newer core and TUN still runs the old one. One authorization replaces it; the network drops for a few seconds."), Action: "tun-update", Label: i18n.T("更新", "Update")}
@@ -1818,6 +1855,7 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 func (a *App) providerView(p provider.Provider) ProviderView {
 	v := ProviderView{ID: p.ID, Name: p.Name, Kind: string(p.Kind), Source: maskSource(p), Enabled: p.Enabled,
 		AutoUpdate: p.AutoUpdate, UpdatedAt: p.UpdatedAt, Error: p.Error}
+	v.Routing = a.providerRouting(p)
 	if u := p.Usage; u != nil {
 		v.Usage = &Usage{Upload: u.Upload, Download: u.Download, Total: u.Total, Expire: u.Expire}
 		if u.Total > 0 && float64(u.Upload+u.Download)/float64(u.Total) > .9 {

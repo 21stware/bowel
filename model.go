@@ -48,7 +48,10 @@ type Snapshot struct {
 	Exit      *Exit          `json:"exit,omitempty"`
 	You       *Located       `json:"you,omitempty"`
 	Providers []ProviderView `json:"providers"`
-	RuleCount int            `json:"ruleCount"`
+	// Imported is a provider's own routing, when it is used instead of the
+	// route groups.
+	Imported  *ImportedView `json:"imported,omitempty"`
+	RuleCount int           `json:"ruleCount"`
 	// RuleSets are the rule sets whose file is there, by service id.
 	RuleSets map[string]RuleSetView `json:"ruleSets,omitempty"`
 	// Pending lists actions being applied, for loading states:
@@ -191,6 +194,8 @@ type RouteView struct {
 	Sites []SiteDelay `json:"sites,omitempty"`
 	// Node is the node in use (a NodeView name), "" for direct routes.
 	Node string `json:"node"`
+	// Group is the imported group this route is, "" for Moho's own.
+	Group string `json:"group,omitempty"`
 	// Share is the route's part of today's download, 0–1.
 	Share float64 `json:"share"`
 }
@@ -281,6 +286,53 @@ type ProviderView struct {
 	Nodes      int       `json:"nodes"`
 	// Warn: "quota" (over 90% used), "expire" (within 7 days), "".
 	Warn string `json:"warn,omitempty"`
+	// Routing is about the groups and rules its content brings, if any.
+	Routing ProviderRouting `json:"routing"`
+}
+
+// ProviderRouting is the routing a provider's content brings with it.
+type ProviderRouting struct {
+	Groups int  `json:"groups,omitempty"`
+	Rules  int  `json:"rules,omitempty"`
+	InUse  bool `json:"inUse,omitempty"` // it is what routes traffic now
+	// Problem is why it can't be used, "" when it can.
+	Problem string `json:"problem,omitempty"`
+}
+
+// ImportedView is a provider's own routing, as it is now.
+type ImportedView struct {
+	Provider string `json:"provider"`
+	Name     string `json:"name"`
+	Rules    int    `json:"rules"`
+	// Paused are the user's rules and rule sets that wait for bowel's
+	// routing to come back.
+	PausedRules int         `json:"pausedRules"`
+	PausedSets  int         `json:"pausedSets"`
+	Groups      []GroupView `json:"groups"`
+}
+
+// GroupView is one group of an imported config.
+type GroupView struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"` // the core's word: select, url-test, …
+	// Route is the route this group is, "" if only other groups use it.
+	Route string `json:"route,omitempty"`
+	Rules int    `json:"rules"` // how many rules send traffic here
+	Now   string `json:"now,omitempty"`
+	// Exit is the node at the end of the chain (a NodeView name), "" for none.
+	Exit string `json:"exit,omitempty"`
+	// Selectable: the user chooses its member. In the other kinds the core does.
+	Selectable bool         `json:"selectable"`
+	Members    []MemberView `json:"members"`
+}
+
+// MemberView is what a group can point at: a node, a group or a built-in.
+type MemberView struct {
+	Name   string `json:"name"` // the core's
+	Node   string `json:"node,omitempty"`
+	Group  bool   `json:"group,omitempty"`
+	Delay  int    `json:"delay"`
+	Tested bool   `json:"tested"`
 }
 
 // ---- Tick ----

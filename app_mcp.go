@@ -476,7 +476,7 @@ func editable(s settings.Settings) []string {
 	return keys
 }
 
-var notEditable = []string{"mcpPolicy", "rules", "mode", "systemProxy", "tun", "paused"}
+var notEditable = []string{"mcpPolicy", "rules", "mode", "systemProxy", "tun", "paused", "importedRouting"}
 
 // parseTarget reads a host, URL, domain pattern or IP into a rule of kind
 // ("" guesses) for route.
@@ -575,10 +575,14 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "list_routes", Title: "Routes and nodes", ReadOnly: true,
-				Description: "The routes (kinds of traffic: default, ai, media, dev, direct) with the node each uses, and every node with its last delay and location. Every node can serve every proxied route.",
+				Description: "The routes (kinds of traffic: default, ai, media, dev, direct) with the node each uses, and every node with its last delay and location. Every node can serve every proxied route. When a provider's own config routes the traffic, `imported` has its groups, the routes are those groups that rules point at, and only select groups can change.",
 				Run: func(ctx context.Context, s *mcp.Session, _ json.RawMessage) (any, error) {
 					snap := a.snapshot()
-					return map[string]any{"routes": a.mcpRoutes(snap), "nodes": mcpNodes(snap, routes.Default)}, nil
+					out := map[string]any{"routes": a.mcpRoutes(snap), "nodes": mcpNodes(snap, routes.Default)}
+					if snap.Imported != nil {
+						out["imported"] = mcpImported(snap.Imported)
+					}
+					return out, nil
 				},
 			},
 			{
@@ -598,6 +602,9 @@ func (a *App) mcpServer() *mcp.Server {
 					}
 					if err := mcp.Args(raw, &p); err != nil {
 						return nil, err
+					}
+					if a.importedNow() != nil {
+						return map[string]any{"target": p.Target, "sure": false, "note": "An imported config's own rules are in use; bowel can't evaluate them. Use list_connections to see which rule each connection matched."}, nil
 					}
 					host := p.Target
 					if r, err := routes.ParseRule(routes.KindDomain, host, ""); err == nil {
@@ -823,12 +830,15 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "select_node", Title: "Choose a route's node",
-				Description: "Makes a proxied route use a node, or pick the fastest by itself (node \"auto\"). Nodes are named as list_routes gives them.",
+				Description: "Makes a proxied route use a node, or pick the fastest by itself (node \"auto\"). Nodes are named as list_routes gives them. Under an imported config, route is any select group by name and node one of its members.",
 				Input:       obj(map[string]any{"route": routeArg, "node": str("A node's name or label, or \"auto\".")}, "route", "node"),
 				Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
 					var p struct{ Route, Node string }
 					if err := mcp.Args(raw, &p); err != nil {
 						return nil, err
+					}
+					if a.importedNow() != nil {
+						return a.mcpSelectMember(ctx, s, p.Route, p.Node)
 					}
 					r, err := a.findRoute(p.Route)
 					if err != nil {
@@ -871,6 +881,9 @@ func (a *App) mcpServer() *mcp.Server {
 					if err := mcp.Args(raw, &p); err != nil {
 						return nil, err
 					}
+					if err := a.rulesEditable(); err != nil {
+						return nil, err
+					}
 					rt, err := a.findRoute(p.Route)
 					if err != nil {
 						return nil, err
@@ -902,6 +915,9 @@ func (a *App) mcpServer() *mcp.Server {
 				Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
 					var p struct{ Target, Kind string }
 					if err := mcp.Args(raw, &p); err != nil {
+						return nil, err
+					}
+					if err := a.rulesEditable(); err != nil {
 						return nil, err
 					}
 					r, err := a.ruleFor(p.Kind, p.Target)
@@ -1082,6 +1098,11 @@ func (a *App) whitelistEdit(ctx context.Context, s *mcp.Session, raw json.RawMes
 	}
 	if len(p.Entries) == 0 {
 		return nil, errors.New("no entries given")
+	}
+	if p.List == "direct" {
+		if err := a.rulesEditable(); err != nil {
+			return nil, err
+		}
 	}
 	what := words{"加入白名单", "Add to a whitelist"}
 	if !add {

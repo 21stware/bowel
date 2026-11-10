@@ -214,6 +214,14 @@ func (u *UI) panelNodes(c *ui.Context, p *pal) {
 }
 
 func (u *UI) panelNodeList(c *ui.Context, p *pal, r RouteView) {
+	if g, ok := u.importedGroup(r); ok {
+		if !g.Selectable {
+			ui.Text(c, u.groupNowWord(g)+i18n.T(" · 由内核自己选择", " · the core chooses by itself")).FontSize(12.5).TextColor(p.mute).Margin(2, 10, 4, 10)
+			return
+		}
+		ui.Column(c).Children(func() { u.groupMembers(c, p, g) })
+		return
+	}
 	choose := func(node string) {
 		if u.app != nil {
 			u.do(func() error { return u.app.selectNode(r.ID, node) })

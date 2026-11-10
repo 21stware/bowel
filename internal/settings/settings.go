@@ -58,6 +58,10 @@ type Settings struct {
 	Rules []routes.UserRule `json:"rules"`
 	// Routing is what the user changed about route groups and services.
 	Routing routes.Plan `json:"routing,omitzero"`
+	// ImportedRouting is the provider whose own groups and rules are used
+	// in place of Routing and Rules, which are kept for coming back; "" for
+	// Moho's own routing.
+	ImportedRouting string `json:"importedRouting,omitempty"`
 
 	// StartHidden: opened at login, Moho stays in the menu bar.
 	StartHidden bool `json:"startHidden"`
