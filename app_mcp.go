@@ -583,9 +583,9 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "list_rules", Title: "Your rules", ReadOnly: true,
-				Description: "The user's own rules, in the order they apply (before the built-in ones): what each matches and its route.",
+				Description: "The user's own rules, in the order they apply (before the built-in ones): what each matches and its route. Also the imported rule sets, which apply after the user's rules and before the built-in ones.",
 				Run: func(ctx context.Context, s *mcp.Session, _ json.RawMessage) (any, error) {
-					return map[string]any{"rules": mcpRules(a.settings.Get().Rules)}, nil
+					return map[string]any{"rules": mcpRules(a.settings.Get().Rules), "ruleSets": a.mcpRuleSets()}, nil
 				},
 			},
 			{
@@ -607,7 +607,7 @@ func (a *App) mcpServer() *mcp.Server {
 					} else {
 						return nil, err
 					}
-					id, rule, mine, sure := routes.Explain(host, routes.Active(a.routes(), a.settings.Get().Rules), a.routes())
+					id, rule, _, mine, sure := routes.ExplainSets(host, routes.Active(a.routes(), a.settings.Get().Rules), a.routes(), a.matchRuleSet)
 					if st := a.settings.Get(); !mine {
 						if r, ok := overlayOf(st, a.devEnv()).Match(host); ok {
 							return map[string]any{"host": host, "site": routes.Site(host), "sure": true, "userRule": false,

@@ -34,9 +34,17 @@ type ProviderRef struct {
 	Path string
 }
 
+// RuleSetRef is a rule set whose file is there to be read.
+type RuleSetRef struct {
+	ID       string
+	Path     string
+	Behavior string
+}
+
 // Input is everything the runtime config is made of.
 type Input struct {
 	Providers []ProviderRef
+	RuleSets  []RuleSetRef // a set with no entry here has no rule: the core refuses a RULE-SET it can't find
 	Routes    []routes.Route
 	UserRules []routes.UserRule // sorted in with the routes' own, the more specific first
 	Mode      string
@@ -255,8 +263,18 @@ func BuildConfig(in Input) ([]byte, error) {
 		}
 		groups = append(groups, withNodes(map[string]any{"name": routes.Group(r), "type": "select"}, members...))
 	}
+	sets := map[string]any{}
+	for _, s := range in.RuleSets {
+		sets[routes.RuleSetProvider(s.ID)] = map[string]any{"type": "file", "behavior": s.Behavior, "format": "yaml", "path": s.Path}
+	}
+	if len(sets) > 0 {
+		cfg["rule-providers"] = sets
+	}
 	var mine, rest []string
 	for _, l := range routes.Lines(in.Routes, in.UserRules) {
+		if _, ok := sets[routes.RuleSetProvider(l.Set)]; l.Set != "" && !ok {
+			continue
+		}
 		for _, r := range in.Routes {
 			if r.ID != l.Route {
 				continue

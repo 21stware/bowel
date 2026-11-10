@@ -27,6 +27,15 @@ const (
 )
 
 // Snapshot is everything the page shows.
+// RuleSetView is what is known of a rule set.
+type RuleSetView struct {
+	Count     int           `json:"count"`
+	Skipped   int           `json:"skipped,omitempty"`
+	UpdatedAt time.Time     `json:"updatedAt"`
+	Error     string        `json:"error,omitempty"` // of the last update; the last good list stays in use
+	Preview   []routes.Rule `json:"preview,omitempty"`
+}
+
 type Snapshot struct {
 	State State  `json:"state"`
 	Issue *Issue `json:"issue,omitempty"`
@@ -40,6 +49,8 @@ type Snapshot struct {
 	You       *Located       `json:"you,omitempty"`
 	Providers []ProviderView `json:"providers"`
 	RuleCount int            `json:"ruleCount"`
+	// RuleSets are the rule sets whose file is there, by service id.
+	RuleSets map[string]RuleSetView `json:"ruleSets,omitempty"`
 	// Pending lists actions being applied, for loading states:
 	// "entry:sys", "entry:tun", "mode", "node:<route>", "test:<route>",
 	// "provider:<id>", "providers", "retake", "add".

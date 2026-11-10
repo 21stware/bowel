@@ -7,6 +7,7 @@ The product logic is in [product-ia.md](product-ia.md); the approved interaction
 - **Providers only supply nodes.** A subscription URL, pasted node links (`vmess://`, `trojan://`, `hysteria2://`, …) or a YAML file each become a mihomo `type: file` proxy-provider. bowel downloads subscriptions itself, to read their usage and expiry. A hidden per-provider suffix keeps node names unique across providers.
 - **Routes come from bowel's template** (`internal/routes`): 默认, AI 服务, 流媒体, 开发 and 直连, and the rules that recognise each. Every node can serve every route. Each proxied route has two groups: a selector, and an automatic url-test group the selector can point at ("自动" = fastest + failover).
 - **Your own rules come first** (`internal/routes/user.go`, `ui_rules.go`). A rule sends a domain and its subdomains, one name, a keyword or an IP range to a route; they are kept in settings.json and written before the template's. The quickest way to make one is 让它走… on a connection in 日志, which offers the site (api.openai.com → openai.com) or the one name. 设置 > 规则 adds them by hand, says what a typed rule will do before it is added, moves and removes them, and tests an address. A change closes the open connections it would send elsewhere, so it shows at once.
+- **Rule sets** (`internal/ruleset`, `app_rulesets.go`, `ui_rulesets.go`). A list of rules kept by someone else, from a link or a local file (mihomo YAML, or `.list` text), is a service of a route group, so it moves, switches off and goes like any other. bowel fetches and checks it itself: 导入 shows the rule count before anything counts, lines the core can't use are left out and counted, and the core is given a clean `type: file` rule-provider. That also lets 测试一个地址 look inside a set, which the core has no call for. Links update daily; a failed update keeps the last good list and says so on its row. An update replaces the file and asks the core to read it again (`PUT /providers/rules/…`), so it closes nothing. The order is fixed: your rules, then rule sets, then the template's. Developer networks come before all of them, so a remote list can't take the LAN or the tailnet. With no rule set in use, your rules and the template's stay sorted together by how specific they are. Rule sets are always `no-resolve`, as your own IP rules are, so a set can't add a DNS lookup to every connection. `IP-ASN` rules need the core's ASN database, which it downloads itself on first use. Desktop only for now: the mobile apps don't import sets, and agents can only read them (`list_rules`, `explain`).
 - **The core runs as a sidecar process** (`internal/core`), controlled over a unix socket. bowel falls back to TCP with a secret when the socket path is too long. Config changes reload the core without restarting it.
 - **The interface is native.** The window and the menu bar panel are MyGo `ui` views over two values: a `Snapshot`, rebuilt whenever anything changes, and a `Tick`, every second. The 今日 board animates its cells' boxes: the expanded cell grows in place and the others are squeezed into summaries chosen to fit. Every view is laid out at its cell's final size, so nothing reflows on the way. Views open and fold like drawers, and shared pieces fly between views (`Match`, with text morphing).
 - **Status is measured, not assumed** (§2 of the IA). bowel checks every 2 s that the system proxy still points at it (`scutil --proxy`). The core's state, failing nodes and automatic switches feed the one light: 正常 / 降级 / 异常 / 未接管.
@@ -29,6 +30,7 @@ ui_home.go, ui_map.go      代理: the morphing board and the exit map
 ui_activity.go             活动: connections and logs
 ui_providers.go            Provider: add, list, nodes
 ui_rules.go                the user's rules: 日志's 让它走…, 设置 > 规则
+ui_rulesets.go, app_rulesets.go  imported rule sets: the panel, the row, updates
 ui_settings.go             设置: the core's options, in a window of their own (sidebar + pane, searchable)
 ui_gateway.go, app_gateway.go  gateway mode: the switch, the guide card, measured checks
 ui_providers_qr.go, app_qr.go  QR codes: show a provider's, scan with the camera or the screen
@@ -41,6 +43,7 @@ internal/devnet            what stays off the proxy: the scenarios, this machine
 internal/mihomo            controller client
 internal/provider          providers: detect, download, store
 internal/routes            the routing template, and the user's rules
+internal/ruleset           rule lists from a link or a file: read, check, store, look inside
 internal/monitor           connections, rates, events, logs, totals
 internal/procinfo          which app owns a local socket (macOS)
 internal/locate, geo       exit locations

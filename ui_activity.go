@@ -20,6 +20,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/routes"
 )
 
 const (
@@ -346,6 +347,18 @@ func actRule(c Conn) string {
 		return c.Rule
 	}
 	return c.Rule + "(" + c.Payload + ")"
+}
+
+// actRuleWord is actRule with a rule set under the name people gave it.
+func (u *UI) actRuleWord(c Conn) string {
+	if c.Rule == "RuleSet" {
+		for _, s := range u.shownSettings().Routing.Services {
+			if s.Source != "" && c.Payload == routes.RuleSetProvider(s.ID) {
+				return c.Rule + "(" + s.Name + ")"
+			}
+		}
+	}
+	return actRule(c)
 }
 
 func (u *UI) actRouteName(c Conn) string {
@@ -729,7 +742,7 @@ func (u *UI) actRow(c *ui.Context, p *pal, i int, cn Conn) {
 			}
 			actCell(actClip(ui.RichText(c, ui.Span{Text: host, Size: 12, Weight: 600, Color: ink}, ui.Span{Text: fmt.Sprintf(":%d", cn.Port), Size: 11, Color: p.mute})), 2)
 			actCell(ui.Text(c, strings.ToUpper(cn.Network)).FontSize(11.5).TextColor(p.mute).NoWrap(), 3)
-			actCell(actClip(ui.Text(c, actRule(cn)).FontSize(11.5).TextColor(p.mute)), 4)
+			actCell(actClip(ui.Text(c, u.actRuleWord(cn)).FontSize(11.5).TextColor(p.mute)), 4)
 			actCell(ui.Row(c).Gap(6).AlignItems(ui.Center), 5).Children(func() {
 				swatch(c, p.routeColor(cn.Route), 8).Shrink(0)
 				spans := []ui.Span{{Text: u.actRouteName(cn), Size: 12, Color: ink2}}

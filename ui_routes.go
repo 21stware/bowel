@@ -42,6 +42,8 @@ type routesUI struct {
 
 	armed string // "g:id" or "s:id": 删除 asks to be pressed again
 	delTo string // who inherits a group being deleted
+
+	rs ruleSetDraft // 导入规则集
 }
 
 // ruleConflict is a rule that is already in another service.
@@ -80,6 +82,7 @@ func (u *UI) selectGroup(id string) {
 	r.group, r.svc, r.pol, r.armed, r.nameOf, r.nameErr = id, "", false, "", "", ""
 	u.home.region, u.home.query = "", ""
 	u.clearRuleDraft()
+	u.closeRuleSetImport()
 }
 
 func (u *UI) clearRuleDraft() {
@@ -450,7 +453,7 @@ func (u *UI) testerPath(c *ui.Context, p *pal, s settings.Settings, all []routes
 		ui.Text(c, err.Error()).FontSize(12).TextColor(p.signal).SingleLine()
 		return
 	}
-	id, rule, _, sure := routes.Explain(host, routes.Active(all, s.Rules), all)
+	id, rule, set, _, sure := routes.ExplainSets(host, routes.Active(all, s.Rules), all, u.matchRuleSet())
 	seen := false
 	if !sure {
 		for i := len(u.act.conns) - 1; i >= 0; i-- {
@@ -471,7 +474,11 @@ func (u *UI) testerPath(c *ui.Context, p *pal, s settings.Settings, all []routes
 	var sv routes.Service
 	found := false
 	if !seen {
-		sv, found = routes.FindRule(all, rule)
+		if set != "" {
+			sv, found = routes.FindMatched(all, "RuleSet", routes.RuleSetProvider(set))
+		} else {
+			sv, found = routes.FindRule(all, rule)
+		}
 		if found {
 			sep("/")
 			ui.Text(c, routes.ServiceTitle(sv)).FontSize(12.5).TextColor(p.ink).NoWrap().Shrink(0)
@@ -562,15 +569,20 @@ func (u *UI) routesGroup(c *ui.Context, p *pal, all []routes.Route, r routes.Rou
 		note(i18n.T("其他规则都没命中的流量走这里。在这里加规则，可以把个别网站明确留在默认出口。", "Traffic no other rule matched goes here. A rule here keeps a site on the default exit on purpose."))
 	}
 	u.servicesHead(c, p, all, r)
+	if st.rs.open {
+		u.ruleSetImport(c, p, all, r)
+	}
 	list := slices.Clone(r.Services)
 	mineAt := func(s routes.Service) int {
 		switch {
-		case !s.Mine:
+		case s.Source != "": // up here, so that one just imported is in view
 			return 1
+		case !s.Mine:
+			return 2
 		case len(s.Rules) > 0:
 			return 0
 		}
-		return 2
+		return 3
 	}
 	slices.SortStableFunc(list, func(a, b routes.Service) int { return mineAt(a) - mineAt(b) })
 	ui.Column(c).Children(func() {
@@ -652,6 +664,7 @@ func (u *UI) servicesHead(c *ui.Context, p *pal, all []routes.Route, r routes.Ro
 				u.clearRuleDraft()
 			}
 		}
+		btn(c.Key("import-set"), p, i18n.T("＋ 导入规则集", "＋ Import rule set")).OnClick(u.openRuleSetImport)
 		btn(c.Key("new-svc"), p, i18n.T("＋ 新建服务", "＋ New service")).OnClick(func() {
 			base := i18n.T("新服务", "New service")
 			s := u.shownSettings().Clone()
@@ -668,7 +681,10 @@ func (u *UI) serviceRow(c *ui.Context, p *pal, all []routes.Route, r routes.Rout
 	open := st.svc == s.ID
 	live := s.Live()
 	sub := i18n.T("还没有规则", "No rules yet")
+	subBad := false
 	switch {
+	case s.Source != "":
+		sub, subBad = u.ruleSetRowWord(s)
 	case s.Off:
 		sub = i18n.T("已停用，流量回到默认路由组", "Off: its traffic goes back to Default")
 	case len(live) > 0:
@@ -700,12 +716,18 @@ func (u *UI) serviceRow(c *ui.Context, p *pal, all []routes.Route, r routes.Rout
 		}).Children(func() {
 			ui.Column(c).Gap(2).Grow(1).Basis(0).MinWidth(0).Children(func() {
 				ui.Text(c, routes.ServiceTitle(s)).FontSize(13).FontWeight(600).TextColor(p.ink).SingleLine()
-				ui.Text(c, sub).FontSize(11.5).TextColor(p.mute).SingleLine()
+				subCol := p.mute
+				if subBad {
+					subCol = p.signal
+				}
+				ui.Text(c, sub).FontSize(11.5).TextColor(subCol).SingleLine()
 			})
 			tag := ""
 			switch {
 			case s.Builtin:
 				tag = i18n.T("内置", "Built-in")
+			case s.Source != "":
+				tag = i18n.T("规则集", "Rule set")
 			case !s.Mine:
 				tag = i18n.T("自定义", "Custom")
 			}
@@ -730,18 +752,22 @@ func (u *UI) serviceEditor(c *ui.Context, p *pal, all []routes.Route, r routes.R
 		if !s.Builtin && !s.Mine {
 			u.serviceName(c, p, all, s)
 		}
-		if s.Mine {
-			ui.Text(c, i18n.T("在「日志」里点「让它走…」加的规则放在这里。", "Rules made with Send via… in Log land here.")).FontSize(12).TextColor(p.mute)
-		}
-		if len(s.Rules) == 0 {
-			ui.Text(c, i18n.T("还没有规则，在下面加一条。", "No rules yet. Add one below.")).FontSize(12).TextColor(p.faint).Padding(6, 0)
-		}
-		ui.Column(c).Children(func() {
-			for _, l := range s.Rules {
-				u.ruleLine(c, p, s, l)
+		if s.Source != "" {
+			u.ruleSetBody(c, p, s)
+		} else {
+			if s.Mine {
+				ui.Text(c, i18n.T("在「日志」里点「让它走…」加的规则放在这里。", "Rules made with Send via… in Log land here.")).FontSize(12).TextColor(p.mute)
 			}
-		})
-		u.ruleInput(c, p, all, s)
+			if len(s.Rules) == 0 {
+				ui.Text(c, i18n.T("还没有规则，在下面加一条。", "No rules yet. Add one below.")).FontSize(12).TextColor(p.faint).Padding(6, 0)
+			}
+			ui.Column(c).Children(func() {
+				for _, l := range s.Rules {
+					u.ruleLine(c, p, s, l)
+				}
+			})
+			u.ruleInput(c, p, all, s)
+		}
 		if s.Mine {
 			return
 		}
@@ -784,7 +810,7 @@ func (u *UI) serviceEditor(c *ui.Context, p *pal, all []routes.Route, r routes.R
 					u.changeRouting(func(st *settings.Settings) { st.Rules = st.Routing.RemoveService(st.Rules, s.ID) }, nil)
 				})
 			}
-			if s.Builtin {
+			if s.Builtin || s.Source != "" {
 				label := i18n.T("停用", "Turn off")
 				if s.Off {
 					label = i18n.T("启用", "Turn on")
@@ -792,6 +818,8 @@ func (u *UI) serviceEditor(c *ui.Context, p *pal, all []routes.Route, r routes.R
 				btn(c.Key("off"), p, label).OnClick(func() {
 					u.changeRouting(func(st *settings.Settings) { st.Routing.ToggleService(s.ID) }, nil)
 				})
+			}
+			if s.Builtin {
 				return
 			}
 			armed := st.armed == "s:"+s.ID
@@ -805,7 +833,11 @@ func (u *UI) serviceEditor(c *ui.Context, p *pal, all []routes.Route, r routes.R
 					return
 				}
 				st.armed, st.svc = "", ""
-				u.changeRouting(func(st *settings.Settings) { st.Rules = st.Routing.RemoveService(st.Rules, s.ID) }, nil)
+				var after func()
+				if s.Source != "" {
+					after = func() { u.app.ruleSets.Delete(s.ID) } // once the core no longer reads it
+				}
+				u.changeRouting(func(st *settings.Settings) { st.Rules = st.Routing.RemoveService(st.Rules, s.ID) }, after)
 			})
 		})
 	})

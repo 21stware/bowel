@@ -595,6 +595,14 @@ input.rg-title.bad { border-color: var(--signal); }
 .pol-b .nrow { grid-template-columns: 22px minmax(0, 1fr) 110px 60px 16px; }
 .pol-b .nrow.ordered { grid-template-columns: 18px 22px minmax(0, 1fr) 60px 16px 52px; }
 .pol-b .nrow .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- rule sets: a service whose rules come from a link or a file ---------- */
+.rs-add .adder { padding-top: 12px; }
+.rs-add .ged-f { padding-top: 6px; }
+.rs-to { font-size: 12px; color: var(--ink-2); }
+.rs-src { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 0 2px; }
+.rs-src code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rs-more { padding: 7px 0 3px; font-size: 11.5px; color: var(--mute); }
 </style>
 </head>
 <body>
@@ -816,7 +824,7 @@ function resolveRoutes() {
   for (const r of ROUTES) {
     const live = svcOf(r.id).filter((s) => !s.off), named = live.filter((s) => !s.mine);
     r.nsvc = named.length;
-    r.nrules = live.reduce((a, s) => a + s.rules.filter((u) => !u.off).length, 0);
+    r.nrules = live.reduce((a, s) => a + (s.ruleset ? s.ruleset.count : s.rules.filter((u) => !u.off).length), 0);
     r.rules = r.id === "default" ? "没命中其他规则的流量" : named.length ? named.slice(0, 3).map((s) => esc(s.name)).join(" · ") + (named.length > 3 ? " 等" : "") : "还没有服务";
     if (r.direct) continue;
     r.broken = false; r.why = ""; r.at = 0;
@@ -904,7 +912,9 @@ function hostOf(input) {
 function explain(input) {
   const q = hostOf(input), ip = isIP(q) ? q : "", host = ip ? "" : q;
   const all = SERVICES.filter((s) => !s.off).flatMap((s) => s.rules.filter((u) => !u.off).map((u) => ({ s, u })));
-  all.sort((a, b) => rank(a.u) - rank(b.u) || b.u.value.length - a.u.value.length);
+  // With a rule set in use: the user's rules, then rule sets, then what ships.
+  const sets = all.some((x) => x.s.ruleset), tier = (s) => (!sets ? 0 : s.ruleset ? 1 : s.builtin ? 2 : 0);
+  all.sort((a, b) => tier(a.s) - tier(b.s) || rank(a.u) - rank(b.u) || b.u.value.length - a.u.value.length);
   return all.find((x) => matches(x.u, host, ip)) || null;
 }
 const ruleHit = (value) => { for (const s of SERVICES) { const u = s.rules.find((x) => x.value === value); if (u) return { s, u }; } return null; };
@@ -1828,7 +1838,7 @@ function parseRule(kind, text) {
   if (!/^[a-z0-9_-]+(\.[a-z0-9_-]+)+$/.test(s)) return { err: `不是有效的域名：${s}` };
   return { kind: kind === "domain" && !wild ? "domain" : "suffix", value: s };
 }
-const findRule = (t) => { for (const s of SERVICES) { const u = s.rules.find((x) => x.kind === t.kind && x.value === t.value); if (u) return { s, u }; } return null; };
+const findRule = (t) => { for (const s of SERVICES.filter((x) => !x.ruleset)) { const u = s.rules.find((x) => x.kind === t.kind && x.value === t.value); if (u) return { s, u }; } return null; };
 const pathOf = (s) => `${esc(route(s.group).name)} / ${esc(s.name)}`;
 
 function rgItem(r) {
@@ -1848,7 +1858,70 @@ function testerHTML() {
   }
   return `<div class="addbar rg-test"><div class="row"><span class="opt-t">测试一个地址</span><input class="rule-in" id="addr-test" spellcheck="false" placeholder="api.anthropic.com" value="${esc(S.set.test)}" /><div class="tpath">${out}</div></div></div>`;
 }
+// ---- Rule sets ----
+// One thing to learn: a service whose rules come from a link or a file. It
+// sits in a route group, moves, switches off and goes like any other. Nothing
+// to set: updates run daily, and the rule order is fixed.
+const RS_SAMPLE = "https://raw.githubusercontent.com/VPSDance/ai-proxy-rules/main/rules/clash/global.yaml";
+const RS_RULES = [["suffix", "anthropic.com"], ["suffix", "firefly.adobe.com"], ["suffix", "awsapps.com"], ["suffix", "aws.dev"], ["domain", "codewhisperer.us-east-1.amazonaws.com"]].map(([kind, value]) => ({ kind, value }));
+S.rs = { open: false, text: "", checking: false, result: null };
+let rsTimer = 0;
+const rsLocal = (src) => !/^https?:\/\//i.test(src);
+function rsName(src) {
+  const base = src.split(/[?#]/)[0].split("/").filter(Boolean).pop() || "";
+  return base.replace(/\.(ya?ml|list|txt)$/i, "") || "规则集";
+}
+function rsPeek(src) {
+  if (/\.mrs([?#]|$)/i.test(src)) return { err: "暂不支持 .mrs 二进制格式，请用 .yaml 或 .list 版本" };
+  if (!/^(https?:\/\/\S+|[~/]\S+)$/i.test(src)) return { err: "不是链接或文件路径" };
+  const dup = SERVICES.find((s) => s.ruleset?.source === src);
+  if (dup) return { dup };
+  return src === RS_SAMPLE ? { count: 349, skipped: 0 } : /\.list([?#]|$)/i.test(src) ? { count: 1268, skipped: 12 } : { count: 520, skipped: 0 };
+}
+// In the app this downloads the file and checks every line.
+function rsCheck() {
+  clearTimeout(rsTimer);
+  const src = S.rs.text.trim();
+  S.rs.result = null; S.rs.checking = !!src;
+  if (src) rsTimer = setTimeout(() => { S.rs.checking = false; S.rs.result = rsPeek(src); render(); }, 800);
+}
+const rsWhere = (src) => { if (rsLocal(src)) return "本地文件"; try { return new URL(src).host; } catch { return src; } };
+function rsImport(r) {
+  const R = S.rs, x = R.result, ok = x && !x.err && !x.dup;
+  const info = R.checking ? `<span class="shimmer">正在下载并检查…</span>`
+    : !x ? "粘贴规则集链接，或选择本地 .yaml / .list 文件。"
+    : x.err ? `<span class="nope">${esc(x.err)}</span>`
+    : x.dup ? `已经导入到「${esc(route(x.dup.group).name)}」了。 <button class="lk" data-goto="${x.dup.group}|${x.dup.id}">查看</button>`
+    : `<b>${x.count - x.skipped} 条规则</b>${x.skipped ? `，跳过 ${x.skipped} 条不支持的` : ""} · 来自 ${esc(rsWhere(R.text.trim()))}`;
+  return `<div class="ged rs-add">
+    <div class="adder"><input class="g-in rule-in" id="rs-text" spellcheck="false" placeholder="https://example.com/rules.yaml" value="${esc(R.text)}" /><button class="btn" data-rs-file>选择文件…</button></div>
+    <div class="ahint">${info}</div>
+    ${ok ? `<div class="rs-to">命中的流量走「${esc(r.name)}」。优先级：你的规则 → 规则集 → 内置规则。</div>` : ""}
+    <div class="ged-f"><div class="right"><button class="btn" data-rs-x>取消</button><button class="btn" data-rs-add="${r.id}" ${ok ? "" : 'style="opacity:.45"'}>导入</button></div></div>
+  </div>`;
+}
+function rsStatus(s) {
+  const rs = s.ruleset, n = rs.count - rs.skipped;
+  if (busy("rs:" + s.id)) return `<span class="shimmer">正在更新…</span>`;
+  if (rs.failed) return `<span class="nope">更新失败，继续使用上次的 ${n} 条规则</span>`;
+  return `${n} 条规则${rs.skipped ? `，跳过 ${rs.skipped} 条` : ""} · ${rs.updated}更新 · ${rsLocal(rs.source) ? "本地文件，不自动更新" : "每天自动更新"}`;
+}
+function rsEditor(s) {
+  const r = route(s.group), rs = s.ruleset, armed = S.set.armed === "s:" + s.id, more = rs.count - rs.skipped - s.rules.length;
+  return `<div class="ged">
+    <div class="opt-r"><div class="l"><div class="opt-t">名字</div></div><div><input class="g-in ${S.set.serr ? "bad" : ""}" id="s-name" spellcheck="false" value="${esc(S.set.sdraft ?? s.name)}" />${S.set.serr ? `<div class="g-err">${S.set.serr}</div>` : ""}</div></div>
+    <div class="rs-src"><code title="${esc(rs.source)}">${esc(rs.source)}</code><button class="btn" data-rs-upd="${s.id}">${rsLocal(rs.source) ? "重新读取" : "更新"}</button></div>
+    <div class="ahint">${rsStatus(s)}</div>
+    <div class="rl">${s.rules.map((u) => `<div class="rw" style="grid-template-columns:minmax(0,1fr) auto"><code>${esc(ruleText(u))}</code><span class="tag">${KIND[u.kind]}</span></div>`).join("")}</div>
+    ${more > 0 ? `<div class="rs-more">还有 ${more} 条，由来源维护，这里不能单独改。</div>` : ""}
+    <div class="ged-f">
+      <select class="msel" data-s-move="${s.id}"><option value="">移到…</option>${ROUTES.filter((o) => o.id !== s.group).map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join("")}</select>
+      ${r.direct || svcOf(s.group).filter((x) => !x.mine).length < 2 ? "" : `<button class="btn" data-s-split="${s.id}">单独成组</button>`}
+      <div class="right"><button class="btn" data-s-off="${s.id}">${s.off ? "启用" : "停用"}</button><button class="btn danger ${armed ? "armed" : ""}" data-s-del="${s.id}">${armed ? "确定删除" : "删除"}</button></div></div>
+  </div>`;
+}
 function svcEditor(s) {
+  if (s.ruleset) return rsEditor(s);
   const r = route(s.group), armed = S.set.armed === "s:" + s.id, changed = s.builtin && (s.off || s.group !== s.home || BASE.get(s.id) !== JSON.stringify(s.rules));
   const typed = parseRule(S.set.kind, S.set.text);
   const hint = S.set.rerr ? `<span class="nope">${S.set.rerr}</span>` : !typed ? "粘贴链接也可以，会自动提取域名。" : typed.err ? `<span class="nope">${esc(typed.err)}</span>` : `添加后：<b>${esc(ruleText(typed))}</b> · ${KIND[typed.kind]}`;
@@ -1872,9 +1945,9 @@ function svcEditor(s) {
 }
 function svcRow(s) {
   const open = S.set.svc === s.id, live = s.rules.filter((u) => !u.off);
-  const sub = s.off ? "已停用，流量回到默认路由组" : live.length ? `${live.length} 条规则 · ${live.slice(0, 2).map((u) => esc(ruleText(u))).join("、")}${live.length > 2 ? " 等" : ""}` : "还没有规则";
+  const sub = s.ruleset ? (s.off ? "已停用，这些规则不再生效" : s.ruleset.failed ? `<span class="nope">更新失败，继续使用上次的规则</span>` : `${s.ruleset.count - s.ruleset.skipped} 条规则 · ${s.ruleset.updated}更新 · ${esc(rsWhere(s.ruleset.source))}`) : s.off ? "已停用，流量回到默认路由组" : live.length ? `${live.length} 条规则 · ${live.slice(0, 2).map((u) => esc(ruleText(u))).join("、")}${live.length > 2 ? " 等" : ""}` : "还没有规则";
   return `<div><button class="shead ${s.off ? "off" : ""}" data-s-open="${s.id}"><span class="t"><b>${esc(s.name)}</b><small>${sub}</small></span>
-      <span class="tagw">${s.mine ? "" : s.builtin ? "内置" : "自定义"}</span><span class="muted">${open ? "▴" : "▾"}</span></button>${open ? svcEditor(s) : ""}</div>`;
+      <span class="tagw">${s.mine ? "" : s.builtin ? "内置" : s.ruleset ? "规则集" : "自定义"}</span><span class="muted">${open ? "▴" : "▾"}</span></button>${open ? svcEditor(s) : ""}</div>`;
 }
 // The strategy card: one line until it is opened, then the same control and
 // node list as 代理's in-place expansion.
@@ -1900,7 +1973,8 @@ function rgPage(r) {
     ${S.set.err ? `<div class="g-err">${S.set.err}</div>` : ""}
     ${r.direct ? `<div class="rg-note">这里的流量直接连接，不经过节点，所以没有节点策略。</div>` : polCard(r)}
     ${r.id === "default" ? `<div class="rg-note">其他规则都没命中的流量走这里。在这里加规则，可以把个别网站明确留在默认出口。</div>` : ""}
-    <div class="subh">服务 · ${list.filter((s) => !s.mine).length}<div class="right"><select class="msel" data-s-pull="${r.id}"><option value="">移入已有服务…</option>${pull}</select><button class="btn" data-s-new="${r.id}">＋ 新建服务</button></div></div>
+    <div class="subh">服务 · ${list.filter((s) => !s.mine).length}<div class="right"><select class="msel" data-s-pull="${r.id}"><option value="">移入已有服务…</option>${pull}</select><button class="btn" data-rs-open="${r.id}">＋ 导入规则集</button><button class="btn" data-s-new="${r.id}">＋ 新建服务</button></div></div>
+    ${S.rs.open ? rsImport(r) : ""}
     ${list.map(svcRow).join("")}
     ${fixedName ? "" : `<div class="group-del">${armed ? `<span>服务交给</span><select class="msel" id="del-to">${ROUTES.filter((o) => o.id !== r.id).map((o) => `<option value="${o.id}" ${S.set.delTo === o.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select><button class="btn" data-rg-del-x>取消</button>` : ""}<button class="btn danger ${armed ? "armed" : ""}" data-rg-del="${r.id}">${armed ? "确定删除" : "删除路由组"}</button></div>`}`;
 }
@@ -1926,7 +2000,7 @@ function renderRoutes() {
   else if (fid && $(fid)) { $(fid).focus(); $(fid).setSelectionRange(caret, caret); }
 }
 function openGroup(id, sid = null) {
-  S.set.group = id; S.set.svc = sid; S.set.draft = null; S.set.err = ""; S.set.armed = null; S.set.pol = false; S.nd = ndFor();
+  S.set.group = id; S.set.svc = sid; S.set.draft = null; S.set.err = ""; S.set.armed = null; S.set.pol = false; S.nd = ndFor(); S.rs.open = false;
   clearRuleDraft();
 }
 function settingsHTML() {
@@ -1992,7 +2066,7 @@ function renderDemo() {
   seg("d-theme", [[false, "浅色"], [true, "深色"]], "dark");
   seg("d-dev", [["real", "本机现状"], ["sample", "各种状态"]], "devView");
   $("dvquit").innerHTML = devQuit();
-  $("d-sim").innerHTML = `<button class="${prov("a").expired ? "on" : ""}" data-sim="expire">机场 A 到期</button><button class="${S.sim.down ? "on" : ""}" data-sim="kill">默认的节点挂掉</button><button class="${S.sim.la ? "on" : ""}" data-sim="la">洛杉矶挂掉</button><button class="${S.sim.jp ? "on" : ""}" data-sim="jp">日本全下线</button>`;
+  $("d-sim").innerHTML = `<button class="${S.sim.rsFail ? "on" : ""}" data-sim="rs">规则集更新失败</button><button class="${prov("a").expired ? "on" : ""}" data-sim="expire">机场 A 到期</button><button class="${S.sim.down ? "on" : ""}" data-sim="kill">默认的节点挂掉</button><button class="${S.sim.la ? "on" : ""}" data-sim="la">洛杉矶挂掉</button><button class="${S.sim.jp ? "on" : ""}" data-sim="jp">日本全下线</button>`;
 }
 
 // ==================================================================
@@ -2186,7 +2260,7 @@ function setMode(m) {
 // ==================================================================
 // Events
 // ==================================================================
-const ACTIONS = "[data-dv-quit],[data-dv-card],[data-dv-list],[data-dv-open],[data-dv-ask],[data-dv-do],[data-dv-cancel],[data-dv-test],[data-dv-recheck],[data-dv-undoall],[data-set],[data-page],[data-mode],[data-entry],[data-expand],[data-collapse],[data-pick],[data-region],[data-test],[data-lan],[data-fix],[data-acttab],[data-astatus],[data-aroute],[data-sort],[data-kill],[data-conn],[data-pause],[data-closeall],[data-lv],[data-upd],[data-updall],[data-provoff],[data-add],[data-goapp],[data-prov],[data-sub-open],[data-sub-back],[data-strat],[data-scope],[data-o-add],[data-o-up],[data-o-del],[data-settings],[data-unbreak],[data-notice-x],[data-sim],[data-sw-close],[data-sw-sec],[data-g-route],[data-rg-new],[data-rg-open],[data-go-rg],[data-pol],[data-rg-del],[data-rg-del-x],[data-goto],[data-s-new],[data-s-open],[data-s-split],[data-s-off],[data-s-reset],[data-s-del],[data-r-off],[data-r-del],[data-r-add],[data-cf-move],[data-cf-x]";
+const ACTIONS = "[data-rs-open],[data-rs-x],[data-rs-file],[data-rs-add],[data-rs-upd],[data-dv-quit],[data-dv-card],[data-dv-list],[data-dv-open],[data-dv-ask],[data-dv-do],[data-dv-cancel],[data-dv-test],[data-dv-recheck],[data-dv-undoall],[data-set],[data-page],[data-mode],[data-entry],[data-expand],[data-collapse],[data-pick],[data-region],[data-test],[data-lan],[data-fix],[data-acttab],[data-astatus],[data-aroute],[data-sort],[data-kill],[data-conn],[data-pause],[data-closeall],[data-lv],[data-upd],[data-updall],[data-provoff],[data-add],[data-goapp],[data-prov],[data-sub-open],[data-sub-back],[data-strat],[data-scope],[data-o-add],[data-o-up],[data-o-del],[data-settings],[data-unbreak],[data-notice-x],[data-sim],[data-sw-close],[data-sw-sec],[data-g-route],[data-rg-new],[data-rg-open],[data-go-rg],[data-pol],[data-rg-del],[data-rg-del-x],[data-goto],[data-s-new],[data-s-open],[data-s-split],[data-s-off],[data-s-reset],[data-s-del],[data-r-off],[data-r-del],[data-r-add],[data-cf-move],[data-cf-x]";
 document.addEventListener("click", (e) => {
   const t = e.target.closest(ACTIONS);
   if (!t) {
@@ -2221,6 +2295,19 @@ document.addEventListener("click", (e) => {
   if (d.swSec) { S.set.sec = d.swSec; return render(); }
   if (d.unbreak) { const r = route(d.unbreak); S.notice = null; return morph(() => { Object.assign(r.p, { mode: "auto", providers: [], regions: [] }); render(); }); }
   if (d.noticeX !== undefined) { S.notice = null; return morph(render); }
+  if (d.sim === "rs") { S.sim.rsFail = !S.sim.rsFail; SERVICES.forEach((s) => { if (s.ruleset) s.ruleset.failed = S.sim.rsFail; }); return render(); }
+  if (d.rsOpen) { S.rs.open = true; S.rs.text = RS_SAMPLE; rsCheck(); return render(); } // filled in for this demo
+  if (d.rsX !== undefined) { clearTimeout(rsTimer); S.rs.open = false; S.rs.checking = false; return render(); }
+  if (d.rsFile !== undefined) { S.rs.text = "~/Downloads/my-rules.list"; rsCheck(); return render(); }
+  if (d.rsAdd) {
+    const x = S.rs.result, src = S.rs.text.trim();
+    if (!x || x.err || x.dup || S.rs.checking) return;
+    let name = rsName(src), i = 1; while (SERVICES.some((s) => s.name === name)) name = `${rsName(src)} ${++i}`;
+    const s = { id: "s" + (++seq), name, group: d.rsAdd, rules: RS_RULES.map((u) => ({ ...u })), ruleset: { source: src, count: x.count, skipped: x.skipped, updated: "刚刚", failed: !!S.sim.rsFail } };
+    SERVICES.push(s); S.rs.open = false; S.set.svc = s.id; S.set.reveal = true; S.set.sdraft = null; S.set.serr = "";
+    return morph(render);
+  }
+  if (d.rsUpd) { const s = svc(d.rsUpd); return apply("rs:" + s.id, 1100, () => { s.ruleset.failed = !!S.sim.rsFail; if (!S.sim.rsFail) s.ruleset.updated = "刚刚"; }); }
   if (d.sim === "expire") { const a = prov("a"); return simulate(() => { a.expired = !a.expired; }); }
   if (d.sim === "kill") return simulate(() => {
     if (S.sim.down) { node(S.sim.down.id).ms = S.sim.down.ms; S.sim.down = null; return; }
@@ -2336,6 +2423,7 @@ function onInput(e) {
     render();
   }
   if (id === "rule-text") { S.set.text = e.target.value; S.set.rerr = ""; S.set.conflict = null; render(); }
+  if (id === "rs-text") { S.rs.text = e.target.value; rsCheck(); render(); }
   if (id === "addr-test") { S.set.test = e.target.value; render(); }
   if (id === "addp") {
     const v = e.target.value.trim(), m = /^(vmess|vless|trojan|ss|ssr|hysteria2?|hy2|tuic|wireguard|anytls):\/\//i.exec(v);
@@ -2393,6 +2481,7 @@ setInterval(() => {
 }, 1000);
 
 fit();
+if (location.hash === "#ruleset") { S.page = "routes"; S.set.group = "ai"; }
 render();
 
 </script>
