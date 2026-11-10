@@ -10,7 +10,7 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 
 <p align="center">
   <a href="https://github.com/21stware/bowel/releases/latest"><b>下载</b></a> ·
-  <a href="https://21stware.github.io/bowel/">官网</a> ·
+  <a href="https://bowel.dev/">官网</a> ·
   <a href="README.md">English</a>
 </p>
 
