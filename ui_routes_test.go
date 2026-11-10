@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -204,6 +205,122 @@ func TestStrategyPicker(t *testing.T) {
 	shot(t, tt, "routes-fixed")
 	if q := u.policy("ai"); q.Mode != routes.ModeFixed || len(q.Order) != 2 {
 		t.Errorf("after fixed: %+v", q)
+	}
+}
+
+// scopeFixture is a group on 自动最快, among more regions than fit a line.
+func scopeFixture() (*UI, []string) {
+	u := routesFixture()
+	u.selectGroup("ai")
+	u.routes.pol = true
+	proto := u.snap.Nodes[0]
+	var regions []string
+	for _, cc := range []string{"AE", "AR", "AU", "BR", "CA", "CH", "DE", "ES", "FR", "GB", "ID", "IN", "IT", "KR", "MO", "MX", "MY", "NL", "PH", "RU", "SE", "TH", "TR", "TW", "UA", "VN", "ZA"} {
+		n := proto
+		pl := *proto.Where.Place
+		pl.Country = cc
+		n.Name, n.Display, n.Where.Place = cc+"-1", cc+"-1", &pl
+		u.snap.Nodes = append(u.snap.Nodes, n)
+		regions = append(regions, cc)
+	}
+	return u, regions
+}
+
+// TestScopeChipsTakeEveryClick: a chip of 自动最快's range chooses and
+// un-chooses from its top to its bottom edge, at any window width: nothing
+// over it takes the press, and choosing moves no chip.
+func TestScopeChipsTakeEveryClick(t *testing.T) {
+	for _, width := range []int{1060, 760} {
+		u, regions := scopeFixture()
+		tt := ui.NewTester(u.view, width, 760)
+		tt.Advance(time.Second)
+
+		bounds := func(label string) ui.Rect {
+			t.Helper()
+			a, ok := tt.AccessByRole(ui.RoleButton, label)
+			if !ok {
+				t.Fatalf("width %d: no chip %q: %q", width, label, tt.Texts())
+			}
+			return a.Bounds
+		}
+		var providers, provLabels, regLabels []string
+		for _, pv := range u.snap.Providers {
+			if !pv.Enabled {
+				continue
+			}
+			n := 0
+			for _, v := range u.snap.Nodes {
+				if v.Provider == pv.ID {
+					n++
+				}
+			}
+			providers = append(providers, pv.ID)
+			provLabels = append(provLabels, fmt.Sprintf("%s %d", pv.Name, n))
+		}
+		for _, r := range regions {
+			regLabels = append(regLabels, r+" 1")
+		}
+
+		lines := map[float32]bool{}
+		var regionsEnd float32
+		for _, l := range regLabels {
+			b := bounds(l)
+			if b.X < 0 || b.X+b.W > float32(width) {
+				t.Errorf("width %d: %q cut off: %+v", width, l, b)
+			}
+			lines[b.Y] = true
+			regionsEnd = max(regionsEnd, b.Y+b.H)
+		}
+		if len(lines) < 2 {
+			t.Errorf("width %d: regions did not wrap, lines at %v", width, lines)
+		}
+		for _, l := range provLabels {
+			if b := bounds(l); b.Y < regionsEnd {
+				t.Errorf("width %d: %q at %v overlaps the regions, which end at %v", width, l, b.Y, regionsEnd)
+			}
+		}
+
+		// click presses a chip at dy down it, the pointer having come to
+		// rest over it first, as a person's does.
+		click := func(b ui.Rect, dy float32) {
+			x, y := b.X+b.W/2, b.Y+dy
+			tt.Move(x, y)
+			tt.Advance(50 * time.Millisecond)
+			tt.Press(x, y)
+			tt.Release(x, y)
+			tt.Advance(50 * time.Millisecond)
+		}
+		// Clicks on and off at each height, the watched chips kept in place.
+		exercise := func(label string, chosen func() bool, watch []string) {
+			t.Helper()
+			was := map[string]ui.Rect{}
+			for _, l := range watch {
+				was[l] = bounds(l)
+			}
+			b := bounds(label)
+			for _, dy := range []float32{1, b.H / 2, b.H - 1} {
+				for _, want := range []bool{true, false} {
+					click(b, dy)
+					if chosen() != want {
+						t.Errorf("width %d: click %q at %v down: chosen %v, want %v", width, label, dy, !want, want)
+					}
+					for _, l := range watch {
+						if now := bounds(l); now != was[l] {
+							t.Errorf("width %d: click %q moved %q: %+v to %+v", width, label, l, was[l], now)
+						}
+					}
+				}
+			}
+		}
+		// A chosen region narrows the other row's counts and a chosen source
+		// this row's, so only the row clicked keeps its labels throughout.
+		for i, l := range regLabels {
+			exercise(l, func() bool { return slices.Contains(u.policy("ai").Regions, regions[i]) }, regLabels)
+		}
+		for i, l := range provLabels {
+			exercise(l, func() bool { return slices.Contains(u.policy("ai").Providers, providers[i]) }, provLabels)
+		}
+		shot(t, tt, fmt.Sprintf("routes-auto-many-%d", width))
 	}
 }
 
