@@ -66,11 +66,11 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 ### 其他
 - **自定义规则**：支持按域名、关键词或 IP 段添加分流规则并测试匹配结果。
 - **出口位置实测**：通过 Cloudflare 请求实测节点真实的出口所在地。
-- **网关模式**（macOS）：支持作为局域网网关为电视、游戏机和手机提供代理服务。
-- **TUN**（macOS）：接管不遵循系统代理设置的应用程序流量。
-- **开发工具**（macOS）：Docker、终端和 Git 不读系统代理，bowel 列出哪些没有接入，点一下写好它们自己的配置，撤销时原样删除。
-- **下载源**（macOS）：实测 npm、pip、Go 和 Cargo 的官方源与各个镜像，点一下换源；当前的源连不上时，一键换到最快的那个，或让它重新走节点。
-- **内网直连**（macOS）：局域网、Tailscale 和公司 VPN 的地址自动直连，全局模式下也一样。
+- **网关模式**（macOS、Linux）：支持作为局域网网关为电视、游戏机和手机提供代理服务。
+- **TUN**（macOS、Windows、Linux）：接管不遵循系统代理设置的应用程序流量。
+- **开发工具**（macOS、Linux）：Docker、终端和 Git 不读系统代理，bowel 列出哪些没有接入，点一下写好它们自己的配置，撤销时原样删除。
+- **下载源**：实测 npm、pip、Go 和 Cargo 的官方源与各个镜像，点一下换源；当前的源连不上时，一键换到最快的那个，或让它重新走节点。
+- **内网直连**：局域网、Tailscale 和公司 VPN 的地址自动直连，全局模式下也一样。
 - **MCP**：内置 MCP 服务器，供 Claude Code 等 Agent 读取状态、排查网络问题，改设置前默认先问你。下面是 macOS 的命令，Windows 和 Linux 上请换成 bowel 程序所在的路径。
   ```bash
   claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp
@@ -118,12 +118,14 @@ curl -fsSL https://21stware.github.io/packages/install.sh | sh
 
 | | macOS | Windows | Linux | Android |
 | --- | --- | --- | --- | --- |
-| 接管方式 | 系统代理或 TUN | 系统代理 | 手动设置 | 系统 VPN |
-| 网关模式 | 支持 | 不支持 | 不支持 | 不支持 |
+| 接管方式 | 系统代理或 TUN | 系统代理或 TUN | 系统代理（GNOME、KDE）或 TUN | 系统 VPN |
+| 网关模式 | 支持 | 不支持 | 支持 | 不支持 |
+| 开发工具 | 支持 | 不支持 | 支持（zsh、bash） | 不支持 |
+| 扫描屏幕上的二维码 | 支持 | 支持 | 支持 | 不支持 |
 | 用摄像头扫描二维码 | 支持 | 不支持 | 不支持 | 支持 |
 | MCP 服务器 | 支持 | 支持 | 支持 | 不支持 |
 
-bowel 暂时无法在 Linux 上设置系统代理，需要让应用自行连接它的混合端口，默认是 7899。Android 版可以选择不经过 VPN 的应用。
+第一次开启 TUN 时需要管理员授权一次：macOS 是系统自己的对话框，Windows 是用户账户控制（UAC），Linux 通过 polkit（`pkexec`）。Linux 上的系统代理是 GNOME 的（Cinnamon、MATE、Budgie 等桌面共用它）或 KDE 的；其他桌面请使用 TUN，或让应用自行连接混合端口，默认是 7899。各系统具体有什么、缺什么，见 [docs/platform-parity.md](docs/platform-parity.md)。Android 版可以选择不经过 VPN 的应用。
 
 ## 开发
 

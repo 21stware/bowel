@@ -144,6 +144,9 @@ func (u *UI) modeToolsLine(c *ui.Context, p *pal) {
 // toolsSection is the section of the expanded 模式 cell: a tool to a row,
 // with what it is doing and what can be done about it.
 func (u *UI) toolsSection(c *ui.Context, p *pal) {
+	if !devtools.Supported() {
+		return
+	}
 	h := &u.home
 	if u.app != nil && c.Now().Sub(h.toolsAt) > time.Minute {
 		h.toolsAt = c.Now()
@@ -207,7 +210,7 @@ func (u *UI) toolRow(c *ui.Context, p *pal, t devtools.Tool) {
 	ui.Row(c.Key(t.ID)).Gap(14).Padding(10, 0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 		ui.Column(c).Width(220).Shrink(0).Gap(1).Children(func() {
 			disp(ui.Text(c, toolName(t.ID)), p).FontSize(15).FontWeight(700).TextColor(p.ink).MaxLines(1).Ellipsis("…")
-			ui.Text(c, toolSub(t.ID)).FontSize(11.5).TextColor(p.mute).MaxLines(1).Ellipsis("…")
+			ui.Text(c, toolSubOf(t)).FontSize(11.5).TextColor(p.mute).MaxLines(1).Ellipsis("…")
 		})
 		ui.Text(c, toolStateWord(t.State)).FontSize(12.5).FontWeight(600).TextColor(p.toolStateColor(t.State)).NoWrap().Grow(1).Tooltip(u.toolWhy(t))
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Shrink(0).Children(func() { u.toolActions(c, p, t) })

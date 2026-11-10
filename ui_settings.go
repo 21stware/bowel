@@ -711,8 +711,10 @@ func (u *UI) inboundSection(c *ui.Context, p *pal, s settings.Settings) {
 	})
 
 	optHeading(c, p, i18n.T("局域网", "LAN"))
-	optRow(c, p, i18n.T("网关模式", "Gateway mode"), gatewayDesc(), func() { u.gatewaySwitch(c, "gateway", u.settingsToast) })
-	if u.gatewayShownOn() && !searching() {
+	if gatewaySupported() {
+		optRow(c, p, i18n.T("网关模式", "Gateway mode"), gatewayDesc(), func() { u.gatewaySwitch(c, "gateway", u.settingsToast) })
+	}
+	if gatewaySupported() && u.gatewayShownOn() && !searching() {
 		ui.Column(c).Padding(10, 0, 12, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() { u.gatewayGuide(c, p, u.settingsToast) })
 	}
 	lan := i18n.T("同一网络里的设备可以把 bowel 当代理用", "Devices on the same network can use bowel as their proxy")

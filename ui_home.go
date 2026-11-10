@@ -2093,7 +2093,7 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 			case t.Tun.Status == "on":
 				status = i18n.T("生效中", "Active")
 			case t.Tun.Status == "install":
-				status = i18n.T("未使用 · 第一次开启时，macOS 会请求管理员授权", "Not in use · The first time it's turned on, macOS asks for an administrator's authorization")
+				status = tunInstallHint()
 			case t.Tun.Status == "error":
 				status = t.Tun.Detail
 			}
@@ -2116,6 +2116,9 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 				u.do(func() error { return u.app.setLan(on) })
 			}
 		})
+		if !gatewaySupported() {
+			return
+		}
 		section(c, p, i18n.T("网关", "Gateway"), i18n.T("局域网里的其他设备，把这台 Mac 当网关", "Other devices on the LAN, through this Mac as their gateway"), func() {
 			_, status := u.gatewayStatus(p)
 			addr := i18n.T("没有局域网地址", "No LAN address")

@@ -195,6 +195,10 @@ func convert(data []byte) (image.Image, error) {
 // Recording has not been allowed.
 var ErrScreen error = &msg{"无法读取屏幕", "Cannot read the screen"}
 
+// ErrNoScreenTool means Linux has no program installed that can take a
+// picture of the screen.
+var ErrNoScreenTool error = &msg{"没有找到截屏工具：请安装 grim、spectacle、gnome-screenshot、maim、scrot 或 ImageMagick 之一", "No screenshot tool was found: install one of grim, spectacle, gnome-screenshot, maim, scrot or ImageMagick"}
+
 // maxDisplays is how many displays ScanScreen reads.
 const maxDisplays = 8
 
@@ -217,25 +221,21 @@ func Texts(codes []ScreenCode) []string {
 }
 
 // ScanScreen reads the QR codes on every display, and where they are.
+// How the screen is captured is each system's own (screen_*.go): one
+// picture per display where the system gives that, or one of them all.
 func ScanScreen() ([]ScreenCode, error) {
-	if runtime.GOOS != "darwin" {
-		return nil, errors.ErrUnsupported
-	}
 	dir, err := os.MkdirTemp("", "moho-qr-")
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
-	// screencapture writes one file per display, in the order given, and
-	// leaves the rest.
-	args := []string{"-x", "-t", "png"}
-	for i := range maxDisplays {
-		args = append(args, filepath.Join(dir, string(rune('a'+i))+".png"))
+	files, runErr := capture(dir)
+	if errors.Is(runErr, errors.ErrUnsupported) || runErr == ErrNoScreenTool {
+		return nil, runErr
 	}
-	runErr := exec.Command("/usr/sbin/screencapture", args...).Run()
 	var out []ScreenCode
 	read := 0
-	for i, f := range args[3:] {
+	for i, f := range files {
 		data, err := os.ReadFile(f)
 		if err != nil {
 			continue
