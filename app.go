@@ -40,6 +40,7 @@ import (
 	"github.com/oboo/moho/internal/procinfo"
 	"github.com/oboo/moho/internal/provider"
 	"github.com/oboo/moho/internal/routes"
+	"github.com/oboo/moho/internal/ruleset"
 	"github.com/oboo/moho/internal/settings"
 	"github.com/oboo/moho/internal/sysproxy"
 	"github.com/oboo/moho/internal/tun"
@@ -50,6 +51,7 @@ type App struct {
 	dataDir   string
 	settings  *settings.Store
 	providers *provider.Store
+	ruleSets  *ruleset.Store
 	core      *core.Manager
 	mon       *monitor.Monitor
 	loc       *locate.Locator
@@ -133,6 +135,10 @@ func newApp() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	sets, err := ruleset.Open(filepath.Join(data, "rulesets"))
+	if err != nil {
+		return nil, err
+	}
 	bin := bundledCore()
 	tunBin := filepath.Join(data, "bin", filepath.Base(bin))
 	run := bin
@@ -148,7 +154,7 @@ func newApp() (*App, error) {
 		return nil, err
 	}
 	a := &App{
-		dataDir: data, settings: st, providers: ps, core: cm,
+		dataDir: data, settings: st, providers: ps, ruleSets: sets, core: cm,
 		mon:  monitor.New(filepath.Join(data, "stats.json")),
 		loc:  locate.New(filepath.Join(data, "locations.json")),
 		http: &http.Client{Transport: netproxy.Transport()}, coreBin: bin, tunBin: tunBin, probePort: probe,
@@ -156,7 +162,8 @@ func newApp() (*App, error) {
 		provNodes: map[string][]string{}, lastNode: map[string]string{}, routeBytes: map[string]int64{},
 		gw: gateway.New(osGateway(), filepath.Join(data, "gateway-before.json")),
 	}
-	cm.SafePaths = []string{filepath.Join(data, "providers")}
+	cm.SafePaths = []string{filepath.Join(data, "providers"), sets.Dir()}
+	a.keepRuleSets()
 	a.mon.SkipGroup = core.ProbeGroup // the location probe's own traffic
 	a.mon.FindProcess = procinfo.New().Find
 	a.mon.Every = a.pollEvery
@@ -475,7 +482,7 @@ func (a *App) applyConfig() error {
 	scopes, orders := a.nodeLists(all)
 	err := a.applyDev(s, func(dev devnet.Overlay) ([]byte, error) {
 		return core.BuildConfig(core.Input{
-			Providers: refs, Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
+			Providers: refs, RuleSets: a.ruleSetRefs(s), Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
 			Tun:      s.Tun && a.takeoverOn(s) && tun.Installed(a.tunBin),
 			Gateway:  a.gatewayOn(s),
 			LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
@@ -1180,6 +1187,7 @@ func (a *App) autoUpdate() {
 	if len(ids) > 0 {
 		_ = a.applyConfig()
 	}
+	a.autoUpdateRuleSets()
 }
 
 func (a *App) setProviderEnabled(id string, on bool) error {
@@ -1243,6 +1251,11 @@ func (a *App) removeRule(r routes.UserRule) (int, error) {
 // reroute closes the open connections r matches that are not on route
 // keep. A failure only leaves them open: the rule holds for new ones.
 func (a *App) reroute(r routes.UserRule, keep string) int {
+	return a.rerouteBy(r.Matches, keep)
+}
+
+// rerouteBy is reroute for whatever match catches.
+func (a *App) rerouteBy(match func(host, ip string) bool, keep string) int {
 	c, err := a.core.Client()
 	if err != nil {
 		return 0
@@ -1259,7 +1272,7 @@ func (a *App) reroute(r routes.UserRule, keep string) int {
 		if host == "" {
 			host = cn.Metadata.SniffHost
 		}
-		if !r.Matches(host, cn.Metadata.DestinationIP) {
+		if !match(host, cn.Metadata.DestinationIP) {
 			continue
 		}
 		group := ""
@@ -1584,7 +1597,7 @@ func (a *App) snapshot() Snapshot {
 	on := a.takeoverOn(s)
 	snap := Snapshot{
 		Mode: s.Mode, Pending: pending, Version: mygo.App.Version(), RuleCount: routes.Count(a.routes()) + len(routes.Active(a.routes(), s.Rules)),
-		Settings: s, ConfigPath: a.core.ConfigPath(), OpenAtLogin: openAtLogin,
+		Settings: s, ConfigPath: a.core.ConfigPath(), OpenAtLogin: openAtLogin, RuleSets: a.ruleSetViews(s),
 		ControllerTCP: a.core.TCPAddr(),
 		Core:          Core{State: string(cs.State), Version: cs.Version, Error: cs.Error},
 		Routes:        []RouteView{},

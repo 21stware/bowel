@@ -225,3 +225,85 @@ func TestRoutesFixAction(t *testing.T) {
 		t.Errorf("default: %q", u.home.x)
 	}
 }
+
+func ruleSetFixture() (*UI, string) {
+	u := routesFixture()
+	var id string
+	u.snap.Settings.Routing = routes.Plan{}
+	id = u.snap.Settings.Routing.AddRuleSet(nil, "ai", "global", "https://raw.example/rules/global.yaml")
+	u.snap.RuleSets = map[string]RuleSetView{id: {Count: 349, Skipped: 2, UpdatedAt: time.Now().Add(-2 * time.Hour),
+		Preview: []routes.Rule{{Text: "DOMAIN-SUFFIX,anthropic.com", Kind: routes.KindSuffix, Value: "anthropic.com"}}}}
+	return u, id
+}
+
+// TestRuleSetRow: a rule set reads as a service, says how it stands, and
+// has none of the controls for rules one writes by hand.
+func TestRuleSetRow(t *testing.T) {
+	u, id := ruleSetFixture()
+	u.selectGroup("ai")
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	for _, want := range []string{"global", "349 条规则", "2 小时前更新", "raw.example", "规则集"} {
+		if !hasTextPart(tt, want) {
+			t.Errorf("row lacks %q: %q", want, tt.Texts())
+		}
+	}
+	shot(t, tt, "ruleset-row")
+
+	if err := tt.Click("global"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(100 * time.Millisecond)
+	for _, want := range []string{"https://raw.example/rules/global.yaml", "349 条规则，跳过 2 条不支持的", "每天自动更新", "*.anthropic.com", "还有 348 条", "更新", "停用", "删除", "移到…"} {
+		if !hasTextPart(tt, want) {
+			t.Errorf("editor lacks %q: %q", want, tt.Texts())
+		}
+	}
+	if _, ok := tt.AccessByRole(ui.RoleTextField, "新规则"); ok {
+		t.Error("a list someone else keeps has an input for new rules")
+	}
+	shot(t, tt, "ruleset-open")
+
+	v := u.snap.RuleSets[id]
+	v.Error = "HTTP 404"
+	u.snap.RuleSets[id] = v
+	tt = ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	if !hasTextPart(tt, "更新失败，继续使用上次的 349 条规则：HTTP 404") {
+		t.Errorf("no failure: %q", tt.Texts())
+	}
+	delete(u.snap.RuleSets, id)
+	tt = ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	if !hasTextPart(tt, "本地副本不见了") {
+		t.Errorf("no word on the lost file: %q", tt.Texts())
+	}
+}
+
+// TestRuleSetImportPanel: the panel opens from the group, knows a source it
+// already has, and goes away.
+func TestRuleSetImportPanel(t *testing.T) {
+	u, _ := ruleSetFixture()
+	u.selectGroup("ai")
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	if err := tt.Click("＋ 导入规则集"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(100 * time.Millisecond)
+	if !hasTextPart(tt, "粘贴规则集链接") {
+		t.Fatalf("no panel: %q", tt.Texts())
+	}
+	shot(t, tt, "ruleset-import")
+	typeInto(t, tt, "规则集来源", "https://raw.example/rules/global.yaml")
+	if !hasTextPart(tt, "已经导入到") {
+		t.Errorf("no word on the duplicate: %q", tt.Texts())
+	}
+	if err := tt.Click("取消"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(100 * time.Millisecond)
+	if hasTextPart(tt, "已经导入到") || u.routes.rs.open {
+		t.Error("the panel stayed")
+	}
+}
