@@ -54,8 +54,9 @@ type App struct {
 	mon       *monitor.Monitor
 	loc       *locate.Locator
 	http      *http.Client
-	coreBin   string // the bundled core
-	tunBin    string // the setuid copy TUN runs
+	coreBin   string      // the bundled core
+	tunBin    string      // the setuid copy TUN runs
+	tunStale  atomic.Bool // tunBin is another version than coreBin
 	probePort int
 	gw        *gateway.Gateway
 
@@ -110,6 +111,7 @@ type App struct {
 	gwProbe   gwProbe
 	gwProbing bool
 	gwErr     error
+	upd       updateState
 	dev       devState
 	tools     toolsState
 }
@@ -137,8 +139,14 @@ func newApp() (*App, error) {
 	bin := bundledCore()
 	tunBin := filepath.Join(data, "bin", filepath.Base(bin))
 	run := bin
+	stale := false
 	if tun.Installed(tunBin) {
-		run = tunBin
+		// A root copy older than this version: while TUN needs it, it stays
+		// until the user authorizes a new one; otherwise the new core runs.
+		stale = tun.Stale(bin, tunBin)
+		if !stale || st.Get().Tun {
+			run = tunBin
+		}
 	}
 	cm, err := core.New(run, filepath.Join(data, "core"))
 	if err != nil {
@@ -157,6 +165,7 @@ func newApp() (*App, error) {
 		provNodes: map[string][]string{}, lastNode: map[string]string{}, routeBytes: map[string]int64{},
 		gw: gateway.New(osGateway(), filepath.Join(data, "gateway-before.json")),
 	}
+	a.tunStale.Store(stale)
 	cm.SafePaths = []string{filepath.Join(data, "providers")}
 	a.mon.SkipGroup = core.ProbeGroup // the location probe's own traffic
 	a.mon.FindProcess = procinfo.New().Find
@@ -219,6 +228,8 @@ func (a *App) start() {
 	mygo.Theme.SetSource(mygo.ThemeSource(appearanceOf(a.settings.Get())))
 	registerFonts()
 	a.openAtLogin = mygo.App.OpenAtLogin()
+	a.upd.notify = a.emit
+	a.loadUpdateOutcome(mygo.App.Version())
 	a.openWindow()
 	a.setupTray()
 	a.copyGeo()
@@ -229,6 +240,7 @@ func (a *App) start() {
 		}
 	}()
 	go a.loop()
+	go a.updateLoop()
 	go a.devLoop()
 	go a.refreshTools()
 	go a.debugDriver()
@@ -287,7 +299,7 @@ func (a *App) syncDock() {
 	win, u := a.win, a.ui
 	a.mu.Unlock()
 	open := win != nil && win.IsVisible()
-	if u != nil && u.set.win.Load() != nil {
+	if u != nil && (u.set.win.Load() != nil || u.clog.win.Load() != nil) {
 		open = true
 	}
 	want := mygo.ActivationPolicyAccessory
@@ -671,13 +683,10 @@ func (a *App) setSystemProxy(on bool) error {
 func (a *App) setTun(on bool) error {
 	done := a.begin("entry:tun")
 	defer done()
-	if on && !tun.Installed(a.tunBin) {
-		if err := tun.Install(a.coreBin, a.tunBin); err != nil {
+	if on && a.tunNeedsInstall() {
+		if err := a.installTun(); err != nil {
 			return err
 		}
-		// The core must be the setuid copy from now on.
-		a.core.Stop()
-		a.core.SetBin(a.tunBin)
 	}
 	if _, err := a.settings.Update(func(s *settings.Settings) {
 		s.Tun = on
@@ -685,6 +694,37 @@ func (a *App) setTun(on bool) error {
 			s.Paused, s.SystemProxy = false, false
 		}
 	}); err != nil {
+		return err
+	}
+	return a.afterTakeover()
+}
+
+// tunNeedsInstall is whether turning TUN on takes an authorization.
+func (a *App) tunNeedsInstall() bool {
+	return !osTun.installed(a.tunBin) || a.tunStale.Load()
+}
+
+// installTun puts this version's core in the root copy and runs on it.
+func (a *App) installTun() error {
+	if err := osTun.install(a.coreBin, a.tunBin); err != nil {
+		return err
+	}
+	a.tunInstalled()
+	return nil
+}
+
+// tunInstalled moves the core to the root copy, just (re)installed.
+func (a *App) tunInstalled() {
+	a.tunStale.Store(false)
+	a.core.Stop()
+	a.core.SetBin(a.tunBin)
+}
+
+// updateTun replaces a root copy older than this version, on the user's word.
+func (a *App) updateTun() error {
+	done := a.begin("tun-update")
+	defer done()
+	if err := a.installTun(); err != nil {
 		return err
 	}
 	return a.afterTakeover()
@@ -1585,6 +1625,7 @@ func (a *App) snapshot() Snapshot {
 
 	on := a.takeoverOn(s)
 	snap := Snapshot{
+		Update: a.updateView(), UpdateInfo: a.updateInfo(),
 		Mode: s.Mode, Pending: pending, Version: mygo.App.Version(), RuleCount: routes.Count(a.routes()) + len(routes.Active(a.routes(), s.Rules)),
 		Settings: s, ConfigPath: a.core.ConfigPath(), OpenAtLogin: openAtLogin,
 		ControllerTCP: a.core.TCPAddr(),
@@ -1753,6 +1794,10 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 		case "expire":
 			return StateDegraded, &Issue{Level: "warn", Text: fmt.Sprintf(i18n.T("%s 快到期了", "%s expires soon"), p.Name), Action: "providers", Label: i18n.T("查看", "View")}
 		}
+	}
+	// Nothing is wrong yet, so the light stays green.
+	if s.Tun && a.tunStale.Load() {
+		return StateOK, &Issue{Level: "warn", Text: i18n.T("TUN 内核需要更新", "The TUN core needs updating"), Detail: i18n.T("bowel 升级后带了新内核，TUN 还在用旧的。授权一次就能换上，网络会中断几秒。", "This version of bowel has a newer core and TUN still runs the old one. One authorization replaces it; the network drops for a few seconds."), Action: "tun-update", Label: i18n.T("更新", "Update")}
 	}
 	return StateOK, nil
 }

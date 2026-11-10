@@ -84,7 +84,12 @@ func (s *Store) Path(id string) string { return filepath.Join(s.dir, id+".txt") 
 
 func (s *Store) saveLocked() error {
 	b, _ := json.MarshalIndent(s.items, "", "  ")
-	return os.WriteFile(s.index(), b, 0o600)
+	// Whole or not at all: a restart may come in the middle of a save.
+	tmp := s.index() + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.index())
 }
 
 func (s *Store) List() []Provider {

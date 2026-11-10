@@ -81,6 +81,7 @@ func (u *UI) panelView(c *ui.Context) {
 	ui.Column(c).Width(panelWidth).Radius(p.r(12)).Background(p.paper).Padding(0, 0, 6, 0).Children(func() {
 		u.panelHead(c, p)
 		u.panelIssue(c, p)
+		u.panelUpdate(c, p)
 		u.panelSpeed(c, p)
 		panelRule(c, p)
 		u.panelNodes(c, p)
