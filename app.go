@@ -841,7 +841,7 @@ func migrateData(dir string) {
 // the skin and the board's borders.
 func appOnly(old, next settings.Settings) bool {
 	next.Language, next.StartHidden, next.Accent, next.Appearance = old.Language, old.StartHidden, old.Accent, old.Appearance
-	next.Skin, next.Borders = old.Skin, old.Borders
+	next.Skin, next.Borders, next.CommonRegions = old.Skin, old.Borders, old.CommonRegions
 	next.MCPPolicy = old.MCPPolicy                  // the MCP server's, not the core's
 	if routingCoreSame(old.Routing, next.Routing) { // a strategy is a selector's position
 		next.Routing = old.Routing

@@ -228,20 +228,6 @@ func toggled(list []string, v string) []string {
 
 // scopeRows is 自动最快's range: which nodes the fastest is picked from.
 func (u *UI) scopeRows(c *ui.Context, p *pal, rid string, q routes.Policy) {
-	seen := map[string]bool{}
-	var regions []string
-	for _, n := range u.snap.Nodes {
-		if pl := n.Where.Place; pl != nil && !seen[pl.Country] {
-			seen[pl.Country] = true
-			regions = append(regions, pl.Country)
-		}
-	}
-	slices.Sort(regions)
-	for _, r := range q.Regions { // one chosen that has no node now still shows
-		if !seen[r] {
-			regions = append(regions, r)
-		}
-	}
 	row := func(key, label string, body func()) {
 		ui.Row(c.Key(key)).Gap(10).AlignItems(ui.Baseline).Children(func() {
 			ui.Text(c, label).FontSize(11.5).TextColor(p.mute).NoWrap().Width(30).Shrink(0)
@@ -261,17 +247,12 @@ func (u *UI) scopeRows(c *ui.Context, p *pal, rid string, q routes.Policy) {
 	}
 	ui.Column(c).Gap(6).Padding(10, 26).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 		row("regions", i18n.T("地区", "Where"), func() {
-			all := i18n.T("全部", "All")
-			chip(c, p, "all", all, all, len(q.Regions) == 0, func() { u.changePolicy(rid, func(q *routes.Policy) { q.Regions = nil }) })
-			for _, r := range regions {
+			u.regionChips(c, p, rid, q, func(r string) (label, widest string) {
 				in := func(n NodeView) bool { return n.Where.Place != nil && n.Where.Place.Country == r }
-				label := r + count(func(n NodeView) bool {
+				return r + count(func(n NodeView) bool {
 					return in(n) && (len(q.Providers) == 0 || slices.Contains(q.Providers, n.Provider))
-				})
-				chip(c, p, r, label, r+count(in), slices.Contains(q.Regions, r), func() {
-					u.changePolicy(rid, func(q *routes.Policy) { q.Regions = toggled(q.Regions, r) })
-				})
-			}
+				}), r + count(in)
+			})
 		})
 		row("providers", i18n.T("来源", "From"), func() {
 			all := i18n.T("全部", "All")

@@ -58,6 +58,10 @@ type Settings struct {
 	Rules []routes.UserRule `json:"rules"`
 	// Routing is what the user changed about route groups and services.
 	Routing routes.Plan `json:"routing,omitzero"`
+	// CommonRegions are the country codes the 地区 row of every route group
+	// leads with, in this order; none means the regions with the most nodes.
+	// It only says what is shown: no group's range depends on it.
+	CommonRegions []string `json:"commonRegions,omitempty"`
 
 	// StartHidden: opened at login, Moho stays in the menu bar.
 	StartHidden bool `json:"startHidden"`
@@ -176,6 +180,7 @@ func (s Settings) Clone() Settings {
 	s.Bypass = slices.Clone(s.Bypass)
 	s.Rules = slices.Clone(s.Rules)
 	s.Routing = s.Routing.Clone()
+	s.CommonRegions = slices.Clone(s.CommonRegions)
 	s.Options = s.Options.Clone()
 	if s.RouteTargets != nil {
 		m := make(map[string][]routes.Target, len(s.RouteTargets))

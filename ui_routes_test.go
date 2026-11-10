@@ -232,6 +232,7 @@ func scopeFixture() (*UI, []string) {
 func TestScopeChipsTakeEveryClick(t *testing.T) {
 	for _, width := range []int{1060, 760} {
 		u, regions := scopeFixture()
+		u.home.regionsMore = true // every region out, as the most crowded row is
 		tt := ui.NewTester(u.view, width, 760)
 		tt.Advance(time.Second)
 
