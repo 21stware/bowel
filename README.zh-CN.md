@@ -48,7 +48,7 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 <img src="site/shots/panel-zh.webp" width="300" alt="菜单栏面板">
 
 ### 主题皮肤
-六种皮肤，换的是整个界面的样子。
+十三种皮肤，换的是整个界面的样子。
 
 <table>
   <tr>
@@ -60,6 +60,19 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
     <td><img src="site/shots/skin-blueprint-zh.webp" alt="蓝图"><br><sub>蓝图</sub></td>
     <td><img src="site/shots/skin-sakura-zh.webp" alt="樱"><br><sub>樱</sub></td>
     <td><img src="site/shots/skin-paper-zh.webp" alt="纸墨"><br><sub>纸墨（默认）</sub></td>
+  </tr>
+  <tr>
+    <td><img src="site/shots/skin-shanshui-zh.webp" alt="山水"><br><sub>山水</sub></td>
+    <td><img src="site/shots/skin-celadon-zh.webp" alt="青瓷"><br><sub>青瓷</sub></td>
+    <td><img src="site/shots/skin-dunhuang-zh.webp" alt="敦煌"><br><sub>敦煌</sub></td>
+  </tr>
+  <tr>
+    <td><img src="site/shots/skin-dusk-zh.webp" alt="暮色"><br><sub>暮色</sub></td>
+    <td><img src="site/shots/skin-aurora-zh.webp" alt="极光"><br><sub>极光</sub></td>
+    <td><img src="site/shots/skin-obsidian-zh.webp" alt="黑曜"><br><sub>黑曜</sub></td>
+  </tr>
+  <tr>
+    <td><img src="site/shots/skin-riso-zh.webp" alt="孔版"><br><sub>孔版</sub></td>
   </tr>
 </table>
 

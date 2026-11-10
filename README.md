@@ -48,7 +48,7 @@ Toggle system proxy takeover, switch proxy modes, and pick the node for traffic 
 <img src="site/shots/panel-en.webp" width="300" alt="Menu bar panel">
 
 ### Skins
-Six skins that change the look of the whole interface.
+Thirteen skins that change the look of the whole interface.
 
 <table>
   <tr>
@@ -60,6 +60,19 @@ Six skins that change the look of the whole interface.
     <td><img src="site/shots/skin-blueprint-en.webp" alt="Blueprint"><br><sub>Blueprint</sub></td>
     <td><img src="site/shots/skin-sakura-en.webp" alt="Sakura"><br><sub>Sakura</sub></td>
     <td><img src="site/shots/skin-paper-en.webp" alt="Paper"><br><sub>Paper (default)</sub></td>
+  </tr>
+  <tr>
+    <td><img src="site/shots/skin-shanshui-en.webp" alt="Shanshui"><br><sub>Shanshui</sub></td>
+    <td><img src="site/shots/skin-celadon-en.webp" alt="Celadon"><br><sub>Celadon</sub></td>
+    <td><img src="site/shots/skin-dunhuang-en.webp" alt="Dunhuang"><br><sub>Dunhuang</sub></td>
+  </tr>
+  <tr>
+    <td><img src="site/shots/skin-dusk-en.webp" alt="Dusk"><br><sub>Dusk</sub></td>
+    <td><img src="site/shots/skin-aurora-en.webp" alt="Aurora"><br><sub>Aurora</sub></td>
+    <td><img src="site/shots/skin-obsidian-en.webp" alt="Obsidian"><br><sub>Obsidian</sub></td>
+  </tr>
+  <tr>
+    <td><img src="site/shots/skin-riso-en.webp" alt="Riso"><br><sub>Riso</sub></td>
   </tr>
 </table>
 
