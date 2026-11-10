@@ -68,6 +68,9 @@ type Input struct {
 	// Dev keeps the machine's own networks off the proxy; see devnet.
 	Dev devnet.Overlay
 
+	// IPv6Usable is what Options.IPv6 Auto found of the current network.
+	IPv6Usable bool
+
 	// Imported, when set, is the routing to use instead of Routes: a
 	// provider's own nodes, groups and rules. UserRules and RuleSets, which
 	// name route groups it doesn't have, are left out with the rest.
@@ -114,6 +117,9 @@ func withTarget(rule, target string) string {
 func BuildConfig(in Input) ([]byte, error) {
 	o := in.Options.Clone()
 	o.Fill()
+	// False also takes IPv6 off the TUN: the core then gives it no address,
+	// and without one it doesn't route 2000::/3 or the rest of ::/0.
+	ipv6 := o.IPv6.Enabled(in.IPv6Usable)
 	dev := in.Dev
 	// The core ignores rules outside rule mode, and with them the way to
 	// this machine's own networks; see rulesFor.
@@ -126,7 +132,7 @@ func BuildConfig(in Input) ([]byte, error) {
 		"allow-lan":           in.AllowLan,
 		"mode":                mode,
 		"log-level":           in.LogLevel,
-		"ipv6":                o.IPv6,
+		"ipv6":                ipv6,
 		"unified-delay":       o.UnifiedDelay,
 		"tcp-concurrent":      o.TCPConcurrent,
 		"find-process-mode":   o.FindProcess,
@@ -295,7 +301,7 @@ func BuildConfig(in Input) ([]byte, error) {
 	switch {
 	case in.Tun || o.DNS:
 		dns := map[string]any{
-			"enable": true, "ipv6": o.IPv6, "enhanced-mode": o.DNSMode,
+			"enable": true, "ipv6": ipv6, "enhanced-mode": o.DNSMode,
 			"default-nameserver": o.DefaultNameservers,
 			"nameserver":         o.Nameservers,
 			"use-hosts":          o.UseHosts,
@@ -333,7 +339,7 @@ func BuildConfig(in Input) ([]byte, error) {
 		// directly, which knows nothing of split DNS: this resolver is the
 		// system's too, but for the domains that have servers of their own.
 		cfg["dns"] = map[string]any{
-			"enable": true, "ipv6": o.IPv6, "enhanced-mode": "normal", "nameserver": []string{"system"},
+			"enable": true, "ipv6": ipv6, "enhanced-mode": "normal", "nameserver": []string{"system"},
 			"use-hosts": o.UseHosts, "use-system-hosts": o.UseSystemHosts, "nameserver-policy": policy,
 		}
 	default:
@@ -350,7 +356,7 @@ func BuildConfig(in Input) ([]byte, error) {
 			ns = DefaultNameservers
 		}
 		dns := map[string]any{
-			"enable": true, "ipv6": o.IPv6, "enhanced-mode": "normal", "nameserver": ns,
+			"enable": true, "ipv6": ipv6, "enhanced-mode": "normal", "nameserver": ns,
 			"use-hosts": o.UseHosts, "use-system-hosts": o.UseSystemHosts,
 		}
 		if len(policy) > 0 {

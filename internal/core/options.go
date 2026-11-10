@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -28,10 +29,10 @@ type Options struct {
 	LanAllowedIPs  []string `json:"lanAllowedIps"`
 
 	// Core.
-	IPv6          bool   `json:"ipv6"`
-	UnifiedDelay  bool   `json:"unifiedDelay"`
-	TCPConcurrent bool   `json:"tcpConcurrent"`
-	FindProcess   string `json:"findProcess"` // always, strict, off
+	IPv6          IPv6Mode `json:"ipv6"`
+	UnifiedDelay  bool     `json:"unifiedDelay"`
+	TCPConcurrent bool     `json:"tcpConcurrent"`
+	FindProcess   string   `json:"findProcess"` // always, strict, off
 	// Interface is the network interface outbound traffic uses; "" any.
 	Interface string `json:"interface"`
 	// KeepAliveInterval is TCP keep-alive's, in seconds.
@@ -104,8 +105,49 @@ type Options struct {
 	ExtSecret     string `json:"extSecret"`
 }
 
+// IPv6Mode says when the core uses IPv6. Auto follows what the network can
+// do; see devnet.IPv6Watcher.
+type IPv6Mode string
+
+const (
+	IPv6Off  IPv6Mode = "off"
+	IPv6Auto IPv6Mode = "auto"
+	IPv6On   IPv6Mode = "on"
+)
+
+// Enabled says whether the core gets IPv6, usable being what Auto found.
+func (m IPv6Mode) Enabled(usable bool) bool {
+	return m == IPv6On || m == IPv6Auto && usable
+}
+
+// MarshalJSON writes Off as the false it always was: a version from before
+// the modes reads that, and takes the strings for its default, which is on.
+func (m IPv6Mode) MarshalJSON() ([]byte, error) {
+	if m == IPv6Off {
+		return []byte("false"), nil
+	}
+	return json.Marshal(string(m))
+}
+
+// UnmarshalJSON takes the modes and the booleans this setting used to be.
+func (m *IPv6Mode) UnmarshalJSON(b []byte) error {
+	switch string(b) {
+	case "false", `"off"`:
+		*m = IPv6Off
+	case "true", `"on"`:
+		*m = IPv6On
+	case `"auto"`:
+		*m = IPv6Auto
+	case `""`, "null":
+	default:
+		return fmt.Errorf("ipv6 must be off, auto or on, not %s", b)
+	}
+	return nil
+}
+
 // Choices of the options that take one of a few values.
 var (
+	IPv6Modes    = []string{string(IPv6Off), string(IPv6Auto), string(IPv6On)}
 	DNSModes     = []string{"fake-ip", "redir-host"}
 	TunStacks    = []string{"mixed", "system", "gvisor"}
 	FindProcess  = []string{"always", "strict", "off"}
@@ -119,7 +161,7 @@ var DefaultNameservers = []string{"https://doh.pub/dns-query", "https://dns.alid
 var DefaultOptions = Options{
 	LanAllowedIPs: []string{"0.0.0.0/0", "::/0"},
 
-	IPv6: true, UnifiedDelay: true, TCPConcurrent: true,
+	IPv6: IPv6Auto, UnifiedDelay: true, TCPConcurrent: true,
 	FindProcess:       "always",
 	KeepAliveInterval: 15,
 	URLTestInterval:   300, URLTestTolerance: 30, HealthInterval: 600,
@@ -169,6 +211,9 @@ func (o *Options) lists() []*[]string {
 // saved before they existed or emptied by hand.
 func (o *Options) Fill() {
 	d := DefaultOptions.Clone()
+	if o.IPv6 == "" {
+		o.IPv6 = d.IPv6
+	}
 	str := func(v *string, def string) {
 		if *v == "" {
 			*v = def

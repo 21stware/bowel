@@ -508,6 +508,7 @@ func (a *App) takeoverOn(s settings.Settings) bool { return !s.Paused && (s.Syst
 func (a *App) applyConfig() error {
 	a.dropImported() // a provider's file, or whether it is in use, may have changed
 	s := a.settings.Get()
+	a.ensureIPv6(s)
 	im := a.importedNow()
 	err := a.applyDev(s, func(dev devnet.Overlay) ([]byte, error) { return a.buildConfig(s, dev, im) })
 	if err != nil {
@@ -544,7 +545,7 @@ func (a *App) buildConfig(s settings.Settings, dev devnet.Overlay, im *core.Impo
 		Tun:      s.Tun && a.takeoverOn(s) && tun.Installed(a.tunBin),
 		Gateway:  a.gatewayOn(s),
 		LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
-		Options: s.Options, Dev: dev, Imported: im,
+		Options: s.Options, Dev: dev, IPv6Usable: a.devEnv().IPv6.Usable, Imported: im,
 	})
 }
 

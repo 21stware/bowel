@@ -23,6 +23,10 @@ type Env struct {
 	// DefaultTunnels are the tunnels that hold the default route, Tailscale
 	// aside: a proxy's TUN, this one's included while it is on.
 	DefaultTunnels []string `json:"defaultTunnels,omitempty"`
+	// PrimaryIface is the physical interface that holds the default route.
+	PrimaryIface string `json:"primaryIface,omitempty"`
+	// IPv6 is what automatic IPv6 found; zero unless the setting is Auto.
+	IPv6 IPv6State `json:"ipv6"`
 }
 
 // Tailscale is its state. Iface is "" unless it is up.
@@ -424,6 +428,12 @@ func (e *Env) applyRoutes(routes []Route) {
 	e.VPNs, e.DefaultTunnels = vpn, holders
 	e.Tailscale.Subnets = subnets
 	e.Tailscale.Shadowed = shadowed(routes, e.Tailscale.Iface)
+	for _, r := range routes {
+		if r.Default && !isTunnel(r.Iface) {
+			e.PrimaryIface = r.Iface
+			break
+		}
+	}
 }
 
 // shadowed says whether the route that takes the tailnet's addresses is
