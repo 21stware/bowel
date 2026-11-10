@@ -62,6 +62,10 @@ type Store struct {
 	dir   string
 	mu    sync.Mutex
 	items []Provider
+	// Vet, if set, sees what an update downloaded before it replaces the
+	// provider's file. An error keeps the last good file and is the
+	// update's failure.
+	Vet func(id string, data []byte) error
 }
 
 func Open(dir string) (*Store, error) {
@@ -197,6 +201,9 @@ func (s *Store) create(p Provider, data []byte) (Provider, error) {
 	return p, s.saveLocked()
 }
 
+// Content is what provider id's file holds.
+func (s *Store) Content(id string) ([]byte, error) { return os.ReadFile(s.Path(id)) }
+
 // Update downloads a subscription again. Other kinds are left as they are.
 func (s *Store) Update(ctx context.Context, client *http.Client, id string) (Provider, error) {
 	p, ok := s.Get(id)
@@ -209,6 +216,9 @@ func (s *Store) Update(ctx context.Context, client *http.Client, id string) (Pro
 	data, usage, _, err := fetch(ctx, client, p.Source)
 	if err == nil {
 		err = looksLikeNodes(data)
+	}
+	if err == nil && s.Vet != nil {
+		err = s.Vet(id, data)
 	}
 	if err != nil {
 		p, _ = s.update(id, func(p *Provider) { p.Error = err.Error() })

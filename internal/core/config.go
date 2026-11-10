@@ -68,6 +68,11 @@ type Input struct {
 	// Dev keeps the machine's own networks off the proxy; see devnet.
 	Dev devnet.Overlay
 
+	// Imported, when set, is the routing to use instead of Routes: a
+	// provider's own nodes, groups and rules. UserRules and RuleSets, which
+	// name route groups it doesn't have, are left out with the rest.
+	Imported *Imported
+
 	// Options are the 设置 window's; zero values fall back to Moho's.
 	Options
 }
@@ -228,81 +233,39 @@ func BuildConfig(in Input) ([]byte, error) {
 		return g
 	}
 	var groups []any
-	for _, r := range in.Routes {
-		if r.Direct {
-			continue
+	var rules []string
+	var err error
+	if im := in.Imported; im != nil {
+		if groups, err = im.runtimeGroups(); err != nil {
+			return nil, err
 		}
-		mainURL := in.MainURLs[r.ID]
-		if mainURL == "" {
-			mainURL = in.TestURL
-		}
-		auto := map[string]any{"name": routes.Auto(r), "type": "url-test", "url": mainURL, "interval": o.URLTestInterval, "tolerance": o.URLTestTolerance, "lazy": true}
-		if names, scoped := in.Scopes[r.ID]; !scoped {
-			auto = withNodes(auto)
-		} else if len(names) == 0 {
-			auto["proxies"] = []string{"REJECT"} // nothing in range: no way out, not another way out
-		} else {
-			auto["use"], auto["filter"] = use, exactly(names)
-		}
-		groups = append(groups, auto)
-		members := []string{routes.Auto(r)}
-		if order, ok := in.Orders[r.ID]; ok {
-			backup := map[string]any{"name": routes.Backup(r), "type": "fallback", "url": mainURL, "interval": o.URLTestInterval, "lazy": true}
-			var steps []string
-			for i, n := range order {
-				step := routes.BackupStep(r, i)
-				steps = append(steps, step)
-				groups = append(groups, map[string]any{"name": step, "type": "select", "use": []string{providerName(providerOf(n))}, "filter": exactly([]string{n})})
+		rules = importedRules(in.Mode, dev, im.Rules)
+		if len(im.Proxies) > 0 {
+			out, _ := cfg["proxies"].([]any)
+			for _, p := range im.Proxies {
+				out = append(out, p)
 			}
-			if len(steps) == 0 {
-				steps = []string{"REJECT"}
-			}
-			backup["proxies"] = steps
-			groups = append(groups, backup)
-			members = append(members, routes.Backup(r))
+			cfg["proxies"] = out
 		}
-		groups = append(groups, withNodes(map[string]any{"name": routes.Group(r), "type": "select"}, members...))
-	}
-	sets := map[string]any{}
-	for _, s := range in.RuleSets {
-		sets[routes.RuleSetProvider(s.ID)] = map[string]any{"type": "file", "behavior": s.Behavior, "format": "yaml", "path": s.Path}
-	}
-	if len(sets) > 0 {
-		cfg["rule-providers"] = sets
-	}
-	var mine, rest []string
-	for _, l := range routes.Lines(in.Routes, in.UserRules) {
-		if _, ok := sets[routes.RuleSetProvider(l.Set)]; l.Set != "" && !ok {
-			continue
-		}
-		for _, r := range in.Routes {
-			if r.ID != l.Route {
-				continue
+		for name, p := range im.ProxyProviders {
+			if _, taken := providers[name]; taken {
+				return nil, fmt.Errorf(i18n.T("「%s」这个名字是 bowel 自己用的", "The name %s is bowel's own"), name)
 			}
-			target := routes.Group(r)
-			switch {
-			case r.Reject:
-				target = "REJECT"
-			case r.Direct:
-				target = "DIRECT"
-			}
-			if l.Mine && dev.Covers(l.Text) {
-				mine = append(mine, withTarget(l.Text, target))
-			} else {
-				rest = append(rest, withTarget(l.Text, target))
-			}
+			providers[name] = p
+			use = append(use, name) // the probe has to reach these nodes too
 		}
-	}
-	var def routes.Route
-	for _, r := range in.Routes {
-		if r.ID == routes.Default {
-			def = r
+		if len(providers) > 0 {
+			cfg["proxy-providers"] = providers
 		}
+		if len(im.RuleProviders) > 0 {
+			cfg["rule-providers"] = im.RuleProviders
+		}
+		if len(im.SubRules) > 0 {
+			cfg["sub-rules"] = im.SubRules
+		}
+	} else if groups, rules, err = templateRouting(in, o, dev, cfg, use, withNodes); err != nil {
+		return nil, err
 	}
-	if def.Name == "" {
-		return nil, errors.New(i18n.T("模板里没有默认路由", "The template has no default route"))
-	}
-	rules := rulesFor(in.Mode, dev, mine, rest, routes.Group(def))
 	groups = append(groups, withNodes(map[string]any{"name": ProbeGroup, "type": "select"}, "DIRECT"))
 	cfg["proxy-groups"] = groups
 	cfg["rules"] = rules
@@ -396,6 +359,86 @@ func BuildConfig(in Input) ([]byte, error) {
 		cfg["dns"] = dns
 	}
 	return yaml.Marshal(cfg)
+}
+
+// templateRouting is the groups and rules of Moho's own route groups.
+func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any, use []string, withNodes func(map[string]any, ...string) map[string]any) ([]any, []string, error) {
+	var groups []any
+	for _, r := range in.Routes {
+		if r.Direct {
+			continue
+		}
+		mainURL := in.MainURLs[r.ID]
+		if mainURL == "" {
+			mainURL = in.TestURL
+		}
+		auto := map[string]any{"name": routes.Auto(r), "type": "url-test", "url": mainURL, "interval": o.URLTestInterval, "tolerance": o.URLTestTolerance, "lazy": true}
+		if names, scoped := in.Scopes[r.ID]; !scoped {
+			auto = withNodes(auto)
+		} else if len(names) == 0 {
+			auto["proxies"] = []string{"REJECT"} // nothing in range: no way out, not another way out
+		} else {
+			auto["use"], auto["filter"] = use, exactly(names)
+		}
+		groups = append(groups, auto)
+		members := []string{routes.Auto(r)}
+		if order, ok := in.Orders[r.ID]; ok {
+			backup := map[string]any{"name": routes.Backup(r), "type": "fallback", "url": mainURL, "interval": o.URLTestInterval, "lazy": true}
+			var steps []string
+			for i, n := range order {
+				step := routes.BackupStep(r, i)
+				steps = append(steps, step)
+				groups = append(groups, map[string]any{"name": step, "type": "select", "use": []string{providerName(providerOf(n))}, "filter": exactly([]string{n})})
+			}
+			if len(steps) == 0 {
+				steps = []string{"REJECT"}
+			}
+			backup["proxies"] = steps
+			groups = append(groups, backup)
+			members = append(members, routes.Backup(r))
+		}
+		groups = append(groups, withNodes(map[string]any{"name": routes.Group(r), "type": "select"}, members...))
+	}
+	sets := map[string]any{}
+	for _, s := range in.RuleSets {
+		sets[routes.RuleSetProvider(s.ID)] = map[string]any{"type": "file", "behavior": s.Behavior, "format": "yaml", "path": s.Path}
+	}
+	if len(sets) > 0 {
+		cfg["rule-providers"] = sets
+	}
+	var mine, rest []string
+	for _, l := range routes.Lines(in.Routes, in.UserRules) {
+		if _, ok := sets[routes.RuleSetProvider(l.Set)]; l.Set != "" && !ok {
+			continue
+		}
+		for _, r := range in.Routes {
+			if r.ID != l.Route {
+				continue
+			}
+			target := routes.Group(r)
+			switch {
+			case r.Reject:
+				target = "REJECT"
+			case r.Direct:
+				target = "DIRECT"
+			}
+			if l.Mine && dev.Covers(l.Text) {
+				mine = append(mine, withTarget(l.Text, target))
+			} else {
+				rest = append(rest, withTarget(l.Text, target))
+			}
+		}
+	}
+	var def routes.Route
+	for _, r := range in.Routes {
+		if r.ID == routes.Default {
+			def = r
+		}
+	}
+	if def.Name == "" {
+		return nil, nil, errors.New(i18n.T("模板里没有默认路由", "The template has no default route"))
+	}
+	return groups, rulesFor(in.Mode, dev, mine, rest, routes.Group(def)), nil
 }
 
 // rulesFor is the rule list. Outside rule mode the core would ignore the

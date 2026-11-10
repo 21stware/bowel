@@ -58,6 +58,10 @@ type Settings struct {
 	Rules []routes.UserRule `json:"rules"`
 	// Routing is what the user changed about route groups and services.
 	Routing routes.Plan `json:"routing,omitzero"`
+	// ImportedRouting is the provider whose own groups and rules are used
+	// in place of Routing and Rules, which are kept for coming back; "" for
+	// Moho's own routing.
+	ImportedRouting string `json:"importedRouting,omitempty"`
 	// CommonRegions are the country codes the 地区 row of every route group
 	// leads with, in this order; none means the regions with the most nodes.
 	// It only says what is shown: no group's range depends on it.
