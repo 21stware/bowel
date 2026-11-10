@@ -26,10 +26,14 @@ import (
 )
 
 type UI struct {
-	app  *App
-	win  *mygo.Window
-	snap Snapshot
-	tick Tick
+	// quitOpen: the dialog saying what quitting will break is up.
+	quitOpen bool
+	// panelCopied is when the panel last copied the terminal proxy command.
+	panelCopied time.Time
+	app         *App
+	win         *mygo.Window
+	snap        Snapshot
+	tick        Tick
 
 	page   string // home, activity, providers
 	toasts []string
@@ -344,6 +348,7 @@ func (u *UI) view(c *ui.Context) {
 			ui.Box(c.Key("setup")).Absolute().Fill().Background(p.paper).Transition(setupLeave).Children(func() { u.setupPage(c, p) })
 		}
 		skinDeco(c, p)
+		u.quitDialog(c, p)
 	})
 }
 
