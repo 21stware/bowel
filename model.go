@@ -131,7 +131,7 @@ type Entry struct {
 	// Wanted is the user's choice.
 	Wanted bool `json:"wanted"`
 	// Status: off, on, hijacked (system proxy points elsewhere), install
-	// (TUN needs its one-time authorisation), error.
+	// (TUN needs its one-time authorisation), error (Detail says why).
 	Status string `json:"status"`
 	Detail string `json:"detail,omitempty"`
 }

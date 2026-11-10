@@ -35,6 +35,7 @@ import (
 	"github.com/oboo/moho/internal/mcp"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
+	"github.com/oboo/moho/internal/sysproxy"
 )
 
 // mcpSocket is where the app serves MCP: in its data folder, or, when that
@@ -829,6 +830,29 @@ func (a *App) mcpServer() *mcp.Server {
 				},
 			},
 			{
+				Name: "retake_system_proxy", Title: "Take the system proxy over again", Destructive: true,
+				Description: "Points the system proxy back at bowel when takeover wants it and it points elsewhere (status hijacked or error). set_takeover does nothing here, as the setting has not changed. What the system had before bowel stays saved, to be put back when bowel quits.",
+				Input:       obj(map[string]any{}),
+				Run: func(ctx context.Context, s *mcp.Session, _ json.RawMessage) (any, error) {
+					st := a.settings.Get()
+					if !a.takeoverOn(st) || !st.SystemProxy {
+						return nil, errors.New("bowel is not set to use the system proxy: turn it on with set_takeover")
+					}
+					cur, err := sysproxy.Check(st.MixedPort)
+					if err != nil {
+						return nil, err
+					}
+					if cur.Ours {
+						return "Nothing to change: the system proxy points at bowel.", nil
+					}
+					detail := fmt.Sprintf("system proxy → 127.0.0.1:%d", st.MixedPort)
+					if err := a.change(ctx, s, words{"重新接管系统代理", "Take the system proxy over again"}, detail, a.retake); err != nil {
+						return nil, err
+					}
+					return map[string]any{"takeover": a.snapshot().Takeover}, nil
+				},
+			},
+			{
 				Name: "select_node", Title: "Choose a route's node",
 				Description: "Makes a proxied route use a node, or pick the fastest by itself (node \"auto\"). Nodes are named as list_routes gives them. Under an imported config, route is any select group by name and node one of its members.",
 				Input:       obj(map[string]any{"route": routeArg, "node": str("A node's name or label, or \"auto\".")}, "route", "node"),
@@ -1202,7 +1226,7 @@ const mcpInstructions = `bowel is the user's macOS client for the mihomo proxy c
 
 Read freely: get_status first, then get_settings, list_routes, list_rules, explain, list_connections, get_logs, get_whitelists, get_dev_network.
 
-Changes (set_mode, set_takeover, select_node, add_rule, remove_rule, whitelist_add/remove, update_settings, update_providers, flush_dns) follow the user's policy: by default bowel asks the user in a dialog, which may take a while; they may also be always allowed or always refused. A refusal is the user's decision: don't retry it, tell the user. Prefer the narrowest change: to send a site somewhere, add_rule; to let a site skip the proxy, whitelist_add to direct.`
+Changes (set_mode, set_takeover, retake_system_proxy, select_node, add_rule, remove_rule, whitelist_add/remove, update_settings, update_providers, flush_dns) follow the user's policy: by default bowel asks the user in a dialog, which may take a while; they may also be always allowed or always refused. A refusal is the user's decision: don't retry it, tell the user. Prefer the narrowest change: to send a site somewhere, add_rule; to let a site skip the proxy, whitelist_add to direct.`
 
 var mcpStop context.CancelFunc
 
