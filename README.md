@@ -66,11 +66,11 @@ Six skins that change the look of the whole interface.
 ### Other
 - **Custom rules**: Route specific domains, keywords, or IP ranges, and test where addresses go.
 - **Measured exit locations**: Verify true exit locations through Cloudflare trace.
-- **Gateway mode** (macOS): Turn this Mac into a LAN gateway for devices like TVs and consoles.
-- **TUN** (macOS): Intercept traffic from applications that ignore system proxy settings.
-- **Developer tools** (macOS): Docker, the terminal and Git ignore the system proxy. bowel lists which ones aren't connected, writes their own config in one click, and removes it cleanly when you undo.
-- **Download sources** (macOS): Measures the official source and each mirror for npm, pip, Go and Cargo, and switches in one click. When the current source stops answering, one click moves you to the fastest one that does, or sends it through a node again.
-- **Private networks** (macOS): Addresses on your LAN, Tailscale and company VPN go direct automatically, in global mode too.
+- **Gateway mode** (macOS, Linux): Turn this computer into a LAN gateway for devices like TVs and consoles.
+- **TUN** (macOS, Windows, Linux): Intercept traffic from applications that ignore system proxy settings.
+- **Developer tools** (macOS, Linux): Docker, the terminal and Git ignore the system proxy. bowel lists which ones aren't connected, writes their own config in one click, and removes it cleanly when you undo.
+- **Download sources**: Measures the official source and each mirror for npm, pip, Go and Cargo, and switches in one click. When the current source stops answering, one click moves you to the fastest one that does, or sends it through a node again.
+- **Private networks**: Addresses on your LAN, Tailscale and company VPN go direct automatically, in global mode too.
 - **MCP**: Built-in MCP server for Claude Code and other agents to read status and troubleshoot connections. It asks you before changing settings by default. The command below is for macOS; on Windows and Linux, use the path of the bowel program.
   ```bash
   claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp
@@ -118,13 +118,15 @@ Some features depend on the platform:
 
 | | macOS | Windows | Linux | Android |
 | --- | --- | --- | --- | --- |
-| Takeover | System proxy or TUN | System proxy | Manual | System VPN |
-| Gateway mode | Yes | No | No | No |
+| Takeover | System proxy or TUN | System proxy or TUN | System proxy (GNOME, KDE) or TUN | System VPN |
+| Gateway mode | Yes | No | Yes | No |
+| Developer tools | Yes | No | Yes (zsh, bash) | No |
+| Scan QR codes on the screen | Yes | Yes | Yes | No |
 | Scan QR codes with the camera | Yes | No | No | Yes |
 | MCP server | Yes | Yes | Yes | No |
 | Command line and `bowel daemon` | Yes | Yes | Yes | No |
 
-bowel can't set the system proxy on Linux yet, so point your applications at its mixed port, 7899 by default. On Android, you can choose apps that stay outside the VPN.
+TUN asks for an administrator once, the first time you turn it on: macOS in its own dialog, Windows in a User Account Control prompt, Linux through polkit (`pkexec`). On Linux the system proxy is GNOME's, which Cinnamon, MATE, Budgie and others share, or KDE's; on another desktop use TUN, or point your applications at the mixed port, 7899 by default. What each system has and lacks is listed in [docs/platform-parity.md](docs/platform-parity.md). On Android, you can choose apps that stay outside the VPN.
 
 ## Command line
 

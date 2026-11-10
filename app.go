@@ -153,7 +153,8 @@ func newApp() (*App, error) {
 		return nil, err
 	}
 	bin := bundledCore()
-	tunBin := filepath.Join(data, "bin", filepath.Base(bin))
+	tun.CoreDir = filepath.Join(data, "core") // where the core runs, below
+	tunBin := tun.Path(data, filepath.Base(bin))
 	run := bin
 	stale := false
 	if tun.Installed(tunBin) {
@@ -164,10 +165,11 @@ func newApp() (*App, error) {
 			run = tunBin
 		}
 	}
-	cm, err := core.New(run, filepath.Join(data, "core"))
+	cm, err := core.New(run, tun.CoreDir)
 	if err != nil {
 		return nil, err
 	}
+	cm.Spawn = spawnTun
 	probe, err := core.FreePort()
 	if err != nil {
 		return nil, err

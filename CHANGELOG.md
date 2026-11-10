@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+- Windows 和 Linux 支持 TUN：第一次开启时授权一次（Windows 是 UAC，Linux 通过 polkit），之后开关不再询问
+- Linux 可以接管系统代理（GNOME 一系和 KDE），并像其他系统一样实测它是否仍指向 bowel、退出时恢复原样
+- Linux 支持网关模式：局域网里的其他设备可以把这台电脑当网关
+- 内网直连在 Windows 和 Linux 上也会识别本机的 Tailscale、VPN 路由和分流 DNS
+- Linux 上可以接入终端（zsh、bash）和 Git 的代理；Windows 和 Linux 可以扫描屏幕上的二维码、测到节点服务器的延迟
 - 新增命令行：`bowel status`、`on`/`off`、`mode`、`routes`、`nodes`、`providers`、`rules`、`conns`、`logs`、`settings` 等，支持 `--json` 和 shell 补全；`bowel daemon` 可以不开窗口运行，适合服务器和 SSH
 - 新增终端全屏界面 `bowel tui`：概览、连接、日志、规则、Provider、设置六个页面，可以开关接管和 TUN、添加订阅、选节点、测速、切换模式、增删规则、修改设置
 - 「默认」路由组改名为「其他流量」，排在列表最后；路由列表用一条线表示规则依次匹配、没命中的落到这里
