@@ -68,8 +68,15 @@ type Manager struct {
 	OnListenError func()
 	OnTraffic     func(mihomo.Traffic)
 
+	// Spawn, if set, is asked first to start the core at bin some other
+	// way than as a child of the app, and returns nil when bin is not its
+	// to start. Windows runs the copy TUN needs through a scheduled task,
+	// elevated, which a child of the app could not be. Such a core prints
+	// to no one: its log is read from the controller instead.
+	Spawn func(bin string) (Process, error)
+
 	mu        sync.Mutex
-	cmd       *exec.Cmd
+	cmd       Process
 	exited    chan struct{}
 	client    *mihomo.Client
 	status    Status
@@ -84,6 +91,23 @@ type Manager struct {
 
 	logs logRing
 }
+
+// Process is a running core.
+type Process interface {
+	Pid() int
+	// Wait returns once the core has exited.
+	Wait() error
+	// Stop asks the core to end, and may be called again to insist.
+	Stop()
+}
+
+// child is the core as a child of the app.
+type child struct{ cmd *exec.Cmd }
+
+func (c child) Pid() int    { return c.cmd.Process.Pid }
+func (c child) Wait() error { return c.cmd.Wait() }
+func (c child) Stop()       { interrupt(c.cmd) }
+func (c child) kill()       { _ = c.cmd.Process.Kill() }
 
 // New prepares a manager; it starts nothing.
 func New(bin, dir string) (*Manager, error) {
@@ -258,18 +282,34 @@ func (m *Manager) start() error {
 	}
 	m.setStatus(Status{State: Starting})
 
-	cmd := exec.Command(m.Bin, "-d", m.Dir, "-f", m.ConfigPath())
-	cmd.Dir = m.Dir
-	cmd.Env = m.env()
-	setProcAttr(cmd)
+	var cmd Process
+	var spawned bool
 	pr, pw := io.Pipe()
-	cmd.Stdout, cmd.Stderr = pw, pw
-	if err := cmd.Start(); err != nil {
-		pw.Close()
-		m.setStatus(Status{State: Failed, Error: err.Error()})
-		return err
+	if m.Spawn != nil {
+		p, err := m.Spawn(m.Bin)
+		if err != nil {
+			pw.Close()
+			m.setStatus(Status{State: Failed, Error: err.Error()})
+			return err
+		}
+		if p != nil {
+			cmd, spawned = p, true
+		}
 	}
-	_ = os.WriteFile(filepath.Join(m.Dir, "mihomo.pid"), []byte(strconv.Itoa(cmd.Process.Pid)), 0o600)
+	if cmd == nil {
+		c := exec.Command(m.Bin, "-d", m.Dir, "-f", m.ConfigPath())
+		c.Dir = m.Dir
+		c.Env = m.env()
+		setProcAttr(c)
+		c.Stdout, c.Stderr = pw, pw
+		if err := c.Start(); err != nil {
+			pw.Close()
+			m.setStatus(Status{State: Failed, Error: err.Error()})
+			return err
+		}
+		cmd = child{c}
+	}
+	_ = os.WriteFile(filepath.Join(m.Dir, "mihomo.pid"), []byte(strconv.Itoa(cmd.Pid())), 0o600)
 	go m.readLogs(pr)
 
 	exited := make(chan struct{})
@@ -329,7 +369,10 @@ func (m *Manager) start() error {
 			m.mu.Lock()
 			m.client = client
 			m.mu.Unlock()
-			m.setStatus(Status{State: Running, Version: v.Version, PID: cmd.Process.Pid, StartedAt: time.Now()})
+			m.setStatus(Status{State: Running, Version: v.Version, PID: cmd.Pid(), StartedAt: time.Now()})
+			if spawned {
+				go m.streamLogs(ctx, client, pw)
+			}
 			if m.OnTraffic != nil { // a stream no one reads costs a decode a second
 				go m.traffic(ctx, client)
 			}
@@ -386,13 +429,17 @@ func (m *Manager) Stop() {
 		return
 	}
 	cancel()
-	interrupt(cmd)
+	cmd.Stop()
 	select {
 	case <-exited:
 		return
 	case <-time.After(stopGrace):
 	}
-	_ = cmd.Process.Kill()
+	if c, ok := cmd.(child); ok {
+		c.kill()
+	} else {
+		cmd.Stop()
+	}
 	select {
 	case <-exited:
 	case <-time.After(killGrace):
@@ -414,6 +461,21 @@ func (m *Manager) Logs() []string { return m.logs.all() }
 // Subscribe calls fn with every new line until the returned function is
 // called.
 func (m *Manager) Subscribe(fn func(string)) (off func()) { return m.logs.subscribe(fn) }
+
+// streamLogs writes what the controller says of a core that prints to no
+// one where readLogs reads it, until ctx ends (the core exited or is being
+// stopped). What the core said before its controller answered is lost.
+func (m *Manager) streamLogs(ctx context.Context, c *mihomo.Client, w io.Writer) {
+	for ctx.Err() == nil {
+		_ = c.StreamLogs(ctx, "info", func(l mihomo.Log) {
+			fmt.Fprintf(w, "level=%s msg=%q\n", l.Type, l.Payload)
+		})
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Second):
+		}
+	}
+}
 
 func (m *Manager) readLogs(r io.Reader) {
 	sc := bufio.NewScanner(r)

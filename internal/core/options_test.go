@@ -59,7 +59,6 @@ func TestOptionsValidate(t *testing.T) {
 		"policy":            func(o *Options) { o.NameserverPolicy = []string{"geosite:cn"} },
 		"fake-ip range":     func(o *Options) { o.FakeIPRange = "198.18.0.1" },
 		"hosts":             func(o *Options) { o.Hosts = []string{"a.lan"} },
-		"device":            func(o *Options) { o.TunDevice = "tun0" },
 		"sniff port":        func(o *Options) { o.SniffTLS = []string{"443-80"} },
 		"geo url":           func(o *Options) { o.GeoIPURL = "ftp://x/geoip.dat" },
 		"controller":        func(o *Options) { o.ExtController = "9090" },
@@ -256,6 +255,23 @@ func TestBuildConfigIPv6(t *testing.T) {
 			if cfg.IPv6 != tc.want || cfg.DNS.IPv6 != tc.want {
 				t.Errorf("%s %s usable=%v: top %v dns %v", c.name, tc.mode, tc.usable, cfg.IPv6, cfg.DNS.IPv6)
 			}
+		}
+	}
+}
+
+// Each system names TUN devices its own way.
+func TestCheckTunDevice(t *testing.T) {
+	for _, c := range []struct {
+		name, goos string
+		ok         bool
+	}{
+		{"", "darwin", true}, {"utun1024", "darwin", true}, {"tun0", "darwin", false},
+		{"", "linux", true}, {"tun0", "linux", true}, {"bowel", "linux", true}, {"utun1024", "linux", true},
+		{"a-name-of-16-byt", "linux", false}, {"tun 0", "linux", false}, {"a/b", "linux", false}, {"..", "linux", false},
+		{"bowel", "windows", true}, {"My Tunnel", "windows", true},
+	} {
+		if err := checkTunDevice(c.name, c.goos); (err == nil) != c.ok {
+			t.Errorf("%q on %s: %v", c.name, c.goos, err)
 		}
 	}
 }

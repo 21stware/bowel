@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -342,8 +343,8 @@ func (o Options) Validate() error {
 	if !slices.Contains(TunStacks, o.TunStack) {
 		return fmt.Errorf(i18n.T("未知协议栈: %s", "Unknown stack: %s"), o.TunStack)
 	}
-	if o.TunDevice != "" && !strings.HasPrefix(o.TunDevice, "utun") {
-		return errors.New(i18n.T("macOS 的 TUN 网卡名要以 utun 开头, 如 utun1024", "On macOS the TUN device must start with utun, as utun1024"))
+	if err := checkTunDevice(o.TunDevice, runtime.GOOS); err != nil {
+		return err
 	}
 
 	for _, l := range [][]string{o.SniffHTTP, o.SniffTLS, o.SniffQUIC} {
@@ -416,4 +417,18 @@ func portRange(s string) bool {
 	}
 	b, err := strconv.Atoi(hi)
 	return err == nil && b >= a && b <= 65535
+}
+
+// checkTunDevice says whether the system goos can name a TUN device so.
+// macOS only has utunN; Linux takes any name of up to 15 bytes without a
+// slash or a space; Windows names the adapter as it likes.
+func checkTunDevice(name, goos string) error {
+	switch {
+	case name == "":
+	case goos == "darwin" && !strings.HasPrefix(name, "utun"):
+		return errors.New(i18n.T("macOS 的 TUN 网卡名要以 utun 开头, 如 utun1024", "On macOS the TUN device must start with utun, as utun1024"))
+	case goos == "linux" && (len(name) > 15 || strings.ContainsAny(name, "/ \t") || name == "." || name == ".."):
+		return errors.New(i18n.T("Linux 的网卡名最长 15 个字符，不能有空格和斜杠", "On Linux a device name is at most 15 characters, with no space or slash"))
+	}
+	return nil
 }
