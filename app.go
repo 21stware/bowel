@@ -76,6 +76,7 @@ type App struct {
 	pending     map[string]bool
 	locating    map[string]bool
 	sys         sysproxy.Status
+	proxyErr    string // why the last try to take the system proxy failed
 	proxies     map[string]mihomo.Proxy
 	provNodes   map[string][]string // provider id → node names, in the provider's order
 	// nodesSig is the names /proxies had when provNodes was read, at
@@ -180,6 +181,7 @@ func newApp() (*App, error) {
 	a.mon.FindProcess = procinfo.New().Find
 	a.mon.Every = a.pollEvery
 	cm.OnStatus = func(s core.Status) { a.onCoreStatus(s) }
+	cm.OnListenError = func() { a.emit() }
 	a.mon.OnTick(a.onTick)
 	return a, nil
 }
@@ -336,6 +338,16 @@ func (a *App) showWindow() {
 	mygo.App.Focus()
 }
 
+// onSecondInstance runs when bowel is started again while it runs: the
+// window is most likely hidden, and that start was to get it back. On the
+// main thread. An app on its way out stays hidden.
+func (a *App) onSecondInstance([]string, string) {
+	if a.leaving || a.isQuitting() {
+		return
+	}
+	a.showWindow()
+}
+
 func (a *App) uiRef() *UI {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -410,6 +422,9 @@ func (a *App) refresh() {
 		if s, err := sysproxy.Check(st.MixedPort); err == nil {
 			a.mu.Lock()
 			a.sys = s
+			if s.Ours {
+				a.proxyErr = ""
+			}
 			a.mu.Unlock()
 		}
 	}
@@ -546,11 +561,12 @@ func (a *App) pointGlobal() {
 // osProxy is what changes the system proxy. Tests replace it, so that they
 // can never change the machine's settings.
 var osProxy = struct {
-	enable   func(host string, port int, bypass []string) error
-	disable  func() error
-	snapshot func() (sysproxy.Saved, error)
-	restore  func(context.Context, sysproxy.Saved) error
-}{sysproxy.Enable, sysproxy.Disable, sysproxy.Snapshot, sysproxy.Restore}
+	enable    func(host string, port int, bypass []string) error
+	disable   func() error
+	snapshot  func() (sysproxy.Saved, error)
+	restore   func(context.Context, sysproxy.Saved) error
+	listening func(ctx context.Context, host string, port int) bool
+}{sysproxy.Enable, sysproxy.Disable, sysproxy.Snapshot, sysproxy.Restore, sysproxy.Listening}
 
 // applySystemProxy makes the OS match the settings. prev are mixed ports
 // the system may still point at, as after the port changed.
@@ -598,6 +614,24 @@ func (a *App) enableProxy(s settings.Settings, prev ...int) error {
 			}
 		}
 	}
+	return a.pointProxy(s, ports, keep)
+}
+
+// pointProxy does enableProxy's work: unless keep says the copy on disk
+// stays, it first replaces that with what the system has, without ports.
+// A failure is kept for the status to tell: it is not another program's doing.
+func (a *App) pointProxy(s settings.Settings, ports []int, keep bool) error {
+	err := a.writeProxy(s, ports, keep)
+	a.mu.Lock()
+	a.proxyErr = ""
+	if err != nil {
+		a.proxyErr = firstLine(err.Error())
+	}
+	a.mu.Unlock()
+	return err
+}
+
+func (a *App) writeProxy(s settings.Settings, ports []int, keep bool) error {
 	if !keep {
 		saved, err := osProxy.snapshot()
 		if err != nil {
@@ -631,6 +665,7 @@ func (a *App) disableProxy(ctx context.Context, port int) error {
 	if err != nil || json.Unmarshal(b, &saved) != nil {
 		return osProxy.disable()
 	}
+	saved.TurnOffDead(func(host string, port int) bool { return osProxy.listening(ctx, host, port) })
 	if err := osProxy.restore(ctx, saved); err != nil {
 		if ctx.Err() != nil {
 			return err
@@ -806,14 +841,25 @@ func (a *App) setMode(mode string) error {
 	return nil
 }
 
+// retake points the system proxy back at the core, on the user's word.
+// What the system has now is another program's, so a copy already on disk
+// stays: that is what the user had before bowel.
 func (a *App) retake() error {
 	done := a.begin("retake")
 	defer done()
-	if err := a.enableProxy(a.settings.Get()); err != nil {
-		return err
-	}
+	err := a.pointBack()
 	a.refresh()
-	return nil
+	return err
+}
+
+func (a *App) pointBack() error {
+	a.proxyMu.Lock()
+	defer a.proxyMu.Unlock()
+	if a.isQuitting() {
+		return nil // shutdown has put the system proxy back: it stays so
+	}
+	s := a.settings.Get()
+	return a.pointProxy(s, []int{s.MixedPort}, exists(a.proxyBackup()))
 }
 
 // updateSettings changes the core's options from the 设置 page: it checks
@@ -1653,7 +1699,7 @@ func (a *App) snapshot() Snapshot {
 	s := a.settings.Get()
 	cs := a.core.Status()
 	a.mu.Lock()
-	sys, px, provNodes, you, sw := a.sys, a.proxies, a.provNodes, a.you, a.switched
+	sys, proxyErr, px, provNodes, you, sw := a.sys, a.proxyErr, a.proxies, a.provNodes, a.you, a.switched
 	pings, sites := a.pings, a.sites
 	openAtLogin := a.openAtLogin
 	gwp, gwErr := a.gwProbe, a.gwErr
@@ -1685,6 +1731,8 @@ func (a *App) snapshot() Snapshot {
 		switch {
 		case sys.Ours:
 			tk.System.Status = "on"
+		case proxyErr != "": // bowel's own failure, whatever the system has
+			tk.System.Status, tk.System.Detail = "error", proxyErr
 		case sys.On:
 			tk.System.Status, tk.System.Detail = "hijacked", fmt.Sprintf(i18n.T("现在指向 %s:%d", "Now points at %s:%d"), sys.Host, sys.Port)
 		default:
@@ -1803,6 +1851,12 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 	}
 	if cs.State == core.Failed {
 		return StateError, &Issue{Level: "error", Text: i18n.T("内核未运行", "The core isn't running"), Detail: firstLine(cs.Error)}
+	}
+	if cs.State == core.Running && cs.Error != "" {
+		return StateError, &Issue{Level: "error", Text: i18n.T("代理端口打不开", "The proxy port can't be opened"), Detail: firstLine(cs.Error)}
+	}
+	if tk.System.Status == "error" {
+		return StateError, &Issue{Level: "error", Text: i18n.T("没能接管系统代理", "Couldn't take over the system proxy"), Detail: tk.System.Detail, Action: "retake", Label: i18n.T("重新接管", "Take over again")}
 	}
 	if tk.System.Status == "hijacked" {
 		return StateError, &Issue{Level: "error", Text: i18n.T("系统代理被其他程序改掉了", "Another program changed the system proxy"), Detail: i18n.T("网页流量现在没有经过 bowel。", "Web traffic isn't going through bowel now."), Action: "retake", Label: i18n.T("重新接管", "Take over again")}

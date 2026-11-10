@@ -1007,6 +1007,9 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 		if s.Takeover.System.Status == "hijacked" {
 			col, sub = p.signal, i18n.T("被其他程序改掉了", "Changed by another app")
 		}
+		if s.Takeover.System.Status == "error" {
+			col, sub = p.signal, i18n.T("接管失败", "Takeover failed")
+		}
 		compact(c, p, v, id, i18n.T("接管", "Takeover"), func(size float32) {
 			t := dispIn(ui.Text(c, val), p, col).FontSize(size).FontWeight(600).TextColor(col)
 			if v == "mini" || v == "strip" {
@@ -2052,6 +2055,8 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 				status = i18n.T("生效中", "Active")
 			case t.System.Status == "hijacked":
 				status = i18n.T("被其他程序改掉了 · ", "Changed by another app · ") + t.System.Detail
+			case t.System.Status == "error":
+				status = i18n.T("接管失败 · ", "Takeover failed · ") + t.System.Detail
 			}
 			kv(c, p, [][2]string{{i18n.T("状态", "Status"), status}, {i18n.T("地址", "Address"), fmt.Sprintf("HTTP / HTTPS / SOCKS → 127.0.0.1:%d", t.Port)},
 				{i18n.T("自检", "Self-check"), i18n.T("每 2 秒确认系统代理仍指向 bowel", "Checks every 2 seconds that the system proxy still points at bowel")}, {i18n.T("不走代理", "Bypass"), strings.Join(t.Bypass, ", ")}})

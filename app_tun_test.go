@@ -69,3 +69,14 @@ func TestStaleTunIsANoticeNotAFault(t *testing.T) {
 		t.Errorf("TUN off: %+v", is)
 	}
 }
+
+// TestPortTakenIsAFault: the core runs and its controller answers, but
+// nothing listens on the proxy port, so the light must not stay green.
+func TestPortTakenIsAFault(t *testing.T) {
+	a := &App{}
+	snap := Snapshot{Nodes: []NodeView{{Name: "n"}}}
+	st, is := a.judge(true, settings.Settings{}, core.Status{State: core.Running, Error: "端口 7899 被占用"}, Takeover{}, snap, nil)
+	if st != StateError || is == nil || is.Detail != "端口 7899 被占用" {
+		t.Fatalf("state %v, issue %+v", st, is)
+	}
+}
