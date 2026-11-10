@@ -31,7 +31,13 @@ type homeUI struct {
 	targetsOpen bool
 	targetsNew  string
 	targetsErr  string
-	hist        []Tick // the last 90 seconds
+	// The developer tools in the 模式 cell: the list shown, and the change
+	// waiting for its second click.
+	toolsList  bool
+	toolArmed  string
+	toolsArmed bool
+	toolsAt    time.Time
+	hist       []Tick // the last 90 seconds
 
 	// What each cell showed in the last frame, and a view folding away.
 	shown   map[string]shownView
@@ -1853,12 +1859,13 @@ func (u *UI) modeNormal(c *ui.Context, p *pal) {
 			"direct": i18n.T("所有流量直接连接，不经过任何节点。", "All traffic connects directly, through no node."),
 		}[s.Mode]
 		ui.Text(c, note).FontSize(12).TextColor(p.mute).Margin(12, 0, 0, 0).MaxLines(2).Ellipsis("…").Tooltip(note)
+		u.modeToolsLine(c, p)
 	})
 }
 
 func (u *UI) modeExpanded(c *ui.Context, p *pal) {
 	s := u.snap
-	u.detailHead(c, p, "mode", i18n.T("模式", "Mode"), func() { detailTitle(c, p, i18n.T("模式与规则", "Mode and rules")) }, nil)
+	u.detailHead(c, p, "mode", i18n.T("模式", "Mode"), func() { detailTitle(c, p, i18n.T("模式与开发工具", "Mode and developer tools")) }, nil)
 	ui.Scroll(c).Grow(1).Padding(4, 26, 18, 26).Children(func() {
 		for _, m := range [][3]string{
 			{"rule", i18n.T("规则", "Rule"), i18n.T("按规则把流量分到不同路由。日常就用这个。", "Sends traffic to routes by rule. Use this day to day.")},
@@ -1880,19 +1887,7 @@ func (u *UI) modeExpanded(c *ui.Context, p *pal) {
 				})
 			})
 		}
-		section(c, p, i18n.T("规则", "Rule"), fmt.Sprintf(i18n.T("%d 条 · bowel 默认模板", "%d · bowel's default template"), s.RuleCount), func() {
-			ui.Column(c).Gap(6).Children(func() {
-				for _, r := range s.Routes {
-					ui.Row(c).Gap(10).Children(func() {
-						ui.Row(c).Gap(6).Width(110).Children(func() {
-							swatch(c, p.routeColor(r.ID), 8)
-							ui.Text(c, r.Name).FontSize(12).TextColor(p.mute)
-						})
-						ui.Text(c, fmt.Sprintf(i18n.T("%d 条 · %s", "%d · %s"), r.Rules, r.Summary)).FontSize(12).TextColor(p.ink).Grow(1)
-					})
-				}
-			})
-		}, nil)
+		u.toolsSection(c, p)
 	})
 }
 

@@ -8,6 +8,7 @@ package main
 import (
 	"time"
 
+	"github.com/oboo/moho/internal/devtools"
 	"github.com/oboo/moho/internal/gateway"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
@@ -65,6 +66,44 @@ type Snapshot struct {
 	ControllerTCP string `json:"controllerTcp,omitempty"`
 	// Dev is what the developer networks page shows.
 	Dev DevNet `json:"dev"`
+	// Tools are the developer tools found.
+	Tools []devtools.Tool `json:"tools,omitempty"`
+	// Update is a new version of bowel and how far installing it has got.
+	Update *UpdateView `json:"update,omitempty"`
+	// UpdateInfo is the rest of what the update's interface shows.
+	UpdateInfo UpdateInfo `json:"updateInfo"`
+}
+
+// UpdateInfo is about updating, whether or not there is a new version.
+type UpdateInfo struct {
+	// Can: this copy can update itself.
+	Can bool `json:"can"`
+	// Checking: the user asked and the answer has not come. Latest: it came
+	// and there is nothing newer.
+	Checking bool `json:"checking,omitempty"`
+	Latest   bool `json:"latest,omitempty"`
+	// Just is what the last run's update came to, until it is dismissed.
+	Just *JustUpdated `json:"just,omitempty"`
+	// From is the version this one was updated from, "" when not known.
+	From string `json:"from,omitempty"`
+}
+
+// JustUpdated is the update that this launch finished.
+type JustUpdated struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	// OK: this is the version the update asked for.
+	OK bool `json:"ok"`
+}
+
+// UpdateView is a new version of bowel.
+type UpdateView struct {
+	// Status: available, downloading, restarting or failed.
+	Status  string `json:"status"`
+	Version string `json:"version"`
+	// Percent of the download; at 100 it is being put in place.
+	Percent int    `json:"percent,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 // Issue is the news line: shown only when degraded or broken.

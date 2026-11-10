@@ -21,6 +21,7 @@
 #   PACKAGES_DEPLOY_KEY          SSH deploy key with write access to 21stware/packages
 #   HOMEBREW_TAP_DEPLOY_KEY      the same for 21stware/homebrew-tap
 #   AUR_SSH_PRIVATE_KEY          of the AUR account that maintains bowel-bin
+#   MYGO_UPDATER_PRIVATE_KEY     contents of mygo-update.key (mygo keygen)
 #
 # After the release, one job each updates the APT and DNF repositories on the
 # Pages site of 21stware/packages, the Homebrew tap and the AUR. They are
@@ -28,9 +29,9 @@
 # The AUR job runs once the repository variable AUR_ENABLED is true: it needs an
 # AUR account that holds the public half of AUR_SSH_PRIVATE_KEY.
 #
-# updates.publicKey in mygo.json makes MyGo write install.ps1. No update
-# manifests are built, as MYGO_UPDATER_PRIVATE_KEY is not given to the build:
-# the app does not use mygo.Updater yet.
+# MYGO_UPDATER_PRIVATE_KEY signs the updates that installed apps download
+# (app_update.go): the archive and manifest of each desktop platform, which the
+# release carries. It is the secret half of updates.publicKey in mygo.json.
 #
 # iOS is not released yet and builds, unsigned, only when run by hand: it links
 # mihomo (GPL-3.0) into the app, which the PolyForm license and the README's
@@ -78,6 +79,7 @@ jobs:
           PACKAGES_DEPLOY_KEY: ${{ secrets.PACKAGES_DEPLOY_KEY }}
           HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
         run: |
           if [ "$TAG" != "v$VERSION" ]; then
             echo "::error::Tag $TAG does not match version $VERSION in mygo.json"
@@ -86,7 +88,7 @@ jobs:
           missing=0
           for name in MACOS_CERTIFICATE_P12 MACOS_CERTIFICATE_PASSWORD NOTARY_KEY_P8 NOTARY_KEY_ID NOTARY_ISSUER \
             ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD \
-            PACKAGES_GPG_PRIVATE_KEY PACKAGES_DEPLOY_KEY HOMEBREW_TAP_DEPLOY_KEY AUR_SSH_PRIVATE_KEY; do
+            PACKAGES_GPG_PRIVATE_KEY PACKAGES_DEPLOY_KEY HOMEBREW_TAP_DEPLOY_KEY AUR_SSH_PRIVATE_KEY MYGO_UPDATER_PRIVATE_KEY; do
             if [ -z "${!name}" ]; then
               echo "::error::Repository secret $name is not set"
               missing=1
@@ -134,6 +136,7 @@ jobs:
           NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
         run: |
           export NOTARY_KEY="$RUNNER_TEMP/AuthKey_$NOTARY_KEY_ID.p8"
           printf '%s' "$NOTARY_KEY_P8" > "$NOTARY_KEY"
@@ -150,6 +153,9 @@ jobs:
           if-no-files-found: error
           path: |
             build/darwin-arm64/bowel-*-arm64.dmg
+            build/darwin-arm64/bowel-*-darwin-arm64.tar.gz
+            build/darwin-arm64/bowel-*.delta
+            build/darwin-arm64/update-darwin-arm64.json
             dist/mihomo-*-source.tar.gz
 
   desktop:
@@ -181,6 +187,9 @@ jobs:
         run: ./scripts/fetch-core.sh
 
       - name: Build
+        env:
+          # Only a release signs updates: a run by hand publishes nothing.
+          MYGO_UPDATER_PRIVATE_KEY: ${{ env.PUBLISH == 'true' && secrets.MYGO_UPDATER_PRIVATE_KEY || '' }}
         run: go tool mygo build -platform "${{ matrix.goos }}/${{ matrix.goarch }}" .
 
       - name: Repackage the Debian package as an rpm
@@ -199,6 +208,9 @@ jobs:
             build/*/bowel-setup-*.exe
             build/*/install.ps1
             build/*/bowel-*-linux-*.tar.gz
+            build/*/bowel-*-windows-*.tar.gz
+            build/*/bowel-*.delta
+            build/*/update-*.json
             build/*/bowel_*.deb
             build/*/bowel-*.rpm
 
