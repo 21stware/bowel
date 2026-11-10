@@ -55,12 +55,54 @@
     <span class="zh">管理节点、路由和规则，查看每条连接，还有六种皮肤可选。</span>
     <span class="en">Manage nodes, routes and rules, see every connection, and choose from six skins.</span>
   </p>
-  <div class="cta">
-    <a class="btn primary" href="#download">
-      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
-      <span class="zh">下载 bowel</span><span class="en">Download bowel</span>
-    </a>
-    <a class="btn ghost" href="https://github.com/21stware/bowel"><span class="zh">在 GitHub 上查看</span><span class="en">View on GitHub</span></a>
+  <!-- One platform at a time. site.js picks the visitor's, points the links at
+       the latest release's files, and copies this block into #download. -->
+  <div class="get">
+    <div class="get-tabs" role="tablist" aria-label="平台 / Platform">
+      <button type="button" role="tab" data-os="macos" aria-selected="true">macOS</button>
+      <button type="button" role="tab" data-os="windows" aria-selected="false">Windows</button>
+      <button type="button" role="tab" data-os="linux" aria-selected="false">Linux</button>
+      <button type="button" role="tab" data-os="android" aria-selected="false">Android</button>
+    </div>
+    <div class="get-panel" role="tabpanel" data-os="macos">
+      <div class="get-btns">
+        <a class="btn primary" href="https://github.com/21stware/bowel/releases/latest" data-asset="dmg"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg><span class="zh">下载 macOS 版</span><span class="en">Download for macOS</span></a>
+      </div>
+      <p class="or"><span class="zh">或用 Homebrew 安装</span><span class="en">Or install with Homebrew</span></p>
+      <div class="code">
+        <button class="copy-btn" type="button" data-copy="brew install --cask 21stware/tap/bowel"><span class="zh">复制</span><span class="en">Copy</span></button>
+        <pre><code><span class="p">$</span> brew install --cask 21stware/tap/bowel</code></pre>
+      </div>
+      <p class="note"><span class="zh">macOS 12 或更新版本，Apple 芯片。安装包用 Developer ID 签名，并经过 Apple 公证。</span><span class="en">macOS 12 or later, Apple silicon. Signed with a Developer ID and notarized by Apple.</span></p>
+    </div>
+    <div class="get-panel" role="tabpanel" data-os="windows" hidden>
+      <div class="get-btns">
+        <a class="btn primary" href="https://github.com/21stware/bowel/releases/latest" data-asset="exe-amd64"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg><span class="zh">下载 x64 版</span><span class="en">Download for x64</span></a>
+        <a class="btn ghost" href="https://github.com/21stware/bowel/releases/latest" data-asset="exe-arm64"><span class="zh">下载 Arm64 版</span><span class="en">Download for Arm64</span></a>
+      </div>
+      <p class="or"><span class="zh">或在 PowerShell 中运行</span><span class="en">Or run in PowerShell</span></p>
+      <div class="code">
+        <button class="copy-btn" type="button" data-copy="irm https://github.com/21stware/bowel/releases/latest/download/install.ps1 | iex"><span class="zh">复制</span><span class="en">Copy</span></button>
+        <pre><code><span class="p">&gt;</span> irm https://github.com/21stware/bowel/releases/latest/download/install.ps1 | iex</code></pre>
+      </div>
+      <p class="note"><span class="zh">安装包没有代码签名，运行前 Windows 可能会弹出提示。</span><span class="en">The installer isn't code-signed, so Windows may warn you before it runs.</span></p>
+    </div>
+    <div class="get-panel" role="tabpanel" data-os="linux" hidden>
+      <p class="or first"><span class="zh">Debian、Ubuntu 和 Fedora，在终端中运行</span><span class="en">On Debian, Ubuntu and Fedora, run in a terminal</span></p>
+      <div class="code">
+        <button class="copy-btn" type="button" data-copy="curl -fsSL https://21stware.github.io/packages/install.sh | sh"><span class="zh">复制</span><span class="en">Copy</span></button>
+        <pre><code><span class="p">$</span> curl -fsSL https://21stware.github.io/packages/install.sh | sh</code></pre>
+      </div>
+      <p class="get-files"><span class="zh">或下载安装包</span><span class="en">Or download a package</span><span><b>amd64</b> <a href="https://github.com/21stware/bowel/releases/latest" data-asset="deb-amd64">.deb</a><a href="https://github.com/21stware/bowel/releases/latest" data-asset="rpm-amd64">.rpm</a><a href="https://github.com/21stware/bowel/releases/latest" data-asset="tgz-amd64">.tar.gz</a></span><span><b>arm64</b> <a href="https://github.com/21stware/bowel/releases/latest" data-asset="deb-arm64">.deb</a><a href="https://github.com/21stware/bowel/releases/latest" data-asset="rpm-arm64">.rpm</a><a href="https://github.com/21stware/bowel/releases/latest" data-asset="tgz-arm64">.tar.gz</a></span></p>
+      <p class="note"><span class="zh">这条命令会添加已签名的软件源，之后由 <code>apt</code> 或 <code>dnf</code> 更新 bowel。压缩包里的 <code>install.sh</code> 会把 bowel 安装到当前用户的 <code>~/.local</code>。</span><span class="en">The command adds a signed repository, so <code>apt</code> or <code>dnf</code> keeps bowel up to date. The archive's <code>install.sh</code> installs bowel for your user in <code>~/.local</code>.</span></p>
+    </div>
+    <div class="get-panel" role="tabpanel" data-os="android" hidden>
+      <div class="get-btns">
+        <a class="btn primary" href="https://github.com/21stware/bowel/releases/latest" data-asset="apk"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg><span class="zh">下载 APK</span><span class="en">Download the APK</span></a>
+      </div>
+      <p class="note"><span class="zh">Android 8.0 或更新版本，arm64。如有提示请允许浏览器安装应用，首次连接时系统会请求 VPN 权限。</span><span class="en">Android 8.0 or later, arm64. Allow your browser to install apps if asked. Android asks for VPN permission the first time you connect.</span></p>
+    </div>
+    <p class="get-all"><span class="get-ver" hidden></span><a href="https://github.com/21stware/bowel/releases/latest"><span class="zh">所有版本与文件</span><span class="en">All releases and files</span></a></p>
   </div>
   <p class="fine"><span class="zh">macOS、Windows、Linux 和 Android · 免费 · 截图来自 macOS 版</span><span class="en">macOS, Windows, Linux and Android · Free · Screenshots from macOS</span></p>
 
@@ -217,34 +259,10 @@
 <section id="download" class="download">
   <img src="icon.png" width="96" height="96" alt="">
   <h2><span class="zh">开始使用 bowel</span><span class="en">Get started with bowel</span></h2>
-  <a class="btn primary big" href="https://github.com/21stware/bowel/releases/latest"><span class="zh">下载 bowel</span><span class="en">Download bowel</span></a>
-  <p class="fine"><span class="zh">免费 · iOS 版暂未发布</span><span class="en">Free · iOS is not released yet</span></p>
-  <div class="platforms">
-    <div class="platform">
-      <h3>macOS</h3>
-      <p class="needs"><span class="zh">macOS 12 或更新版本，Apple 芯片</span><span class="en">macOS 12 or later, Apple silicon</span></p>
-      <p class="files"><span class="zh"><code>bowel-&lt;版本&gt;-arm64.dmg</code></span><span class="en"><code>bowel-&lt;version&gt;-arm64.dmg</code></span></p>
-      <p><span class="zh">把 bowel 拖进「应用程序」。安装包用 Developer ID 签名，并经过 Apple 公证。</span><span class="en">Drag bowel into Applications. The app is signed with a Developer ID and notarized by Apple.</span></p>
-    </div>
-    <div class="platform">
-      <h3>Windows</h3>
-      <p class="needs"><span class="zh">x64 或 Arm64</span><span class="en">x64 or Arm64</span></p>
-      <p class="files"><span class="zh"><code>bowel-setup-&lt;版本&gt;-amd64.exe</code></span><span class="en"><code>bowel-setup-&lt;version&gt;-amd64.exe</code></span><span class="zh"> 或 </span><span class="en"> or </span><code>-arm64.exe</code></p>
-      <p><span class="zh">运行安装程序。安装包没有代码签名，运行前 Windows 可能会弹出提示。</span><span class="en">Run the installer. It isn't code-signed, so Windows may warn you before it runs.</span></p>
-    </div>
-    <div class="platform">
-      <h3>Linux</h3>
-      <p class="needs"><span class="zh">amd64 或 arm64</span><span class="en">amd64 or arm64</span></p>
-      <p class="files"><span class="zh"><code>bowel_&lt;版本&gt;_&lt;架构&gt;.deb</code></span><span class="en"><code>bowel_&lt;version&gt;_&lt;arch&gt;.deb</code></span><span class="zh"> 或 </span><span class="en"> or </span><span class="zh"><code>bowel-&lt;版本&gt;-linux-&lt;架构&gt;.tar.gz</code></span><span class="en"><code>bowel-&lt;version&gt;-linux-&lt;arch&gt;.tar.gz</code></span></p>
-      <p><span class="zh">安装 <code>.deb</code>，或解压压缩包后运行 <code>install.sh</code>，它会把 bowel 安装到当前用户的 <code>~/.local</code>。</span><span class="en">Install the <code>.deb</code>, or unpack the archive and run <code>install.sh</code>, which installs bowel for your user in <code>~/.local</code>.</span></p>
-    </div>
-    <div class="platform">
-      <h3>Android</h3>
-      <p class="needs"><span class="zh">Android 8.0 或更新版本，arm64</span><span class="en">Android 8.0 or later, arm64</span></p>
-      <p class="files"><span class="zh"><code>bowel-&lt;版本&gt;-android-arm64.apk</code></span><span class="en"><code>bowel-&lt;version&gt;-android-arm64.apk</code></span></p>
-      <p><span class="zh">安装 APK，如有提示请允许浏览器安装应用。首次连接时系统会请求 VPN 权限。</span><span class="en">Install the APK, allowing your browser to install apps if asked. Android asks for VPN permission the first time you connect.</span></p>
-    </div>
+  <div class="get-slot">
+    <a class="btn primary big" href="https://github.com/21stware/bowel/releases/latest"><span class="zh">下载 bowel</span><span class="en">Download bowel</span></a>
   </div>
+  <p class="fine"><span class="zh">免费 · iOS 版暂未发布</span><span class="en">Free · iOS is not released yet</span></p>
   <p class="next"><span class="zh">打开后添加 Provider（订阅链接、节点链接或扫码），打开接管即可使用。</span><span class="en">Then add a Provider (a subscription URL, node links, or a QR code) and turn on takeover.</span></p>
   <div class="differ">
     <h3><span class="zh">部分功能因平台而异</span><span class="en">Some features depend on the platform</span></h3>

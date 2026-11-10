@@ -27,6 +27,9 @@ type homeUI struct {
 	region string // node picker filter: "", a country, or "?"
 	query  string
 	nodes  ui.ListState
+	// The 地区 row: the regions behind 更多 are out, the common ones being
+	// chosen.
+	regionsMore, regionsEdit bool
 	// The test sites dialog of the route being looked at.
 	targetsOpen bool
 	targetsNew  string

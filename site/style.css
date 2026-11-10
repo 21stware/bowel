@@ -119,7 +119,27 @@ section { padding: 0 max(24px, calc((100vw - var(--w)) / 2)); }
 .hero h1 { font-size: clamp(46px, 8.4vw, 108px); line-height: 1.02; font-weight: 800; }
 html.zh .hero h1 { line-height: 1.12; }
 .lede { max-width: 640px; margin: 28px auto 0; font-size: clamp(17px, 1.6vw, 20px); color: var(--ink2); }
-.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 36px; }
+/* Get: platform tabs, then that platform's downloads and command. */
+.get { max-width: 600px; margin: 36px auto 0; text-align: center; }
+.get-tabs { display: inline-flex; gap: 4px; padding: 4px; border-radius: 13px; background: var(--hair2); }
+.get-tabs button { font: 600 14.5px var(--sans); color: var(--ink2); cursor: pointer; background: transparent; border: 0; border-radius: 9px; padding: 7px 16px; }
+.get-tabs button:hover { color: var(--ink); }
+.get-tabs button[aria-selected="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .1), 0 0 0 1px var(--hair2); }
+.get-panel { margin-top: 24px; }
+.get-btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.get .or { margin: 20px 0 0; font-size: 13.5px; color: var(--mute); }
+.get .or.first { margin-top: 0; }
+.get .code { margin-top: 10px; text-align: left; }
+.get .code pre { padding: 14px 78px 14px 18px; font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.get-files { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 22px; margin: 16px 0 0; font-size: 14px; color: var(--mute); }
+.get-files > span { white-space: nowrap; }
+.get-files b { font-weight: 600; color: var(--ink2); }
+.get-files a { margin-left: 8px; color: var(--ink2); text-underline-offset: 3px; }
+.get-files a:hover, .get-all a:hover { color: var(--ink); }
+.get .note { margin: 16px auto 0; max-width: 520px; font-size: 13.5px; color: var(--mute); }
+.get-all { margin: 14px 0 0; font-size: 13.5px; color: var(--mute); }
+.get-all a { color: var(--ink2); text-underline-offset: 3px; }
+.get-ver:not([hidden])::after { content: " · "; }
 
 .stage { position: relative; margin: 72px auto 0; max-width: 1060px; }
 .window { position: relative; margin: 0; border-radius: 12px; overflow: hidden; background: var(--card); box-shadow: var(--shadow); }
@@ -205,14 +225,8 @@ html.zh .hero h1 { line-height: 1.12; }
 /* Download */
 .download { margin-top: 160px; padding-top: 90px; padding-bottom: 100px; text-align: center; border-top: 1px solid var(--hair); }
 .download > img { margin: 0 auto 26px; border-radius: 22px; }
-.download .btn { margin-top: 32px; }
-.platforms { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 920px; margin: 52px auto 0; text-align: left; }
-.platform { padding: 22px 24px 24px; border-radius: 12px; background: var(--card); border: 1px solid var(--hair2); }
-.platform h3 { font-size: 21px; }
-.platform p { margin: 8px 0 0; color: var(--ink2); font-size: 15px; }
-.platform .needs { margin-top: 2px; color: var(--mute); font-size: 13.5px; }
-.platform .files { margin-top: 14px; font-size: 13.5px; color: var(--mute); overflow-wrap: anywhere; }
-.platform .files code { display: inline-block; max-width: 100%; }
+.get-slot > .btn { margin-top: 32px; }
+.download .get { margin-top: 34px; }
 .next { max-width: 920px; margin: 28px auto 0; color: var(--ink2); }
 .differ { max-width: 920px; margin: 64px auto 0; text-align: left; }
 .differ h3 { font-size: 19px; }
@@ -257,7 +271,7 @@ html.zh .hero h1 { line-height: 1.12; }
   .code pre { padding-top: 44px; }
   .policy span { white-space: nowrap; }
   .policy span span { padding: 0; }
-  .platforms { grid-template-columns: 1fr; }
+  .get-tabs button { padding: 7px 12px; font-size: 14px; }
   .differ th, .differ td { padding: 10px 5px; font-size: 13px; }
   .hero { padding-top: 48px; }
   .stage { margin-top: 48px; }
