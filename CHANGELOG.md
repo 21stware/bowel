@@ -4,7 +4,7 @@
 它随应用打包，显示在“更新内容”窗口里；`mygo build` 也从这里取升级包的说明，
 签名发布时缺少当前版本的一节会构建失败。发版时把 Unreleased 改成版本号。
 
-## [Unreleased]
+## [0.3.0] - 2026-11-10
 
 - Windows 和 Linux 支持 TUN：第一次开启时授权一次（Windows 是 UAC，Linux 通过 polkit），之后开关不再询问
 - Linux 可以接管系统代理（GNOME 一系和 KDE），并像其他系统一样实测它是否仍指向 bowel、退出时恢复原样
