@@ -180,6 +180,7 @@ func newApp() (*App, error) {
 	a.mon.FindProcess = procinfo.New().Find
 	a.mon.Every = a.pollEvery
 	cm.OnStatus = func(s core.Status) { a.onCoreStatus(s) }
+	cm.OnListenError = func() { a.emit() }
 	a.mon.OnTick(a.onTick)
 	return a, nil
 }
@@ -334,6 +335,16 @@ func (a *App) showWindow() {
 		win.Focus()
 	}
 	mygo.App.Focus()
+}
+
+// onSecondInstance runs when bowel is started again while it runs: the
+// window is most likely hidden, and that start was to get it back. On the
+// main thread. An app on its way out stays hidden.
+func (a *App) onSecondInstance([]string, string) {
+	if a.leaving || a.isQuitting() {
+		return
+	}
+	a.showWindow()
 }
 
 func (a *App) uiRef() *UI {
@@ -1802,6 +1813,9 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 	}
 	if cs.State == core.Failed {
 		return StateError, &Issue{Level: "error", Text: i18n.T("内核未运行", "The core isn't running"), Detail: firstLine(cs.Error)}
+	}
+	if cs.State == core.Running && cs.Error != "" {
+		return StateError, &Issue{Level: "error", Text: i18n.T("代理端口打不开", "The proxy port can't be opened"), Detail: firstLine(cs.Error)}
 	}
 	if tk.System.Status == "hijacked" {
 		return StateError, &Issue{Level: "error", Text: i18n.T("系统代理被其他程序改掉了", "Another program changed the system proxy"), Detail: i18n.T("网页流量现在没有经过 bowel。", "Web traffic isn't going through bowel now."), Action: "retake", Label: i18n.T("重新接管", "Take over again")}
