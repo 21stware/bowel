@@ -131,6 +131,12 @@ func (a *App) applyDev(s settings.Settings, build func(devnet.Overlay) ([]byte, 
 		return err
 	}
 	err = a.core.Apply(cfg)
+	if a.leaveTunCore(err) {
+		if cfg, err = build(dev); err != nil {
+			return err
+		}
+		err = a.core.Apply(cfg)
+	}
 	fellBack := false
 	if err != nil && env.Detected() {
 		log.Println("developer networks: the core refused what was detected:", err)

@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -112,7 +113,27 @@ func TestSpawnRefuses(t *testing.T) {
 	}
 	calls := 0
 	m.Spawn = func(string) (Process, error) { calls++; return nil, nil }
-	if err := m.start(); err == nil || calls != 1 {
+	err = m.start()
+	if err == nil || calls != 1 {
 		t.Fatalf("start with a child that exits: %v, %d calls", err, calls)
+	}
+	// Both are a core that did not come up, which the app answers with
+	// another executable; a config the core refuses is not, and neither
+	// is starting after Close.
+	var se *StartError
+	if !errors.As(err, &se) {
+		t.Errorf("a core that exits is not a StartError: %T", err)
+	}
+	sentinel := errors.New("gone")
+	m.Spawn = func(string) (Process, error) { return nil, fmt.Errorf("spawn: %w", sentinel) }
+	if err := m.start(); !errors.As(err, &se) || !errors.Is(err, sentinel) {
+		t.Errorf("Spawn's error is not kept: %v", err)
+	}
+	if err := m.Apply([]byte("mixed-port: 1\n")); err == nil || errors.As(err, &se) {
+		t.Errorf("a refused config is a StartError: %v", err)
+	}
+	m.Close()
+	if err := m.start(); err != ErrClosed {
+		t.Errorf("after Close: %v", err)
 	}
 }

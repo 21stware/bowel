@@ -48,6 +48,14 @@ type Status struct {
 // ErrClosed is what starting a core says after Close.
 var ErrClosed = errors.New("the core manager is closed")
 
+// StartError is a core that did not come up, as against a config it
+// refused or a reload that failed: the one failure another executable may
+// not have. It reads as the error it holds.
+type StartError struct{ Err error }
+
+func (e *StartError) Error() string { return e.Err.Error() }
+func (e *StartError) Unwrap() error { return e.Err }
+
 const (
 	stopGrace = 3 * time.Second // for the core to exit when asked
 	killGrace = time.Second     // for it to be gone once killed
@@ -258,6 +266,14 @@ func (m *Manager) Restart() error {
 }
 
 func (m *Manager) start() error {
+	err := m.run()
+	if err != nil && !errors.Is(err, ErrClosed) {
+		return &StartError{err}
+	}
+	return err
+}
+
+func (m *Manager) run() error {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()

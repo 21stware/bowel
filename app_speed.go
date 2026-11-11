@@ -177,7 +177,7 @@ func (a *App) pingNodes(names []string) {
 	// addresses: leave through the real interface, with real addresses.
 	st := a.settings.Get()
 	iface := ""
-	tunOn := a.takeoverOn(st) && st.Tun && tun.Installed(a.tunBin)
+	tunOn := a.takeoverOn(st) && st.Tun && tun.Installed(a.tunBin) && a.tunFault.Load() == nil
 	if tunOn {
 		if iface = gateway.PrimaryInterface(); iface == "" {
 			return
