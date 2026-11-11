@@ -399,6 +399,15 @@ func (a *App) findNode(s string) (string, error) {
 
 // ---- Views for agents ----
 
+// mcpConn is a connection with its route and rule as the window's list
+// words them: route alone is an id, which under an imported config's
+// routing is g1, g2 and so on.
+type mcpConn struct {
+	Conn
+	RouteName string `json:"routeName,omitempty"`
+	RuleName  string `json:"ruleName,omitempty"`
+}
+
 type mcpRoute struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -649,7 +658,7 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "list_connections", Title: "Connections", ReadOnly: true,
-				Description: "Recent connections, newest first: app, host, route, node, rule and traffic. Filter by a part of the host or app.",
+				Description: "Recent connections, newest first: app, host, route (its id and routeName), node, rule (ruleName as the window words it) and traffic. Filter by a part of the host or app.",
 				Input: obj(map[string]any{
 					"filter": str("Only connections whose host or app contains this."),
 					"status": str("Only these: active, closed, failed or blocked (refused by a rule).", "active", "closed", "failed", "blocked"),
@@ -669,7 +678,8 @@ func (a *App) mcpServer() *mcp.Server {
 					all := a.connections()
 					sort.SliceStable(all, func(i, j int) bool { return all[i].Start.After(all[j].Start) })
 					f := strings.ToLower(p.Filter)
-					out := []Conn{}
+					services := a.settings.Get().Routing.Services
+					out := []mcpConn{}
 					for _, c := range all {
 						if p.Status != "" && c.Status != p.Status {
 							continue
@@ -677,7 +687,11 @@ func (a *App) mcpServer() *mcp.Server {
 						if f != "" && !strings.Contains(strings.ToLower(c.Host), f) && !strings.Contains(strings.ToLower(c.App), f) && !strings.Contains(c.IP, f) {
 							continue
 						}
-						out = append(out, c)
+						mc := mcpConn{Conn: c, RuleName: ruleWord(c, services)}
+						if c.Route != "" {
+							mc.RouteName = routes.Title(a.route(c.Route))
+						}
+						out = append(out, mc)
 						if len(out) == p.Limit {
 							break
 						}
