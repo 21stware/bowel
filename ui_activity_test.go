@@ -350,7 +350,8 @@ func TestActivityLogs(t *testing.T) {
 func TestActivityOff(t *testing.T) {
 	u := actUI()
 	u.snap.Takeover.On, u.snap.State = false, StateOff
-	u.act.conns = nil
+	// Nothing observed: no connection, no event, no history.
+	u.act.conns, u.tick, u.home.hist = nil, Tick{}, nil
 	tt := ui.NewTester(u.view, 1060, 760)
 	tt.Advance(time.Second)
 	if !hasTextPart(tt, "流量现在不经过 bowel") || !tt.HasText("0 个连接") {

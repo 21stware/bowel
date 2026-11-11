@@ -75,6 +75,25 @@ func TestTrayText(t *testing.T) {
 
 // The rates beside the icon are off unless asked for, are the app's own
 // business, and cost polls only while they show.
+// Not taken over, the tray offers the nodes only with traffic through the
+// port.
+func TestTrayNodes(t *testing.T) {
+	for _, c := range []struct {
+		on   bool
+		tick Tick
+		want bool
+	}{
+		{true, Tick{}, true},
+		{false, Tick{}, false},
+		{false, Tick{Active: 1}, true},
+		{false, Tick{Down: 512}, true},
+	} {
+		if got := trayNodes(c.on, c.tick); got != c.want {
+			t.Errorf("trayNodes(%v, %+v) = %v", c.on, c.tick, got)
+		}
+	}
+}
+
 func TestTraySpeedSetting(t *testing.T) {
 	if settings.Defaults.TraySpeed {
 		t.Fatal("the menu bar shows the speed by default")
@@ -109,6 +128,12 @@ func TestTraySpeedSetting(t *testing.T) {
 	if got := a.pollEvery(); got != 5*time.Second {
 		t.Errorf("polls every %v with the speed asked for but nothing taken over", got)
 	}
+	// Not taken over, an app pointed at the port still has rates to tell.
+	a.lastTick = Tick{Active: 1}
+	if got := a.pollEvery(); got != traySpeedEvery {
+		t.Errorf("polls every %v with the speed asked for and a connection through the port", got)
+	}
+	a.lastTick = Tick{}
 	set(func(s *settings.Settings) { s.Paused = false })
 	a.winShown.Store(true)
 	if got := a.pollEvery(); got != time.Second {

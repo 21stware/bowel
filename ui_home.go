@@ -88,6 +88,16 @@ func (h *homeUI) pushTick(t Tick) {
 	}
 }
 
+// moved says whether any second of the history carried traffic.
+func (h *homeUI) moved() bool {
+	for _, t := range h.hist {
+		if t.Down > 0 || t.Up > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // Matches: identities shared between a cell's views.
 type exitMatch struct{ route string }
 type modeMatch struct{}
@@ -1216,7 +1226,7 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 			case switching:
 				shimmer(ui.Text(c, i18n.T("正在切换并测速…", "Switching and testing…")).FontSize(13.5).TextColor(p.ink2), true, p)
 			case !s.Takeover.On:
-				ui.Text(c, i18n.T("所有应用都直接连接互联网，流量不经过 bowel。", "Every app connects to the internet directly; no traffic goes through bowel.")).FontSize(13.5).TextColor(p.ink2)
+				ui.Text(c, i18n.T("应用直接连接互联网，除非代理指向 bowel 的端口。", "Apps connect to the internet directly, unless they are pointed at bowel’s port.")).FontSize(13.5).TextColor(p.ink2)
 			case ok:
 				ui.Column(c).Gap(4).Children(func() {
 					// One line: a long provider name ends in "…" rather than
@@ -2465,7 +2475,9 @@ func (u *UI) trafficBars(c *ui.Context, p *pal, n int) ui.Element {
 	}
 	order := []string{"direct", "dev", "ai", "default", "media"}
 	return ui.Box(c).FillWidth().Draw(func(pt *ui.Painter, r ui.Rect) {
-		if !u.snap.Takeover.On {
+		// Not taken over and nothing recorded: a flat line. What was recorded
+		// is drawn either way, as an app pointed at the port makes it.
+		if !u.snap.Takeover.On && !u.home.moved() {
 			pt.Fill(ui.Rect{X: r.X, Y: r.Y + r.H - 1, W: r.W, H: 1}, p.hair, 0)
 			return
 		}
@@ -2621,7 +2633,7 @@ func (u *UI) eventsNormal(c *ui.Context, p *pal) {
 	pad(c, 14).Children(func() {
 		cellKicker(c, p, "events", i18n.T("刚刚", "Just now"))
 		ui.Column(c).Gap(5).Margin(8, 0, 0, 0).ClipY().Children(func() {
-			if !u.snap.Takeover.On || len(u.tick.Events) == 0 {
+			if len(u.tick.Events) == 0 {
 				ui.Text(c, i18n.T("没有经过 bowel 的流量", "No traffic through bowel")).FontSize(11.5).TextColor(p.mute)
 			}
 			for i, ev := range u.tick.Events {

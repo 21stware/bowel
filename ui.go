@@ -769,6 +769,14 @@ func (u *UI) providerName(id string) string {
 	return ""
 }
 
+// trafficSeen says whether bowel has traffic to show: a connection now, a
+// recent event, a connection the Log page still lists, or bytes in the
+// history the graph draws. It does not ask whether bowel has taken over:
+// an application pointed at the mixed port passes traffic either way.
+func (u *UI) trafficSeen() bool {
+	return u.tick.Active > 0 || len(u.tick.Events) > 0 || len(u.act.conns) > 0 || u.home.moved()
+}
+
 // active says whether a route carries traffic in the current mode.
 func (u *UI) active(id string) bool {
 	if !u.snap.Takeover.On {
