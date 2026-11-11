@@ -751,11 +751,7 @@ func (u *UI) strategyCard(c *ui.Context, p *pal, v RouteView) {
 			ui.Spacer(c)
 			d, _, _ := u.delayWord(v)
 			ui.Text(c, d).FontSize(12).FontFeatures("tnum").TextColor(p.mute).NoWrap().Shrink(0)
-			mark := "▾"
-			if st.pol {
-				mark = "▴"
-			}
-			ui.Text(c, mark).FontSize(11).TextColor(p.mute).Shrink(0)
+			chevron(c, p.mute, st.pol)
 		})
 		if st.pol {
 			ui.Row(c).Padding(2, 14, 10, 14).Children(func() { u.stratSeg(c, p, v.ID) })
@@ -869,11 +865,7 @@ func (u *UI) serviceRow(c *ui.Context, p *pal, all []routes.Route, r routes.Rout
 			if tag != "" {
 				ui.Text(c, tag).FontSize(11).TextColor(p.faint).NoWrap().Shrink(0)
 			}
-			mark := "▾"
-			if open {
-				mark = "▴"
-			}
-			ui.Text(c, mark).FontSize(11).TextColor(p.mute).Shrink(0)
+			chevron(c, p.mute, open)
 		})
 		if open {
 			u.serviceEditor(c, p, all, r, s)

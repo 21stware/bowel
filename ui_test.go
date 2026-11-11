@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -526,5 +527,46 @@ func TestInactiveWindowFades(t *testing.T) {
 		if c := tab(); !near(c, p.accent) {
 			t.Errorf("dark %v: tab %v after coming back, not the accent %v", dark, c, p.accent)
 		}
+	}
+}
+
+// TestHomeBackInPlace: coming back to 代理 from another tab, in a window
+// that isn't the size the window opens at, the board is in place on its
+// first frame. It used to be laid out for 1060×686 on that frame and then
+// moved to the window's size: a blank strip at the bottom and a bounce
+// (issue 68).
+func TestHomeBackInPlace(t *testing.T) {
+	u := fixtureUI()
+	tt := ui.NewTester(u.view, 1061, 800)
+	labels := []string{"模式", "接管", "此刻速度", "谁在用", "刚刚"}
+	where := func() (out []ui.Rect) {
+		t.Helper()
+		for _, s := range labels {
+			r, ok := tt.Find(s)
+			if !ok {
+				t.Fatalf("no %q: %q", s, tt.Texts())
+			}
+			out = append(out, r)
+		}
+		return out
+	}
+	tt.Frame()
+	opened := where()
+	tt.Advance(2 * time.Second)
+	settled := where()
+	if !slices.Equal(opened, settled) {
+		t.Errorf("the board moved after the window opened:\n%v\n%v", opened, settled)
+	}
+	if low := settled[2]; low.Y < 800-736+500 {
+		t.Fatalf("the board doesn't use the window's height: 此刻速度 at %v", low)
+	}
+	u.page = "routes"
+	tt.Frame()
+	tt.Advance(time.Second)
+	u.page = "home"
+	tt.Frame()
+	shot(t, tt, "home-back-first-frame")
+	if back := where(); !slices.Equal(back, settled) {
+		t.Errorf("back on 代理 the board is out of place on its first frame:\n%v\n%v", back, settled)
 	}
 }
