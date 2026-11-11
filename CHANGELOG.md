@@ -4,6 +4,10 @@
 它随应用打包，显示在“更新内容”窗口里；`mygo build` 也从这里取升级包的说明，
 签名发布时缺少当前版本的一节会构建失败。发版时把 Unreleased 改成版本号。
 
+## [Unreleased]
+
+- 修复 Windows 上每隔两分多钟闪一下命令行窗口的问题：检测 Tailscale、检查 TUN 内核版本等后台命令不再弹出窗口
+
 ## [0.3.0] - 2026-11-10
 
 - Windows 和 Linux 支持 TUN：第一次开启时授权一次（Windows 是 UAC，Linux 通过 polkit），之后开关不再询问

@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"net"
-	"os/exec"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"time"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/oboo/moho/internal/nowindow"
 )
 
 // ICMP times one echo to an IPv4 address with Windows' ping, which needs
@@ -31,8 +31,7 @@ func ICMP(ctx context.Context, ip string, iface string, timeout time.Duration) (
 	if err != nil {
 		return 0, err
 	}
-	cmd := exec.CommandContext(ctx, filepath.Join(sys, "PING.EXE"), pingArgs(ip, src, timeout)...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000} // CREATE_NO_WINDOW
+	cmd := nowindow.CommandContext(ctx, filepath.Join(sys, "PING.EXE"), pingArgs(ip, src, timeout)...)
 	out, err := cmd.Output()
 	if err != nil {
 		return 0, err
