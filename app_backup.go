@@ -116,7 +116,12 @@ func readImport(path, password string, local settings.Settings) (importedConfig,
 	}
 	c.files, c.setFiles = b.ProviderFiles, b.RuleSetFiles
 	known := map[string]bool{}
-	for _, p := range c.providers {
+	for i, p := range c.providers {
+		if p.Kind == provider.File {
+			// Where it came from on the machine that wrote this file; here it
+			// is not a file anyone chose, so 重新读取 asks instead of reading it.
+			c.providers[i].Source = ""
+		}
 		if !backup.ValidID(p.ID) || known[p.ID] {
 			return bad(fmt.Errorf("provider id %q", p.ID))
 		}

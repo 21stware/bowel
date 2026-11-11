@@ -607,7 +607,7 @@ func (u *UI) provAuto(c *ui.Context, p *pal, pv ProviderView) {
 // disabled source — and the chevron. 停用 and 删除 sit in the open row.
 func (u *UI) provOps(c *ui.Context, p *pal, pv ProviderView, busy, open bool) {
 	id := pv.ID
-	ui.Row(c).Width(86).Gap(10).Justify(ui.End).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).Width(100).Gap(10).Justify(ui.End).AlignItems(ui.Center).Children(func() {
 		switch {
 		case !pv.Enabled:
 			u.provBtn(c.Key("toggle"), p, i18n.T("启用", "Enable"), false).OnClick(func() {
@@ -619,6 +619,12 @@ func (u *UI) provOps(c *ui.Context, p *pal, pv ProviderView, busy, open bool) {
 			u.provBtn(c.Key("update"), p, i18n.T("更新", "Update"), false).OnClick(func() {
 				if u.app != nil && !busy {
 					u.do(func() error { return u.app.updateProvider(bg(), id) })
+				}
+			})
+		case pv.Kind == "file":
+			u.provBtn(c.Key("reload"), p, i18n.T("重新读取", "Reload"), false).OnClick(func() {
+				if u.app != nil && !busy {
+					u.do(func() error { return u.app.reloadProvider(bg(), id) })
 				}
 			})
 		}
