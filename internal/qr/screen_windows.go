@@ -1,9 +1,9 @@
 package qr
 
 import (
-	"os/exec"
 	"path/filepath"
-	"syscall"
+
+	"github.com/oboo/moho/internal/nowindow"
 )
 
 // screenScript copies the whole virtual screen (every display) into a
@@ -19,8 +19,7 @@ $g.Dispose(); $bmp.Dispose()`
 // capture takes one picture of all the displays together.
 func capture(dir string) ([]string, error) {
 	file := filepath.Join(dir, "screen.png")
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", screenScript)
+	cmd := nowindow.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", screenScript)
 	cmd.Env = append(cmd.Environ(), "BOWEL_QR_FILE="+file)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000} // CREATE_NO_WINDOW
 	return []string{file}, cmd.Run()
 }
