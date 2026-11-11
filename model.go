@@ -302,6 +302,10 @@ type ProviderRouting struct {
 	InUse  bool `json:"inUse,omitempty"` // it is what routes traffic now
 	// Problem is why it can't be used, "" when it can.
 	Problem string `json:"problem,omitempty"`
+	// NeedsFile is the proxy-provider of its config that is a local file
+	// bowel has no local file Provider for; adding one by that name is all
+	// the problem takes.
+	NeedsFile string `json:"needsFile,omitempty"`
 }
 
 // ImportedView is a provider's own routing, as it is now.
