@@ -779,6 +779,35 @@ type conn struct {
 	Start  time.Time `json:"start"`
 	Status string    `json:"status"`
 	Error  string    `json:"error"`
+	// The route's name and the rule as the window shows them; a bowel
+	// from before them has only route, rule and payload.
+	RouteName string `json:"routeName"`
+	RuleName  string `json:"ruleName"`
+	Rule      string `json:"rule"`
+	Payload   string `json:"payload"`
+}
+
+// routeText is the route's name, or its id from a bowel that gives none.
+func (cn conn) routeText() string {
+	switch {
+	case cn.RouteName != "":
+		return cn.RouteName
+	case cn.Route != "":
+		return cn.Route
+	}
+	return "—"
+}
+
+func (cn conn) ruleText() string {
+	switch {
+	case cn.RuleName != "":
+		return cn.RuleName
+	case cn.Payload != "":
+		return cn.Rule + "(" + cn.Payload + ")"
+	case cn.Rule != "":
+		return cn.Rule
+	}
+	return "—"
 }
 
 func connCells(cn conn) []cell {
@@ -802,7 +831,12 @@ func connCells(cn conn) []cell {
 	if nodeName == "" {
 		nodeName = "—"
 	}
-	return []cell{{clock(cn.Start), gray}, t(cn.App), t(host), t(cn.Route), t(nodeName), t("↓" + fmtBytes(cn.Down)), t("↑" + fmtBytes(cn.Up)), st}
+	return []cell{{clock(cn.Start), gray}, t(cn.App), t(host), {cn.ruleText(), gray}, t(cn.routeText()), t(nodeName), t("↓" + fmtBytes(cn.Down)), t("↑" + fmtBytes(cn.Up)), st}
+}
+
+// connHeads are the headings of connCells.
+func connHeads() []string {
+	return []string{i18n.T("时间", "Time"), i18n.T("应用", "App"), i18n.T("目标", "Host"), i18n.T("规则", "Rule"), i18n.T("路由", "Route"), i18n.T("节点", "Node"), i18n.T("下载", "Down"), i18n.T("上传", "Up"), i18n.T("状态", "State")}
 }
 
 func runConns(c *Ctx) error {
@@ -836,7 +870,7 @@ func runConns(c *Ctx) error {
 	for _, cn := range out.Connections {
 		rows = append(rows, connCells(cn))
 	}
-	c.table([]string{i18n.T("时间", "Time"), i18n.T("应用", "App"), i18n.T("目标", "Host"), i18n.T("路由", "Route"), i18n.T("节点", "Node"), i18n.T("下载", "Down"), i18n.T("上传", "Up"), i18n.T("状态", "State")}, rows)
+	c.table(connHeads(), rows)
 	if out.Total > len(out.Connections) {
 		fmt.Fprintln(c.out, c.paint(gray, fmt.Sprintf(i18n.T("共 %d 个，显示最近 %d 个。", "%d in all; the %d newest shown."), out.Total, len(out.Connections))))
 	}

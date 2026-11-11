@@ -351,8 +351,14 @@ func actRule(c Conn) string {
 
 // actRuleWord is actRule with a rule set under the name people gave it.
 func (u *UI) actRuleWord(c Conn) string {
+	return ruleWord(c, u.shownSettings().Routing.Services)
+}
+
+// ruleWord is actRule with a rule set of services under the name people
+// gave it.
+func ruleWord(c Conn, services []routes.ServiceConf) string {
 	if c.Rule == "RuleSet" {
-		for _, s := range u.shownSettings().Routing.Services {
+		for _, s := range services {
 			if s.Source != "" && c.Payload == routes.RuleSetProvider(s.ID) {
 				return c.Rule + "(" + s.Name + ")"
 			}

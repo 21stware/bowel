@@ -482,8 +482,7 @@ func (t *tui) pageLines(h int) []string {
 			}
 			rows = append(rows, cells)
 		}
-		table([]string{i18n.T("时间", "Time"), i18n.T("应用", "App"), i18n.T("目标", "Host"), i18n.T("路由", "Route"), i18n.T("节点", "Node"), i18n.T("下载", "Down"), i18n.T("上传", "Up"), i18n.T("状态", "State")},
-			rows, i18n.T("没有连接。", "No connections."), h-len(out))
+		table(connHeads(), rows, i18n.T("没有连接。", "No connections."), h-len(out))
 	case tabLogs:
 		level := t.level
 		if level == "" {

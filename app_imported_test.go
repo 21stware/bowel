@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/oboo/moho/internal/mcp"
 	"github.com/oboo/moho/internal/mihomo"
@@ -241,6 +242,51 @@ func TestImportedRoutingEndToEnd(t *testing.T) {
 	}
 	if a.settings.Get().ImportedRouting != "" || hasRoute(a, "Japan") {
 		t.Errorf("deleted: %q", a.settings.Get().ImportedRouting)
+	}
+}
+
+// TestImportedConnectionNames: list_connections names a connection's route
+// and rule as the window's list does, not only by the route's id, which here
+// is g1, g2 and so on.
+func TestImportedConnectionNames(t *testing.T) {
+	a, id, _ := importedApp(t)
+	if err := a.setImportedRouting(id); err != nil {
+		t.Fatal(err)
+	}
+	a.refresh()
+	a.winShown.Store(true) // the monitor polls as with the window shown
+	a.mon.Wake()
+	// Open long enough for the monitor to see it.
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { time.Sleep(3 * time.Second) }))
+	defer target.Close()
+	pu, _ := url.Parse("http://127.0.0.1:" + strconv.Itoa(a.settings.Get().MixedPort))
+	hc := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(pu), DisableKeepAlives: true}, Timeout: 10 * time.Second}
+	go func() {
+		if resp, err := hc.Get("http://netflix.com:" + target.URL[strings.LastIndex(target.URL, ":")+1:]); err == nil {
+			resp.Body.Close()
+		}
+	}()
+
+	srv, s := a.mcpServer(), &mcp.Session{}
+	var got map[string]any
+	for i := 0; i < 50 && got == nil; i++ {
+		time.Sleep(200 * time.Millisecond)
+		out, err := callTool(t, srv, s, "list_connections", map[string]any{"filter": "netflix.com"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cs, _ := out["connections"].([]any); len(cs) > 0 {
+			got, _ = cs[0].(map[string]any)
+		}
+	}
+	if got == nil {
+		t.Fatalf("connection not seen: %+v", a.connections())
+	}
+	if got["route"] != a.routeOfGroup("Streaming", "x") || got["routeName"] != "Streaming" {
+		t.Errorf("route %v, routeName %v", got["route"], got["routeName"])
+	}
+	if got["ruleName"] != "DomainSuffix(netflix.com)" || got["rule"] != "DomainSuffix" {
+		t.Errorf("rule %v, ruleName %v", got["rule"], got["ruleName"])
 	}
 }
 
