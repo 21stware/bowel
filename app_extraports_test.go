@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/egoist/mygo"
 	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/mihomo"
 	"github.com/oboo/moho/internal/settings"
@@ -216,5 +218,50 @@ func TestExtraPortsOfImportedRouting(t *testing.T) {
 	kept("bowel's routing")
 	if err := set(`[]`); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestExtraPortsLookUpNewEntries: saving the settings reads the config whose
+// routing is in use only for an extra port that was not there before, whose
+// group it has to find. Another change, with the ports as they were, leaves
+// the config unread.
+func TestExtraPortsLookUpNewEntries(t *testing.T) {
+	dir, err := os.MkdirTemp("", "mh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	mygo.App.SetPath(mygo.PathUserData, dir)
+	defer mygo.App.SetPath(mygo.PathUserData, "")
+	a, err := newApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func() bool {
+		a.routesMu.Lock()
+		defer a.routesMu.Unlock()
+		return a.imp.loaded
+	}
+	had := core.ExtraPort{Port: freePortFor(t), Route: "ai"}
+	if _, err := a.settings.Update(func(s *settings.Settings) { s.ExtraPorts = []core.ExtraPort{had} }); err != nil {
+		t.Fatal(err)
+	}
+	a.dropImported()
+	if err := a.updateSettings(func(s *settings.Settings) { s.StartHidden = !s.StartHidden }); err != nil {
+		t.Fatal(err)
+	}
+	if read() {
+		t.Error("the config was read for a change that adds no port")
+	}
+	// A new entry is looked up before anything is saved: here it is refused.
+	added := core.ExtraPort{Port: freePortFor(t), Route: "nope"}
+	if err := a.updateSettings(func(s *settings.Settings) { s.ExtraPorts = append(s.ExtraPorts, added) }); err == nil {
+		t.Error("a port for a group that doesn't exist should be refused")
+	}
+	if !read() {
+		t.Error("the config was not read for a new port")
+	}
+	if got := a.settings.Get().ExtraPorts; len(got) != 1 || got[0] != had {
+		t.Errorf("settings changed to %+v", got)
 	}
 }

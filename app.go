@@ -1196,19 +1196,20 @@ func (a *App) updateSettingsAnd(fn func(*settings.Settings), reapply bool) error
 	}
 	// An extra port is given a route group there is, or, while a provider's
 	// own routing is in use, a group of that config. One whose group is
-	// deleted later stays in the settings, closed.
-	im := a.importedNow()
-	there := func(route string) bool {
-		if im != nil {
-			if _, ok := im.GroupOf(route); ok {
-				return true
+	// deleted later stays in the settings, closed. Only a new entry is
+	// looked up: no other change reads the config for it.
+	added := slices.DeleteFunc(slices.Clone(next.ExtraPorts), func(e core.ExtraPort) bool { return slices.Contains(old.ExtraPorts, e) })
+	if len(added) > 0 {
+		im := a.importedNow()
+		for _, e := range added {
+			if im != nil {
+				if _, ok := im.GroupOf(e.Route); ok {
+					continue
+				}
 			}
-		}
-		return slices.ContainsFunc(routes.Build(next.Routing, nil), func(r routes.Route) bool { return r.ID == route })
-	}
-	for _, e := range next.ExtraPorts {
-		if !slices.Contains(old.ExtraPorts, e) && !there(e.Route) {
-			return fmt.Errorf(i18n.T("端口 %d 指向不存在的路由组: %s", "Port %d points at a route group that doesn't exist: %s"), e.Port, e.Route)
+			if !slices.ContainsFunc(routes.Build(next.Routing, nil), func(r routes.Route) bool { return r.ID == e.Route }) {
+				return fmt.Errorf(i18n.T("端口 %d 指向不存在的路由组: %s", "Port %d points at a route group that doesn't exist: %s"), e.Port, e.Route)
+			}
 		}
 	}
 	if _, err := a.settings.Update(func(s *settings.Settings) { *s = next }); err != nil {
