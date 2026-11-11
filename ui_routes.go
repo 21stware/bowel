@@ -308,41 +308,28 @@ func (u *UI) matchLabel(c *ui.Context, p *pal, other RouteView) {
 
 // matchLine runs down through the route groups' swatches into the row for
 // what none of them matched: rules are tried in turn, and what isn't caught
-// goes on. It thins by the share of today's traffic each group took.
+// goes on. A hairline of one quiet color, so the swatches keep theirs.
 func (u *UI) matchLine(c *ui.Context, p *pal, rest []RouteView, other RouteView) {
 	if len(rest) == 0 {
 		return
 	}
-	type seg struct {
-		y0, y1, w float32
-		from, to  ui.Color
-	}
+	n := len(rest)
+	col := p.faint
 	y := func(i int) float32 { return float32(matchRowH*i + matchSwatchY) }
-	weight := func(left float64) float32 { return float32(1.5 + 4*max(0, left)) }
-	endY := float32(matchRowH*len(rest)+matchLabelH) + matchSwatchY
-	segs := make([]seg, 0, len(rest)+1)
-	first := p.routeColor(rest[0].ID)
-	segs = append(segs, seg{y0: 2, y1: y(0) - matchGap, w: weight(1), from: first.Alpha(0), to: first})
-	left := 1.0
-	for i, r := range rest {
-		left -= r.Share
-		if i == len(rest)-1 {
-			segs = append(segs, seg{y(i) + matchGap, endY - matchGap - 9, weight(left), p.routeColor(r.ID), p.routeColor(other.ID)})
-			break
-		}
-		segs = append(segs, seg{y(i) + matchGap, y(i+1) - matchGap, weight(left), p.routeColor(r.ID), p.routeColor(rest[i+1].ID)})
-	}
-	arrow := p.routeColor(other.ID)
+	endY := float32(matchRowH*n+matchLabelH) + matchSwatchY - matchGap
 	ui.Box(c.Key("line")).Absolute().Left(0).Top(0).Bottom(0).Width(30).IgnoreInput(true).AccessHidden(true).Draw(func(pt *ui.Painter, r ui.Rect) {
 		x := r.X + matchSwatchX
-		for _, s := range segs {
-			var path ui.Path
-			path.MoveTo(x, r.Y+s.y0).LineTo(x, r.Y+s.y1).Cap(ui.RoundCap)
-			pt.StrokePathGradient(&path, s.w, ui.LinearGradient{From: s.from, To: s.to, Angle: 180})
+		var path ui.Path
+		path.MoveTo(x, r.Y+2).LineTo(x, r.Y+y(0)-matchGap)
+		for i := 0; i < n-1; i++ {
+			path.MoveTo(x, r.Y+y(i)+matchGap).LineTo(x, r.Y+y(i+1)-matchGap)
 		}
+		path.MoveTo(x, r.Y+y(n-1)+matchGap).LineTo(x, r.Y+endY-6)
+		path.Cap(ui.RoundCap)
+		pt.StrokePath(&path, 1, col)
 		var tip ui.Path
-		tip.MoveTo(x-5, r.Y+endY-matchGap-9).LineTo(x+5, r.Y+endY-matchGap-9).LineTo(x, r.Y+endY-matchGap).Close()
-		pt.FillPath(&tip, arrow)
+		tip.MoveTo(x-3.5, r.Y+endY-6).LineTo(x+3.5, r.Y+endY-6).LineTo(x, r.Y+endY).Close()
+		pt.FillPath(&tip, col)
 	})
 }
 
