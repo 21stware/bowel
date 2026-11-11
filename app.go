@@ -1619,6 +1619,35 @@ func (a *App) closeUnmatched() int {
 	return 0
 }
 
+// closeRoute closes the connections on route group id, so that a change of
+// where it leaves shows. It reports how many it closed.
+func (a *App) closeRoute(id string) int {
+	if id == routes.Default {
+		return a.closeUnmatched()
+	}
+	c, err := a.core.Client()
+	if err != nil {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snap, err := c.Connections(ctx)
+	if err != nil {
+		return 0
+	}
+	var ids []string
+	for _, cn := range snap.Connections {
+		if len(cn.Chains) > 0 && a.routeOfGroup(cn.Chains[len(cn.Chains)-1], cn.Rule) == id {
+			ids = append(ids, cn.ID)
+		}
+	}
+	if len(ids) > 0 && a.closeConns(ids) == nil {
+		a.mon.Wake()
+		return len(ids)
+	}
+	return 0
+}
+
 // rerouteBy is reroute for whatever match catches.
 func (a *App) rerouteBy(match func(host, ip string) bool, keep string) int {
 	c, err := a.core.Client()
@@ -1660,7 +1689,7 @@ func (a *App) rerouteBy(match func(host, ip string) bool, keep string) int {
 // routeOfGroup maps a mihomo group name (or DIRECT, REJECT) to a route id.
 func (a *App) routeOfGroup(group, rule string) string {
 	for _, r := range a.routes() {
-		if !r.Direct && (group == routes.Group(r) || routes.Internal(r, group)) {
+		if (!r.Direct || r.OwnExit()) && (group == routes.Group(r) || routes.Internal(r, group)) {
 			return r.ID
 		}
 	}
@@ -1678,7 +1707,7 @@ func (a *App) routeOfGroup(group, rule string) string {
 	}
 	if rule != "" {
 		for _, r := range a.routes() {
-			if r.Direct && !r.Reject && r.ID != routes.Default {
+			if r.Direct && !r.Reject && r.ID != routes.Default && !r.OwnExit() {
 				return r.ID
 			}
 		}

@@ -201,24 +201,24 @@ func (u *UI) autoSeg(c *ui.Context, p *pal, rid string) {
 	}
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 		btn(c.Key("services"), p, i18n.T("服务和规则", "Services and rules")).OnClick(func() { u.openRoutes(rid, "") })
-		if !(rid == routes.Default && u.route(rid).Direct) {
+		if !u.route(rid).Direct {
 			u.stratSeg(c, p, rid)
 		}
 	})
 }
 
-// setExitDirect says whether what no rule matched goes without a node, and
-// closes those connections, so that the change shows.
-func (u *UI) setExitDirect(on bool) {
+// setExitDirect says whether group rid's traffic goes without a node, and
+// closes its connections, so that the change shows.
+func (u *UI) setExitDirect(rid string, on bool) {
 	u.changeRouting(func(s *settings.Settings) {
-		s.Routing.ChangePolicy(routes.Default, func(q *routes.Policy) { q.Direct = on })
-	}, func() { u.app.closeUnmatched() })
+		s.Routing.ChangePolicy(rid, func(q *routes.Policy) { q.Direct = on })
+	}, func() { u.app.closeRoute(rid) })
 }
 
-// exitChoice is where what no rule matched leaves: by a node, or directly.
+// exitChoice is where group rid's traffic leaves: by a node, or directly.
 // It comes before the node strategy, which only the first of those has.
-func (u *UI) exitChoice(c *ui.Context, p *pal) {
-	q := u.policy(routes.Default)
+func (u *UI) exitChoice(c *ui.Context, p *pal, rid string) {
+	q := u.policy(rid)
 	opt := func(key, title, sub string, on bool, onClick func()) {
 		b := ui.ButtonBase(c.Key(key)).Column().Gap(1).Grow(1).Basis(0).MinWidth(0).Padding(9, 12).Radius(p.r(8)).AlignItems(ui.Start)
 		switch {
@@ -239,17 +239,20 @@ func (u *UI) exitChoice(c *ui.Context, p *pal) {
 		ui.Row(c).Gap(8).Children(func() {
 			opt("node", i18n.T("走节点", "Via a node"), modeName(q.Mode), !q.Direct, func() {
 				if q.Direct {
-					u.setExitDirect(false)
+					u.setExitDirect(rid, false)
 				}
 			})
 			opt("direct", i18n.T("直接连接", "Direct"), i18n.T("不经过节点，用本机网络", "No node, this machine's network"), q.Direct, func() {
 				if !q.Direct {
-					u.setExitDirect(true)
+					u.setExitDirect(rid, true)
 				}
 			})
 		})
 		if q.Direct {
 			text := i18n.T("没命中规则的网站会用本机网络访问。当前网络打不开的网站，需要加规则送到走节点的路由组。", "Sites no rule matches use this machine's network. A site that won't open on it needs a rule sending it to a route group with a node.")
+			if rid != routes.Default {
+				text = i18n.T("这个路由组的流量用本机网络访问，不经过节点。节点策略会保留，切回「走节点」后和原来一样。", "This group's traffic uses this machine's network, with no node. Its node strategy is kept, and is as it was once you switch back to a node.")
+			}
 			if u.snap.Mode == "global" {
 				text += i18n.T("现在是全局模式，所有流量仍走节点，回到规则模式后生效。", " Global mode sends everything through a node, so this applies once you're back in rule mode.")
 			}
@@ -258,16 +261,16 @@ func (u *UI) exitChoice(c *ui.Context, p *pal) {
 	})
 }
 
-// defaultExit is the body of the default route's detail: where it leaves,
-// and the nodes if a node is what it leaves by.
-func (u *UI) defaultExit(c *ui.Context, p *pal, w float32) {
-	if u.snap.Imported == nil {
-		ui.Column(c).Padding(10, 26, 12, 26).Shrink(0).Children(func() { u.exitChoice(c, p) })
-		if u.route(routes.Default).Direct {
+// groupExit is the body of a route group's detail: where it leaves, and
+// the nodes if a node is what it leaves by.
+func (u *UI) groupExit(c *ui.Context, p *pal, rid string, w float32) {
+	if u.snap.Imported == nil && routes.ChoosesExit(rid) {
+		ui.Column(c).Padding(10, 26, 12, 26).Shrink(0).Children(func() { u.exitChoice(c, p, rid) })
+		if u.route(rid).Direct {
 			return
 		}
 	}
-	u.nodePicker(c, p, routes.Default, w)
+	u.nodePicker(c, p, rid, w)
 }
 
 // The route list's measures: matchLine draws through its swatches by them.
@@ -545,6 +548,9 @@ func (u *UI) routesItem(c *ui.Context, p *pal, r routes.Route) {
 			}
 		})
 		line := u.exitWord(v)
+		if r.Direct && !v.Direct { // just chosen: the app has yet to say so
+			line = noNodeWord(v)
+		}
 		if !r.Direct {
 			line = modeName(u.policy(r.ID).Mode) + " · " + line
 		}
@@ -630,7 +636,7 @@ func (u *UI) testerPath(c *ui.Context, p *pal, s settings.Settings, all []routes
 func (u *UI) routesGroup(c *ui.Context, p *pal, all []routes.Route, r routes.Route) {
 	st := &u.routes
 	v := u.route(r.ID)
-	fixedName := r.ID == routes.Default || r.Direct
+	fixedName := routes.Fixed(r.ID)
 	if st.nameOf != r.ID {
 		st.name, st.nameOf, st.nameErr = routes.Title(r), r.ID, ""
 	}
@@ -690,15 +696,13 @@ func (u *UI) routesGroup(c *ui.Context, p *pal, all []routes.Route, r routes.Rou
 	}
 	if r.Reject {
 		note(i18n.T("命中这里规则的连接会被拒绝，不经过节点，所以没有节点策略。", "Connections matching the rules here are refused, with no node, so there's no node strategy."))
-	} else if r.ID == routes.Default {
-		ui.Column(c).Margin(0, 0, 14, 0).Children(func() { u.exitChoice(c, p) })
+	} else if !routes.ChoosesExit(r.ID) {
+		note(i18n.T("这里的流量直接连接，不经过节点，所以没有节点策略。", "Traffic here connects directly, with no node, so there's no node strategy."))
+	} else {
+		ui.Column(c).Margin(0, 0, 14, 0).Children(func() { u.exitChoice(c, p, r.ID) })
 		if !r.Direct {
 			u.strategyCard(c, p, v)
 		}
-	} else if r.Direct {
-		note(i18n.T("这里的流量直接连接，不经过节点，所以没有节点策略。", "Traffic here connects directly, with no node, so there's no node strategy."))
-	} else {
-		u.strategyCard(c, p, v)
 	}
 	if r.ID == routes.Default {
 		note(i18n.T("没命中任何规则的流量走这里。想让某个网站固定走这里，可以在这里加一条规则。", "Traffic no rule matched goes here. To keep a site here on purpose, add a rule here."))

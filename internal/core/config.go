@@ -371,6 +371,9 @@ func BuildConfig(in Input) ([]byte, error) {
 func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any, use []string, withNodes func(map[string]any, ...string) map[string]any) ([]any, []string, error) {
 	var groups []any
 	for _, r := range in.Routes {
+		if r.OwnExit() {
+			groups = append(groups, map[string]any{"name": routes.Group(r), "type": "select", "proxies": []string{"DIRECT"}})
+		}
 		if !r.NodeGroups() {
 			continue
 		}
@@ -425,6 +428,7 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 			switch {
 			case r.Reject:
 				target = "REJECT"
+			case r.OwnExit(): // DIRECT, by its own group
 			case r.Direct:
 				target = "DIRECT"
 			}

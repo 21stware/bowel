@@ -390,13 +390,13 @@ func (x *bridge) todayShare(groupBytes map[string]int64) map[string]float64 {
 // routeOfGroup maps a group the core names to the route it belongs to.
 func routeOfGroup(all []routes.Route, group string) string {
 	for _, r := range all {
-		if !r.Direct && (group == routes.Group(r) || routes.Internal(r, group)) {
+		if (!r.Direct || r.OwnExit()) && (group == routes.Group(r) || routes.Internal(r, group)) {
 			return r.ID
 		}
 	}
 	if group == "DIRECT" {
 		for _, r := range all {
-			if r.Direct && !r.Reject && r.ID != routes.Default {
+			if r.Direct && !r.Reject && r.ID != routes.Default && !r.OwnExit() {
 				return r.ID
 			}
 		}
