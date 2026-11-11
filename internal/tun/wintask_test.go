@@ -2,6 +2,7 @@ package tun
 
 import (
 	"encoding/xml"
+	"errors"
 	"strings"
 	"testing"
 	"unicode/utf16"
@@ -136,5 +137,52 @@ func TestMark(t *testing.T) {
 		if o == m {
 			t.Error("the mark is the same for another installation")
 		}
+	}
+}
+
+// The task's core gets no environment from the app, and mihomo reads no
+// file outside its -d without one: the action is the core alone, in the
+// directory the config's files are kept in, with no shell around it that
+// ending the task would end in the core's place.
+func TestTaskRunsTheCoreItself(t *testing.T) {
+	bin := `C:\ProgramData\bowel\tun\S-1\mihomo.exe`
+	x := taskXML("S-1", bin, `C:\Users\u\AppData\Roaming\bowel\core`)
+	if !strings.Contains(x, "<Command>"+bin+"</Command>") {
+		t.Errorf("the action is not the core:\n%s", x)
+	}
+	if strings.Contains(strings.ToLower(x), "cmd") || strings.Contains(x, "SAFE_PATHS") {
+		t.Errorf("the action goes through a shell:\n%s", x)
+	}
+}
+
+// What the description tells the user to delete is all of the
+// installation: the task alone leaves the mark, and Installed true.
+func TestTaskDescriptionNamesTheFolder(t *testing.T) {
+	x := taskXML("S-1", `C:\ProgramData\bowel\tun\S & 1\mihomo.exe`, `C:\core`)
+	var task struct {
+		RegistrationInfo struct{ Description string }
+	}
+	if err := xml.Unmarshal([]byte(strings.TrimPrefix(x, `<?xml version="1.0" encoding="UTF-16"?>`)), &task); err != nil {
+		t.Fatal(err)
+	}
+	d := task.RegistrationInfo.Description
+	if !strings.Contains(d, "delete this task and the folder "+`C:\ProgramData\bowel\tun\S & 1`) || strings.Contains(d, "mihomo.exe") {
+		t.Errorf("description %q", d)
+	}
+	if markPath(`C:\ProgramData\bowel\tun\S & 1\mihomo.exe`) != `C:\ProgramData\bowel\tun\S & 1\installed` {
+		t.Error("the mark is not in the folder the description names")
+	}
+}
+
+// A task that did not run because the Task Scheduler no longer has it is
+// an installation that is gone; any other failure is reported as it is.
+func TestTaskRunErr(t *testing.T) {
+	run := errors.New("exit status 1: ERROR")
+	if err := taskRunErr(run, errors.New("exit status 1")); !errors.Is(err, ErrGone) {
+		t.Errorf("deleted task: %v", err)
+	}
+	err := taskRunErr(run, nil)
+	if errors.Is(err, ErrGone) || !strings.Contains(err.Error(), "exit status 1: ERROR") {
+		t.Errorf("task that is there: %v", err)
 	}
 }

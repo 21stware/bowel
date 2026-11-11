@@ -43,8 +43,7 @@ func Spawn(bin string) (*Task, error) {
 		before = pids(t.exe)
 	}
 	if err := schtasks("/Run", "/TN", t.name); err != nil {
-		return nil, fmt.Errorf(i18n.T("无法通过计划任务启动内核（重新开启 TUN 可以再授权一次）：%s",
-			"Couldn't start the core through its scheduled task (turning TUN on again asks for the authorization once more): %s"), err)
+		return nil, taskRunErr(err, schtasks("/Query", "/TN", t.name))
 	}
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {

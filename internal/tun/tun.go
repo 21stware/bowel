@@ -31,10 +31,24 @@ func (canceled) Error() string {
 	return i18n.T("用户取消了授权", "The authorization was canceled")
 }
 
+// ErrGone is in what Spawn returns when the mark of an installation is
+// there and what it stands for is not: on Windows, the scheduled task was
+// deleted. Installed cannot tell (it asks the Task Scheduler nothing), so
+// whoever sees this takes the installation as not made.
+var ErrGone error = gone{}
+
+type gone struct{}
+
+func (gone) Error() string {
+	return i18n.T("运行内核的计划任务不在了，重新开启 TUN 会再授权一次", "The scheduled task that runs the core is gone; turning TUN on again asks for the authorization once more")
+}
+
 // CoreDir is the directory the core runs in (its -d; the config is
 // config.yaml inside). Windows writes both into the task that runs the
 // core, and a task with other arguments does not count as installed; the
-// other systems do not read it. Set once, before anything else is called.
+// other systems do not read it. The task's core gets no environment from
+// the app, so every file its config names has to be inside this directory:
+// mihomo reads nothing outside it without a SAFE_PATHS variable. Set once, before anything else is called.
 var CoreDir string
 
 // Step is one shell command run as root (on Windows, elevated): its parts
