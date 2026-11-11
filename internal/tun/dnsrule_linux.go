@@ -2,11 +2,14 @@ package tun
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strings"
 )
 
 // With TUN on, the core points systemd-resolved at its own resolver for
@@ -85,9 +88,14 @@ func rulePath() string {
 	return filepath.Join(rulesDir, fmt.Sprintf("49-bowel-tun-%d.rules", ruleUID()))
 }
 
-// ruleMarkPath is the rule as it was installed, kept beside the copy: polkit's
-// directory is often closed to users, so the rule itself cannot be read.
+// ruleMarkPath is the rule as it was installed, kept beside the copy:
+// polkit's directory is closed to users on some systems, and there the
+// mark is all that says a rule was written.
 func ruleMarkPath(dst string) string { return filepath.Join(filepath.Dir(dst), "tun-dns-rule") }
+
+// refusedNote ends the mark where polkit's directory did not take the
+// rule: such a machine is asked once, not every time TUN is turned on.
+const refusedNote = "// Not installed: polkit's directory refused it.\n"
 
 // ruleApplies says whether this machine is one the rule is for: the core
 // runs as a user (not root, and not setuid for want of setcap), resolved's
@@ -105,13 +113,46 @@ func ruleApplies() bool {
 
 // NeedsRule reports whether the installation at dst lacks the rule, or
 // has one for another device or user: turning TUN on then takes the
-// authorization once more.
+// authorization once more. The mark says what was written; the rule
+// itself is read too where the user may read it, so that one deleted or
+// changed by hand is written again. Where polkit's directory is closed
+// to users the mark is taken at its word.
 func NeedsRule(dst string) bool {
 	if !ruleApplies() {
 		return false
 	}
+	want := dnsRule(ruleUser(), ruleDevice())
 	b, err := os.ReadFile(ruleMarkPath(dst))
-	return err != nil || string(b) != dnsRule(ruleUser(), ruleDevice())
+	if err != nil {
+		return true
+	}
+	switch string(b) {
+	case want + refusedNote:
+		return false
+	case want:
+	default:
+		return true
+	}
+	got, err := os.ReadFile(rulePath())
+	if err != nil {
+		return errors.Is(err, fs.ErrNotExist)
+	}
+	return string(got) != want
+}
+
+// ruleLeft reports whether an installation with this mark has a rule for
+// Uninstall to remove. Where polkit's directory cannot be looked into,
+// the mark answers.
+func ruleLeft(mark string) bool {
+	_, err := os.Lstat(rulePath())
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	b, err := os.ReadFile(mark)
+	return err == nil && !strings.HasSuffix(string(b), refusedNote)
 }
 
 // ruleStep writes the rule beside tmp and returns the commands that make
@@ -120,25 +161,42 @@ func ruleStep(tmp, dst string) (Step, error) {
 	if !ruleApplies() {
 		return nil, nil
 	}
-	f, err := os.CreateTemp(filepath.Dir(tmp), ".mihomo-rule-*")
+	rule := dnsRule(ruleUser(), ruleDevice())
+	dir := filepath.Dir(tmp)
+	staged, err := stage(dir, ".mihomo-rule-*", rule)
 	if err != nil {
 		return nil, err
 	}
-	_, err = f.WriteString(dnsRule(ruleUser(), ruleDevice()))
+	refused, err := stage(dir, ".mihomo-norule-*", rule+refusedNote)
+	if err != nil {
+		_ = os.Remove(staged)
+		return nil, err
+	}
+	return ruleStepWith(staged, refused, rulePath(), ruleMarkPath(dst)), nil
+}
+
+func stage(dir, pattern, text string) (string, error) {
+	f, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return "", err
+	}
+	_, err = f.WriteString(text)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
 		_ = os.Remove(f.Name())
-		return nil, err
+		return "", err
 	}
-	return ruleStepWith(f.Name(), rulePath(), ruleMarkPath(dst)), nil
+	return f.Name(), nil
 }
 
-// ruleStepWith installs the rule and keeps what was written as the mark.
-// The mark is kept whether or not polkit's directory took the rule: a
-// machine that refuses it is asked once, not every time TUN is turned on.
-func ruleStepWith(tmp, rule, mark string) Step {
+// ruleStepWith installs the rule and keeps what was written as the mark;
+// where polkit's directory refuses the rule the mark is refused, which
+// says so. Neither fails the installation.
+func ruleStepWith(tmp, refused, rule, mark string) Step {
+	mv := tool("mv") + " -f "
 	return Step{" && { " + tool("install") + " -m 0644 -o root -g root ", tmp, " ", rule,
-		"; " + tool("mv") + " -f ", tmp, " ", mark, "; }"}
+		" && " + mv, tmp, " ", mark, " || " + mv, refused, " ", mark,
+		"; " + tool("rm") + " -f ", tmp, " ", refused, "; }"}
 }

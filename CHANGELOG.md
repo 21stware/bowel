@@ -21,6 +21,8 @@
 - 展开和收起的标记改为同一个图形，只换方向：之前是两个大小不一的三角字符，展开后明显变小。路由组、提供商、开发工具和依赖源几处都已统一
 - 修复 Linux 桌面为暗色时托盘图标发黑、几乎看不见的问题：图标现在跟随桌面的明暗设置，暗色下显示为白色
 - 修复 Linux 上每次启动 TUN 都要连输三次密码的问题（使用 systemd-resolved 的桌面，如 Fedora、Ubuntu）：内核启动 TUN 时要把系统解析器指向 TUN 网卡，这一步每次都被 polkit 拦下。现在授权时会同时写入一条 polkit 规则，只允许当前用户对 TUN 网卡做这几项设置；已经授权过的电脑，下次开启 TUN 时会再授权一次，之后不再询问。删除 `/etc/polkit-1/rules.d/49-bowel-tun-<用户 ID>.rules` 即可撤销
+- Linux 上卸载 bowel 的安装包（deb、rpm、AUR）时，会一并删除开启 TUN 时写入的 polkit 规则（`/etc/polkit-1/rules.d/49-bowel-tun-*.rules`），不再留在系统里
+- Linux 上手动删除或改动了这条 polkit 规则后，下次开启 TUN 时会再授权一次并重新写入，不会再回到每次连输三次密码。在普通用户读不了 `/etc/polkit-1/rules.d` 的系统上 bowel 看不到规则是否还在，这时请同时删除 `~/.config/bowel/bin/tun-dns-rule`
 - 修复主页「接管」里 TUN 一栏的协议栈和 DNS 写死的问题：之前不管设置成什么，都显示 mixed 和「劫持 53 端口 · fake-ip」。现在协议栈跟着设置显示 mixed、system 或 gVisor；DNS 一行跟着「DNS 劫持」列表和增强模式显示，列表为空时写「不劫持」。设置本身一直是生效的，只是这里显示得不对
 
 ## [0.3.0] - 2026-11-10

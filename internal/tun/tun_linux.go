@@ -84,18 +84,38 @@ func capsAllow(b []byte, c int) bool {
 	return permitted&(1<<(c%32)) != 0
 }
 
-// Uninstall removes dst, which the user can do in a directory of theirs.
-// A missing dst is not an error.
+// Uninstall removes dst, which the user can do in a directory of theirs,
+// and what the installation left besides: the polkit rule of
+// dnsrule_linux.go and its mark. The rule is root's, so where there is
+// one this asks for an authorization (one pkexec); the mark stays until
+// the rule is gone. A missing dst is not an error.
 func Uninstall(dst string) error {
+	mark := ruleMarkPath(dst)
+	var steps []Step
 	err := os.Remove(dst)
-	if err == nil || errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if !errors.Is(err, fs.ErrPermission) {
+	switch {
+	case err == nil || errors.Is(err, fs.ErrNotExist):
+	case errors.Is(err, fs.ErrPermission):
+		steps = append(steps, Step{tool("rm") + " -f ", dst, " ", mark})
+	default:
 		return err
 	}
-	return runAdmin(Prompt(), []Step{{tool("rm") + " -f ", dst}})
+	if ruleLeft(mark) {
+		steps = append(steps, Step{tool("rm") + " -f ", rulePath()})
+	}
+	if len(steps) > 0 {
+		if err := adminRun(Prompt(), steps); err != nil {
+			return err
+		}
+	}
+	if err := os.Remove(mark); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
 }
+
+// adminRun is runAdmin, which tests replace: they have no polkit.
+var adminRun = runAdmin
 
 // stageDir is where the copy waits for the authorisation: beside dst, so
 // that taking its name is a rename, which keeps the capabilities.

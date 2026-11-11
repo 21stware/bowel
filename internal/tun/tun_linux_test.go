@@ -3,6 +3,7 @@ package tun
 import (
 	"encoding/binary"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -265,19 +266,35 @@ func TestRuleApplies(t *testing.T) {
 }
 
 // An installation lacks the rule until its mark says the same as the rule
-// that would be written now: the device's name is part of it.
+// that would be written now (the device's name is part of it) and the
+// rule is there to be read, saying the same.
 func TestNeedsRule(t *testing.T) {
-	ruleMachine(t)
+	rules := ruleMachine(t)
 	dst := filepath.Join(t.TempDir(), "mihomo")
+	rule := filepath.Join(rules, "49-bowel-tun-1000.rules")
+	want := dnsRule("reeza", "Meta")
+	write := func(path, text string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if !NeedsRule(dst) {
 		t.Fatal("no mark: the rule is missing")
 	}
-	if err := os.WriteFile(ruleMarkPath(dst), []byte(dnsRule("reeza", "Meta")), 0o644); err != nil {
-		t.Fatal(err)
+	write(ruleMarkPath(dst), want)
+	if !NeedsRule(dst) {
+		t.Error("the mark without the rule (deleted by hand) went unnoticed")
 	}
+	write(rule, want)
 	if NeedsRule(dst) {
-		t.Error("the mark is the rule: nothing to ask")
+		t.Error("the mark and the rule are what would be written: nothing to ask")
 	}
+	write(rule, want+"// edited\n")
+	if !NeedsRule(dst) {
+		t.Error("a rule changed by hand went unnoticed")
+	}
+	write(rule, want)
 	SetDevice("bowel0")
 	if !NeedsRule(dst) {
 		t.Error("another device than the rule names")
@@ -286,10 +303,128 @@ func TestNeedsRule(t *testing.T) {
 	if NeedsRule(dst) {
 		t.Error("the default device, named")
 	}
+
+	// polkit's directory closed to users: the mark is taken at its word.
+	if os.Geteuid() != 0 {
+		if err := os.Chmod(rules, 0); err != nil {
+			t.Fatal(err)
+		}
+		if NeedsRule(dst) {
+			t.Error("a rule that cannot be read is asked for again")
+		}
+		if err := os.Chmod(rules, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A rule polkit's directory refused is not asked for every time.
+	if err := os.Remove(rule); err != nil {
+		t.Fatal(err)
+	}
+	write(ruleMarkPath(dst), want+refusedNote)
+	if NeedsRule(dst) {
+		t.Error("a refused rule is asked for again")
+	}
+
 	ruleLook = func(string) (string, error) { return "", exec.ErrNotFound }
 	SetDevice("bowel0")
 	if NeedsRule(dst) {
 		t.Error("asked where no rule applies")
+	}
+}
+
+// Uninstall leaves neither the copy, the mark nor the rule, under one
+// authorisation; with no rule there it asks for none; and a canceled one
+// keeps the mark, which still says a rule is there.
+func TestUninstall(t *testing.T) {
+	rules := ruleMachine(t)
+	dir := filepath.Join(t.TempDir(), "a b")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dst, rule := filepath.Join(dir, "mihomo"), filepath.Join(rules, "49-bowel-tun-1000.rules")
+	other := filepath.Join(rules, "49-bowel-tun-1001.rules")
+	mark := ruleMarkPath(dst)
+	want := dnsRule("reeza", "Meta")
+	put := func(paths ...string) {
+		t.Helper()
+		for _, p := range paths {
+			if err := os.WriteFile(p, []byte(want), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	gone := func(p string) bool {
+		_, err := os.Lstat(p)
+		return errors.Is(err, fs.ErrNotExist)
+	}
+	var asked []string
+	var refuse error
+	saved := adminRun
+	t.Cleanup(func() { adminRun = saved })
+	adminRun = func(_ string, steps []Step) error {
+		sh := script(steps)
+		asked = append(asked, sh)
+		if refuse != nil {
+			return refuse
+		}
+		return exec.Command("/bin/sh", "-c", sh).Run()
+	}
+
+	put(dst, mark, rule, other)
+	if err := Uninstall(dst); err != nil {
+		t.Fatal(err)
+	}
+	if !gone(dst) || !gone(mark) || !gone(rule) {
+		t.Errorf("left behind: copy %v, mark %v, rule %v", !gone(dst), !gone(mark), !gone(rule))
+	}
+	if gone(other) {
+		t.Error("another user's rule was removed")
+	}
+	if len(asked) != 1 || !strings.Contains(asked[0], " -f "+shellQuote(rule)) || strings.Contains(asked[0], shellQuote(dst)) {
+		t.Errorf("authorisations: %q", asked)
+	}
+
+	// No rule: nothing is asked, as before there was one. A refused
+	// rule's mark goes the same way.
+	asked = nil
+	put(dst)
+	if err := os.WriteFile(mark, []byte(want+refusedNote), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Uninstall(dst); err != nil || len(asked) != 0 || !gone(dst) || !gone(mark) {
+		t.Errorf("no rule: %v, asked %q, copy gone %v, mark gone %v", err, asked, gone(dst), gone(mark))
+	}
+	if err := Uninstall(dst); err != nil || len(asked) != 0 {
+		t.Errorf("nothing installed: %v, asked %q", err, asked)
+	}
+
+	// Canceled: the rule is still there, and so is the mark.
+	put(dst, mark, rule)
+	refuse = ErrCanceled
+	if err := Uninstall(dst); !errors.Is(err, ErrCanceled) {
+		t.Fatalf("canceled: %v", err)
+	}
+	if gone(mark) || gone(rule) {
+		t.Error("a canceled removal dropped the mark or the rule")
+	}
+	refuse = nil
+
+	// polkit's directory closed to users: the mark says a rule is there.
+	if os.Geteuid() != 0 {
+		asked = nil
+		put(dst)
+		if err := os.Chmod(rules, 0); err != nil {
+			t.Fatal(err)
+		}
+		err := Uninstall(dst)
+		if cerr := os.Chmod(rules, 0o755); cerr != nil {
+			t.Fatal(cerr)
+		}
+		// The stand-in for root cannot enter the directory either.
+		if len(asked) != 1 || !strings.Contains(asked[0], shellQuote(rule)) {
+			t.Errorf("closed directory: %v, asked %q", err, asked)
+		}
 	}
 }
 
@@ -334,8 +469,15 @@ func TestInstallStepWithRule(t *testing.T) {
 		sh = strings.ReplaceAll(sh, tool("install")+" -m 0644 -o root -g root ", "cp ")
 		return exec.Command("/bin/sh", "-c", sh).Run()
 	}
-	if err := run(ruleStepWith(staged[0], rule, ruleMarkPath(dst))); err != nil {
+	refused, _ := filepath.Glob(filepath.Join(dir, ".mihomo-norule-*"))
+	if len(refused) != 1 {
+		t.Fatalf("staged refusal: %v", refused)
+	}
+	if err := run(ruleStepWith(staged[0], refused[0], rule, ruleMarkPath(dst))); err != nil {
 		t.Fatal(err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, ".mihomo-*rule-*")); len(left) != 0 {
+		t.Errorf("staged files left: %v", left)
 	}
 	a, _ := os.ReadFile(rule)
 	b, _ := os.ReadFile(ruleMarkPath(dst))
@@ -352,8 +494,8 @@ func TestInstallStepWithRule(t *testing.T) {
 	if err := run(st2); err != nil {
 		t.Fatalf("a refused rule failed the step: %v", err)
 	}
-	if NeedsRule(dst) {
-		t.Error("a refused rule is asked for again")
+	if b, _ := os.ReadFile(ruleMarkPath(dst)); string(b) != dnsRule("reeza", "bowel0")+refusedNote || NeedsRule(dst) {
+		t.Errorf("a refused rule: mark %q, needs %v", b, NeedsRule(dst))
 	}
 
 	// Where no rule applies the step is the installation's alone.
