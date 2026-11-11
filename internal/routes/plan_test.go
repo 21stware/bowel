@@ -533,3 +533,40 @@ func TestAppRulesGoFirst(t *testing.T) {
 		t.Errorf("rank of an application rule is %d, not before DOMAIN's 0", c)
 	}
 }
+
+// TestTemplateGrows: a group the template gained after the groups were
+// saved arrives, before 直连; one the user deleted stays gone.
+func TestTemplateGrows(t *testing.T) {
+	old := legacySeen
+	defer func() { legacySeen = old }()
+	legacySeen = []string{Default, "ai", "dev", "direct", Reject} // as if 流媒体 were new
+
+	saved := Plan{Groups: []GroupConf{{ID: Default}, {ID: "ai"}, {ID: "g1", Name: "我的"}, {ID: "direct"}, {ID: Reject}}}
+	var ids []string
+	for _, r := range Build(saved, nil) {
+		ids = append(ids, r.ID)
+	}
+	if want := []string{Default, "ai", "g1", "media", "direct", Reject}; !slices.Equal(ids, want) {
+		t.Fatalf("groups %q, want %q", ids, want)
+	}
+	if _, ok := serviceIn(groupOf(t, Build(saved, nil), "media"), "youtube"); !ok {
+		t.Error("the new group's services aren't in it")
+	}
+
+	// A change saves what the template had, and from then on a missing
+	// group is one the user deleted.
+	p := saved.Clone()
+	p.RenameGroup("g1", "别的")
+	if !hasGroup(p.Groups, "media") || !slices.Contains(p.Seen, "media") {
+		t.Fatalf("media not saved: %+v, seen %q", p.Groups, p.Seen)
+	}
+	if !p.DeleteGroup(nil, "media", Default) {
+		t.Fatal("media not deleted")
+	}
+	if all := Build(p, nil); slices.ContainsFunc(all, func(r Route) bool { return r.ID == "media" }) {
+		t.Error("a deleted group came back")
+	}
+	if groupOf(t, Build(p, nil), "g1").Label != "别的" {
+		t.Error("the user's group lost its name")
+	}
+}
