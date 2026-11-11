@@ -50,7 +50,8 @@ func extraListeners(t *testing.T, in Input) map[int]string {
 
 // TestExtraPortsInConfig: each extra port is a listener of this machine
 // alone that goes where its route's rules go, in every mode; one whose route
-// is gone is left out, and so are all of them under a provider's routing.
+// is gone is left out, and so are all of them under a provider's routing,
+// which has none of these groups.
 func TestExtraPortsInConfig(t *testing.T) {
 	var p routes.Plan
 	p.ChangePolicy("media", func(q *routes.Policy) { q.Direct = true })
@@ -71,6 +72,29 @@ func TestExtraPortsInConfig(t *testing.T) {
 	}
 	if got := extraListeners(t, Input{Routes: all, Mode: "rule", MixedPort: 7899, ProbePort: 7900, TestURL: "x"}); len(got) != 0 {
 		t.Errorf("no extra ports: listeners %v", got)
+	}
+}
+
+// TestExtraPortsOfImportedRouting: under a provider's own routing an extra
+// port goes to the group of that config it names, in every mode, whether or
+// not a rule points at the group. A node, a built-in target, one of bowel's
+// route ids and a name that is not there open nothing. A name that is one of
+// bowel's route ids and a group of the config as well is open under either
+// routing, and goes to the group of that name there.
+func TestExtraPortsOfImportedRouting(t *testing.T) {
+	im := mustParse(t, strings.Replace(issue33, "rules:", "  - {name: Tokyo, type: select, proxies: [JP-01]}\n  - {name: media, type: select, proxies: [JP-02]}\nrules:", 1))
+	ports := []ExtraPort{{7901, "Streaming"}, {7902, "Japan"}, {7903, "Tokyo"}, {7904, "JP-01"}, {7905, "DIRECT"}, {7906, "ai"}, {7907, routes.Default}, {7908, "gone"}, {7909, "media"}}
+	want := map[int]string{7901: "Streaming", 7902: "Japan", 7903: "Tokyo", 7909: "media"}
+	own := map[int]string{7906: "AI 服务", 7907: "默认", 7909: "流媒体"}
+	for _, mode := range []string{"rule", "global", "direct"} {
+		in := Input{Routes: routes.Template(), Mode: mode, MixedPort: 7899, ProbePort: 7900, TestURL: "x", Options: Options{ExtraPorts: ports}, Imported: im}
+		if got := extraListeners(t, in); fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("%s mode: listeners %v, want %v", mode, got, want)
+		}
+		in.Imported = nil
+		if got := extraListeners(t, in); fmt.Sprint(got) != fmt.Sprint(own) {
+			t.Errorf("%s mode, bowel's routing: listeners %v, want %v", mode, got, own)
+		}
 	}
 }
 

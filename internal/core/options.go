@@ -19,7 +19,9 @@ import (
 // ExtraPort is a mixed port on 127.0.0.1 whose traffic all leaves by one
 // route group, whatever the rules and the mode say: two programs given
 // different ports reach the same site by different exits. Route is the
-// route's id, so that renaming the group keeps the port.
+// route's id, so that renaming the group keeps the port; under a provider's
+// own routing (Input.Imported), which has no route ids, it is the name of
+// one of that config's groups.
 type ExtraPort struct {
 	Port  int    `json:"port"`
 	Route string `json:"route"`

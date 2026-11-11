@@ -292,9 +292,16 @@ func BuildConfig(in Input) ([]byte, error) {
 	listeners := []any{map[string]any{
 		"name": "moho-probe", "type": "mixed", "listen": "127.0.0.1", "port": in.ProbePort, "proxy": ProbeGroup,
 	}}
-	// A provider's own routing has none of the route groups these name.
+	// A provider's own routing has none of the route groups: there a port
+	// names one of the config's own groups. One that names nothing that is
+	// there stays closed.
 	for _, e := range o.ExtraPorts {
-		if exit, ok := exitOf(in.Routes, e.Route); ok && in.Imported == nil {
+		exit, ok := exitOf(in.Routes, e.Route)
+		if im := in.Imported; im != nil {
+			exit = e.Route
+			_, ok = im.GroupOf(e.Route)
+		}
+		if ok {
 			listeners = append(listeners, map[string]any{
 				"name": ExtraPortListener(e.Port), "type": "mixed", "listen": "127.0.0.1", "port": e.Port, "proxy": exit,
 			})
