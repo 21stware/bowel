@@ -14,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -22,6 +21,7 @@ import (
 	"time"
 
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/nowindow"
 )
 
 // Supported says whether bowel can connect developer tools on this
@@ -105,7 +105,7 @@ func detectNetcat() string {
 	if nc := find("nc"); nc != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		out, _ := exec.CommandContext(ctx, nc, "-h").CombinedOutput()
+		out, _ := nowindow.CommandContext(ctx, nc, "-h").CombinedOutput()
 		if kind := netcatKind(string(out)); kind != "" {
 			return kind
 		}

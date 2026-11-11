@@ -28,6 +28,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/nowindow"
 )
 
 // The tools, by ID.
@@ -157,14 +158,14 @@ func git() string {
 	if p != "/usr/bin/git" || runtime.GOOS != "darwin" {
 		return p
 	}
-	if exec.Command("/usr/bin/xcode-select", "-p").Run() != nil {
+	if nowindow.Command("/usr/bin/xcode-select", "-p").Run() != nil {
 		return ""
 	}
 	return p
 }
 
 func (o Options) cmd(ctx context.Context, name string, args ...string) *exec.Cmd {
-	c := exec.CommandContext(ctx, name, args...)
+	c := nowindow.CommandContext(ctx, name, args...)
 	c.Env = append(os.Environ(), "HOME="+o.Home, "PATH="+strings.Join(binDirs, ":")+":"+os.Getenv("PATH"))
 	return c
 }

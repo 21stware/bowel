@@ -53,6 +53,7 @@ internal/ruleset           rule lists from a link or a file: read, check, store,
 internal/monitor           connections, rates, events, logs, totals
 internal/procinfo          which app owns a local socket (macOS, where the core can't tell)
 internal/netif             what an interface is where its name doesn't say: tunnels, routes, adapters (Linux, Windows)
+internal/nowindow          start a program without a console window (Windows); every exec goes through it, and a test checks
 internal/locate, geo       exit locations
 internal/sysproxy          set, check and restore the system proxy: macOS, Windows, GNOME and KDE
 internal/tun               the one authorisation TUN takes: setuid (macOS), file capabilities (Linux), an elevated task (Windows)

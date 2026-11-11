@@ -3,17 +3,16 @@ package tun
 import (
 	"errors"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/nowindow"
 )
 
 // Task is the core as the scheduled task runs it: elevated, not a child
@@ -90,8 +89,7 @@ func schtasks(args ...string) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(filepath.Join(sys, "schtasks.exe"), args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	cmd := nowindow.Command(filepath.Join(sys, "schtasks.exe"), args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if msg := strings.TrimSpace(string(out)); msg != "" {

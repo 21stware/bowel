@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -33,6 +32,7 @@ import (
 	"github.com/oboo/moho/internal/devnet"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/mcp"
+	"github.com/oboo/moho/internal/nowindow"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
 	"github.com/oboo/moho/internal/sysproxy"
@@ -99,7 +99,7 @@ func startOwnApp() error {
 	if !strings.HasSuffix(bundle, ".app") {
 		return errors.New("not inside an .app; start bowel first")
 	}
-	return exec.Command("open", "-g", bundle).Run()
+	return nowindow.Command("open", "-g", bundle).Run()
 }
 
 // ---- Approval ----
