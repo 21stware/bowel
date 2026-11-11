@@ -25,6 +25,13 @@ if [ "$OS" = windows ]; then
 else
   ASSET="mihomo-$OS-$ARCH-$VERSION.gz"; BIN="mihomo"
 fi
+if [ "$OS" = darwin ]; then
+  # The name a release build's codesign makes the core's identifier of
+  # (dev.moho.app.core): macOS 27 shows the core who opens connections only
+  # under an identifier with a dot. See core.BinName.
+  BIN="dev.moho.app.core.bin"
+  rm -f "$DEST/mihomo" # the name before; mygo would bundle it as well
+fi
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 fetch MetaCubeX/mihomo "$VERSION" "$ASSET" "$TMP/$ASSET"
 # Each step is on its own line so that set -e stops the script when one fails

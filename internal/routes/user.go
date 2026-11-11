@@ -46,13 +46,12 @@ func AllKinds() []string { return append(slices.Clone(Kinds), KindApp) }
 
 // AppRules says whether a rule for an application can work here: whether
 // the core can tell which program opened a connection. It can on Windows
-// and Linux. Not on macOS yet: the core is started detached from the app
-// (core.startCore) so that the kernel would show it the socket list, but a
-// built bowel.app on macOS 27.2 still got "process not found" for every
-// connection, so the kind stays hidden there until that is understood. On
-// Android and iOS no app may read another's sockets. A rule saved
-// elsewhere stays valid here; it only never matches.
-var AppRules = runtime.GOOS == "windows" || runtime.GOOS == "linux"
+// and Linux, and on macOS, where two things make it so: the core is not
+// the app's child (core.startCore) and it is signed under an identifier
+// with a dot in it (core.BinName). On Android and iOS no app may read
+// another's sockets. A rule saved elsewhere stays valid here; it only
+// never matches.
+var AppRules = runtime.GOOS == "windows" || runtime.GOOS == "linux" || runtime.GOOS == "darwin"
 
 // Same reports whether two rules match the same traffic, whatever their
 // routes. Every value but an application's is in lower case already, and

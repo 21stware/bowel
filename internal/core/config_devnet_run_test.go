@@ -28,7 +28,7 @@ import (
 func bundledMihomo(t *testing.T) (bin, geo string) {
 	t.Helper()
 	root := filepath.Join("..", "..", "resources")
-	bin = filepath.Join(root, runtime.GOOS+"-"+runtime.GOARCH, "bin", "mihomo")
+	bin = filepath.Join(root, runtime.GOOS+"-"+runtime.GOARCH, "bin", BinName)
 	if _, err := os.Stat(bin); err != nil || testing.Short() {
 		t.Skip("no bundled core")
 	}

@@ -17,13 +17,14 @@ import (
 
 // detached is the core started so that it is not the app's child.
 //
-// On macOS 27 the kernel's socket list comes back empty to a process whose
-// parent is an app, signed ad hoc or with a Developer ID alike, and the
-// core needs that list to tell which program opened a connection: without
-// it no rule for an application matches, and the core names no process.
-// What counts is the parent the core has now. So a shell starts it in the
-// background and exits, which leaves the core to launchd, and from there
-// it sees every socket.
+// On macOS 27 the kernel's socket list holds only the asking process's own
+// sockets when its parent is an app (or any program that is not Apple's),
+// however either is signed, and the core needs that list to tell which
+// program opened a connection: without it no rule for an application
+// matches, and the core names no process. What counts is the parent the
+// core has now. So a shell starts it in the background and exits, which
+// leaves the core to launchd. That is one of two conditions, measured on
+// macOS 27.2; the other is how the core is signed, which BinName sees to.
 //
 // It is the same process otherwise: its output still comes on a pipe it
 // inherited, so a core that outlives the app ends at its next line, as a

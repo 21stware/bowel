@@ -163,12 +163,14 @@ func newApp() (*App, error) {
 	}
 	bin := bundledCore()
 	tun.CoreDir = filepath.Join(data, "core") // where the core runs, below
-	tunBin := tun.Path(data, filepath.Base(bin))
+	tunBin := tun.Path(data, core.TunName(filepath.Base(bin)))
 	run := bin
 	stale := false
 	if tun.Installed(tunBin) {
-		// A root copy older than this version: while TUN needs it, it stays
-		// until the user authorizes a new one; otherwise the new core runs.
+		// A root copy older than this version, or on macOS one signed under
+		// a name that cannot tell applications apart: while TUN needs it, it
+		// stays until the user authorizes a new one; otherwise the new core
+		// runs.
 		stale = tun.Stale(bin, tunBin)
 		if !stale || st.Get().Tun {
 			run = tunBin
@@ -235,15 +237,13 @@ func storeDir(data, name, goos string) string {
 	return old
 }
 
-// bundledCore finds mihomo: $MOHO_CORE, else bin/mihomo among the resources.
+// bundledCore finds mihomo: $MOHO_CORE, else the file core.BinName in bin
+// among the resources.
 func bundledCore() string {
 	if p := os.Getenv("MOHO_CORE"); p != "" {
 		return p
 	}
-	name := "mihomo"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
+	name := core.BinName
 	dir, _ := mygo.App.Path(mygo.PathResources)
 	if p := filepath.Join(dir, "bin", name); exists(p) {
 		return p
