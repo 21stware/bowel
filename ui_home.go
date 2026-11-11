@@ -19,6 +19,7 @@ import (
 
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/routes"
+	"github.com/oboo/moho/internal/settings"
 )
 
 type homeUI struct {
@@ -2148,7 +2149,7 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 			case t.Tun.Status == "error":
 				status = t.Tun.Detail
 			}
-			kv(c, p, [][2]string{{i18n.T("状态", "Status"), status}, {i18n.T("协议栈", "Stack"), i18n.T("mixed（gVisor + system）", "mixed (gVisor + system)")}, {"DNS", i18n.T("劫持 53 端口 · fake-ip", "Hijacks port 53 · fake-ip")}})
+			kv(c, p, [][2]string{{i18n.T("状态", "Status"), status}, {i18n.T("协议栈", "Stack"), tunStackText(u.snap.Settings.TunStack)}, {"DNS", tunDNSText(u.snap.Settings)}})
 		}, func() {
 			on := t.On && t.Tun.Wanted
 			if ui.Switch(c.Key("tun"), &on).Disabled(u.pending("entry:tun")).Changed() {
@@ -2203,6 +2204,40 @@ func kv(c *ui.Context, p *pal, rows [][2]string) {
 			})
 		}
 	})
+}
+
+// tunStackText is the TUN stack in use (core.TunStacks), with what it is.
+func tunStackText(stack string) string {
+	switch stack {
+	case "mixed":
+		return i18n.T("mixed（TCP 用 system，UDP 用 gVisor）", "mixed (system for TCP, gVisor for UDP)")
+	case "system":
+		return i18n.T("system（系统协议栈）", "system (the system's own stack)")
+	case "gvisor":
+		return i18n.T("gVisor（用户态协议栈）", "gVisor (userspace stack)")
+	}
+	return stack
+}
+
+// tunDNSText is what TUN does with DNS: which queries it takes, and how
+// the core answers them. Gateway mode answers with fake-ip whatever the
+// setting says, as core.Build does.
+func tunDNSText(s settings.Settings) string {
+	mode := s.DNSMode
+	if s.Gateway {
+		mode = "fake-ip"
+	}
+	hijack := i18n.T("劫持 ", "Hijacks ") + strings.Join(s.DNSHijack, ", ")
+	switch {
+	case len(s.DNSHijack) == 0:
+		hijack = i18n.T("不劫持", "No hijack")
+	case !slices.ContainsFunc(s.DNSHijack, func(h string) bool {
+		h = strings.TrimPrefix(strings.TrimPrefix(h, "tcp://"), "udp://")
+		return h != "any:53" && h != "0.0.0.0:53"
+	}):
+		hijack = i18n.T("劫持 53 端口", "Hijacks port 53")
+	}
+	return hijack + " · " + mode
 }
 
 // ---- Routes ----
