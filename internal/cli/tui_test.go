@@ -67,7 +67,8 @@ func screen(t *testing.T) (*tui, *[]string) {
 		"select_node": func(map[string]any) (any, error) { return "ok", nil },
 		"list_connections": func(map[string]any) (any, error) {
 			return map[string]any{"total": 1, "connections": []any{map[string]any{"id": "c1", "app": "curl", "host": "example.com", "port": 443,
-				"route": "default", "node": "香港 01", "status": "active", "start": time.Unix(1700000000, 0)}}}, nil
+				"route": "g1", "routeName": "🎞Netflix", "rule": "RuleSet", "payload": "netflix", "ruleName": "RuleSet(Netflix)",
+				"node": "香港 01", "status": "active", "start": time.Unix(1700000000, 0)}}}, nil
 		},
 		"tail_logs": func(a map[string]any) (any, error) {
 			if a["after"].(float64) > 0 {
@@ -132,7 +133,8 @@ func TestTUIPages(t *testing.T) {
 		}
 	}
 	keys(ui, "2")
-	if s := text(ui); !strings.Contains(s, "curl") || !strings.Contains(s, "example.com:443") || !strings.Contains(s, "[/] Filter") {
+	if s := text(ui); !strings.Contains(s, "curl") || !strings.Contains(s, "example.com:443") || !strings.Contains(s, "[/] Filter") ||
+		!strings.Contains(s, "RuleSet(Netflix)") || !strings.Contains(s, "🎞Netflix") || strings.Contains(s, "g1") {
 		t.Errorf("connections:\n%s", s)
 	}
 	keys(ui, "\t")
