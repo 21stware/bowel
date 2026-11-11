@@ -33,6 +33,27 @@ func TestTunNeedsInstall(t *testing.T) {
 	if !a.tunNeedsInstall() {
 		t.Error("no copy: needs one")
 	}
+	// Linux, issue 71: a copy from before the polkit rule is asked for
+	// once more, and not again once the rule is there.
+	installed = true
+	ruled, asked := false, 0
+	osTun.needsRule = func(string) bool { return !ruled }
+	osTun.install = func(string, string) error { asked++; ruled = true; return nil }
+	m, err := core.New("/old", filepath.Join(t.TempDir(), "core"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a = &App{core: m, tunBin: "/tun"}
+	for i := 0; i < 2; i++ {
+		if a.tunNeedsInstall() {
+			if err := a.installTun(); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if asked != 1 {
+		t.Errorf("asked %d times for the rule, want 1", asked)
+	}
 }
 
 // TestRefusedTunUpdateKeepsCore: refusing leaves the warning and the core.

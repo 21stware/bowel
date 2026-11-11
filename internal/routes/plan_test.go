@@ -320,24 +320,44 @@ func TestExplainLooksInsideRuleSets(t *testing.T) {
 	}
 }
 
-// TestDefaultGoesDirect: the default route can go without a node, and only
-// it can; its strategy is kept, and its node groups with it.
-func TestDefaultGoesDirect(t *testing.T) {
+// TestGroupsGoDirect: a route group can go without a node and keeps its
+// strategy for when it uses one again. The default route keeps its node
+// groups too, for global mode; another keeps a group of its own, so that
+// the core says whose the traffic was. 直连 and 拦截 have no such choice.
+func TestGroupsGoDirect(t *testing.T) {
 	var p Plan
 	p.SetStrategy(Default, ModeFixed, "hk")
 	p.ChangePolicy(Default, func(q *Policy) { q.Direct = true })
-	p.ChangePolicy("ai", func(q *Policy) { q.Direct = true }) // a hand-edited file
+	p.SetStrategy("ai", ModeFixed, "jp")
+	p.ChangePolicy("ai", func(q *Policy) { q.Direct = true })
+	g := p.AddGroup(nil, "Apple")
+	p.ChangePolicy(g, func(q *Policy) { q.Regions, q.Direct = []string{"US"}, true })
+	for _, id := range []string{"direct", Reject} { // a hand-edited file
+		p.ChangePolicy(id, func(q *Policy) { q.Direct = true })
+	}
 	all := Build(p, nil)
 	route := func(id string) Route { return all[slices.IndexFunc(all, func(r Route) bool { return r.ID == id })] }
 	def := route(Default)
 	if !def.Direct || !def.NodeGroups() || def.Policy.Mode != ModeFixed || def.Policy.Fixed != "hk" {
 		t.Errorf("default: %+v", def)
 	}
-	if ai := route("ai"); ai.Direct || !ai.NodeGroups() {
+	if def.OwnExit() {
+		t.Error("the default route has a group for going direct: MATCH says whose the traffic is")
+	}
+	if ai := route("ai"); !ai.Direct || ai.NodeGroups() || !ai.OwnExit() || ai.Policy.Mode != ModeFixed || ai.Policy.Fixed != "jp" {
 		t.Errorf("ai: %+v", ai)
 	}
-	if d := route("direct"); !d.Direct || d.NodeGroups() {
-		t.Errorf("direct: %+v", d)
+	if r := route(g); !r.Direct || r.NodeGroups() || !r.OwnExit() || !slices.Equal(r.Policy.Regions, []string{"US"}) {
+		t.Errorf("a group of the user's: %+v", r)
+	}
+	for _, id := range []string{"direct", Reject} {
+		if r := route(id); !r.Direct || r.NodeGroups() || r.OwnExit() || ChoosesExit(id) {
+			t.Errorf("%s: %+v", id, r)
+		}
+	}
+	p.ChangePolicy("ai", func(q *Policy) { q.Direct = false })
+	if ai := Build(p, nil)[slices.IndexFunc(all, func(r Route) bool { return r.ID == "ai" })]; ai.Direct || !ai.NodeGroups() || ai.OwnExit() || ai.Policy.Fixed != "jp" {
+		t.Errorf("ai back on a node: %+v", ai)
 	}
 	if err := p.Check(); err != nil {
 		t.Error(err)

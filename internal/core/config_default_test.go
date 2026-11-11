@@ -18,6 +18,7 @@ import (
 
 	"github.com/oboo/moho/internal/devnet"
 	"github.com/oboo/moho/internal/routes"
+	"gopkg.in/yaml.v3"
 )
 
 func directDefault(users []routes.UserRule) []routes.Route {
@@ -45,9 +46,10 @@ func TestDefaultGoesDirect(t *testing.T) {
 	}
 }
 
-// Through the real core: a name no rule matches leaves DIRECT, while one a
-// rule matches still leaves by its group.
-func TestDefaultGoesDirectRuns(t *testing.T) {
+// goesBy runs the real core on routes all and asks it for each host of
+// want, which is to go the way the core's log then says.
+func goesBy(t *testing.T, all []routes.Route, users []routes.UserRule, want map[string]string) {
+	t.Helper()
 	bin, geo := bundledMihomo(t)
 	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok "+r.Host) }))
 	defer web.Close()
@@ -60,9 +62,8 @@ func TestDefaultGoesDirectRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	users := []routes.UserRule{{Kind: routes.KindSuffix, Value: "hit.bowel-test.dev", Route: "ai"}}
 	in := devInput("rule", devnet.Overlay{})
-	in.Routes, in.UserRules = directDefault(users), users
+	in.Routes, in.UserRules = all, users
 	in.MixedPort, in.ProbePort, in.FindProcess = port, probe, "off"
 	in.Options.NameserverPolicy = []string{"+.bowel-test.dev=" + answerDNS(t)}
 	b, err := BuildConfig(in)
@@ -98,7 +99,7 @@ func TestDefaultGoesDirectRuns(t *testing.T) {
 	}
 	proxy, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
 	client := &http.Client{Timeout: 8 * time.Second, Transport: &http.Transport{Proxy: http.ProxyURL(proxy), DisableKeepAlives: true}}
-	for host, via := range map[string]string{"miss.bowel-test.dev": "match Match using DIRECT", "api.hit.bowel-test.dev": "using AI 服务"} {
+	for host, via := range want {
 		// The core's port opens a moment before its resolver is ready.
 		var res *http.Response
 		var body []byte
@@ -130,4 +131,69 @@ func TestDefaultGoesDirectRuns(t *testing.T) {
 			t.Errorf("%s did not go %q:\n%s", host, via, log.String())
 		}
 	}
+}
+
+// Through the real core: a name no rule matches leaves DIRECT, while one a
+// rule matches still leaves by its group.
+func TestDefaultGoesDirectRuns(t *testing.T) {
+	users := []routes.UserRule{{Kind: routes.KindSuffix, Value: "hit.bowel-test.dev", Route: "ai"}}
+	goesBy(t, directDefault(users), users, map[string]string{
+		"miss.bowel-test.dev": "match Match using DIRECT", "api.hit.bowel-test.dev": "using AI 服务"})
+}
+
+func directGroup(users []routes.UserRule) []routes.Route {
+	var p routes.Plan
+	p.SetStrategy("ai", routes.ModeOrder, "")
+	p.ChangePolicy("ai", func(q *routes.Policy) { q.Direct = true })
+	return routes.Build(p, users)
+}
+
+// TestGroupGoesDirect: a route group that goes direct keeps its rules and
+// its name in the core, as a group holding DIRECT alone, and none of its
+// node groups. The other groups, and what no rule matched, go as before.
+func TestGroupGoesDirect(t *testing.T) {
+	users := []routes.UserRule{{Kind: routes.KindSuffix, Value: "corp.example", Route: "ai"}}
+	out, err := BuildConfig(Input{Routes: directGroup(users), UserRules: users, Mode: "rule", MixedPort: 7899, ProbePort: 7900, TestURL: "x",
+		Orders: map[string][]string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Groups []struct {
+			Name, Type string
+			Proxies    []string
+		} `yaml:"proxy-groups"`
+		Rules []string
+	}
+	if err := yaml.Unmarshal(out, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, g := range cfg.Groups {
+		if strings.HasPrefix(g.Name, "AI 服务·") {
+			t.Errorf("a node group of a group that goes direct: %+v", g)
+		}
+		if g.Name == "AI 服务" {
+			found = true
+			if g.Type != "select" || !slices.Equal(g.Proxies, []string{"DIRECT"}) {
+				t.Errorf("its group: %+v", g)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("no group of its own: %+v", cfg.Groups)
+	}
+	for _, want := range []string{"DOMAIN-SUFFIX,corp.example,AI 服务", "DOMAIN-SUFFIX,openai.com,AI 服务", "DOMAIN-SUFFIX,github.com,开发", "MATCH,默认"} {
+		if !slices.Contains(cfg.Rules, want) {
+			t.Errorf("rules lack %q:\n%s", want, strings.Join(cfg.Rules, "\n"))
+		}
+	}
+}
+
+// Through the real core: what the group's rules match leaves DIRECT, by
+// the group's name, and the rest still goes by the default route's group.
+func TestGroupGoesDirectRuns(t *testing.T) {
+	users := []routes.UserRule{{Kind: routes.KindSuffix, Value: "hit.bowel-test.dev", Route: "ai"}}
+	goesBy(t, directGroup(users), users, map[string]string{
+		"api.hit.bowel-test.dev": "using AI 服务[DIRECT]", "miss.bowel-test.dev": "match Match using 默认"})
 }

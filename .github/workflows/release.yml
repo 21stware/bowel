@@ -207,6 +207,7 @@ jobs:
           path: |
             build/*/bowel-setup-*.exe
             build/*/install.ps1
+            build/linux-amd64/install.sh
             build/*/bowel-*-linux-*.tar.gz
             build/*/bowel-*-windows-*.tar.gz
             build/*/bowel-*.delta

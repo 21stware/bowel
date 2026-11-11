@@ -62,6 +62,12 @@ func Internal(r Route, name string) bool { return strings.HasPrefix(name, r.Name
 // route keeps its own while it goes direct: global mode still uses them.
 func (r Route) NodeGroups() bool { return !r.Direct || r.ID == Default && r.Policy.Direct }
 
+// OwnExit says whether a route that goes direct by the user's choice keeps
+// a group of its own in the core, holding DIRECT alone: the core then names
+// the group for its connections, as it does for one that uses nodes. The
+// default route has none, since MATCH is the rule that says whose they are.
+func (r Route) OwnExit() bool { return r.Policy.Direct && r.ID != Default && ChoosesExit(r.ID) }
+
 // Title is a route's name as the interface shows it. Name stays the
 // mihomo group's, in Chinese, so that configs and choices keep across a
 // change of language.
