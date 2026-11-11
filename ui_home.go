@@ -55,6 +55,10 @@ type homeUI struct {
 	// the frame it was built: frame counts the board's frames.
 	copies map[string]shareRec
 	frame  int
+	// The shared pieces in place, in the order a frame builds them: an
+	// Element is not kept beyond the call that built it.
+	pieces []*ui.Handle
+	placed int
 
 	mapView mapView               // the expanded map's pan and zoom
 	walls   map[string]*wallPaths // twisted borders' paths, by cell
@@ -148,7 +152,7 @@ var morphText = ui.ContentTransition{Morph: true}
 // frame before), and shows once the view has arrived.
 type sharedPiece struct {
 	key   string
-	at    ui.Element // in place, in its view
+	at    *ui.Handle // in place, in its view
 	build func(c *ui.Context) ui.Element
 }
 
@@ -177,10 +181,10 @@ func (u *UI) share(c *ui.Context, m any, key string, build func(c *ui.Context) u
 	case shareCell == "":
 		return e.Transition(fly(m))
 	case noFly:
-		leftOver = append(leftOver, sharedPiece{key: key, at: e})
+		leftOver = append(leftOver, sharedPiece{key: key, at: u.home.place(e)})
 		return e.Transition(fly(m))
 	}
-	shared = append(shared, sharedPiece{key: key, at: e, build: build})
+	shared = append(shared, sharedPiece{key: key, at: u.home.place(e), build: build})
 	if shareLift && u.home.hadCopy(shareCell+"/"+key) {
 		return e.Opacity(0) // its copy shows it on its way
 	}
@@ -218,6 +222,18 @@ func glide(e ui.Element, name string, v float32, move bool) float32 {
 	return e.AnimateTo(name, v, motion)
 }
 
+// place binds e, a shared piece in place, to a handle of this frame, by
+// which drawShared finds it once its view is built.
+func (h *homeUI) place(e ui.Element) *ui.Handle {
+	if h.placed == len(h.pieces) {
+		h.pieces = append(h.pieces, new(ui.Handle))
+	}
+	r := h.pieces[h.placed]
+	h.placed++
+	e.Bind(r)
+	return r
+}
+
 func (h *homeUI) hadCopy(k string) bool {
 	r, ok := h.copies[k]
 	return ok && r.frame == h.frame-1
@@ -235,7 +251,8 @@ func (u *UI) drawShared(c *ui.Context, cell string, in ui.Element, lift bool) {
 		k := cell + "/" + s.key
 		had := h.hadCopy(k)
 		rel := h.copies[k].rel
-		if b := s.at.LayoutBounds(); view.W > 0 && (b.W > 0 || b.H > 0) {
+		at := c.Resolve(*s.at)
+		if b := at.LayoutBounds(); view.W > 0 && (b.W > 0 || b.H > 0) {
 			rel = steady(rel, ui.Rect{X: b.X - view.X, Y: b.Y - view.Y, W: b.W, H: b.H})
 		} else if !had {
 			continue // no place for it yet: its piece shows in place
@@ -243,7 +260,7 @@ func (u *UI) drawShared(c *ui.Context, cell string, in ui.Element, lift bool) {
 		move := lift && had
 		cp := s.build(c.Key("share-" + s.key))
 		if shareTrace != nil && move {
-			shareTrace(k, cp.LayoutBounds(), s.at.LayoutBounds())
+			shareTrace(k, cp.LayoutBounds(), at.LayoutBounds())
 		}
 		// Only its place glides: laid out at its own size all the way, a
 		// title never wraps in a box narrower than it on its way; the
@@ -255,7 +272,7 @@ func (u *UI) drawShared(c *ui.Context, cell string, in ui.Element, lift bool) {
 	}
 	for _, s := range leftOver {
 		if keys[s.key] {
-			s.at.Opacity(0)
+			c.Resolve(*s.at).Opacity(0)
 		}
 	}
 	shared, leftOver = shared[:0], leftOver[:0]
@@ -377,6 +394,7 @@ func (u *UI) homePage(c *ui.Context, p *pal) {
 	ncols, nrows := u.tracks("")
 	normal := boxes(ncols, nrows, w, hh)
 	h.frame++
+	h.placed = 0
 	for k, r := range h.copies {
 		if r.frame < h.frame-1 {
 			delete(h.copies, k)
