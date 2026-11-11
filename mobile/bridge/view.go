@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/oboo/moho/internal/core"
+	"github.com/oboo/moho/internal/geo"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/mihomo"
 	"github.com/oboo/moho/internal/provider"
@@ -198,7 +199,7 @@ func (x *bridge) view() viewData {
 			// A pasted link's node goes by its Provider's name, so renaming
 			// the Provider renames the node, as on the desktop.
 			if len(names) == 1 && p.Kind == provider.Link {
-				nv.Display = pname
+				nv.Display = geo.Visible(pname)
 			}
 			v.Nodes = append(v.Nodes, nv)
 		}
@@ -375,7 +376,7 @@ func providerOf(node string) string {
 }
 
 func nodeView(name, provider string, p mihomo.Proxy) nodeData {
-	n := nodeData{Name: name, Display: display(name), Provider: provider, Type: p.Type, Where: placeOf(name), Source: "按名称"}
+	n := nodeData{Name: name, Display: geo.Visible(display(name)), Provider: provider, Type: p.Type, Where: placeOf(name), Source: "按名称"}
 	if n.Where.City == "" && n.Where.Country == "" {
 		n.Source = "未知"
 	}

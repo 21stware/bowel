@@ -15,6 +15,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"github.com/oboo/moho/internal/geo"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
@@ -431,7 +432,7 @@ func (u *UI) nodeDisplay(name string) string {
 	if n, ok := u.node(name); ok {
 		return n.Display
 	}
-	return display(name)
+	return geo.Visible(display(name))
 }
 
 // nodeFlag2 is a node's flag as text, with a space after it.

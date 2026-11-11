@@ -1816,15 +1816,17 @@ func display(node string) string {
 // all of a pasted link provider goes by the provider's name. That name was
 // taken from the link's #fragment, so renaming the provider renames the node
 // for people; mihomo keeps the node's name, and with it the choices made.
+// Either goes without the characters providers hide in a name
+// (geo.Visible), so that a name is found by what it reads as.
 // provNodes is the providers' nodes, as a.provNodes.
 func (a *App) label(provNodes map[string][]string, node string) string {
 	id := providerOf(node)
 	if len(provNodes[id]) == 1 {
 		if p, ok := a.providers.Get(id); ok && p.Kind == provider.Link {
-			return trimFlag(p.Name)
+			return trimFlag(geo.Visible(p.Name))
 		}
 	}
-	return trimFlag(display(node))
+	return trimFlag(geo.Visible(display(node)))
 }
 
 // trimFlag drops a flag emoji leading a name ("🇺🇸美国纽约" is "美国纽约"):
