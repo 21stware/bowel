@@ -309,6 +309,8 @@ func TestListenErrorFromCoreLog(t *testing.T) {
 		{"reserved on windows", `Start Mixed(http+socks) server error: listen tcp 127.0.0.1:7899: bind: An attempt was made to access a socket in a way forbidden by its access permissions.`, "7899"},
 		{"all interfaces", `Start HTTP server error: listen tcp :8080: bind: address already in use`, "8080"},
 		{"socks", `Start SOCKS server error: listen tcp [::1]:1080: bind: address already in use`, "1080"},
+		{"an extra port", `Listener bowel-port-7901 listen err: listen tcp 127.0.0.1:7901: bind: address already in use`, "7901"},
+		{"the probe's is not the user's", `Listener moho-probe listen err: listen tcp 127.0.0.1:7900: bind: address already in use`, ""},
 		{"dns is not the proxy", `Start DNS server error: listen udp 127.0.0.1:1053: bind: address already in use`, ""},
 		{"not a bind", `Start Mixed(http+socks) server error: too many open files`, ""},
 	} {

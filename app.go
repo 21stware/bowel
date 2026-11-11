@@ -1137,6 +1137,12 @@ func (a *App) updateSettings(fn func(*settings.Settings)) error {
 	return a.updateSettingsAnd(fn, false)
 }
 
+// listenPorts are the ports the core listens on with settings s, the probe's
+// aside; 0 for one that is off.
+func listenPorts(s settings.Settings) []int {
+	return append([]int{s.MixedPort, s.HTTPPort, s.SocksPort, s.ExtPort()}, s.ExtraPortNumbers()...)
+}
+
 // updateSettingsAnd is updateSettings; with reapply the core's config is
 // built again even when the settings leave it as it was, for a change that
 // comes with other providers or rule sets (importConfig).
@@ -1152,22 +1158,26 @@ func (a *App) updateSettingsAnd(fn func(*settings.Settings), reapply bool) error
 		return err
 	}
 	// A port the core does not listen on yet must be free.
-	for _, p := range [][2]int{{old.MixedPort, next.MixedPort}, {old.HTTPPort, next.HTTPPort},
-		{old.SocksPort, next.SocksPort}, {old.ExtPort(), next.ExtPort()}} {
-		if p[1] == 0 || p[1] == p[0] {
-			continue
-		}
-		if p[1] == a.probePort {
-			return fmt.Errorf(i18n.T("端口 %d 已被 bowel 自己占用", "Port %d is taken by bowel itself"), p[1])
-		}
-		if slices.Contains([]int{old.MixedPort, old.HTTPPort, old.SocksPort, old.ExtPort()}, p[1]) {
+	had := listenPorts(old)
+	for _, p := range listenPorts(next) {
+		if p == 0 || slices.Contains(had, p) {
 			continue // the core's already: it moves between listeners on reload
 		}
-		l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p[1]))
+		if p == a.probePort {
+			return fmt.Errorf(i18n.T("端口 %d 已被 bowel 自己占用", "Port %d is taken by bowel itself"), p)
+		}
+		l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
 		if err != nil {
-			return fmt.Errorf(i18n.T("端口 %d 被其他程序占用", "Port %d is taken by another program"), p[1])
+			return fmt.Errorf(i18n.T("端口 %d 被其他程序占用", "Port %d is taken by another program"), p)
 		}
 		l.Close()
+	}
+	// An extra port is given a route group there is. One whose group is
+	// deleted later stays in the settings, closed.
+	for _, e := range next.ExtraPorts {
+		if !slices.Contains(old.ExtraPorts, e) && !slices.ContainsFunc(routes.Build(next.Routing, nil), func(r routes.Route) bool { return r.ID == e.Route }) {
+			return fmt.Errorf(i18n.T("端口 %d 指向不存在的路由组: %s", "Port %d points at a route group that doesn't exist: %s"), e.Port, e.Route)
+		}
 	}
 	if _, err := a.settings.Update(func(s *settings.Settings) { *s = next }); err != nil {
 		return err
