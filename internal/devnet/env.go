@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/oboo/moho/internal/netif"
+	"github.com/oboo/moho/internal/nowindow"
 )
 
 // Env is what this machine's networks look like now.
@@ -122,7 +123,7 @@ func detectTailscale(ctx context.Context) Tailscale {
 			continue
 		}
 		c, cancel := context.WithTimeout(ctx, 3*time.Second)
-		out, err := exec.CommandContext(c, path, "status", "--json").Output()
+		out, err := nowindow.CommandContext(c, path, "status", "--json").Output()
 		cancel()
 		if err != nil && len(out) == 0 {
 			return Tailscale{Installed: true}
