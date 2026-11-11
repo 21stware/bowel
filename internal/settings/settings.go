@@ -133,39 +133,85 @@ func Open(dir string) (*Store, error) {
 	}
 	// A clone: decoding reuses the lists' arrays, which must not be Defaults'.
 	st := &Store{path: filepath.Join(dir, "settings.json"), s: Defaults.Clone()}
-	if b, err := os.ReadFile(st.path); err == nil {
-		_ = json.Unmarshal(b, &st.s)
-		st.s.IPv6 = migrateIPv6(b, st.s.IPv6)
+	b, err := os.ReadFile(st.path)
+	if err != nil {
+		b = []byte("{}") // no file yet: the defaults
 	}
-	if st.s.Language == "" {
-		st.s.Language = Defaults.Language
-	}
-	if st.s.Accent == "" {
-		st.s.Accent = Defaults.Accent
-	}
-	if st.s.Appearance == "" {
-		st.s.Appearance = Defaults.Appearance
-	}
-	if st.s.Borders == "" {
-		st.s.Borders = Defaults.Borders
-	}
-	if st.s.Skin == "" {
-		st.s.Skin = Defaults.Skin
-	}
-	if st.s.MixedPort == 0 {
-		st.s.MixedPort = Defaults.MixedPort
-	}
-	if st.s.Mode == "" {
-		st.s.Mode = Defaults.Mode
-	}
-	if st.s.TestURL == "" {
-		st.s.TestURL = Defaults.TestURL
-	}
-	if st.s.LogLevel == "" {
-		st.s.LogLevel = Defaults.LogLevel
-	}
-	st.s.Options.Fill()
+	st.s, _ = Decode(b)
 	return st, nil
+}
+
+// Decode is the settings a settings.json holds: what it leaves out is the
+// default, and what older versions wrote is brought up to date. With an
+// error it is still the settings as far as they could be read.
+func Decode(b []byte) (Settings, error) {
+	s := Defaults.Clone()
+	err := json.Unmarshal(b, &s)
+	s.IPv6 = migrateIPv6(b, s.IPv6)
+	if s.Language == "" {
+		s.Language = Defaults.Language
+	}
+	if s.Accent == "" {
+		s.Accent = Defaults.Accent
+	}
+	if s.Appearance == "" {
+		s.Appearance = Defaults.Appearance
+	}
+	if s.Borders == "" {
+		s.Borders = Defaults.Borders
+	}
+	if s.Skin == "" {
+		s.Skin = Defaults.Skin
+	}
+	if s.MixedPort == 0 {
+		s.MixedPort = Defaults.MixedPort
+	}
+	if s.Mode == "" {
+		s.Mode = Defaults.Mode
+	}
+	if s.TestURL == "" {
+		s.TestURL = Defaults.TestURL
+	}
+	if s.LogLevel == "" {
+		s.LogLevel = Defaults.LogLevel
+	}
+	s.Options.Fill()
+	return s, err
+}
+
+// takeMachine makes s's settings of the machine those of from: what
+// depends on the computer bowel runs on, or decides who reaches it, and so
+// has no business in a configuration carried to another. They are the
+// takeover and the gateway, the ports and the LAN's access, the interface
+// and the TUN device's name, the developer networks, the dashboards'
+// controller, and what agents may change. The rest travels (see the test's
+// list of every key).
+func (s *Settings) takeMachine(from Settings) {
+	from = from.Clone()
+	s.SystemProxy, s.Tun, s.Paused, s.Gateway = from.SystemProxy, from.Tun, from.Paused, from.Gateway
+	s.MixedPort, s.AllowLan = from.MixedPort, from.AllowLan
+	s.MCPPolicy = from.MCPPolicy
+	s.HTTPPort, s.SocksPort = from.HTTPPort, from.SocksPort
+	s.Authentication, s.LanAllowedIPs = from.Authentication, from.LanAllowedIPs
+	s.Interface, s.TunDevice = from.Interface, from.TunDevice
+	s.DevOff, s.DevOffScenarios, s.DevExtra = from.DevOff, from.DevOffScenarios, from.DevExtra
+	s.ExtController, s.ExtSecret = from.ExtController, from.ExtSecret
+}
+
+// Portable is s as it is exported: the settings of the machine are the
+// defaults, so the file says nothing of them.
+func Portable(s Settings) Settings {
+	s = s.Clone()
+	s.takeMachine(Defaults)
+	return s
+}
+
+// KeepMachine is imported as it is used on this machine: local's settings
+// of the machine stay.
+func KeepMachine(local, imported Settings) Settings {
+	imported = imported.Clone()
+	imported.takeMachine(local)
+	return imported
 }
 
 // migrateIPv6 turns the true of a file from before the modes into Auto:

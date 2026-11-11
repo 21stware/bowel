@@ -1080,6 +1080,7 @@ func (u *UI) aboutSection(c *ui.Context, p *pal, _ settings.Settings) {
 			u.setOpt((*settings.Settings).ResetCore)
 		})
 	})
+	u.backupRows(c, p)
 }
 
 // ---- Parts ----

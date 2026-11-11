@@ -4,6 +4,10 @@
 它随应用打包，显示在“更新内容”窗口里；`mygo build` 也从这里取升级包的说明，
 签名发布时缺少当前版本的一节会构建失败。发版时把 Unreleased 改成版本号。
 
+## [Unreleased]
+
+- 可以导出和导入配置：设置 > 关于里把设置、Provider、规则和规则集存成一个 `.bowel` 文件，换电脑或重装后导入；可选密码加密。端口、局域网、TUN 等本机设置不会写进文件，导入时也保持不变；导入后可以撤销。命令行是 `bowel config export <文件>` 和 `bowel config import <文件>`
+
 ## [0.3.0] - 2026-11-10
 
 - Windows 和 Linux 支持 TUN：第一次开启时授权一次（Windows 是 UAC，Linux 通过 polkit），之后开关不再询问

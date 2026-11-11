@@ -27,6 +27,7 @@ import (
 
 	"github.com/egoist/mygo"
 
+	"github.com/oboo/moho/internal/backup"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/mcp"
 	"github.com/oboo/moho/internal/provider"
@@ -285,6 +286,59 @@ func (a *App) cliTools() []mcp.Tool {
 			},
 		},
 		{
+			Name: "config_export", Title: "Export the configuration",
+			Description: "Writes the settings, providers and rule sets to a file (path, absolute), sealed with password if one is given. Only for the user's own command.",
+			Input:       obj(map[string]any{"path": str("An absolute path."), "password": str("Seals the file; empty for none.")}),
+			Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
+				var p struct{ Path, Password string }
+				if err := mcp.Args(raw, &p); err != nil {
+					return nil, err
+				}
+				if err := userOnly(s, p.Path); err != nil {
+					return nil, err
+				}
+				if err := a.exportConfig(p.Path, p.Password); err != nil {
+					return nil, err
+				}
+				return map[string]any{"path": p.Path, "encrypted": p.Password != "", "providers": len(a.providers.List())}, nil
+			},
+		},
+		{
+			Name: "config_import", Title: "Import a configuration", Destructive: true,
+			Description: "Replaces the settings, providers and rule sets with those of an exported file (path, absolute), keeping this machine's own settings; or, with undo, puts back what the last import replaced. Only for the user's own command.",
+			Input:       obj(map[string]any{"path": str("An absolute path."), "password": str("The file's password, if it has one."), "undo": map[string]any{"type": "boolean", "description": "Undo the last import instead."}}),
+			Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
+				var p struct {
+					Path, Password string
+					Undo           bool
+				}
+				if err := mcp.Args(raw, &p); err != nil {
+					return nil, err
+				}
+				if p.Undo {
+					p.Path = a.undoImportPath()
+				}
+				if err := userOnly(s, p.Path); err != nil {
+					return nil, err
+				}
+				var err error
+				if p.Undo {
+					err = a.undoImport()
+				} else {
+					err = a.importConfig(p.Path, p.Password)
+				}
+				if backup.IsPassword(err) {
+					// Said apart from other failures: the command asks and
+					// tries again.
+					return map[string]any{"imported": false, "needPassword": true, "message": err.Error()}, nil
+				}
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{"imported": true, "undone": p.Undo, "providers": len(a.providers.List())}, nil
+			},
+		},
+		{
 			Name: "stop", Title: "Quit bowel", Destructive: true,
 			Description: "Quits bowel: the system proxy and the gateway go back as they were, and the core ends.",
 			Run: func(ctx context.Context, s *mcp.Session, _ json.RawMessage) (any, error) {
@@ -300,6 +354,19 @@ func (a *App) cliTools() []mcp.Tool {
 			},
 		},
 	}
+}
+
+// userOnly refuses what only the user may do with a file: an export holds
+// the subscription links, and an import replaces everything, so neither is
+// an agent's to run, whatever the policy.
+func userOnly(s *mcp.Session, path string) error {
+	if !isLocal(s) {
+		return errors.New(i18n.T("导出和导入配置只能由用户自己操作", "Only the user can export or import the configuration"))
+	}
+	if !filepath.IsAbs(path) {
+		return errors.New("path must be absolute")
+	}
+	return nil
 }
 
 // quit ends bowel as its menu's 退出 does, or ends a run without a window.

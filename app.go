@@ -1019,6 +1019,13 @@ func appOnly(old, next settings.Settings) bool {
 }
 
 func (a *App) updateSettings(fn func(*settings.Settings)) error {
+	return a.updateSettingsAnd(fn, false)
+}
+
+// updateSettingsAnd is updateSettings; with reapply the core's config is
+// built again even when the settings leave it as it was, for a change that
+// comes with other providers or rule sets (importConfig).
+func (a *App) updateSettingsAnd(fn func(*settings.Settings), reapply bool) error {
 	a.setMu.Lock() // one change at a time: each starts from the last
 	defer a.setMu.Unlock()
 	done := a.begin("settings")
@@ -1054,7 +1061,7 @@ func (a *App) updateSettings(fn func(*settings.Settings)) error {
 	if appearanceOf(next) != appearanceOf(old) && !a.headless {
 		mygo.Theme.SetSource(mygo.ThemeSource(appearanceOf(next)))
 	}
-	if appOnly(old, next) { // the core does not care
+	if !reapply && appOnly(old, next) { // the core does not care
 		var err error
 		if !reflect.DeepEqual(old.Routing, next.Routing) {
 			err = a.followPolicies()
@@ -1860,6 +1867,7 @@ func (a *App) snapshot() Snapshot {
 		Mode: s.Mode, Pending: pending, Version: mygo.App.Version(), RuleCount: a.ruleCount(s),
 		Settings: s, ConfigPath: a.core.ConfigPath(), OpenAtLogin: openAtLogin, RuleSets: a.ruleSetViews(s),
 		ControllerTCP: a.core.TCPAddr(),
+		CanUndoImport: a.canUndoImport(),
 		Core:          Core{State: string(cs.State), Version: cs.Version, Error: cs.Error},
 		Routes:        []RouteView{},
 		Nodes:         []NodeView{},

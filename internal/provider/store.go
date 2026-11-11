@@ -267,6 +267,52 @@ func (s *Store) Delete(id string) error {
 	return s.saveLocked()
 }
 
+// Snapshot is every provider and its file's content by id, as they are now:
+// what an export holds, and what Replace takes back.
+func (s *Store) Snapshot() ([]Provider, map[string][]byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	files := map[string][]byte{}
+	for _, p := range s.items {
+		if b, err := os.ReadFile(s.Path(p.ID)); err == nil {
+			files[p.ID] = b
+		}
+	}
+	return slices.Clone(s.items), files
+}
+
+// Replace makes the store hold items and nothing else, each with its
+// content from files. Every item needs content; nothing is changed if one
+// has none. Files are replaced whole, as the core may be reading them.
+func (s *Store) Replace(items []Provider, files map[string][]byte) error {
+	seen := map[string]bool{}
+	for _, p := range items {
+		if _, ok := files[p.ID]; !ok || p.ID == "" || p.ID != filepath.Base(p.ID) || seen[p.ID] {
+			return fmt.Errorf(i18n.T("Provider %s 的内容不完整", "Provider %s is incomplete"), firstNonEmpty(p.Name, p.ID))
+		}
+		seen[p.ID] = true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range items {
+		tmp := s.Path(p.ID) + ".tmp"
+		if err := os.WriteFile(tmp, files[p.ID], 0o600); err != nil {
+			return err
+		}
+		if err := os.Rename(tmp, s.Path(p.ID)); err != nil {
+			return err
+		}
+	}
+	entries, _ := os.ReadDir(s.dir)
+	for _, e := range entries {
+		if id, ok := strings.CutSuffix(e.Name(), ".txt"); ok && !seen[id] {
+			_ = os.Remove(filepath.Join(s.dir, e.Name()))
+		}
+	}
+	s.items = slices.Clone(items)
+	return s.saveLocked()
+}
+
 // looksLikeNodes rejects content mihomo would read as zero nodes: an HTML
 // error page, an empty answer.
 func looksLikeNodes(data []byte) error {
