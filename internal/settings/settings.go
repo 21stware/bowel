@@ -194,7 +194,7 @@ func (s *Settings) takeMachine(from Settings) {
 	s.SystemProxy, s.Tun, s.Paused, s.Gateway = from.SystemProxy, from.Tun, from.Paused, from.Gateway
 	s.MixedPort, s.AllowLan = from.MixedPort, from.AllowLan
 	s.MCPPolicy = from.MCPPolicy
-	s.HTTPPort, s.SocksPort = from.HTTPPort, from.SocksPort
+	s.HTTPPort, s.SocksPort, s.ExtraPorts = from.HTTPPort, from.SocksPort, from.ExtraPorts
 	s.Authentication, s.LanAllowedIPs = from.Authentication, from.LanAllowedIPs
 	s.Interface, s.TunDevice = from.Interface, from.TunDevice
 	s.DevOff, s.DevOffScenarios, s.DevExtra = from.DevOff, from.DevOffScenarios, from.DevExtra
@@ -308,6 +308,7 @@ func (s *Settings) ResetCore() {
 	s.LogLevel, s.TestURL, s.Bypass, s.Options = d.LogLevel, d.TestURL, d.Bypass, d.Options
 	s.RouteTargets = nil
 	s.HTTPPort, s.SocksPort, s.Authentication, s.LanAllowedIPs = keep.HTTPPort, keep.SocksPort, keep.Authentication, keep.LanAllowedIPs
+	s.ExtraPorts = keep.ExtraPorts
 	s.ExtController, s.ExtSecret = keep.ExtController, keep.ExtSecret
 }
 
@@ -347,7 +348,7 @@ func (s Settings) Validate() error {
 	}
 	// Every listener on a port of its own.
 	ports := map[int]bool{s.MixedPort: true}
-	for _, p := range []int{s.HTTPPort, s.SocksPort, s.ExtPort()} {
+	for _, p := range append([]int{s.HTTPPort, s.SocksPort, s.ExtPort()}, s.ExtraPortNumbers()...) {
 		if p > 0 && ports[p] {
 			return fmt.Errorf(i18n.T("端口 %d 用了两次", "Port %d is used twice"), p)
 		}

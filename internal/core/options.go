@@ -16,6 +16,15 @@ import (
 	"github.com/oboo/moho/internal/i18n"
 )
 
+// ExtraPort is a mixed port on 127.0.0.1 whose traffic all leaves by one
+// route group, whatever the rules and the mode say: two programs given
+// different ports reach the same site by different exits. Route is the
+// route's id, so that renaming the group keeps the port.
+type ExtraPort struct {
+	Port  int    `json:"port"`
+	Route string `json:"route"`
+}
+
 // Options are the core's options the 设置 window edits, as Clash clients
 // expose them. Settings embeds them, so their JSON keys sit at the top of
 // settings.json.
@@ -28,6 +37,9 @@ type Options struct {
 	// skip it, so it only asks the LAN.
 	Authentication []string `json:"authentication"`
 	LanAllowedIPs  []string `json:"lanAllowedIps"`
+	// ExtraPorts are mixed ports of this machine alone, each for one route
+	// group; see ExtraPort.
+	ExtraPorts []ExtraPort `json:"extraPorts"`
 
 	// Core.
 	IPv6          IPv6Mode `json:"ipv6"`
@@ -199,6 +211,7 @@ func (o Options) Clone() Options {
 	for _, l := range o.lists() {
 		*l = slices.Clone(*l)
 	}
+	o.ExtraPorts = slices.Clone(o.ExtraPorts)
 	return o
 }
 
@@ -265,6 +278,14 @@ func (o Options) Validate() error {
 	}{{i18n.T("HTTP 端口", "The HTTP port"), o.HTTPPort}, {i18n.T("SOCKS 端口", "The SOCKS port"), o.SocksPort}} {
 		if p.v < 0 || p.v > 65535 {
 			return fmt.Errorf(i18n.T("%s要在 0 到 65535 之间", "%s must be between 0 and 65535"), p.name)
+		}
+	}
+	for _, e := range o.ExtraPorts {
+		if e.Port < 1 || e.Port > 65535 {
+			return errors.New(i18n.T("端口要在 1 到 65535 之间", "The port must be between 1 and 65535"))
+		}
+		if e.Route == "" {
+			return fmt.Errorf(i18n.T("端口 %d 没有写路由组", "Port %d names no route group"), e.Port)
 		}
 	}
 	for _, a := range o.Authentication {
@@ -381,6 +402,15 @@ func (o Options) Validate() error {
 		return errors.New(i18n.T("密钥不能有空格", "The secret cannot have spaces"))
 	}
 	return nil
+}
+
+// ExtraPortNumbers are the ports of ExtraPorts.
+func (o Options) ExtraPortNumbers() []int {
+	var out []int
+	for _, e := range o.ExtraPorts {
+		out = append(out, e.Port)
+	}
+	return out
 }
 
 // ExtPort is the extra controller's port, 0 without one.

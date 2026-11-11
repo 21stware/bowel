@@ -114,7 +114,7 @@ func tree() *Command {
 				{Name: "list", Aliases: []string{"ls"}, Short: words{"列出所有设置", "List every setting"}, Examples: []string{"bowel settings list"}, Run: runSettingsList},
 				{Name: "get", Args: "<key>", Min: 1, Max: 1, Short: words{"读取一项设置", "Read one setting"}, Examples: []string{"bowel settings get mixedPort"}, Run: runSettingsGet},
 				{Name: "set", Args: i18n.T("<key> <值>", "<key> <value>"), Min: 2, Max: 2, Short: words{"修改一项设置；列表写成 JSON", "Change one setting; write a list as JSON"},
-					Examples: []string{"bowel settings set logLevel debug", "bowel settings set allowLan true", `bowel settings set bypass '["localhost","*.lan"]'`, "bowel settings set mcpPolicy deny"}, Run: runSettingsSet},
+					Examples: []string{"bowel settings set logLevel debug", "bowel settings set allowLan true", `bowel settings set bypass '["localhost","*.lan"]'`, "bowel settings set mcpPolicy deny", `bowel settings set extraPorts '[{"port":7901,"route":"ai"}]'`}, Run: runSettingsSet},
 			}},
 			configCommand(),
 			{Name: "tun", Args: "<on|off>", Min: 1, Max: 1, Choices: onOffChoices, Short: words{"打开或关闭 TUN（接管全部流量）", "Turn TUN on or off (it takes all traffic)"},

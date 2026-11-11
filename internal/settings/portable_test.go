@@ -15,7 +15,7 @@ import (
 // imported one leaves alone. Every other key travels.
 var machineKeys = []string{
 	"systemProxy", "tun", "paused", "gateway",
-	"mixedPort", "allowLan", "httpPort", "socksPort", "authentication", "lanAllowedIps",
+	"mixedPort", "allowLan", "httpPort", "socksPort", "extraPorts", "authentication", "lanAllowedIps",
 	"interface", "tunDevice",
 	"devNetOff", "devNetOffScenarios", "devNetExtra",
 	"extController", "extSecret",

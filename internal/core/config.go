@@ -275,9 +275,18 @@ func BuildConfig(in Input) ([]byte, error) {
 	groups = append(groups, withNodes(map[string]any{"name": ProbeGroup, "type": "select"}, "DIRECT"))
 	cfg["proxy-groups"] = groups
 	cfg["rules"] = rules
-	cfg["listeners"] = []any{map[string]any{
+	listeners := []any{map[string]any{
 		"name": "moho-probe", "type": "mixed", "listen": "127.0.0.1", "port": in.ProbePort, "proxy": ProbeGroup,
 	}}
+	// A provider's own routing has none of the route groups these name.
+	for _, e := range o.ExtraPorts {
+		if exit, ok := exitOf(in.Routes, e.Route); ok && in.Imported == nil {
+			listeners = append(listeners, map[string]any{
+				"name": ExtraPortListener(e.Port), "type": "mixed", "listen": "127.0.0.1", "port": e.Port, "proxy": exit,
+			})
+		}
+	}
+	cfg["listeners"] = listeners
 
 	if in.Tun {
 		tun := map[string]any{
@@ -420,23 +429,14 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 		if _, ok := sets[routes.RuleSetProvider(l.Set)]; l.Set != "" && !ok {
 			continue
 		}
-		for _, r := range in.Routes {
-			if r.ID != l.Route {
-				continue
-			}
-			target := routes.Group(r)
-			switch {
-			case r.Reject:
-				target = "REJECT"
-			case r.OwnExit(): // DIRECT, by its own group
-			case r.Direct:
-				target = "DIRECT"
-			}
-			if l.Mine && dev.Covers(l.Text) {
-				mine = append(mine, withTarget(l.Text, target))
-			} else {
-				rest = append(rest, withTarget(l.Text, target))
-			}
+		target, ok := exitOf(in.Routes, l.Route)
+		if !ok {
+			continue
+		}
+		if l.Mine && dev.Covers(l.Text) {
+			mine = append(mine, withTarget(l.Text, target))
+		} else {
+			rest = append(rest, withTarget(l.Text, target))
 		}
 	}
 	var def routes.Route
@@ -454,6 +454,29 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 	}
 	return groups, rulesFor(in.Mode, dev, mine, rest, match), nil
 }
+
+// exitOf is what the core sends route id's traffic to: the route's group,
+// or DIRECT or REJECT for a route that has none. False if there is no such
+// route.
+func exitOf(all []routes.Route, id string) (string, bool) {
+	for _, r := range all {
+		if r.ID != id {
+			continue
+		}
+		switch {
+		case r.Reject:
+			return "REJECT", true
+		case r.OwnExit(): // DIRECT, by its own group
+		case r.Direct:
+			return "DIRECT", true
+		}
+		return routes.Group(r), true
+	}
+	return "", false
+}
+
+// ExtraPortListener is the name of the listener of an extra port.
+func ExtraPortListener(port int) string { return fmt.Sprintf("bowel-port-%d", port) }
 
 // rulesFor is the rule list. Outside rule mode the core would ignore the
 // list and send everything one way, so the mode becomes the list's last

@@ -507,7 +507,7 @@ func (m *Manager) readLogs(r io.Reader) {
 // goes on without the port, its controller answering as usual, so this line
 // is all there is to tell that nothing is listening. The DNS listener and
 // the like are not the proxy, and have their own line.
-var proxyListenFailed = regexp.MustCompile(`Start (?:Mixed\(http\+socks\)|HTTP|SOCKS) server error: listen \S+ \S*:(\d+): bind:`)
+var proxyListenFailed = regexp.MustCompile(`(?:Start (?:Mixed\(http\+socks\)|HTTP|SOCKS) server error|Listener bowel-port-\d+ listen err): listen \S+ \S*:(\d+): bind:`)
 
 func (m *Manager) noteListenError(line string) {
 	if g := proxyListenFailed.FindStringSubmatch(line); g != nil {
