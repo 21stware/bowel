@@ -337,9 +337,26 @@ func (u *UI) matchLine(c *ui.Context, p *pal, rest []RouteView, other RouteView)
 
 // chip is one choice of a row of toggles. It keeps the width widest takes
 // chosen, the widest its label gets, so that in a row that wraps, choosing
-// never moves a chip to another line from under the pointer.
+// never moves a chip to another line from under the pointer. widest is the
+// label with its highest count; a lower one has no more digits, but can be
+// wider, as 0 is than 1, so the digits are measured as the widest there is.
 func chip(c *ui.Context, p *pal, key, label, widest string, on bool, onClick func()) {
-	tw, _ := c.MeasureText(0, ui.Span{Text: widest, Size: 12, Weight: 600})
+	measure := func(s string) float32 {
+		w, _ := c.MeasureText(0, ui.Span{Text: s, Size: 12, Weight: 600})
+		return w
+	}
+	digit, dw := '0', float32(0)
+	for d := '0'; d <= '9'; d++ {
+		if w := measure(string(d)); w > dw {
+			digit, dw = d, w
+		}
+	}
+	tw := measure(strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return digit
+		}
+		return r
+	}, widest))
 	b := ui.ButtonBase(c.Key(key)).Padding(3, 10).Radius(p.r(99)).Shrink(0).MinWidth(tw + 20).Justify(ui.Center)
 	switch {
 	case on:

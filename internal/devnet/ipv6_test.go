@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/netip"
 	"reflect"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,6 +17,11 @@ type fakeIPv6 struct {
 	ifaces []ipv6Iface
 	up     atomic.Bool
 	dials  atomic.Int32
+	// tries are the times the network was tried. One try dials every target
+	// at once and is over with the first that connects, so its other dials
+	// may still be on their way when Check returns: dials can't count tries.
+	tries  atomic.Int32
+	tried  sync.Map // the context of each try
 	dialed atomic.Value
 	at     time.Time
 }
@@ -27,7 +33,10 @@ func newFakeIPv6(names ...string) *fakeIPv6 {
 	}
 	f.w = &IPv6Watcher{
 		list: func() []ipv6Iface { return f.ifaces },
-		dial: func(_ context.Context, iface, _ string) bool {
+		dial: func(ctx context.Context, iface, _ string) bool {
+			if _, again := f.tried.LoadOrStore(ctx, true); !again {
+				f.tries.Add(1)
+			}
 			f.dials.Add(1)
 			f.dialed.Store(iface)
 			return f.up.Load()
@@ -125,22 +134,22 @@ func TestIPv6ProbesSparingly(t *testing.T) {
 	f := newFakeIPv6("en0")
 	f.up.Store(true)
 	f.tick()
-	first := f.dials.Load()
+	first := f.tries.Load()
 	f.tick()
 	f.tick()
-	if got := f.dials.Load(); got != first {
-		t.Errorf("tried again within the minute: %d dials, %d before", got, first)
+	if got := f.tries.Load(); got != first {
+		t.Errorf("tried again within the minute: %d tries, %d before", got, first)
 	}
 	f.tick()
-	if got := f.dials.Load(); got == first {
-		t.Error("not tried again after a minute")
+	if got := f.tries.Load(); got != first+1 {
+		t.Errorf("after a minute: %d tries, want %d", got, first+1)
 	}
 	// New addresses are a new network, to try at once.
-	before := f.dials.Load()
+	before := f.tries.Load()
 	f.ifaces = []ipv6Iface{{"en0", []netip.Addr{netip.MustParseAddr("2400::9")}}}
 	f.w.Check("", "")
-	if f.dials.Load() == before {
-		t.Error("new addresses weren't tried")
+	if got := f.tries.Load(); got != before+1 {
+		t.Errorf("new addresses: %d tries, want %d", got, before+1)
 	}
 }
 
