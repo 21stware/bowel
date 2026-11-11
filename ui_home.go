@@ -361,10 +361,16 @@ func (u *UI) homePage(c *ui.Context, p *pal) {
 	} else {
 		h.walls, h.lines = nil, nil
 	}
+	// The board's size is the last frame's. A board that had no last frame
+	// (the window just opened, or the page was just come back to) is the
+	// window under the title bar: a size made up here would show the board
+	// through the cells' end for a frame and then move every cell to its
+	// place, which reads as a blank strip and a bounce.
 	r := board.LayoutBounds()
 	w, hh := r.W, r.H
 	if w <= 0 {
-		w, hh = 1060, 686
+		w, hh = c.Size()
+		hh -= titleBarHeight(c)
 	}
 	cols, rows := u.tracks(h.x)
 	final := boxes(cols, rows, w, hh)
@@ -1578,6 +1584,11 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 		ui.Text(c, i18n.T("没有符合条件的节点", "No nodes match")).FontSize(12.5).TextColor(p.mute).Padding(30, 26)
 		return
 	}
+	// In 顺序备用 every row has the same columns, in the order or not: its
+	// place before the flag and the actions after the delays. A row leaves
+	// empty the ones it doesn't use, so the two lists' flags, names, delays
+	// and actions line up with each other and with the columns' names.
+	byOrder := q.Mode == routes.ModeOrder
 	// The columns' names, over the columns at the rows' end.
 	ui.Row(c).Gap(10).Padding(7, 26, 5, 26).AlignItems(ui.Center).Children(func() {
 		ui.Spacer(c)
@@ -1591,6 +1602,9 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 		}
 		columnHead(main, fmt.Sprintf(i18n.T("经节点请求 %s 的耗时，自动选择也按它", "Time to request %s through the node, which Auto also goes by"), r.Main.URL))
 		ui.Box(c).Width(14).Shrink(0)
+		if byOrder {
+			ui.Box(c).Width(nodeActW).Shrink(0)
+		}
 	})
 	ui.List(c.Key("nodes"), &h.nodes, len(list), func(i int) {
 		item := list[i]
@@ -1627,8 +1641,12 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 			if on {
 				ui.Box(c).Absolute().Left(0).Top(0).Bottom(0).Width(2).Background(p.ink)
 			}
-			if ordered {
-				ui.Text(c, fmt.Sprint(item.place)).FontSize(12).FontFeatures("tnum").TextColor(p.mute).Width(14).Shrink(0)
+			if byOrder {
+				place := ""
+				if ordered {
+					place = fmt.Sprint(item.place)
+				}
+				ui.Text(c, place).FontSize(12).FontFeatures("tnum").TextColor(p.mute).Width(14).Shrink(0)
 			}
 			ui.Box(c).Width(22).Shrink(0).Children(func() { flagBadge(c, p, nodeFlag(n), 12) })
 			// The name and its line give way to the delay: a long name ends
@@ -1655,15 +1673,23 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 			ui.Text(c, fmtDelay(n)).FontSize(12).FontFeatures("tnum").Width(nodeColW).Shrink(0).NoWrap().TextAlign(ui.End).TextColor(delayColor(p, n.Delay, n.Tested))
 			mark := ""
 			switch {
-			case adding:
-				mark = "＋"
 			case on && q.Mode == routes.ModeFixed:
 				mark = "✓"
 			case on:
 				mark = "◆"
 			}
 			ui.Text(c, mark).FontSize(12).Width(14).Shrink(0).TextColor(ink)
-			if ordered {
+			if !byOrder {
+				return
+			}
+			ui.Row(c).Width(nodeActW).Shrink(0).Gap(nodeActGap).Justify(ui.End).AlignItems(ui.Center).Children(func() {
+				if adding {
+					// ＋ stands where the rows above have ×, as wide as that button.
+					ui.Row(c).Size(32, 20).Shrink(0).Margin(0, -6, 0, 0).Justify(ui.Center).AlignItems(ui.Center).Children(func() {
+						ui.Text(c, "＋").FontSize(12).TextColor(ink)
+					})
+					return
+				}
 				at := item.place - 1
 				name := n.Name
 				if at > 0 {
@@ -1682,13 +1708,20 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 						q.Order = slices.DeleteFunc(slices.Clone(q.Order), func(s string) bool { return s == name })
 					})
 				})
-			}
+			})
 		})
 	}).Grow(1)
 }
 
 // nodeColW is the width of the node rows' Ping and main target columns.
-const nodeColW = 62
+// nodeActW is the width of the actions after them in 顺序备用: two icon
+// buttons (each 26 wide in the row, its last 6 DIPs hanging into the
+// row's padding) nodeActGap apart.
+const (
+	nodeColW   = 62
+	nodeActGap = 10
+	nodeActW   = 2*26 + nodeActGap
+)
 
 // siteStrip shows how long the route's other test sites take through the
 // node it uses, and opens the dialog that changes them.

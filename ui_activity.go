@@ -468,7 +468,7 @@ func actSelect(c *ui.Context, p *pal, sel *string, options []string, label strin
 	}
 	s.Trigger.Children(func() {
 		ui.Text(c, *sel).FontSize(12).TextColor(p.ink).NoWrap()
-		actChevron(c, p.mute)
+		chevron(c, p.mute, false)
 	})
 	s.Popup(func(panel ui.Element) {
 		panel.Margin(4, 0, 0, 0).Padding(4).Radius(p.r(9)).Background(p.sheet).Border(1, p.hair).Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, .12)).MinWidth(120)
@@ -481,15 +481,6 @@ func actSelect(c *ui.Context, p *pal, sel *string, options []string, label strin
 			}
 			item.Children(func() { ui.Text(c, o).FontSize(12).TextColor(col).NoWrap() })
 		}
-	})
-}
-
-// actChevron is the small down arrow of a drop-down.
-func actChevron(c *ui.Context, col ui.Color) {
-	ui.Box(c).Size(7, 4).Shrink(0).Margin(1, 0, 0, 0).Draw(func(pt *ui.Painter, r ui.Rect) {
-		var path ui.Path
-		path.MoveTo(r.X, r.Y).LineTo(r.X+r.W/2, r.Y+r.H).LineTo(r.X+r.W, r.Y)
-		pt.StrokePath(&path, 1.3, col)
 	})
 }
 

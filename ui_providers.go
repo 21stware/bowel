@@ -566,7 +566,7 @@ func (u *UI) provAuto(c *ui.Context, p *pal, pv ProviderView) {
 		sel.Trigger.Row().Gap(5).Padding(5, 9).Radius(p.r(7)).Border(1, p.hair2).AlignItems(ui.Center).Label(i18n.T("自动更新", "Auto update")).Children(func() {
 			ui.Text(c, i18n.T("自动更新", "Auto-update")).FontSize(11.5).TextColor(p.mute).NoWrap()
 			ui.Text(c, cur).FontSize(12).FontWeight(600).TextColor(p.ink).NoWrap()
-			ui.Text(c, "▾").FontSize(9).TextColor(p.mute)
+			chevron(c, p.mute, false)
 		})
 		if sel.Open() {
 			u.prov.popup = true
@@ -622,11 +622,7 @@ func (u *UI) provOps(c *ui.Context, p *pal, pv ProviderView, busy, open bool) {
 				}
 			})
 		}
-		chev := "▾"
-		if open {
-			chev = "▴"
-		}
-		ui.Text(c, chev).FontSize(11).TextColor(p.mute).Width(10)
+		chevron(c, p.mute, open)
 	})
 }
 
