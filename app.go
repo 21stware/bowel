@@ -417,7 +417,7 @@ func (a *App) pollEvery() time.Duration {
 	if time.Now().Unix()-a.watchedAt.Load() < 5 {
 		return time.Second
 	}
-	if st := a.settings.Get(); st.TraySpeed && a.takeoverOn(st) {
+	if st := a.settings.Get(); st.TraySpeed && (a.takeoverOn(st) || trafficNow(a.tick())) {
 		return traySpeedEvery
 	}
 	return 5 * time.Second
