@@ -175,6 +175,20 @@ func BuildConfig(in Input) ([]byte, error) {
 		cfg["secret"] = o.ExtSecret
 	}
 	hosts := map[string]any{}
+	// The DNS servers in use that Moho knows the addresses of; the lines
+	// below, the user's among them, replace these.
+	servers := slices.Concat(o.Nameservers, o.Fallback, o.ProxyNameservers)
+	if len(o.Nameservers) == 0 {
+		servers = append(servers, DefaultNameservers...)
+	}
+	for _, list := range dnsPolicy(o.NameserverPolicy, dev.Policy) {
+		servers = append(servers, list...)
+	}
+	for _, s := range servers {
+		if host := nameserverHost(s); len(NameserverHosts[host]) > 0 {
+			hosts[host] = NameserverHosts[host]
+		}
+	}
 	for k, v := range dev.Hosts {
 		hosts[k] = v
 	}
