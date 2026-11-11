@@ -1,8 +1,8 @@
 package tun
 
 import (
-	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -11,14 +11,13 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/nowindow"
 )
 
 // Task is the core as the scheduled task runs it: elevated, not a child
 // of the app, and in no session of the user's.
 type Task struct {
-	name string // the task's
+	name string // of the task that started it
 	exe  string // the core's file name, as the process list has it
 	pid  int
 
@@ -26,15 +25,21 @@ type Task struct {
 	done chan struct{}
 }
 
-// Spawn starts the core through the task when bin is the copy the
-// installation made, and returns nil for any other: that one runs as a
-// child. An instance a crash of the app left running is ended first.
+// Spawn starts the core through the installation's tasks when bin is
+// the copy the installation made, and returns nil for any other: that one
+// runs as a child. An instance a crash of the app left running is ended
+// first. The task tried first is the one that needs no session of the
+// user's, unless the other was what worked the last time; which one
+// worked is kept for the next start, since finding out that a task
+// started nothing takes the whole wait.
 func Spawn(bin string) (*Task, error) {
 	if !Installed(bin) {
 		return nil, nil
 	}
-	t := &Task{name: taskName(), exe: filepath.Base(bin), done: make(chan struct{})}
-	_ = schtasks("/End", "/TN", t.name)
+	t := &Task{exe: filepath.Base(bin), done: make(chan struct{})}
+	first := taskName()
+	_ = schtasks("/End", "/TN", first)
+	_ = schtasks("/End", "/TN", fallbackName(first))
 	before := pids(t.exe)
 	if len(before) > 0 {
 		// A core just ended may take a moment to go, and while it is
@@ -42,21 +47,38 @@ func Spawn(bin string) (*Task, error) {
 		time.Sleep(500 * time.Millisecond)
 		before = pids(t.exe)
 	}
-	if err := schtasks("/Run", "/TN", t.name); err != nil {
-		return nil, taskRunErr(err, schtasks("/Query", "/TN", t.name))
-	}
-	deadline := time.Now().Add(8 * time.Second)
-	for time.Now().Before(deadline) {
-		for pid := range pids(t.exe) {
-			if !before[pid] {
-				t.pid = pid
-				return t, nil
+	last, _ := os.ReadFile(rememberPath())
+	name, err := startTask(first, string(last),
+		func(name string) error { return schtasks("/Run", "/TN", name) },
+		func(name string) error { return schtasks("/Query", "/TN", name) },
+		func() bool {
+			deadline := time.Now().Add(8 * time.Second)
+			for time.Now().Before(deadline) {
+				for pid := range pids(t.exe) {
+					if !before[pid] {
+						t.pid = pid
+						return true
+					}
+				}
+				time.Sleep(100 * time.Millisecond)
 			}
-		}
-		time.Sleep(100 * time.Millisecond)
+			return false
+		})
+	if err != nil {
+		return nil, err
 	}
-	return nil, errors.New(i18n.T("计划任务没有把内核启动起来", "The scheduled task didn't start the core"))
+	t.name = name
+	if name == first {
+		_ = os.Remove(rememberPath())
+	} else if strings.TrimSpace(string(last)) != rememberFallback {
+		_ = os.WriteFile(rememberPath(), []byte(rememberFallback+"\n"), 0o644)
+	}
+	return t, nil
 }
+
+// rememberPath is where which task worked is kept: in the data folder,
+// beside the directory the core runs in.
+func rememberPath() string { return filepath.Join(filepath.Dir(CoreDir), "tun-task") }
 
 func (t *Task) Pid() int { return t.pid }
 

@@ -33,7 +33,8 @@ func (canceled) Error() string {
 
 // ErrGone is in what Spawn returns when the mark of an installation is
 // there and what it stands for is not: on Windows, the scheduled task was
-// deleted. Installed cannot tell (it asks the Task Scheduler nothing), so
+// deleted, or the task started nothing and the installation is an older
+// version's, with no second task to try. Installed cannot tell (it asks the Task Scheduler nothing), so
 // whoever sees this takes the installation as not made.
 var ErrGone error = gone{}
 

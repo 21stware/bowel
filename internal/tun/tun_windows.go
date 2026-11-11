@@ -25,7 +25,9 @@ import (
 //   - it registers a scheduled task of the user's that runs that copy,
 //     with the arguments the app runs its core with, at the highest run
 //     level. The user may start and end their own task without being
-//     asked again, which is what Spawn does.
+//     asked again, which is what Spawn does. A second task runs the same
+//     in the session the user is logged on in, for the accounts the
+//     first cannot be started for (see fallbackTaskXML).
 //
 // A mark beside the copy, written by the same elevated command, says what
 // the task was registered for: Installed reads it, with no call to the
@@ -53,7 +55,7 @@ func userSID() string {
 }
 
 // taskName is the scheduled task's, one per user.
-func taskName() string { return "bowel-tun-" + userSID() }
+func taskName() string { return taskNameOf(userSID()) }
 
 // Installed reports whether path is the copy an installation made for
 // the directory the core runs in now. Only an elevated process can have
@@ -77,21 +79,31 @@ func installStep(tmp, dst string) (Step, error) {
 		return nil, errors.New("tun: CoreDir is not set")
 	}
 	sid := userSID()
-	xml := filepath.Join(filepath.Dir(tmp), ".mihomo-task.xml")
-	def := taskXML(sid, dst, CoreDir)
-	if err := os.WriteFile(xml, utf16File(def), 0o600); err != nil {
+	sys, err := windows.GetSystemDirectory()
+	if err != nil {
 		return nil, err
 	}
-	return winInstallStep(tmp, dst, xml, taskName(), mark(dst, CoreDir, sid)), nil
+	xml := filepath.Join(filepath.Dir(tmp), ".mihomo-task.xml")
+	xml2 := filepath.Join(filepath.Dir(tmp), ".mihomo-task-interactive.xml")
+	for path, def := range map[string]string{
+		xml:  taskXML(sid, dst, CoreDir),
+		xml2: fallbackTaskXML(sid, filepath.Join(sys, "conhost.exe"), dst, CoreDir),
+	} {
+		if err := os.WriteFile(path, utf16File(def), 0o600); err != nil {
+			return nil, err
+		}
+	}
+	return winInstallStep(tmp, dst, xml, taskName(), xml2, fallbackName(taskName()), mark(dst, CoreDir, sid)), nil
 }
 
-// Uninstall deletes the task and the copy's directory, which takes an
+// Uninstall deletes the tasks and the copy's directory, which takes an
 // administrator. A missing dst is not an error.
 func Uninstall(dst string) error {
 	if _, err := os.Lstat(dst); errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
-	return runAdmin(Prompt(), []Step{{"(schtasks /Delete /F /TN ", taskName(), " >nul 2>nul & ver >nul) && rmdir /s /q ", filepath.Dir(dst)}})
+	return runAdmin(Prompt(), []Step{{"(schtasks /Delete /F /TN ", taskName(), " >nul 2>nul & schtasks /Delete /F /TN ", fallbackName(taskName()),
+		" >nul 2>nul & ver >nul) && rmdir /s /q ", filepath.Dir(dst)}})
 }
 
 // shellExecuteInfo is SHELLEXECUTEINFOW.

@@ -13,10 +13,10 @@ How far each implementation has been tried is its own column, because "it compil
 | Feature | macOS | Linux | Windows |
 | --- | --- | --- | --- |
 | TUN: one authorisation | `osascript` with administrator privileges | `pkexec` (polkit) | UAC prompt (`ShellExecuteEx`, `runas`) |
-| TUN: what it grants | setuid-root copy of the core in the data directory | root-owned copy with file capabilities `cap_net_admin,cap_net_bind_service,cap_net_raw`; setuid root where `setcap` is missing | copy under `%ProgramData%\bowel\tun\<SID>\` writable by administrators only, and a scheduled task that runs it elevated |
-| TUN: running the core | child process | child process | the task, started and ended with `schtasks`; log read from the controller |
+| TUN: what it grants | setuid-root copy of the core in the data directory | root-owned copy with file capabilities `cap_net_admin,cap_net_bind_service,cap_net_raw`; setuid root where `setcap` is missing | copy under `%ProgramData%\bowel\tun\<SID>\` writable by administrators only, and two scheduled tasks that run it elevated: one in no session of the user's (S4U), one in the session they are logged on in, for accounts the first cannot be started for |
+| TUN: running the core | child process | child process | the first task that starts it, started and ended with `schtasks`: the S4U one, else the logged-on session's (a domain account away from its domain controller), where the console host run headless keeps the core without a window; log read from the controller |
 | TUN: files the core's config names (providers, rule sets) | beside the core's directory, allowed through `SAFE_PATHS` in the child's environment | same | inside the core's directory (`core\providers`, `core\rulesets`): the task's core has no environment of the app's |
-| TUN: its core does not start | the bundled core runs as a child in its place; the TUN entry says why, and turning TUN on again tries again | same | same; a task that was deleted counts as not installed, and is asked for again |
+| TUN: its core does not start | the bundled core runs as a child in its place; the TUN entry says why, and turning TUN on again tries again | same | same; a task that was deleted counts as not installed, and is asked for again, and so does an installation from before there were two tasks whose one task starts nothing |
 | TUN: stale copy after an update | offered, one authorisation | same | same |
 | System proxy: set, restore | `networksetup`, every service | GNOME (`gsettings`, shared by Cinnamon, MATE, Budgie…) and KDE (`kwriteconfig`, `kioslaverc`) | WinINet LAN settings |
 | System proxy: measured every 2 s | `scutil --proxy` | the session's own desktop's settings | WinINet |
@@ -63,10 +63,12 @@ The rules are the same on every system: the authorisation is asked once, it gran
 | --- | --- | --- | --- |
 | macOS TUN | `chown root:admin`, `chmod 4755`, `mv` | setuid core in the data directory | delete the file |
 | Linux TUN | `chown root:root`, `chmod 0755`, `setcap`, `mv` | core with three network capabilities, running as the user | delete the file |
-| Windows TUN | `mkdir`, `icacls`, `copy`, `schtasks /Create` | protected copy, task `bowel-tun-<SID>` | delete the task and the directory |
+| Windows TUN | `mkdir`, `icacls`, `copy`, `schtasks /Create` | protected copy, tasks `bowel-tun-<SID>` and `bowel-tun-<SID>-interactive` | delete the tasks and the directory |
 | macOS, Linux gateway | `install`, `visudo -c`, `mv` | `/etc/sudoers.d/bowel-gateway-<uid>`: two `sysctl` commands | delete the file |
 
-On Windows the mark beside the copy is what `Installed` reads, so deleting the task alone leaves it: the app finds the task missing the next time it starts the core (`schtasks /Query`), runs the bundled core, and asks for the authorisation again when TUN is next turned on. The task's description names both things to delete.
+On Windows the mark beside the copy is what `Installed` reads, so deleting the task alone leaves it: the app finds the task missing the next time it starts the core (`schtasks /Query`), runs the bundled core, and asks for the authorisation again when TUN is next turned on. Each task's description names all three things to delete.
+
+The second task exists because an S4U logon of a domain account asks the domain controller, and fails when it cannot be reached (issue 66: Task Scheduler event 104, `LogonUserS4U`, `0x8007051F`). It is not the only task because it runs only while the user is logged on at the desktop: `bowel daemon` over SSH on a machine nobody is logged on to has TUN through the first task alone. Which task worked is kept in `tun-task` in the data folder, so that the wait for a task that starts nothing is paid once.
 
 At run time: forwarding as it was is kept in `gateway-before.json` and put back when the gateway goes off or on the next start; the system proxy as it was is kept in `sysproxy-before.json` and restored on quit; TUN's routes go with the core's process. On Windows a core that a crash of the app left running is ended (`schtasks /End`) before the next one starts.
 
@@ -87,7 +89,8 @@ Windows, all of it on our side. A user's report on Windows 11 (issue 59, bowel 0
 1. The UAC prompt and the elevated command: `ShellExecuteExW`'s structure, cmd's quoting, `icacls` and `schtasks /Create /XML` with a UTF-16 definition.
 2. Whether a task with an S4U principal and `HighestAvailable` starts from the user's unelevated `schtasks /Run`, runs elevated with no window, and ends with `/End`.
 3. The core finding Wintun and opening the adapter from session 0.
-4. Waiting on the elevated process (`OpenProcess(SYNCHRONIZE)`, else the process list) and the log through the controller.
-5. Routes, adapters and the policy table read through the IP helper API and the registry; `IPV6_UNICAST_IF`; `PING.EXE -S`.
-6. Screen capture through PowerShell, at display scales other than 100%.
-7. A user who is not an administrator: the task's `HighestAvailable` is then no elevation, and TUN will not open.
+4. The second task, none of which has run anywhere: that a task with an `InteractiveToken` principal and `HighestAvailable` starts from the unelevated `schtasks /Run` where the S4U one does not (a domain account with its controller out of reach); that `conhost.exe --headless` as its action starts the core with no window; that `schtasks /End`, which ends the console host, ends the core with it; and that an installation made before, whose one task starts nothing, is asked for again.
+5. Waiting on the elevated process (`OpenProcess(SYNCHRONIZE)`, else the process list) and the log through the controller.
+6. Routes, adapters and the policy table read through the IP helper API and the registry; `IPV6_UNICAST_IF`; `PING.EXE -S`.
+7. Screen capture through PowerShell, at display scales other than 100%.
+8. A user who is not an administrator: the task's `HighestAvailable` is then no elevation, and TUN will not open.
