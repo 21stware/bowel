@@ -27,7 +27,8 @@ import (
 //     level. The user may start and end their own task without being
 //     asked again, which is what Spawn does. A second task runs the same
 //     in the session the user is logged on in, for the accounts the
-//     first cannot be started for (see fallbackTaskXML).
+//     first cannot be started for, through a copy of the app's own
+//     program kept beside the core (see fallbackTaskXML).
 //
 // A mark beside the copy, written by the same elevated command, says what
 // the task was registered for: Installed reads it, with no call to the
@@ -79,7 +80,12 @@ func installStep(tmp, dst string) (Step, error) {
 		return nil, errors.New("tun: CoreDir is not set")
 	}
 	sid := userSID()
-	sys, err := windows.GetSystemDirectory()
+	// The app's own program, to be the second task's launcher.
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	ltmp, err := copyTemp(exe, filepath.Dir(tmp))
 	if err != nil {
 		return nil, err
 	}
@@ -87,13 +93,14 @@ func installStep(tmp, dst string) (Step, error) {
 	xml2 := filepath.Join(filepath.Dir(tmp), ".mihomo-task-interactive.xml")
 	for path, def := range map[string]string{
 		xml:  taskXML(sid, dst, CoreDir),
-		xml2: fallbackTaskXML(sid, filepath.Join(sys, "conhost.exe"), dst, CoreDir),
+		xml2: fallbackTaskXML(sid, launcherPath(dst), dst, CoreDir),
 	} {
 		if err := os.WriteFile(path, utf16File(def), 0o600); err != nil {
+			_ = os.Remove(ltmp)
 			return nil, err
 		}
 	}
-	return winInstallStep(tmp, dst, xml, taskName(), xml2, fallbackName(taskName()), mark(dst, CoreDir, sid)), nil
+	return winInstallStep(tmp, ltmp, dst, xml, taskName(), xml2, fallbackName(taskName()), mark(dst, CoreDir, sid)), nil
 }
 
 // Uninstall deletes the tasks and the copy's directory, which takes an

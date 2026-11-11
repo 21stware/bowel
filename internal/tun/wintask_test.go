@@ -82,10 +82,12 @@ func TestUTF16File(t *testing.T) {
 
 // The elevated command closes the directory before anything is put in
 // it, moves a copy in use aside instead of writing over it, and leaves
-// the mark last, once everything else has worked.
+// the mark last, once everything else has worked. The launcher goes in
+// first, and ends what still runs from the core's path before the core is
+// replaced; neither that nor ending the tasks can fail the step.
 func TestWinInstallStep(t *testing.T) {
 	dst := `C:\ProgramData\bowel\tun\S-1\mihomo.exe`
-	st := winInstallStep(`C:\Users\a b\Temp\bowel-tun\.mihomo-1`, dst, `C:\Users\a b\Temp\bowel-tun\.mihomo-task.xml`, "bowel-tun-S-1",
+	st := winInstallStep(`C:\Users\a b\Temp\bowel-tun\.mihomo-1`, `C:\Users\a b\Temp\bowel-tun\.mihomo-2`, dst, `C:\Users\a b\Temp\bowel-tun\.mihomo-task.xml`, "bowel-tun-S-1",
 		`C:\Users\a b\Temp\bowel-tun\.mihomo-task-interactive.xml`, "bowel-tun-S-1-interactive", "abcd")
 	if len(st)%2 != 0 || st[len(st)-1] != `C:\ProgramData\bowel\tun\S-1\installed` {
 		t.Fatalf("step doesn't end on the mark: %q", st)
@@ -101,6 +103,11 @@ func TestWinInstallStep(t *testing.T) {
 		` && (if not exist "C:\ProgramData\bowel\tun\S-1" mkdir "C:\ProgramData\bowel\tun\S-1")` +
 		` && icacls "C:\ProgramData\bowel\tun\S-1" /setowner *S-1-5-32-544 /T /C >nul` +
 		` && icacls "C:\ProgramData\bowel\tun\S-1" /inheritance:r /grant:r *S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX >nul` +
+		` && (schtasks /End /TN "bowel-tun-S-1" >nul 2>nul & schtasks /End /TN "bowel-tun-S-1-interactive" >nul 2>nul & ver >nul)` +
+		` && (del /f /q "C:\ProgramData\bowel\tun\S-1\bowel-tun.exe.old" 2>nul & ver >nul)` +
+		` && (if exist "C:\ProgramData\bowel\tun\S-1\bowel-tun.exe" move /y "C:\ProgramData\bowel\tun\S-1\bowel-tun.exe" "C:\ProgramData\bowel\tun\S-1\bowel-tun.exe.old" >nul)` +
+		` && copy /y /b "C:\Users\a b\Temp\bowel-tun\.mihomo-2" "C:\ProgramData\bowel\tun\S-1\bowel-tun.exe" >nul` +
+		` && (del /f /q "C:\Users\a b\Temp\bowel-tun\.mihomo-2" 2>nul & start "" /wait "C:\ProgramData\bowel\tun\S-1\bowel-tun.exe" tun-core --kill "C:\ProgramData\bowel\tun\S-1\mihomo.exe" & ver >nul)` +
 		` && (del /f /q "C:\ProgramData\bowel\tun\S-1\mihomo.exe.old" 2>nul & ver >nul)` +
 		` && (if exist "C:\ProgramData\bowel\tun\S-1\mihomo.exe" move /y "C:\ProgramData\bowel\tun\S-1\mihomo.exe" "C:\ProgramData\bowel\tun\S-1\mihomo.exe.old" >nul)` +
 		` && copy /y /b "C:\Users\a b\Temp\bowel-tun\.mihomo-1" "C:\ProgramData\bowel\tun\S-1\mihomo.exe" >nul` +
@@ -172,7 +179,7 @@ func TestTaskDescriptionNamesTheFolder(t *testing.T) {
 		t.Errorf("description %q", d)
 	}
 	// The second task's names the first.
-	x = fallbackTaskXML("S-1", `C:\Windows\System32\conhost.exe`, `C:\ProgramData\bowel\tun\S & 1\mihomo.exe`, `C:\core`)
+	x = fallbackTaskXML("S-1", `C:\ProgramData\bowel\tun\S & 1\bowel-tun.exe`, `C:\ProgramData\bowel\tun\S & 1\mihomo.exe`, `C:\core`)
 	if err := xml.Unmarshal([]byte(strings.TrimPrefix(x, `<?xml version="1.0" encoding="UTF-16"?>`)), &task); err != nil {
 		t.Fatal(err)
 	}
@@ -199,12 +206,19 @@ func TestTaskRunErr(t *testing.T) {
 
 // The second task differs from the first in two things only: it runs in
 // the session the user is logged on in, which takes no logon and so no
-// domain controller, and the core is started by the console host, run
-// headless, so that it has no window there.
+// domain controller, and the core is started by the launcher kept beside
+// it, so that it has no window there and ends when the task is ended. The
+// console host run headless, which this replaces, left the core running.
 func TestFallbackTaskXML(t *testing.T) {
 	sid, bin, dir := "S-1-5-21-1-2-3-1001", `C:\ProgramData\bowel\tun\S-1-5-21-1-2-3-1001\mihomo.exe`, `C:\Users\张 & 三\AppData\Roaming\bowel\core`
-	conhost := `C:\Windows\System32\conhost.exe`
-	x := fallbackTaskXML(sid, conhost, bin, dir)
+	launcher := launcherPath(bin)
+	if launcher != `C:\ProgramData\bowel\tun\S-1-5-21-1-2-3-1001\bowel-tun.exe` {
+		t.Fatalf("the launcher is not beside the core: %s", launcher)
+	}
+	x := fallbackTaskXML(sid, launcher, bin, dir)
+	if strings.Contains(strings.ToLower(x), "conhost") {
+		t.Errorf("the action goes through the console host:\n%s", x)
+	}
 	var task struct {
 		Principals struct {
 			Principal struct{ UserId, LogonType, RunLevel string }
@@ -220,16 +234,16 @@ func TestFallbackTaskXML(t *testing.T) {
 		t.Errorf("principal %+v", p)
 	}
 	e := task.Actions.Exec
-	if e.Command != conhost || e.WorkingDirectory != dir ||
-		e.Arguments != `--headless "`+bin+`" -d "`+dir+`" -f "`+dir+`\config.yaml"` {
+	if e.Command != launcher || e.WorkingDirectory != dir ||
+		e.Arguments != `tun-core "`+bin+`" -d "`+dir+`" -f "`+dir+`\config.yaml"` {
 		t.Errorf("action %+v", e)
 	}
 	// Everything else is the first task's.
 	first := taskXML(sid, bin, dir)
 	same := strings.NewReplacer(
 		"<LogonType>InteractiveToken</LogonType>", "<LogonType>S4U</LogonType>",
-		"<Command>"+conhost+"</Command>", "<Command>"+bin+"</Command>",
-		`<Arguments>--headless "`+bin+`" `, "<Arguments>",
+		"<Command>"+launcher+"</Command>", "<Command>"+bin+"</Command>",
+		`<Arguments>tun-core "`+bin+`" `, "<Arguments>",
 		", and the task bowel-tun-"+sid+"</Description>", ", and the task bowel-tun-"+sid+"-interactive</Description>",
 	).Replace(x)
 	if same != first {
@@ -310,5 +324,67 @@ func TestStartTask(t *testing.T) {
 		if err != nil && (errors.Is(err, ErrGone) != c.gone || !strings.Contains(err.Error(), c.err)) {
 			t.Errorf("%s: error %v (gone %v)", c.name, err, errors.Is(err, ErrGone))
 		}
+	}
+}
+
+// What follows the launcher's own argument is the core and its arguments,
+// as the second task has them, or a path to end the processes of, as the
+// installation asks; anything else starts nothing.
+func TestLaunchArgs(t *testing.T) {
+	bin := `C:\ProgramData\bowel\tun\S-1\mihomo.exe`
+	kill, core, rest, ok := launchArgs([]string{bin, "-d", `C:\core`, "-f", `C:\core\config.yaml`})
+	if !ok || kill != "" || core != bin || strings.Join(rest, " ") != `-d C:\core -f C:\core\config.yaml` {
+		t.Errorf("a core to start: %q %q %q %v", kill, core, rest, ok)
+	}
+	kill, core, rest, ok = launchArgs([]string{"--kill", bin})
+	if !ok || kill != bin || core != "" || rest != nil {
+		t.Errorf("a path to end: %q %q %q %v", kill, core, rest, ok)
+	}
+	for _, bad := range [][]string{nil, {""}, {"--kill"}, {"--kill", ""}, {"--kill", bin, "more"}, {"-d", `C:\core`}} {
+		if _, _, _, ok := launchArgs(bad); ok {
+			t.Errorf("%q was taken", bad)
+		}
+	}
+	// The task's arguments are the launcher's argument, then these.
+	x := fallbackTaskXML("S-1", launcherPath(bin), bin, `C:\core`)
+	if !strings.Contains(x, "<Arguments>"+LauncherArg+` "`+bin+`" -d `) {
+		t.Errorf("the task does not run the launcher as Launch reads it:\n%s", x)
+	}
+}
+
+// The installed core is told from another program's of the same name by
+// its path, whatever its case, and is still itself once a later
+// installation has moved it aside.
+func TestSameImage(t *testing.T) {
+	bin := `C:\ProgramData\bowel\tun\S-1\mihomo.exe`
+	for path, want := range map[string]bool{
+		bin: true,
+		`c:\programdata\BOWEL\tun\s-1\MIHOMO.EXE`: true,
+		bin + ".old": true,
+		`C:\Program Files\Clash Verge\mihomo.exe`: false,
+		"": false,
+	} {
+		if sameImage(path, bin) != want {
+			t.Errorf("sameImage(%q) is not %v", path, want)
+		}
+	}
+	if sameImage("", "") {
+		t.Error("no core is every process")
+	}
+}
+
+// A core that outlived its task is an installation to make again: that
+// is what, elevated, ends it.
+func TestOrphanedIsGone(t *testing.T) {
+	var err error = orphaned{}
+	if !errors.Is(err, ErrGone) || err.Error() == ErrGone.Error() {
+		t.Errorf("orphaned: %v", err)
+	}
+}
+
+// An installation from before the launcher does not count as made.
+func TestTaskRev(t *testing.T) {
+	if taskRev == "1" {
+		t.Error("taskRev is that of the installation whose second task left the core running")
 	}
 }

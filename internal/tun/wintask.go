@@ -27,7 +27,7 @@ func winDir(p string) string {
 
 // taskRev changes when what installStep does changes, so that an older
 // installation asks to be made again.
-const taskRev = "1"
+const taskRev = "2"
 
 // mark is what the installation leaves beside dst: a digest of everything
 // the task was registered with.
@@ -45,13 +45,26 @@ const dirACL = `*S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(C
 // it steps aside as .old, which the next installation deletes. The copy
 // to install is the step's first path, as Install expects. Both tasks
 // are registered, the second being the one startTask falls back to.
-func winInstallStep(tmp, dst, xml, task, xml2, task2, mark string) Step {
+//
+// ltmp is the app's own program, which becomes the second task's
+// launcher (see fallbackTaskXML); it is copied, not moved, so that it
+// takes the directory's permissions and not the ones it had where the
+// user could write it. Before the core is replaced both tasks are ended
+// and the new launcher, elevated here, ends any core still running from
+// dst: one that a task's end left behind, which the app has no right to
+// end itself.
+func winInstallStep(tmp, ltmp, dst, xml, task, xml2, task2, mark string) Step {
 	dir := winDir(dst)
 	old := dst + ".old"
+	launcher := launcherPath(dst)
+	lold := launcher + ".old"
 	return Step{
 		"(if not exist ", tmp, " exit /b 1) && (if not exist ", dir, " mkdir ", dir,
 		") && icacls ", dir, " /setowner *S-1-5-32-544 /T /C >nul && icacls ", dir, " /inheritance:r /grant:r " + dirACL + " >nul" +
-			" && (del /f /q ", old, " 2>nul & ver >nul) && (if exist ", dst, " move /y ", dst, " ", old,
+			" && (schtasks /End /TN ", task, " >nul 2>nul & schtasks /End /TN ", task2, " >nul 2>nul & ver >nul)" +
+			" && (del /f /q ", lold, " 2>nul & ver >nul) && (if exist ", launcher, " move /y ", launcher, " ", lold,
+		" >nul) && copy /y /b ", ltmp, " ", launcher, " >nul && (del /f /q ", ltmp, ` 2>nul & start "" /wait `, launcher, " " + LauncherArg + " " + launcherKill + " ", dst,
+		" & ver >nul) && (del /f /q ", old, " 2>nul & ver >nul) && (if exist ", dst, " move /y ", dst, " ", old,
 		" >nul) && copy /y /b ", tmp, " ", dst, " >nul && schtasks /Create /F /TN ", task, " /XML ", xml,
 		" >nul && schtasks /Create /F /TN ", task2, " /XML ", xml2,
 		" >nul && (echo " + mark + ")> ", markPath(dst),
@@ -89,12 +102,62 @@ func taskXML(sid, bin, coreDir string) string {
 // session the user is logged on in (InteractiveToken), which asks nobody,
 // and so runs only while the user is logged on at the desktop. There the
 // core, a console program, would open a console window, and closing it
-// would end TUN: the action is the system's console host run headless,
-// which gives the core a console with no window. Ending the task ends the
-// console host, and Windows ends a console's programs with it.
-func fallbackTaskXML(sid, conhost, bin, coreDir string) string {
-	return taskDef(sid, "InteractiveToken", conhost, `--headless "`+bin+`" `+coreArgs(coreDir), bin, coreDir, taskNameOf(sid))
+// would end TUN. So the action is not the core but a launcher: a copy of
+// the app's own program beside the core, which has no console (a release
+// build is a GUI program) and starts the core without one. Ending a task
+// ends its one process and none that process started (the console host
+// run headless, tried first, left the core running, elevated, where the
+// app could not end it): the launcher therefore puts itself in a job that
+// Windows ends with its last handle, which is the launcher's own, and the
+// core goes with it. See Launch.
+func fallbackTaskXML(sid, launcher, bin, coreDir string) string {
+	return taskDef(sid, "InteractiveToken", launcher, LauncherArg+` "`+bin+`" `+coreArgs(coreDir), bin, coreDir, taskNameOf(sid))
 }
+
+// LauncherArg is the app's first argument when it is run as the second
+// task's launcher: what follows is the core and its arguments, or
+// launcherKill and the installed core's path.
+const LauncherArg = "tun-core"
+
+// launcherKill asks the launcher, in place of a core to start, to end
+// every process running from the path that follows.
+const launcherKill = "--kill"
+
+// launcherPath is where the launcher is kept: beside the core, where only
+// administrators can replace it.
+func launcherPath(dst string) string { return winDir(dst) + `\bowel-tun.exe` }
+
+// launchArgs reads what follows LauncherArg: a path to end the processes
+// of, or the core and its arguments.
+func launchArgs(args []string) (kill, core string, rest []string, ok bool) {
+	switch {
+	case len(args) == 2 && args[0] == launcherKill && args[1] != "":
+		return args[1], "", nil, true
+	case len(args) >= 1 && args[0] != "" && !strings.HasPrefix(args[0], "-"):
+		return "", args[0], args[1:], true
+	}
+	return "", "", nil, false
+}
+
+// sameImage is whether a process's program, path, is the installed core
+// bin, or that core moved aside by a later installation while it ran.
+func sameImage(path, bin string) bool {
+	return bin != "" && (strings.EqualFold(path, bin) || strings.EqualFold(path, bin+".old"))
+}
+
+// orphaned is why the core was not started when one from before is still
+// running after both tasks were ended. It runs elevated, so the app
+// cannot end it, and it holds the ports and the adapter the next would
+// need. It is ErrGone to whoever asks: the installation is made again,
+// and that, elevated, ends it.
+type orphaned struct{}
+
+func (orphaned) Error() string {
+	return i18n.T("上一次的内核还在以管理员权限运行，bowel 没有权限结束它；重新开启 TUN 会再授权一次并结束它",
+		"The core from an earlier run is still running with administrator rights, and bowel isn't allowed to end it; turning TUN on again asks for the authorization once more and ends it")
+}
+
+func (orphaned) Is(target error) bool { return target == ErrGone }
 
 // coreArgs are the arguments the app runs its core with.
 func coreArgs(coreDir string) string {

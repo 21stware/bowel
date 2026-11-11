@@ -40,13 +40,15 @@ func Spawn(bin string) (*Task, error) {
 	first := taskName()
 	_ = schtasks("/End", "/TN", first)
 	_ = schtasks("/End", "/TN", fallbackName(first))
-	before := pids(t.exe)
-	if len(before) > 0 {
-		// A core just ended may take a moment to go, and while it is
-		// there the task starts no other.
-		time.Sleep(500 * time.Millisecond)
-		before = pids(t.exe)
+	// A core just ended may take a moment to go, and while it is there
+	// the task starts no other. One that stays was not ended with its
+	// task, and only the installation, elevated, can end it.
+	for deadline := time.Now().Add(5 * time.Second); len(running(bin)) > 0; time.Sleep(100 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			return nil, orphaned{}
+		}
 	}
+	before := pids(t.exe) // other programs' cores of the same name
 	last, _ := os.ReadFile(rememberPath())
 	name, err := startTask(first, string(last),
 		func(name string) error { return schtasks("/Run", "/TN", name) },
@@ -119,6 +121,37 @@ func schtasks(args ...string) error {
 		}
 	}
 	return err
+}
+
+// running are the processes whose program is the installed core bin.
+// Another program's core has the same name and is none of them; nor is
+// one whose path the system will not tell.
+func running(bin string) []int {
+	var out []int
+	for _, name := range []string{filepath.Base(bin), filepath.Base(bin) + ".old"} {
+		for pid := range pids(name) {
+			h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+			if err != nil {
+				continue
+			}
+			if sameImage(imagePath(h), bin) {
+				out = append(out, pid)
+			}
+			windows.CloseHandle(h)
+		}
+	}
+	return out
+}
+
+// imagePath is the path of the program the process h runs, "" when it
+// cannot be told.
+func imagePath(h windows.Handle) string {
+	buf := make([]uint16, windows.MAX_LONG_PATH)
+	n := uint32(len(buf))
+	if err := windows.QueryFullProcessImageName(h, 0, &buf[0], &n); err != nil {
+		return ""
+	}
+	return windows.UTF16ToString(buf[:n])
 }
 
 // pids are the processes whose executable is named exe.
