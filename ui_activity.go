@@ -398,8 +398,8 @@ func (u *UI) activityPage(c *ui.Context, p *pal) {
 func (u *UI) actHead(c *ui.Context, p *pal) {
 	a := &u.act
 	n := a.count("active")
-	if len(a.conns) == 0 && u.snap.Takeover.On {
-		n = u.tick.Active // before the first fetch
+	if len(a.conns) == 0 {
+		n = u.tick.Active // before the first fetch, taken over or not
 	}
 	title := fmt.Sprintf(i18n.T("%d 个连接", "%d connections"), n)
 	sub := fmt.Sprintf(i18n.T("↓ %s · ↑ %s · 今日 %s", "↓ %s · ↑ %s · Today %s"), fmtRate(u.tick.Down), fmtRate(u.tick.Up), fmtBytes(u.tick.TodayDown+u.tick.TodayUp))
@@ -633,7 +633,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 	if !u.snap.Takeover.On && len(a.conns) > 0 {
 		ui.Row(c).Gap(10).Padding(8, 26).Background(p.hair2).AlignItems(ui.Center).Children(func() {
 			ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(p.faint)
-			ui.Text(c, i18n.T("bowel 现在没有接管流量，新的连接不会经过这里。", "bowel is not taking over traffic; new connections won’t show up here.")).FontSize(12).TextColor(p.ink2).Grow(1)
+			ui.Text(c, i18n.T("bowel 现在没有接管流量，只有代理指向 bowel 端口的应用会出现在这里。", "bowel is not taking over traffic; only apps pointed at its port show up here.")).FontSize(12).TextColor(p.ink2).Grow(1)
 			btn(c, p, i18n.T("去代理开启 →", "Turn on in Proxy →")).OnClick(func() { u.page = "home" })
 		})
 	}
@@ -677,7 +677,13 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 		}
 		ui.Column(c).Padding(48, 0).Gap(6).AlignItems(ui.Center).Children(func() {
 			if !u.snap.Takeover.On && len(a.conns) == 0 {
-				ui.Text(c, i18n.T("流量现在不经过 bowel", "Traffic isn’t going through bowel")).FontSize(17).FontWeight(700).TextColor(p.ink2)
+				// Only when nothing was observed: a connection the first fetch
+				// has yet to list, or traffic a moment ago, went through bowel.
+				head := i18n.T("流量现在不经过 bowel", "Traffic isn’t going through bowel")
+				if u.trafficSeen() {
+					head = i18n.T("现在没有经过 bowel 的连接", "No connections through bowel right now")
+				}
+				ui.Text(c, head).FontSize(17).FontWeight(700).TextColor(p.ink2)
 				ui.Text(c, i18n.T("开启接管后，经过 bowel 的连接会显示在这里。", "Turn on Takeover, and connections through bowel show up here.")).FontSize(12.5).TextColor(p.mute)
 				btn(c, p, i18n.T("去代理开启 →", "Turn on in Proxy →")).Margin(10, 0, 0, 0).OnClick(func() { u.page = "home" })
 				return

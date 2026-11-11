@@ -109,6 +109,12 @@ func TestTraySpeedSetting(t *testing.T) {
 	if got := a.pollEvery(); got != 5*time.Second {
 		t.Errorf("polls every %v with the speed asked for but nothing taken over", got)
 	}
+	// Not taken over, an app pointed at the port still has rates to tell.
+	a.lastTick = Tick{Active: 1}
+	if got := a.pollEvery(); got != traySpeedEvery {
+		t.Errorf("polls every %v with the speed asked for and a connection through the port", got)
+	}
+	a.lastTick = Tick{}
 	set(func(s *settings.Settings) { s.Paused = false })
 	a.winShown.Store(true)
 	if got := a.pollEvery(); got != time.Second {

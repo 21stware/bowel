@@ -159,7 +159,9 @@ func (u *UI) panelIssueAction(action string) {
 
 // panelSpeed: live down and up, and today's total.
 func (u *UI) panelSpeed(c *ui.Context, p *pal) {
-	if !u.snap.Takeover.On {
+	// Not taken over, the rates still show while there is traffic to tell
+	// of: an app pointed at the port passes it either way.
+	if !u.snap.Takeover.On && !u.trafficSeen() {
 		return
 	}
 	t := u.tick
@@ -194,6 +196,8 @@ func (u *UI) panelNodes(c *ui.Context, p *pal) {
 		})
 		note := ""
 		switch {
+		case !s.Takeover.On && u.trafficSeen():
+			note = i18n.T("只有代理指向 bowel 端口的应用经过 bowel", "Only apps pointed at bowel’s port go through it")
 		case !s.Takeover.On:
 			note = i18n.T("流量不经过 bowel", "Traffic isn’t going through bowel")
 		case s.Mode == "direct":

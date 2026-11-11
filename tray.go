@@ -155,7 +155,8 @@ func (a *App) trayTick() {
 // them away; the tray hears of it only when the text changes.
 func (a *App) traySpeed(tray *mygo.Tray) {
 	st := a.settings.Get()
-	title, tip := trayText(runtime.GOOS, st.TraySpeed && a.takeoverOn(st), a.tick())
+	t := a.tick()
+	title, tip := trayText(runtime.GOOS, st.TraySpeed && (a.takeoverOn(st) || trafficNow(t)), t)
 	trayOn.Lock()
 	newTitle, newTip := title != trayOn.title, tip != trayOn.tip
 	trayOn.title, trayOn.tip = title, tip
@@ -167,6 +168,10 @@ func (a *App) traySpeed(tray *mygo.Tray) {
 		tray.SetToolTip(tip)
 	}
 }
+
+// trafficNow says whether t has traffic in it: a connection, or bytes
+// moving. Not taken over, the tray tells its rates only then.
+func trafficNow(t Tick) bool { return t.Active > 0 || t.Down > 0 || t.Up > 0 }
 
 // trayText is what stands beside the icon and what its tooltip says, on
 // the system goos, with the rates shown or not. Windows has no text beside
