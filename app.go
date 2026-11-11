@@ -88,6 +88,9 @@ type App struct {
 	// nodesAt: the providers' lists are read again when they change.
 	nodesSig uint64
 	nodesAt  time.Time
+	// impWaiting is what the config in use has the core download and the
+	// core does not have yet, as of nodesAt.
+	impWaiting importedWaiting
 	// nodeProxies are the providers' nodes as last read. The maps below are
 	// replaced, never changed, so a snapshot can hold on to them.
 	nodeProxies map[string]mihomo.Proxy
@@ -492,16 +495,31 @@ func (a *App) refresh() {
 		sig := nodeSig(px)
 		a.mu.Lock()
 		nodes, known, stale := a.provNodes, a.nodeProxies, sig != a.nodesSig || time.Since(a.nodesAt) > nodesEvery
+		waiting := a.impWaiting
 		a.mu.Unlock()
 		if err == nil && stale {
 			var pp map[string]mihomo.ProxyProvider
 			if pp, err = c.ProxyProviders(ctx); err == nil {
 				nodes, known = map[string][]string{}, map[string]mihomo.Proxy{}
 				im := a.importedNow()
+				waiting = importedWaiting{}
+				if im != nil && len(im.RuleProviders) > 0 {
+					if rp, err := c.RuleProviders(ctx); err == nil {
+						for name := range im.RuleProviders {
+							if p, ok := rp[name]; ok && p.RuleCount == 0 {
+								waiting.sets = append(waiting.sets, name)
+							}
+						}
+						slices.Sort(waiting.sets)
+					}
+				}
 				for name, p := range pp {
 					id, ok := strings.CutPrefix(name, "p-")
 					if im != nil && slices.Contains(im.ProviderNames(), name) { // the nodes of a source's own provider count as its
 						id, ok = a.settings.Get().ImportedRouting, true
+						if len(p.Proxies) == 0 {
+							waiting.subs = append(waiting.subs, name)
+						}
 					}
 					if !ok {
 						continue
@@ -518,6 +536,8 @@ func (a *App) refresh() {
 			addNodes(px, known)
 			a.mu.Lock()
 			a.proxies, a.provNodes, a.nodeProxies = px, nodes, known
+			slices.Sort(waiting.subs)
+			a.impWaiting = waiting
 			if stale {
 				a.nodesSig, a.nodesAt = sig, time.Now()
 			}
@@ -609,7 +629,9 @@ func (a *App) applyConfig() error {
 func (a *App) buildConfig(s settings.Settings, dev devnet.Overlay, im *core.Imported) ([]byte, error) {
 	var refs []core.ProviderRef
 	for _, p := range a.providers.List() {
-		if p.Enabled {
+		// A config whose nodes are all its own proxy-providers' is no node
+		// file: those come with its routing, when that is in use.
+		if p.Enabled && a.providers.OwnNodes(p.ID) {
 			refs = append(refs, core.ProviderRef{ID: p.ID, Path: a.providers.Path(p.ID)})
 		}
 	}
@@ -1546,7 +1568,7 @@ func (a *App) afterProviderAdded(p provider.Provider) (ProviderView, error) {
 	if err := a.applyConfig(); err != nil {
 		_ = a.providers.Delete(p.ID)
 		_ = a.applyConfig()
-		return ProviderView{}, fmt.Errorf(i18n.T("内核无法读取这个 Provider：%w", "The core can't read this Provider: %w"), err)
+		return ProviderView{}, fmt.Errorf(i18n.T("没有添加：加上这个 Provider 后，内核不接受新的配置。%w", "Not added: with this Provider, the core refuses the new config. %w"), err)
 	}
 	go a.healthCheck(p.ID)
 	return a.providerView(p), nil

@@ -70,6 +70,10 @@ type Manager struct {
 	// (mihomo refuses provider paths elsewhere).
 	SafePaths []string
 
+	// ReloadWait is how long Apply waits for a running core to answer a
+	// reload; 0 is 15 s. See Loading for what happens after.
+	ReloadWait time.Duration
+
 	// OnStatus and OnTraffic are called from the manager's goroutines.
 	OnStatus func(Status)
 	// OnListenError is called when Status's Error changes while the core
@@ -90,6 +94,7 @@ type Manager struct {
 	client    *mihomo.Client
 	status    Status
 	listenErr string // the proxy port the running core could not open
+	loading   bool   // see Loading
 	stopping  bool
 	closed    bool // by Close
 	cancel    context.CancelFunc
@@ -223,7 +228,7 @@ func (m *Manager) Test(path string) error {
 	setProcAttr(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf(i18n.T("配置检查失败: %s", "The config check failed: %s"), lastLines(string(out), 3))
+		return fmt.Errorf(i18n.T("配置检查失败: %s", "The config check failed: %s"), coreSaid(string(out)))
 	}
 	return nil
 }
@@ -252,12 +257,71 @@ func (m *Manager) Apply(cfg []byte) error {
 		return err
 	}
 	if c, err := m.Client(); err == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		wait := m.ReloadWait
+		if wait <= 0 {
+			wait = 15 * time.Second // what the client waits for any answer
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), wait)
 		defer cancel()
 		m.setListenErr("") // a reload tries a port again, and says so if it fails
-		return c.Reload(ctx, m.ConfigPath())
+		err := c.Reload(ctx, m.ConfigPath())
+		// The core answers a reload only once it has fetched every remote
+		// file the config names for the first time (a rule set, a
+		// subscription of the config's own), and one it can't reach takes
+		// it 20 s. The config has passed the check above, so a core that
+		// outlasts the wait and still answers is loading it, not refusing
+		// it: Loading says so until a reload is answered again.
+		slow := err != nil && isTimeout(err) && m.answers(c)
+		m.mu.Lock()
+		m.loading = slow
+		m.mu.Unlock()
+		if slow {
+			return nil
+		}
+		return err
 	}
+	m.mu.Lock()
+	m.loading = false
+	m.mu.Unlock()
 	return m.start()
+}
+
+// Loading says whether the core was still fetching what the last config
+// names when Apply stopped waiting for it.
+func (m *Manager) Loading() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.loading
+}
+
+func isTimeout(err error) bool {
+	var ne net.Error
+	return errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout())
+}
+
+func (m *Manager) answers(c *mihomo.Client) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := c.Version(ctx)
+	return err == nil
+}
+
+var coreLogLine = regexp.MustCompile(`level=(error|fatal) msg=("(?:[^"\\]|\\.)*")`)
+
+// coreSaid is why the core refused a config, out of what `mihomo -t`
+// printed: the messages of its error lines without their timestamps, or
+// failing that the last lines as they are.
+func coreSaid(out string) string {
+	var msgs []string
+	for _, m := range coreLogLine.FindAllStringSubmatch(out, -1) {
+		if s, err := strconv.Unquote(m[2]); err == nil {
+			msgs = append(msgs, s)
+		}
+	}
+	if len(msgs) == 0 {
+		return lastLines(out, 3)
+	}
+	return strings.Join(msgs, "\n")
 }
 
 // Restart stops the core and starts it again with the current config.

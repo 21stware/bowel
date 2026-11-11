@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gopkg.in/yaml.v3"
 	"io"
 	"net/http"
 	"net/url"
@@ -171,6 +172,9 @@ func (s *Store) Add(ctx context.Context, client *http.Client, input string) (Pro
 		p.Name = linkName(t)
 	case File:
 		data = []byte(t)
+		if err := noNodes(data); err != nil {
+			return Provider{}, err
+		}
 		p.Name = i18n.T("粘贴的配置", "Pasted config")
 	}
 	return s.create(p, data)
@@ -351,12 +355,55 @@ func (s *Store) Replace(items []Provider, files map[string][]byte) error {
 	return s.saveLocked()
 }
 
+// configNodes counts what a Clash config has to give nodes: its own
+// `proxies`, and the `proxy-providers` it would have the core download. ok
+// is false for anything else (node links, Base64). A template whose every
+// node line is still a comment has both keys and nothing under them.
+func configNodes(data []byte) (own, remote int, ok bool) {
+	var doc map[string]any
+	if yaml.Unmarshal(data, &doc) != nil {
+		return 0, 0, false
+	}
+	_, has := doc["proxies"]
+	_, groups := doc["proxy-groups"]
+	if !has && !groups {
+		return 0, 0, false
+	}
+	list, _ := doc["proxies"].([]any)
+	providers, _ := doc["proxy-providers"].(map[string]any)
+	return len(list), len(providers), true
+}
+
+// noNodes refuses a config that has nothing to give nodes at all.
+func noNodes(data []byte) error {
+	if own, remote, ok := configNodes(data); ok && own == 0 && remote == 0 {
+		return errors.New(i18n.T("这份配置里一个节点都没有：proxies 和 proxy-providers 都是空的，或者还被注释着。先在文件里填上节点或订阅链接，再添加", "This config has no nodes at all: its proxies and proxy-providers are both empty, or still commented out. Put nodes or a subscription link in the file, then add it"))
+	}
+	return nil
+}
+
+// OwnNodes says whether provider id's file has nodes for the core to read
+// from it. A config whose nodes all come from its own proxy-providers has
+// none: the core would refuse such a file ("file must have a `proxies`
+// field") each time it loads.
+func (s *Store) OwnNodes(id string) bool {
+	b, err := os.ReadFile(s.Path(id))
+	if err != nil {
+		return true // the core's to report
+	}
+	own, _, ok := configNodes(b)
+	return !ok || own > 0
+}
+
 // looksLikeNodes rejects content mihomo would read as zero nodes: an HTML
 // error page, an empty answer.
 func looksLikeNodes(data []byte) error {
 	t := strings.TrimSpace(string(data))
 	if t == "" {
 		return errors.New(i18n.T("内容为空", "The content is empty"))
+	}
+	if err := noNodes(data); err != nil {
+		return err
 	}
 	if strings.Contains(t, "proxies:") || linkScheme.MatchString(t) {
 		return nil

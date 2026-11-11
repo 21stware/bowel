@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -340,6 +341,21 @@ func GroupKind(g map[string]any) string { return strings.ToLower(fmt.Sprint(g["t
 // ProviderNames are the source's own node providers that are in use.
 func (im *Imported) ProviderNames() []string {
 	return slices.Sorted(maps.Keys(im.ProxyProviders))
+}
+
+// RemoteHosts are the hosts the named providers of the source, of nodes or
+// of rules, are downloaded from, each once.
+func (im *Imported) RemoteHosts(names []string) []string {
+	var out []string
+	for _, n := range names {
+		for _, all := range []map[string]map[string]any{im.ProxyProviders, im.RuleProviders} {
+			s, _ := all[n]["url"].(string)
+			if u, err := url.Parse(s); err == nil && u.Host != "" && !slices.Contains(out, u.Host) {
+				out = append(out, u.Host)
+			}
+		}
+	}
+	return out
 }
 
 // runtimeGroups are the groups as they go to the core. `include-all` and its

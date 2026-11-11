@@ -310,6 +310,23 @@ func (c *Client) ProxyProviders(ctx context.Context) (map[string]ProxyProvider, 
 	return v.Providers, err
 }
 
+// RuleProvider is one entry of GET /providers/rules. One the core has not
+// been able to download yet has no rules.
+type RuleProvider struct {
+	Name      string    `json:"name"`
+	Behavior  string    `json:"behavior"`
+	RuleCount int       `json:"ruleCount"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+func (c *Client) RuleProviders(ctx context.Context) (map[string]RuleProvider, error) {
+	var v struct {
+		Providers map[string]RuleProvider `json:"providers"`
+	}
+	err := c.do(ctx, http.MethodGet, "/providers/rules", nil, &v)
+	return v.Providers, err
+}
+
 // HealthCheck tests every node of a provider.
 func (c *Client) HealthCheck(ctx context.Context, provider string) error {
 	return c.do(ctx, http.MethodGet, "/providers/proxies/"+url.PathEscape(provider)+"/healthcheck", nil, nil)

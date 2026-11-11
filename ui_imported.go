@@ -66,6 +66,11 @@ func (u *UI) provRouting(c *ui.Context, p *pal, pv ProviderView) {
 		return
 	}
 	id := pv.ID
+	if r.Remote > 0 && !r.InUse {
+		// Otherwise a config whose nodes are all its subscriptions' looks
+		// like one that brought none.
+		ui.Text(c, fmt.Sprintf(i18n.T("这份配置自带 %d 个订阅，里面的节点在使用之后才由内核下载", "This config brings %d subscriptions of its own; the core downloads their nodes once it is in use"), r.Remote)).FontSize(11.5).TextColor(p.mute).MaxLines(2)
+	}
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 		if r.InUse {
 			ui.Text(c, fmt.Sprintf(i18n.T("正在使用它的 %d 个路由组", "Using its %d route groups"), r.Groups)).FontSize(11.5).FontWeight(600).TextColor(p.ink).NoWrap()
