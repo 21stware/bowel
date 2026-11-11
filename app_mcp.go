@@ -907,7 +907,7 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "add_rule", Title: "Add a rule",
-				Description: "Sends traffic to a route with a rule of the user's, which wins over the built-in ones. It replaces a rule for the same traffic. Open connections it now sends elsewhere are closed, so the change shows at once. kind: suffix (the domain and its subdomains; the default for names), domain (that name only), keyword (names containing it), ip (an address or CIDR; the default for addresses), app (everything a program on this computer connects to, by its process name as list_connections shows it, e.g. Telegram.exe; never guessed, comes before every other rule, and only on Windows and Linux, where the core can tell programs apart; not for devices using this computer as a gateway).",
+				Description: "Sends traffic to a route with a rule of the user's, which wins over the built-in ones. It replaces a rule for the same traffic. Open connections it now sends elsewhere are closed, so the change shows at once. kind: suffix (the domain and its subdomains; the default for names), domain (that name only), keyword (names containing it), ip (an address or CIDR; the default for addresses), app (everything a program on this computer connects to, by its process name as list_connections shows it, e.g. Telegram.exe, or on macOS the bundle, e.g. Telegram.app; a path is taken too; never guessed, comes before every other rule; not for devices using this computer as a gateway, and not on Android or iOS).",
 				Input: obj(map[string]any{
 					"target": str("A domain, *.domain, URL, keyword or IP/CIDR; with kind app, a program's name or path."),
 					"route":  routeArg,
