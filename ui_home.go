@@ -56,6 +56,10 @@ type homeUI struct {
 	// the frame it was built: frame counts the board's frames.
 	copies map[string]shareRec
 	frame  int
+	// The shared pieces in place, in the order a frame builds them: an
+	// Element is not kept beyond the call that built it.
+	pieces []*ui.Handle
+	placed int
 
 	mapView mapView               // the expanded map's pan and zoom
 	walls   map[string]*wallPaths // twisted borders' paths, by cell
@@ -149,7 +153,7 @@ var morphText = ui.ContentTransition{Morph: true}
 // frame before), and shows once the view has arrived.
 type sharedPiece struct {
 	key   string
-	at    ui.Element // in place, in its view
+	at    *ui.Handle // in place, in its view
 	build func(c *ui.Context) ui.Element
 }
 
@@ -178,10 +182,10 @@ func (u *UI) share(c *ui.Context, m any, key string, build func(c *ui.Context) u
 	case shareCell == "":
 		return e.Transition(fly(m))
 	case noFly:
-		leftOver = append(leftOver, sharedPiece{key: key, at: e})
+		leftOver = append(leftOver, sharedPiece{key: key, at: u.home.place(e)})
 		return e.Transition(fly(m))
 	}
-	shared = append(shared, sharedPiece{key: key, at: e, build: build})
+	shared = append(shared, sharedPiece{key: key, at: u.home.place(e), build: build})
 	if shareLift && u.home.hadCopy(shareCell+"/"+key) {
 		return e.Opacity(0) // its copy shows it on its way
 	}
@@ -219,6 +223,18 @@ func glide(e ui.Element, name string, v float32, move bool) float32 {
 	return e.AnimateTo(name, v, motion)
 }
 
+// place binds e, a shared piece in place, to a handle of this frame, by
+// which drawShared finds it once its view is built.
+func (h *homeUI) place(e ui.Element) *ui.Handle {
+	if h.placed == len(h.pieces) {
+		h.pieces = append(h.pieces, new(ui.Handle))
+	}
+	r := h.pieces[h.placed]
+	h.placed++
+	e.Bind(r)
+	return r
+}
+
 func (h *homeUI) hadCopy(k string) bool {
 	r, ok := h.copies[k]
 	return ok && r.frame == h.frame-1
@@ -236,7 +252,8 @@ func (u *UI) drawShared(c *ui.Context, cell string, in ui.Element, lift bool) {
 		k := cell + "/" + s.key
 		had := h.hadCopy(k)
 		rel := h.copies[k].rel
-		if b := s.at.LayoutBounds(); view.W > 0 && (b.W > 0 || b.H > 0) {
+		at := c.Resolve(*s.at)
+		if b := at.LayoutBounds(); view.W > 0 && (b.W > 0 || b.H > 0) {
 			rel = steady(rel, ui.Rect{X: b.X - view.X, Y: b.Y - view.Y, W: b.W, H: b.H})
 		} else if !had {
 			continue // no place for it yet: its piece shows in place
@@ -244,7 +261,7 @@ func (u *UI) drawShared(c *ui.Context, cell string, in ui.Element, lift bool) {
 		move := lift && had
 		cp := s.build(c.Key("share-" + s.key))
 		if shareTrace != nil && move {
-			shareTrace(k, cp.LayoutBounds(), s.at.LayoutBounds())
+			shareTrace(k, cp.LayoutBounds(), at.LayoutBounds())
 		}
 		// Only its place glides: laid out at its own size all the way, a
 		// title never wraps in a box narrower than it on its way; the
@@ -256,7 +273,7 @@ func (u *UI) drawShared(c *ui.Context, cell string, in ui.Element, lift bool) {
 	}
 	for _, s := range leftOver {
 		if keys[s.key] {
-			s.at.Opacity(0)
+			c.Resolve(*s.at).Opacity(0)
 		}
 	}
 	shared, leftOver = shared[:0], leftOver[:0]
@@ -378,6 +395,7 @@ func (u *UI) homePage(c *ui.Context, p *pal) {
 	ncols, nrows := u.tracks("")
 	normal := boxes(ncols, nrows, w, hh)
 	h.frame++
+	h.placed = 0
 	for k, r := range h.copies {
 		if r.frame < h.frame-1 {
 			delete(h.copies, k)
@@ -1271,13 +1289,13 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 					}
 				})
 				if s.Mode == "rule" && s.Imported == nil {
-					pill(c, p, i18n.T("直接连接", "Direct"), false).OnClick(func() { u.setExitDirect(true) })
+					pill(c, p, i18n.T("直接连接", "Direct"), false).OnClick(func() { u.setExitDirect(routes.Default, true) })
 				}
 			})
 		} else if len(s.Nodes) == 0 && s.Mode != "direct" {
 			pill(c, p, i18n.T("添加提供商", "Add provider"), true).AlignSelf(ui.Start).OnClick(func() { u.page = "providers" })
 		} else if u.route("default").Direct && s.Mode == "rule" && s.Imported == nil {
-			pill(c, p, i18n.T("改为走节点", "Use a node"), true).AlignSelf(ui.Start).OnClick(func() { u.setExitDirect(false) })
+			pill(c, p, i18n.T("改为走节点", "Use a node"), true).AlignSelf(ui.Start).OnClick(func() { u.setExitDirect(routes.Default, false) })
 		}
 	})
 }
@@ -1379,7 +1397,7 @@ func (u *UI) heroExpanded(c *ui.Context, p *pal, w float32) {
 			})
 		})
 	}, func() { u.autoSeg(c, p, "default") })
-	u.defaultExit(c, p, w)
+	u.groupExit(c, p, routes.Default, w)
 }
 
 // The region bar's measures, shared by its layout and peekWidth's sums.
@@ -2243,7 +2261,7 @@ func (u *UI) routeRow(c *ui.Context, p *pal, r RouteView) {
 	b := ui.ButtonBase(c.Key(rid)).Row().Gap(10).Padding(3, 0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).
 		OnClick(func() {
 			u.home.x, u.home.query, u.home.region = "routes", "", ""
-			if !r.Direct {
+			if !r.Direct || routes.ChoosesExit(rid) && u.snap.Imported == nil {
 				u.home.sub = rid
 			}
 		})
@@ -2261,6 +2279,8 @@ func (u *UI) routeRow(c *ui.Context, p *pal, r RouteView) {
 		hasNode = hasNode && !r.Direct
 		if hasNode {
 			name, delay = n.Display, fmtDelay(n)
+		} else if r.Direct && routes.ChoosesExit(rid) && u.snap.Imported == nil {
+			delay = "—" // direct by choice, whatever it holds
 		}
 		u.share(c, exitMatch{rid}, "exit:"+rid, func(c *ui.Context) ui.Element {
 			text := func() ui.Element {
@@ -2300,11 +2320,7 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 				})
 			})
 		}, func() { u.autoSeg(c, p, r.ID) })
-		if r.ID == routes.Default {
-			u.defaultExit(c, p, w)
-		} else {
-			u.nodePicker(c, p, r.ID, w)
-		}
+		u.groupExit(c, p, r.ID, w)
 		return
 	}
 	u.detailHead(c, p, "routes", i18n.T("路由", "Route"), func() { detailTitle(c, p, i18n.T("每类流量走哪里", "Where each kind of traffic goes")) }, func() {
@@ -2313,7 +2329,7 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 	row := func(r RouteView) {
 		rid := r.ID
 		other := rid == routes.Default
-		canOpen := !r.Direct || other && u.snap.Imported == nil
+		canOpen := !r.Direct || routes.ChoosesExit(rid) && u.snap.Imported == nil
 		b := ui.ButtonBase(c.Key(rid)).Row().Gap(16).Padding(0, 10).Height(matchRowH).AlignItems(ui.Center).Radius(p.r(8))
 		if other {
 			b.Padding(0, 9).Background(p.card).Border(1, p.hair)

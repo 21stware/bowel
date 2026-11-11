@@ -121,7 +121,7 @@ curl -fsSL https://21stware.github.io/packages/install.sh | sh
 
 - **macOS**：把 bowel 拖进「应用程序」。安装包用 Developer ID 签名，并经过 Apple 公证。
 - **Windows**：运行安装程序。安装包没有代码签名，运行前 Windows 可能会弹出提示。
-- **Linux**：安装 `.deb` 或 `.rpm`，或解压压缩包后运行 `install.sh`，它会把 bowel 安装到当前用户的 `~/.local`。
+- **Linux**：安装 `.deb` 或 `.rpm`。要安装到当前用户的 `~/.local`，从同一个 Release 下载 `install.sh` 和 `.tar.gz`，不用解压，运行 `sh install.sh bowel-<版本>-linux-<架构>.tar.gz`。这个脚本与上面添加软件源的脚本不同。
 - **Android**：安装 APK，如有提示请允许浏览器安装应用。首次连接时系统会请求 VPN 权限。
 - **iOS**：暂未发布。
 
@@ -139,7 +139,7 @@ curl -fsSL https://21stware.github.io/packages/install.sh | sh
 | MCP 服务器 | 支持 | 支持 | 支持 | 不支持 |
 | 命令行和 `bowel daemon` | 支持 | 支持 | 支持 | 不支持 |
 
-第一次开启 TUN 时需要管理员授权一次：macOS 是系统自己的对话框，Windows 是用户账户控制（UAC），Linux 通过 polkit（`pkexec`）。Linux 上的系统代理是 GNOME 的（Cinnamon、MATE、Budgie 等桌面共用它）或 KDE 的；其他桌面请使用 TUN，或让应用自行连接混合端口，默认是 7899。各系统具体有什么、缺什么，见 [docs/platform-parity.md](docs/platform-parity.md)。Android 版可以选择不经过 VPN 的应用。
+第一次开启 TUN 时需要管理员授权一次：macOS 是系统自己的对话框，Windows 是用户账户控制（UAC），Linux 通过 polkit（`pkexec`）。在使用 systemd-resolved 的 Linux 上，这次授权还会留下一条 polkit 规则，允许当前用户把解析器指向 TUN 网卡（内核每次启动 TUN 都要这么做）；没有这条规则时（polkit 早于 0.106，不读取这类规则），每次启动 TUN 桌面都会连问三次密码。Linux 上的系统代理是 GNOME 的（Cinnamon、MATE、Budgie 等桌面共用它）或 KDE 的；其他桌面请使用 TUN，或让应用自行连接混合端口，默认是 7899。各系统具体有什么、缺什么，见 [docs/platform-parity.md](docs/platform-parity.md)。Android 版可以选择不经过 VPN 的应用。
 
 ## 命令行
 

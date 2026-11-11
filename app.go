@@ -923,9 +923,20 @@ func (a *App) setTun(on bool) error {
 	return a.afterTakeover()
 }
 
-// tunNeedsInstall is whether turning TUN on takes an authorization.
+// tunNeedsInstall is whether turning TUN on takes an authorization. On
+// Linux an installation from before the polkit rule, or whose rule names
+// another device than the settings now do, is one that does.
 func (a *App) tunNeedsInstall() bool {
-	return !osTun.installed(a.tunBin) || a.tunStale.Load() || a.tunGone.Load()
+	a.tellTunDevice()
+	return !osTun.installed(a.tunBin) || a.tunStale.Load() || a.tunGone.Load() || osTun.needsRule(a.tunBin)
+}
+
+// tellTunDevice gives the installation the device's name as the settings
+// have it now, which the rule it leaves on Linux names.
+func (a *App) tellTunDevice() {
+	if a.settings != nil {
+		tun.SetDevice(a.settings.Get().TunDevice)
+	}
 }
 
 // leaveTunCore answers a core that did not come up: when it was the copy
@@ -968,6 +979,7 @@ func (a *App) tunFailed() bool {
 
 // installTun puts this version's core in the root copy and runs on it.
 func (a *App) installTun() error {
+	a.tellTunDevice()
 	if err := osTun.install(a.coreBin, a.tunBin); err != nil {
 		return err
 	}
@@ -1619,6 +1631,35 @@ func (a *App) closeUnmatched() int {
 	return 0
 }
 
+// closeRoute closes the connections on route group id, so that a change of
+// where it leaves shows. It reports how many it closed.
+func (a *App) closeRoute(id string) int {
+	if id == routes.Default {
+		return a.closeUnmatched()
+	}
+	c, err := a.core.Client()
+	if err != nil {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snap, err := c.Connections(ctx)
+	if err != nil {
+		return 0
+	}
+	var ids []string
+	for _, cn := range snap.Connections {
+		if len(cn.Chains) > 0 && a.routeOfGroup(cn.Chains[len(cn.Chains)-1], cn.Rule) == id {
+			ids = append(ids, cn.ID)
+		}
+	}
+	if len(ids) > 0 && a.closeConns(ids) == nil {
+		a.mon.Wake()
+		return len(ids)
+	}
+	return 0
+}
+
 // rerouteBy is reroute for whatever match catches.
 func (a *App) rerouteBy(match func(host, ip string) bool, keep string) int {
 	c, err := a.core.Client()
@@ -1660,7 +1701,7 @@ func (a *App) rerouteBy(match func(host, ip string) bool, keep string) int {
 // routeOfGroup maps a mihomo group name (or DIRECT, REJECT) to a route id.
 func (a *App) routeOfGroup(group, rule string) string {
 	for _, r := range a.routes() {
-		if !r.Direct && (group == routes.Group(r) || routes.Internal(r, group)) {
+		if (!r.Direct || r.OwnExit()) && (group == routes.Group(r) || routes.Internal(r, group)) {
 			return r.ID
 		}
 	}
@@ -1678,7 +1719,7 @@ func (a *App) routeOfGroup(group, rule string) string {
 	}
 	if rule != "" {
 		for _, r := range a.routes() {
-			if r.Direct && !r.Reject && r.ID != routes.Default {
+			if r.Direct && !r.Reject && r.ID != routes.Default && !r.OwnExit() {
 				return r.ID
 			}
 		}

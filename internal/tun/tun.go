@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/oboo/moho/internal/i18n"
 )
@@ -51,6 +52,15 @@ func (gone) Error() string {
 // the app, so every file its config names has to be inside this directory:
 // mihomo reads nothing outside it without a SAFE_PATHS variable. Set once, before anything else is called.
 var CoreDir string
+
+// device is the TUN device's name in the settings, "" for the core's own
+// choice.
+var device atomic.Value
+
+// SetDevice tells the package what the settings call the TUN device. Linux
+// names it in the polkit rule an installation leaves; the other systems
+// do not read it.
+func SetDevice(name string) { device.Store(name) }
 
 // Step is one shell command run as root (on Windows, elevated): its parts
 // alternate between literal text and paths, which the shell sees as one
