@@ -906,6 +906,11 @@ func (u *UI) dnsSection(c *ui.Context, p *pal, s settings.Settings) {
 			u.setOpt(func(s *settings.Settings) { s.ProxyNameservers = v })
 		})
 	})
+	optWide(c, p, i18n.T("直连域名服务器", "Servers for direct connections"), i18n.T("解析走直连的域名；留空用上游服务器，写 system 用系统的 DNS", "Resolve names that connect directly; empty uses the upstream servers, system the system's DNS"), func() {
+		u.optList(c, p, "directns", i18n.T("直连域名服务器", "Servers for direct connections"), s.DirectNameservers, func(v []string) {
+			u.setOpt(func(s *settings.Settings) { s.DirectNameservers = v })
+		})
+	})
 	optWide(c, p, i18n.T("域名策略", "Nameserver policy"), i18n.T("域名=服务器，如 geosite:cn=223.5.5.5；同一域名可写多条", "domain=server, as geosite:cn=223.5.5.5; a domain may repeat"), func() {
 		u.optList(c, p, "policy", i18n.T("域名策略", "Nameserver policy"), s.NameserverPolicy, func(v []string) {
 			u.setOpt(func(s *settings.Settings) { s.NameserverPolicy = v })

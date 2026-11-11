@@ -177,7 +177,7 @@ func BuildConfig(in Input) ([]byte, error) {
 	hosts := map[string]any{}
 	// The DNS servers in use that Moho knows the addresses of; the lines
 	// below, the user's among them, replace these.
-	servers := slices.Concat(o.Nameservers, o.Fallback, o.ProxyNameservers)
+	servers := slices.Concat(o.Nameservers, o.Fallback, o.ProxyNameservers, o.DirectNameservers)
 	if len(o.Nameservers) == 0 {
 		servers = append(servers, DefaultNameservers...)
 	}
@@ -356,15 +356,18 @@ func BuildConfig(in Input) ([]byte, error) {
 		case in.Tun:
 			dns["listen"] = fmt.Sprintf("127.0.0.1:%d", LocalDNSPort)
 		}
+		directDNS(dns, o)
 		cfg["dns"] = dns
 	case len(dev.Policy) > 0:
 		// Without a resolver of its own the core asks the system's servers
 		// directly, which knows nothing of split DNS: this resolver is the
 		// system's too, but for the domains that have servers of their own.
-		cfg["dns"] = map[string]any{
+		dns := map[string]any{
 			"enable": true, "ipv6": ipv6, "enhanced-mode": "normal", "nameserver": []string{"system"},
 			"use-hosts": o.UseHosts, "use-system-hosts": o.UseSystemHosts, "nameserver-policy": policy,
 		}
+		directDNS(dns, o)
+		cfg["dns"] = dns
 	default:
 		// Neither TUN nor the built-in switch nor developer networks: the core
 		// used to be given no resolver at all here. It needs one for the
@@ -385,9 +388,23 @@ func BuildConfig(in Input) ([]byte, error) {
 		if len(policy) > 0 {
 			dns["nameserver-policy"] = policy
 		}
+		directDNS(dns, o)
 		cfg["dns"] = dns
 	}
 	return yaml.Marshal(cfg)
+}
+
+// directDNS gives the connections that go direct servers of their own. The
+// upstream ones answer for them otherwise, and a public server's answer is
+// not always an address the network at hand can reach: a company's network
+// may reach a site only at the addresses its own DNS gives. The policy still
+// comes first, so split DNS keeps its servers.
+func directDNS(dns map[string]any, o Options) {
+	if len(o.DirectNameservers) == 0 {
+		return
+	}
+	dns["direct-nameserver"] = o.DirectNameservers
+	dns["direct-nameserver-follow-policy"] = true
 }
 
 // templateRouting is the groups and rules of Moho's own route groups.

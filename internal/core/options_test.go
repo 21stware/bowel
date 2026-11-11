@@ -26,6 +26,7 @@ func everything() Options {
 	o.DefaultNameservers = []string{"223.5.5.5", "tls://1.1.1.1:853"}
 	o.Fallback = []string{"https://1.1.1.1/dns-query"}
 	o.ProxyNameservers = []string{"https://doh.pub/dns-query"}
+	o.DirectNameservers = []string{"system", "10.0.0.53"}
 	o.NameserverPolicy = []string{"geosite:cn=223.5.5.5", "geosite:cn = 119.29.29.29", "+.corp.example=10.0.0.53"}
 	o.Hosts = []string{"router.lan=192.168.1.1"}
 	o.RespectRules, o.PreferH3 = true, true
@@ -55,6 +56,7 @@ func TestOptionsValidate(t *testing.T) {
 		"stack":             func(o *Options) { o.TunStack = "lwip" },
 		"no dns":            func(o *Options) { o.Nameservers = nil },
 		"bootstrap by name": func(o *Options) { o.DefaultNameservers = []string{"dns.google"} },
+		"direct dns":        func(o *Options) { o.DirectNameservers = []string{"10.0.0.53 system"} },
 		"respect rules":     func(o *Options) { o.RespectRules, o.ProxyNameservers = true, nil },
 		"policy":            func(o *Options) { o.NameserverPolicy = []string{"geosite:cn"} },
 		"fake-ip range":     func(o *Options) { o.FakeIPRange = "198.18.0.1" },
