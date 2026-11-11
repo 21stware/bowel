@@ -684,6 +684,7 @@ func (u *UI) routesGroup(c *ui.Context, p *pal, all []routes.Route, r routes.Rou
 		}
 	} else if r.Direct {
 		note(i18n.T("这里的流量直接连接，不经过节点，所以没有节点策略。", "Traffic here connects directly, with no node, so there's no node strategy."))
+		u.meshRow(c, p)
 	} else {
 		u.strategyCard(c, p, v)
 	}
