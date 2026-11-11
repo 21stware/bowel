@@ -9,9 +9,16 @@ import (
 	"github.com/egoist/mygo"
 
 	"github.com/oboo/moho/internal/cli"
+	"github.com/oboo/moho/internal/tun"
 )
 
 func main() {
+	// Windows' second TUN task runs a copy of this program, elevated, to
+	// start the core (tun.Launch): before anything else, so that nothing
+	// of the app runs with those rights.
+	if len(os.Args) > 1 && os.Args[1] == tun.LauncherArg {
+		os.Exit(tun.Launch(os.Args[2:]))
+	}
 	// A data folder other than the user's default, for every way in.
 	if dir := os.Getenv(dataDirEnv); dir != "" {
 		if err := useDataDir(dir); err != nil {
