@@ -77,7 +77,7 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 </table>
 
 ### 其他
-- **自定义规则**：支持按域名、关键词或 IP 段添加分流规则并测试匹配结果；桌面端还可以按应用分流。
+- **自定义规则**：支持按域名、关键词或 IP 段添加分流规则并测试匹配结果；Windows 和 Linux 上还可以按应用分流。
 - **出口位置实测**：通过 Cloudflare 请求实测节点真实的出口所在地。
 - **网关模式**（macOS、Linux）：支持作为局域网网关为电视、游戏机和手机提供代理服务。
 - **TUN**（macOS、Windows、Linux）：接管不遵循系统代理设置的应用程序流量。

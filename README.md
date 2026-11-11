@@ -77,7 +77,7 @@ Thirteen skins that change the look of the whole interface.
 </table>
 
 ### Other
-- **Custom rules**: Route specific domains, keywords, or IP ranges, and test where addresses go; on the desktop, route by application too.
+- **Custom rules**: Route specific domains, keywords, or IP ranges, and test where addresses go; on Windows and Linux, route by application too.
 - **Measured exit locations**: Verify true exit locations through Cloudflare trace.
 - **Gateway mode** (macOS, Linux): Turn this computer into a LAN gateway for devices like TVs and consoles.
 - **TUN** (macOS, Windows, Linux): Intercept traffic from applications that ignore system proxy settings.
