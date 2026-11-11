@@ -170,6 +170,35 @@ var (
 // DefaultNameservers are the resolvers DNS uses when none are given.
 var DefaultNameservers = []string{"https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"}
 
+// NameserverHosts are the addresses of the DNS servers Moho knows by name,
+// as their operators publish them. The core has to look a server's own name
+// up before it can ask it anything, and does so over plain port 53; where
+// that question is blocked, or led back into the tunnel and answered with a
+// fake address, no name resolves at all. With the addresses written down the
+// question is never asked.
+var NameserverHosts = map[string][]string{
+	"dns.alidns.com": {"223.5.5.5", "223.6.6.6"},
+	"doh.pub":        {"1.12.12.12", "120.53.53.53"},
+	"dot.pub":        {"1.12.12.12", "120.53.53.53"},
+}
+
+// nameserverHost is the name in a DNS server's address: "" for one written
+// as an IP, and for system, dhcp and the like.
+func nameserverHost(server string) string {
+	if !strings.Contains(server, "://") {
+		return ""
+	}
+	u, err := url.Parse(server)
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(u.Hostname())
+	if _, err := netip.ParseAddr(host); err == nil {
+		return ""
+	}
+	return host
+}
+
 // DefaultOptions are Moho's choices.
 var DefaultOptions = Options{
 	LanAllowedIPs: []string{"0.0.0.0/0", "::/0"},

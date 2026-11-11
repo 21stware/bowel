@@ -27,6 +27,7 @@
 - Linux 上卸载 bowel 的安装包（deb、rpm、AUR）时，会一并删除开启 TUN 时写入的 polkit 规则（`/etc/polkit-1/rules.d/49-bowel-tun-*.rules`），不再留在系统里
 - Linux 上手动删除或改动了这条 polkit 规则后，下次开启 TUN 时会再授权一次并重新写入，不会再回到每次连输三次密码。在普通用户读不了 `/etc/polkit-1/rules.d` 的系统上 bowel 看不到规则是否还在，这时请同时删除 `~/.config/bowel/bin/tun-dns-rule`
 - 修复主页「接管」里 TUN 一栏的协议栈和 DNS 写死的问题：之前不管设置成什么，都显示 mixed 和「劫持 53 端口 · fake-ip」。现在协议栈跟着设置显示 mixed、system 或 gVisor；DNS 一行跟着「DNS 劫持」列表和增强模式显示，列表为空时写「不劫持」。设置本身一直是生效的，只是这里显示得不对
+- 修复部分网络下（比如开着公司 VPN 客户端）开启 TUN 后所有域名都解析失败的问题：日志里是 `dial tcp 198.18.x.x:443`，DNS 服务器自己的域名被解析成了 fake-ip。内核要先用 53 端口查出 `dns.alidns.com`、`doh.pub` 的地址才能使用它们，这一步查询被拦截或绕回 TUN 时就会出错。现在这几个内置 DNS 服务器的地址直接写进配置，不再需要这一步查询；在 53 端口被屏蔽的网络下也能正常解析。自己填写的其他 DoH/DoT 服务器不受影响，在「Hosts」里为这些域名写了地址的以自己写的为准
 
 ## [0.3.0] - 2026-11-10
 
