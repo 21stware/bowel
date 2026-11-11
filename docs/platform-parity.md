@@ -30,6 +30,7 @@ How far each implementation has been tried is its own column, because "it compil
 | Gateway mode | sudoers rule for two `sysctl` commands, `caffeinate` | sudoers rule for two `sysctl` commands, `systemd-inhibit` | **later** |
 | Gateway: network facts (Wi-Fi, DHCP, firewall) | `networksetup`, `ipconfig`, socketfilterfw | sysfs, `ip addr`, ufw / firewalld | adapters (Wi-Fi, DHCP); no firewall check |
 | Which app owns a connection | bowel reads the kernel's socket list | **not needed** | **not needed** |
+| Rules by application (`routes.KindApp`) | **not offered**: the core is what matches, and started by bowel it cannot name processes on macOS 27 | yes: the core names them itself | yes: the core names them itself |
 | Developer tools: terminal | zsh (`.zshenv`) | zsh or bash (`.bashrc`), by `$SHELL` | **later** |
 | Developer tools: Git HTTPS, Git SSH | yes | yes; SSH with OpenBSD `nc` or `ncat` | **later** |
 | Developer tools: Docker daemon | Colima | Colima only; the system's dockerd **later** | **later** |

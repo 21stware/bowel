@@ -88,7 +88,7 @@ func builtinRules(id string) []string {
 // Rule is one line of a service.
 type Rule struct {
 	Text    string // as mihomo writes it, without its target
-	Kind    string // one of Kinds, KindGeo or KindGeoIP
+	Kind    string // one of AllKinds, KindGeo or KindGeoIP
 	Value   string
 	Builtin bool // Moho's: it can be switched off, not deleted
 	Off     bool
@@ -129,6 +129,15 @@ func ruleOf(text string) Rule {
 		r.Kind = KindGeo
 	case "GEOIP":
 		r.Kind = KindGeoIP
+	case "PROCESS-NAME":
+		r.Kind = KindApp
+	case "PROCESS-PATH-WILDCARD":
+		// Only the form UserRule.Mihomo writes for a bundle.
+		if app, ok := strings.CutPrefix(value, "*/"); ok {
+			if app, ok = strings.CutSuffix(app, "/*"); ok && isBundle(app) && !strings.ContainsAny(app, "/*?") {
+				r.Kind, r.Value = KindApp, app
+			}
+		}
 	}
 	return r
 }

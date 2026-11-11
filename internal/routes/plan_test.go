@@ -508,3 +508,28 @@ func TestGroupOrderBreaksTies(t *testing.T) {
 		}
 	}
 }
+
+// TestAppRulesGoFirst: a rule for an application comes before every rule
+// by domain or address, the user's and the built-in ones, with a rule set
+// in use or not: it speaks for all of that program's traffic.
+func TestAppRulesGoFirst(t *testing.T) {
+	asOn(t, true)
+	users := []UserRule{
+		{Kind: KindDomain, Value: "x.example.com", Route: "default"},
+		{Kind: KindIP, Value: "10.0.0.0/8", Route: "direct"},
+		{Kind: KindApp, Value: "Telegram.exe", Route: "ai"},
+		{Kind: KindApp, Value: "Google Chrome.app", Route: "direct"},
+	}
+	for name, plan := range map[string]Plan{
+		"no set": {},
+		"a set":  {Services: []ServiceConf{{ID: "s1", Custom: true, Name: "set", Group: "ai", Source: "https://example.com/a.list"}}},
+	} {
+		lines := lineTexts(Build(plan, users), users)
+		if len(lines) < 4 || lines[0] != "PROCESS-NAME,Telegram.exe→ai" || lines[1] != "PROCESS-PATH-WILDCARD,*/Google Chrome.app/*→direct" {
+			t.Errorf("%s: the first lines are %q", name, lines[:min(4, len(lines))])
+		}
+	}
+	if c, _ := rank("PROCESS-NAME,x"); c >= 0 {
+		t.Errorf("rank of an application rule is %d, not before DOMAIN's 0", c)
+	}
+}

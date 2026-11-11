@@ -187,7 +187,7 @@ func TestHelp(t *testing.T) {
 		}
 	}
 	_, out, _ = run(t, Env{}, "rules", "add", "--help")
-	for _, want := range []string{"Send a domain or IP to a route", "bowel rules add <target> <route> [options]", "--kind suffix|domain|keyword|ip", "bowel rules add openai.com ai"} {
+	for _, want := range []string{"Send a domain, an IP or an app to a route", "bowel rules add <target> <route> [options]", "--kind suffix|domain|keyword|ip", "bowel rules add openai.com ai"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rules add help lacks %q:\n%s", want, out)
 		}
