@@ -121,7 +121,7 @@ curl -fsSL https://21stware.github.io/packages/install.sh | sh
 
 - **macOS**：把 bowel 拖进「应用程序」。安装包用 Developer ID 签名，并经过 Apple 公证。
 - **Windows**：运行安装程序。安装包没有代码签名，运行前 Windows 可能会弹出提示。
-- **Linux**：安装 `.deb` 或 `.rpm`，或解压压缩包后运行 `install.sh`，它会把 bowel 安装到当前用户的 `~/.local`。
+- **Linux**：安装 `.deb` 或 `.rpm`。要安装到当前用户的 `~/.local`，从同一个 Release 下载 `install.sh` 和 `.tar.gz`，不用解压，运行 `sh install.sh bowel-<版本>-linux-<架构>.tar.gz`。这个脚本与上面添加软件源的脚本不同。
 - **Android**：安装 APK，如有提示请允许浏览器安装应用。首次连接时系统会请求 VPN 权限。
 - **iOS**：暂未发布。
 

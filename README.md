@@ -121,7 +121,7 @@ Or download the file for your platform from [Releases](https://github.com/21stwa
 
 - **macOS**: Drag bowel into Applications. The app is signed with a Developer ID and notarized by Apple.
 - **Windows**: Run the installer. It isn't code-signed, so Windows may warn you before it runs.
-- **Linux**: Install the `.deb` or `.rpm`, or unpack the archive and run `install.sh`, which installs bowel for your user in `~/.local`.
+- **Linux**: Install the `.deb` or `.rpm`. For a user install in `~/.local`, download `install.sh` and the `.tar.gz` from the same release, then run `sh install.sh bowel-<version>-linux-<arch>.tar.gz` without unpacking the archive. This is separate from the package-repository script above.
 - **Android**: Install the APK, allowing your browser to install apps if asked. Android asks for VPN permission the first time you connect.
 - **iOS**: Not released yet.
 
