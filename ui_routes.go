@@ -510,6 +510,8 @@ func (u *UI) routesPage(c *ui.Context, p *pal) {
 					ui.Text(c, i18n.T("以上规则都没命中", "None of the rules above matched")).FontSize(11).FontWeight(600).TextColor(p.mute).SingleLine().Padding(8, 10, 2, 10)
 					u.routesItem(c, p, all[slices.IndexFunc(all, func(r routes.Route) bool { return r.ID == routes.Default })])
 				})
+				ui.Text(c, i18n.T("拖动可以调整顺序。规则集从上到下匹配；其他规则越具体越优先，同样具体时靠上的路由组优先。", "Drag to reorder. Rule sets match from the top down; other rules go most specific first, and of two equally specific ones the higher group's wins.")).
+					FontSize(11).TextColor(p.mute).Padding(0, 10)
 				btn(c.Key("new"), p, i18n.T("＋ 新建路由组", "＋ New route group")).AlignSelf(ui.Start).OnClick(func() { u.newGroup(all) })
 			})
 			ui.Scroll(c.Key("main:"+st.group)).Grow(1).Basis(0).MinWidth(0).Padding(0, 12, 0, 0).Children(func() {
@@ -528,12 +530,30 @@ func (u *UI) newGroup(all []routes.Route) {
 	u.routes.focusName = true
 }
 
+// groupDrag and setDrag are a route group and a rule set being dragged to
+// another's place, by their ids.
+type (
+	groupDrag string
+	setDrag   string
+)
+
 func (u *UI) routesItem(c *ui.Context, p *pal, r routes.Route) {
 	st := &u.routes
 	on := st.group == r.ID
 	v := u.route(r.ID)
 	b := ui.ButtonBase(c.Key(r.ID)).Column().Gap(2).Padding(8, 10).Radius(p.r(8)).AlignItems(ui.Stretch)
+	over := false
+	if !routes.Fixed(r.ID) { // the fixed groups stay where they are, after the others
+		b.Drag(groupDrag(r.ID))
+		if id, ok := ui.Drop[groupDrag](b); ok {
+			u.changeRouting(func(s *settings.Settings) { s.Routing.MoveGroup(string(id), r.ID) }, nil)
+		}
+		id, ok := ui.DragOver[groupDrag](b)
+		over = ok && string(id) != r.ID
+	}
 	switch {
+	case over: // it would take this one's place
+		b.Background(p.hair)
 	case on:
 		b.Background(p.hair2)
 	case b.Hovered():
@@ -834,7 +854,19 @@ func (u *UI) serviceRow(c *ui.Context, p *pal, all []routes.Route, r routes.Rout
 	}
 	ui.Column(c.Key(s.ID)).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 		b := ui.ButtonBase(c.Key("head")).Row().Gap(10).Padding(9, 4).AlignItems(ui.Center)
-		if b.Hovered() {
+		over := false
+		if s.Source != "" { // rule sets apply in the order they are listed in
+			b.Drag(setDrag(s.ID))
+			if id, ok := ui.Drop[setDrag](b); ok {
+				u.changeRouting(func(st *settings.Settings) { st.Routing.MoveRuleSet(string(id), s.ID) }, nil)
+			}
+			id, ok := ui.DragOver[setDrag](b)
+			over = ok && string(id) != s.ID
+		}
+		switch {
+		case over: // it would take this one's place
+			b.Background(p.hair)
+		case b.Hovered():
 			b.Background(p.hover)
 		}
 		if s.Off {
