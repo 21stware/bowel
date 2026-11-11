@@ -11,6 +11,7 @@ package main
 
 import (
 	"fmt"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -622,6 +623,24 @@ func (u *UI) generalSection(c *ui.Context, p *pal, s settings.Settings) {
 	})
 	u.optSwitch(c, p, "hidden", i18n.T("静默启动", "Start hidden"), i18n.T("开机启动时只留在菜单栏，不打开窗口", "When opened at login, stay in the menu bar without a window"), s.StartHidden,
 		func(s *settings.Settings, on bool) { s.StartHidden = on })
+	title, desc := traySpeedLabel(runtime.GOOS)
+	u.optSwitch(c, p, "trayspeed", title, desc, s.TraySpeed,
+		func(s *settings.Settings, on bool) { s.TraySpeed = on })
+}
+
+// traySpeedLabel names the option that puts the rates by the menu bar icon,
+// as the system goos shows them (trayText).
+func traySpeedLabel(goos string) (title, desc string) {
+	switch goos {
+	case "windows":
+		return i18n.T("在托盘图标上显示网速", "Show network speed on the tray icon"),
+			i18n.T("接管时，鼠标停在托盘图标上会显示实时的下载和上传速度", "While taken over, hovering the tray icon shows the live download and upload rates")
+	case "linux":
+		return i18n.T("在托盘图标旁显示网速", "Show network speed beside the tray icon"),
+			i18n.T("接管时，实时的下载和上传速度显示在图标旁边；有些桌面的面板不显示这段文字", "While taken over, the live download and upload rates stand beside the icon; some desktops’ panels don’t show this text")
+	}
+	return i18n.T("在菜单栏显示网速", "Show network speed in the menu bar"),
+		i18n.T("接管时，实时的下载和上传速度显示在图标旁边", "While taken over, the live download and upload rates stand beside the icon")
 }
 
 // skinCard is one skin to pick: a small board in its own colors, faces,

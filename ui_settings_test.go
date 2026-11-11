@@ -4,6 +4,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -74,6 +75,29 @@ func TestSettingsWindow(t *testing.T) {
 		if dark {
 			continue
 		}
+
+		// The speed beside the menu bar icon is there to ask for, and off.
+		if err := tt.Click("通用"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		if u.shownSettings().TraySpeed {
+			t.Fatal("the menu bar shows the speed before anyone asked")
+		}
+		tt.SetSize(760, 2000) // the option is the section's last: no scrolling to it
+		tt.Frame()
+		title, _ := traySpeedLabel(runtime.GOOS)
+		sw, ok := tt.AccessByRole(ui.RoleSwitch, title)
+		if !ok {
+			t.Fatalf("no switch for the menu bar's speed among %q", tt.Texts())
+		}
+		tt.ClickAt(sw.Bounds.X+sw.Bounds.W/2, sw.Bounds.Y+sw.Bounds.H/2)
+		tt.Frame()
+		if !u.shownSettings().TraySpeed {
+			t.Error("the switch did not turn the menu bar's speed on")
+		}
+		tt.SetSize(760, 560)
+		tt.Frame()
 
 		// A choice applies at once.
 		if err := tt.Click("内核"); err != nil {
