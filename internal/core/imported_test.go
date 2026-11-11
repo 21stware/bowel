@@ -306,7 +306,7 @@ rules:
 // TestImportedTheCoreAccepts runs the bundled core over the example, the way
 // Apply does.
 func TestImportedTheCoreAccepts(t *testing.T) {
-	bin := filepath.Join("..", "..", "resources", runtime.GOOS+"-"+runtime.GOARCH, "bin", "mihomo")
+	bin := filepath.Join("..", "..", "resources", runtime.GOOS+"-"+runtime.GOARCH, "bin", BinName)
 	if _, err := os.Stat(bin); err != nil {
 		t.Skip("no bundled core")
 	}

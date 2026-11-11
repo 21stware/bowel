@@ -20,7 +20,7 @@ func coreBin(t *testing.T) string {
 	if p := os.Getenv("MOHO_CORE"); p != "" {
 		return p
 	}
-	p, _ := filepath.Abs(filepath.Join("..", "..", "resources", runtime.GOOS+"-"+runtime.GOARCH, "bin", "mihomo"))
+	p, _ := filepath.Abs(filepath.Join("..", "..", "resources", runtime.GOOS+"-"+runtime.GOARCH, "bin", BinName))
 	if _, err := os.Stat(p); err != nil {
 		t.Skip("no mihomo binary; run scripts/fetch-core.sh")
 	}

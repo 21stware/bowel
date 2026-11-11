@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/mihomo"
 )
 
@@ -316,7 +317,7 @@ func TestStatsRollover(t *testing.T) {
 // TestRealCore runs the bundled mihomo, downloads through its mixed port
 // and makes a dial fail, and checks what the monitor saw.
 func TestRealCore(t *testing.T) {
-	bin, _ := filepath.Abs("../../resources/darwin-arm64/bin/mihomo")
+	bin, _ := filepath.Abs("../../resources/darwin-arm64/bin/" + core.BinName)
 	if _, err := os.Stat(bin); err != nil {
 		t.Skip("no mihomo binary:", err)
 	}

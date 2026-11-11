@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- macOS 上也可以按应用分流了：规则里的「应用」一类、日志页「让它走…」里的「让 <应用> 的所有连接走…」、`bowel rules add` 和 MCP 的 `add_rule` 都和 Windows、Linux 上一样可用。0.4.1 里没有开放，是因为内核认不出连接来自哪个程序。原因查清了：macOS 27 只把系统的连接列表完整地交给签名标识符里带点的程序（像 `dev.moho.app.core` 这样），而且它不能是某个应用的子进程；正式版里内核的签名标识符是 `mihomo`，所以不管怎么启动都只看得到自己的连接。现在随应用打包的内核文件在 macOS 上改名为 `dev.moho.app.core.bin`，签名时标识符就是 `dev.moho.app.core`，「活动监视器」里内核也显示成这个名字。已在 macOS 27.2 上用临时签名（ad hoc）构建的 bowel.app 实测内核能认出 `curl` 和 `nc`；Developer ID 签名的正式构建还没有实测，发布脚本会检查内核的签名标识符，不对就不发布；开着 TUN 时没有实测（#98）
+- macOS 上用过 TUN 的：升级后 bowel 会提示「TUN 内核需要更新」，授权一次即可。以前复制的那份 TUN 内核签名标识符还是 `mihomo`，继续用它 TUN 照常工作，只是按应用的规则不会生效
 - 使用导入配置自带的路由时，「路由组」页、`bowel routes` 和 MCP 的 `list_routes` 会说明这份配置里哪些设置不会生效，比如「这份配置里的 dns、hosts、listeners 不会生效：DNS、TUN 和本机端口用的是 bowel 自己的设置」。导入的配置一直只用节点、路由组、规则和规则集，DNS、hosts、嗅探、TUN、监听端口和端口设置都按 bowel 自己的，这一点不变；以前不会提示，从别的客户端搬来的 `nameserver-policy` 或 `listeners` 不生效，却看不出来。只列出配置里写了并且打开着的这几项，`enable: false`、端口 0 和空的不算
 - `bowel conns` 和 TUI 的连接页多了「规则」一栏，「路由」一栏写路由的名称，和窗口里日志页的连接列表一样：以前这一栏是路由的 ID，使用导入配置自带的路由时只看到 `g1`、`g2`，认不出是哪个路由组，也看不到连接命中的是哪条规则。规则集按你给它起的名字显示，比如 `RuleSet(Netflix)`。MCP 的 `list_connections` 也多了 `routeName` 和 `ruleName` 两项，原有的 `route`、`rule`、`payload` 不变
 - 开关 TUN、切换模式、改设置等要重新加载内核配置的操作更快：内核在运行时，bowel 把新配置直接交给它检查，不再每次另起一个 `mihomo -t` 进程把 GeoSite 数据重新读一遍。在 macOS 和 Linux 上实测，一条命令从约 100 毫秒降到不到 20 毫秒；Windows 上启动进程更慢，省下的时间应当更多，但还没有实测。内核拒绝的配置和以前一样不会生效：内核继续用原来的配置，`config.yaml` 不变，提示的原因也不变。内核没有在运行时（启动、重启）仍然先用 `mihomo -t` 检查（#60）
