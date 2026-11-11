@@ -25,7 +25,8 @@ import (
 //     routes, on kernels older than 5.7.
 //
 // Where setcap is not installed, the copy is made setuid root instead, as
-// on macOS. Either way it is three commands under one pkexec.
+// on macOS. Either way it is one pkexec, which also leaves the polkit
+// rule of dnsrule_linux.go where systemd-resolved is in use.
 const fileCaps = "cap_net_admin,cap_net_bind_service,cap_net_raw=ep"
 
 // Path is where the copy of the core that TUN runs on is kept: in the
@@ -132,7 +133,12 @@ func tool(name string) string {
 }
 
 func installStep(tmp, dst string) (Step, error) {
-	return installStepWith(tool("setcap"), tmp, dst), nil
+	st := installStepWith(tool("setcap"), tmp, dst)
+	rule, err := ruleStep(tmp, dst)
+	if err != nil {
+		return nil, err
+	}
+	return append(st, rule...), nil
 }
 
 // installStepWith gives the copy to root first: chown drops capabilities
