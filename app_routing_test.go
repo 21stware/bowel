@@ -309,3 +309,52 @@ func TestDefaultDirectInTheApp(t *testing.T) {
 		t.Errorf("global mode is on %q", now)
 	}
 }
+
+// TestGroupDirectInTheApp: a route group that goes direct reaches the
+// core, shows no node, and still counts its own traffic, by its group's
+// name; what other rules send direct stays 直连's. Back on a node, it is on
+// the one it was fixed to.
+func TestGroupDirectInTheApp(t *testing.T) {
+	var off, on routes.Plan
+	on.ChangePolicy("ai", func(q *routes.Policy) { q.Direct = true })
+	off.ChangePolicy("ai", func(*routes.Policy) {})
+	if routingCoreSame(off, on) {
+		t.Error("going direct would not reach the core")
+	}
+	a, n := routingApp(t, nil)
+	changeRouting(t, a, func(p *routes.Plan) { p.PickNode("ai", n["JP"].Name) })
+	if now := coreProxies(t, a)["AI 服务"].Now; now != n["JP"].Name {
+		t.Fatalf("ai is on %q", now)
+	}
+	changeRouting(t, a, func(p *routes.Plan) {
+		p.ChangePolicy("ai", func(q *routes.Policy) { q.Direct = true })
+	})
+	cfg := coreConfig(t, a)
+	if !strings.Contains(cfg, "- DOMAIN-SUFFIX,openai.com,AI 服务") || strings.Contains(cfg, "AI 服务·自动") {
+		t.Errorf("the core's config:\n%s", cfg)
+	}
+	if g := coreProxies(t, a)["AI 服务"]; g.Now != "DIRECT" || len(g.All) != 1 {
+		t.Errorf("the group in the core: %+v", g)
+	}
+	if got := a.routeOfGroup("AI 服务", "DomainSuffix"); got != "ai" {
+		t.Errorf("the group's traffic is on route %q", got)
+	}
+	if got := a.routeOfGroup("DIRECT", "GeoIP"); got != "direct" {
+		t.Errorf("traffic a rule sent direct is on route %q", got)
+	}
+	if r := routeIn(a.snapshot(), "ai"); !r.Direct || r.Node != "" {
+		t.Errorf("ai: %+v", r)
+	}
+	if err := a.selectNode("ai", n["JP"].Name); err == nil {
+		t.Error("a node chosen for a group that goes direct")
+	}
+	changeRouting(t, a, func(p *routes.Plan) {
+		p.ChangePolicy("ai", func(q *routes.Policy) { q.Direct = false })
+	})
+	if r := routeIn(a.snapshot(), "ai"); r.Direct || r.Node != n["JP"].Name {
+		t.Errorf("ai back on a node: %+v", r)
+	}
+	if now := coreProxies(t, a)["AI 服务"].Now; now != n["JP"].Name {
+		t.Errorf("back on a node, ai is on %q", now)
+	}
+}

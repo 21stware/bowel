@@ -32,9 +32,10 @@ type Policy struct {
 	Providers []string `json:"providers,omitempty"` // ModeAuto: provider ids; none is all
 	Order     []string `json:"order,omitempty"`     // ModeOrder: node names, first preferred
 	Fixed     string   `json:"fixed,omitempty"`     // ModeFixed: a node name
-	// Direct, on the default route only, sends what no rule matched out
-	// without a node. The strategy stays: global mode goes by it, and so
-	// does the route when this is turned off.
+	// Direct sends the group's traffic out without a node; on the default
+	// route that is what no rule matched. The strategy stays, for when
+	// this is turned off, and the default route's for global mode too.
+	// 直连 and 拦截 never use a node and have no such choice (ChoosesExit).
 	Direct bool `json:"direct,omitempty"`
 }
 
@@ -102,6 +103,13 @@ func (p *Plan) ensure() {
 var fixedGroups = []string{Default, "direct", Reject}
 
 func fixedGroup(id string) bool { return slices.Contains(fixedGroups, id) }
+
+// Fixed says whether group id always exists and keeps its name.
+func Fixed(id string) bool { return fixedGroup(id) }
+
+// ChoosesExit says whether group id chooses between a node and going
+// direct: all but the two that never use one.
+func ChoosesExit(id string) bool { return id != "direct" && id != Reject }
 
 // withFixed is confs with the fixed groups it lacks, even if the file says
 // otherwise or was saved before there was one, at the end.
@@ -184,7 +192,7 @@ func Build(p Plan, users []UserRule) []Route {
 		if r.Policy.Mode == "" {
 			r.Policy.Mode = ModeAuto
 		}
-		if g.ID == Default && g.Policy.Direct {
+		if g.Policy.Direct && ChoosesExit(g.ID) {
 			r.Direct = true
 		}
 		out = append(out, r)

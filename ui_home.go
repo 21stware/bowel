@@ -1288,13 +1288,13 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 					}
 				})
 				if s.Mode == "rule" && s.Imported == nil {
-					pill(c, p, i18n.T("直接连接", "Direct"), false).OnClick(func() { u.setExitDirect(true) })
+					pill(c, p, i18n.T("直接连接", "Direct"), false).OnClick(func() { u.setExitDirect(routes.Default, true) })
 				}
 			})
 		} else if len(s.Nodes) == 0 && s.Mode != "direct" {
 			pill(c, p, i18n.T("添加提供商", "Add provider"), true).AlignSelf(ui.Start).OnClick(func() { u.page = "providers" })
 		} else if u.route("default").Direct && s.Mode == "rule" && s.Imported == nil {
-			pill(c, p, i18n.T("改为走节点", "Use a node"), true).AlignSelf(ui.Start).OnClick(func() { u.setExitDirect(false) })
+			pill(c, p, i18n.T("改为走节点", "Use a node"), true).AlignSelf(ui.Start).OnClick(func() { u.setExitDirect(routes.Default, false) })
 		}
 	})
 }
@@ -1396,7 +1396,7 @@ func (u *UI) heroExpanded(c *ui.Context, p *pal, w float32) {
 			})
 		})
 	}, func() { u.autoSeg(c, p, "default") })
-	u.defaultExit(c, p, w)
+	u.groupExit(c, p, routes.Default, w)
 }
 
 // The region bar's measures, shared by its layout and peekWidth's sums.
@@ -2226,7 +2226,7 @@ func (u *UI) routeRow(c *ui.Context, p *pal, r RouteView) {
 	b := ui.ButtonBase(c.Key(rid)).Row().Gap(10).Padding(3, 0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).
 		OnClick(func() {
 			u.home.x, u.home.query, u.home.region = "routes", "", ""
-			if !r.Direct {
+			if !r.Direct || routes.ChoosesExit(rid) && u.snap.Imported == nil {
 				u.home.sub = rid
 			}
 		})
@@ -2244,6 +2244,8 @@ func (u *UI) routeRow(c *ui.Context, p *pal, r RouteView) {
 		hasNode = hasNode && !r.Direct
 		if hasNode {
 			name, delay = n.Display, fmtDelay(n)
+		} else if r.Direct && routes.ChoosesExit(rid) && u.snap.Imported == nil {
+			delay = "—" // direct by choice, whatever it holds
 		}
 		u.share(c, exitMatch{rid}, "exit:"+rid, func(c *ui.Context) ui.Element {
 			text := func() ui.Element {
@@ -2283,11 +2285,7 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 				})
 			})
 		}, func() { u.autoSeg(c, p, r.ID) })
-		if r.ID == routes.Default {
-			u.defaultExit(c, p, w)
-		} else {
-			u.nodePicker(c, p, r.ID, w)
-		}
+		u.groupExit(c, p, r.ID, w)
 		return
 	}
 	u.detailHead(c, p, "routes", i18n.T("路由", "Route"), func() { detailTitle(c, p, i18n.T("每类流量走哪里", "Where each kind of traffic goes")) }, func() {
@@ -2296,7 +2294,7 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 	row := func(r RouteView) {
 		rid := r.ID
 		other := rid == routes.Default
-		canOpen := !r.Direct || other && u.snap.Imported == nil
+		canOpen := !r.Direct || routes.ChoosesExit(rid) && u.snap.Imported == nil
 		b := ui.ButtonBase(c.Key(rid)).Row().Gap(16).Padding(0, 10).Height(matchRowH).AlignItems(ui.Center).Radius(p.r(8))
 		if other {
 			b.Padding(0, 9).Background(p.card).Border(1, p.hair)
