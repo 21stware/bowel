@@ -1137,7 +1137,7 @@ func (u *UI) ruleInput(c *ui.Context, p *pal, all []routes.Route, s routes.Servi
 	case st.kind == routes.KindApp && u.shownSettings().FindProcess == "off":
 		ui.Text(c, i18n.T("「进程匹配」已在设置里关闭，按应用的规则不会生效。", "Process matching is off in Settings, so a rule for an app won't match.")).FontSize(11.5).TextColor(p.signal)
 	case !typed && st.kind == routes.KindApp:
-		ui.Text(c, i18n.T("写进程名，或粘贴日志里「进程」一栏的路径。它的所有连接都走这个路由组，排在其他规则之前；只管这台电脑上的应用。", "Type the program's name, or paste the path from the Log's Process row. Everything it connects to goes by this group, ahead of every other rule; only apps on this computer.")).FontSize(11.5).TextColor(p.faint)
+		ui.Text(c, i18n.T("写应用或进程的名字，或粘贴日志里「进程」一栏的路径。它的所有连接都走这个路由组，排在其他规则之前；只管这台电脑上的应用。", "Type the app's or the program's name, or paste the path from the Log's Process row. Everything it connects to goes by this group, ahead of every other rule; only apps on this computer.")).FontSize(11.5).TextColor(p.faint)
 	case !typed:
 		ui.Text(c, i18n.T("粘贴链接也可以，会自动提取域名。", "A pasted link works too: the domain is taken from it.")).FontSize(11.5).TextColor(p.faint)
 	case err != nil:
@@ -1161,8 +1161,11 @@ func (u *UI) ruleInput(c *ui.Context, p *pal, all []routes.Route, s routes.Servi
 
 // appExample is a program's name as this system writes one.
 func appExample() string {
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		return "Telegram.exe"
+	case "darwin":
+		return "Telegram.app"
 	}
 	return "telegram-desktop"
 }
