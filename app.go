@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -37,6 +36,7 @@ import (
 	"github.com/oboo/moho/internal/locate"
 	"github.com/oboo/moho/internal/mihomo"
 	"github.com/oboo/moho/internal/monitor"
+	"github.com/oboo/moho/internal/nowindow"
 	"github.com/oboo/moho/internal/procinfo"
 	"github.com/oboo/moho/internal/provider"
 	"github.com/oboo/moho/internal/routes"
@@ -1143,7 +1143,7 @@ func (a *App) readOpenAtLogin() {
 
 // revealConfig shows the core's runtime config in Finder.
 func (a *App) revealConfig() error {
-	return exec.Command("open", "-R", a.core.ConfigPath()).Run()
+	return nowindow.Command("open", "-R", a.core.ConfigPath()).Run()
 }
 
 func (a *App) route(id string) routes.Route {

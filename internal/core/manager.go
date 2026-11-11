@@ -23,6 +23,7 @@ import (
 
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/mihomo"
+	"github.com/oboo/moho/internal/nowindow"
 )
 
 type State string
@@ -209,9 +210,9 @@ func (m *Manager) setStatus(s Status) {
 func (m *Manager) Test(path string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, m.Bin, "-t", "-d", m.Dir, "-f", path)
+	cmd := nowindow.CommandContext(ctx, m.Bin, "-t", "-d", m.Dir, "-f", path)
 	cmd.Env = m.env()
-	setProcAttr(cmd) // on Windows, keeps the check from opening a console window
+	setProcAttr(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf(i18n.T("配置检查失败: %s", "The config check failed: %s"), lastLines(string(out), 3))
@@ -297,7 +298,7 @@ func (m *Manager) start() error {
 		}
 	}
 	if cmd == nil {
-		c := exec.Command(m.Bin, "-d", m.Dir, "-f", m.ConfigPath())
+		c := nowindow.Command(m.Bin, "-d", m.Dir, "-f", m.ConfigPath())
 		c.Dir = m.Dir
 		c.Env = m.env()
 		setProcAttr(c)
