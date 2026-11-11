@@ -75,11 +75,15 @@ type Plan struct {
 	// first change, when they are the template's.
 	Groups   []GroupConf   `json:"groups,omitempty"`
 	Services []ServiceConf `json:"services,omitempty"`
+	// Seen are the template's groups when Groups was last saved, so that
+	// one a later version ships is told from one the user deleted; empty
+	// in a file from before it was kept, which stands for legacySeen.
+	Seen []string `json:"seen,omitempty"`
 }
 
 // Clone is a deep copy.
 func (p Plan) Clone() Plan {
-	p.Groups, p.Services = slices.Clone(p.Groups), slices.Clone(p.Services)
+	p.Groups, p.Services, p.Seen = slices.Clone(p.Groups), slices.Clone(p.Services), slices.Clone(p.Seen)
 	for i := range p.Groups {
 		p.Groups[i].Policy = p.Groups[i].Policy.clone()
 	}
@@ -89,13 +93,51 @@ func (p Plan) Clone() Plan {
 	return p
 }
 
-func (p *Plan) ensure() {
-	if len(p.Groups) == 0 {
-		for _, t := range Template() {
-			p.Groups = append(p.Groups, GroupConf{ID: t.ID})
+// legacySeen is the template from before Seen was kept.
+var legacySeen = []string{Default, "ai", "media", "dev", "direct", Reject}
+
+func hasGroup(confs []GroupConf, id string) bool {
+	return slices.ContainsFunc(confs, func(g GroupConf) bool { return g.ID == id })
+}
+
+// groups are the route groups as they stand: the template's until the first
+// change, then the saved ones, with the groups the template has gained
+// since before 直连, where a new group of the user's goes too.
+func (p Plan) groups() []GroupConf {
+	tpl := Template()
+	confs := p.Groups
+	if len(confs) == 0 {
+		for _, t := range tpl {
+			confs = append(confs, GroupConf{ID: t.ID})
 		}
+		return withFixed(confs)
 	}
-	p.Groups = withFixed(p.Groups)
+	seen := p.Seen
+	if len(seen) == 0 {
+		seen = legacySeen
+	}
+	for _, t := range tpl {
+		if slices.Contains(seen, t.ID) || hasGroup(confs, t.ID) || fixedGroup(t.ID) {
+			continue
+		}
+		at := slices.IndexFunc(confs, func(g GroupConf) bool { return g.ID == "direct" })
+		if at < 0 {
+			at = len(confs)
+		}
+		confs = slices.Insert(slices.Clone(confs), at, GroupConf{ID: t.ID})
+	}
+	return withFixed(confs)
+}
+
+func (p *Plan) ensure() {
+	p.Groups = p.groups()
+	var ids []string
+	for _, t := range Template() {
+		ids = append(ids, t.ID)
+	}
+	if !slices.Equal(ids, legacySeen) { // nothing to tell apart until the template grows
+		p.Seen = ids
+	}
 }
 
 // fixedGroups always exist and keep their names.
@@ -107,7 +149,7 @@ func fixedGroup(id string) bool { return slices.Contains(fixedGroups, id) }
 // otherwise or was saved before there was one, at the end.
 func withFixed(confs []GroupConf) []GroupConf {
 	for _, id := range fixedGroups {
-		if !slices.ContainsFunc(confs, func(g GroupConf) bool { return g.ID == id }) {
+		if !hasGroup(confs, id) {
 			confs = append(slices.Clone(confs), GroupConf{ID: id})
 		}
 	}
@@ -164,13 +206,7 @@ func builtinOf(id string) (builtin, bool) {
 // are the live built-in rules; users are the user's own.
 func Build(p Plan, users []UserRule) []Route {
 	tpl := Template()
-	confs := p.Groups
-	if len(confs) == 0 {
-		for _, t := range tpl {
-			confs = append(confs, GroupConf{ID: t.ID})
-		}
-	}
-	confs = withFixed(confs)
+	confs := p.groups()
 	out := make([]Route, 0, len(confs))
 	builtinGroup := map[string]bool{}
 	for _, g := range confs {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -133,7 +134,12 @@ func Open(dir string) (*Store, error) {
 	// A clone: decoding reuses the lists' arrays, which must not be Defaults'.
 	st := &Store{path: filepath.Join(dir, "settings.json"), s: Defaults.Clone()}
 	if b, err := os.ReadFile(st.path); err == nil {
-		_ = json.Unmarshal(b, &st.s)
+		if err := json.Unmarshal(b, &st.s); err != nil {
+			// What could not be read is the defaults from here on, and the
+			// next save writes them over the file: keep what it held.
+			log.Println("settings: unreadable, kept as", filepath.Base(brokenPath(st.path))+":", err)
+			_ = os.WriteFile(brokenPath(st.path), b, 0o600)
+		}
 		st.s.IPv6 = migrateIPv6(b, st.s.IPv6)
 	}
 	if st.s.Language == "" {
@@ -165,6 +171,11 @@ func Open(dir string) (*Store, error) {
 	}
 	st.s.Options.Fill()
 	return st, nil
+}
+
+// brokenPath is where a settings file that could not be read is kept.
+func brokenPath(path string) string {
+	return strings.TrimSuffix(path, ".json") + ".broken.json"
 }
 
 // migrateIPv6 turns the true of a file from before the modes into Auto:
