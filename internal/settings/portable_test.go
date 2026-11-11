@@ -33,7 +33,7 @@ var portableKeys = []string{
 	"ipv6", "unifiedDelay", "tcpConcurrent", "findProcess",
 	"keepAliveInterval", "disableKeepAlive", "fingerprint",
 	"urlTestInterval", "urlTestTolerance", "healthInterval",
-	"dns", "dnsMode", "nameservers", "defaultNameservers", "fallback", "proxyNameservers",
+	"dns", "dnsMode", "nameservers", "defaultNameservers", "fallback", "proxyNameservers", "directNameservers",
 	"nameserverPolicy", "fakeIpRange", "fakeIpFilter", "hosts", "respectRules", "useHosts",
 	"useSystemHosts", "preferH3",
 	"tunStack", "strictRoute", "tunMtu", "autoDetectInterface", "dnsHijack", "endpointIndependentNat",

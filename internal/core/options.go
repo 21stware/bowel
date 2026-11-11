@@ -67,6 +67,9 @@ type Options struct {
 	Fallback           []string `json:"fallback"`
 	// ProxyNameservers resolve the nodes' own addresses.
 	ProxyNameservers []string `json:"proxyNameservers"`
+	// DirectNameservers resolve the names of connections that go direct;
+	// with none the upstream servers do. "system" is the system's own.
+	DirectNameservers []string `json:"directNameservers"`
 	// NameserverPolicy is "pattern=server" entries; a pattern may repeat.
 	NameserverPolicy []string `json:"nameserverPolicy"`
 	FakeIPRange      string   `json:"fakeIpRange"`
@@ -246,7 +249,7 @@ func (o Options) Clone() Options {
 
 func (o *Options) lists() []*[]string {
 	return []*[]string{&o.Authentication, &o.LanAllowedIPs, &o.Nameservers, &o.DefaultNameservers,
-		&o.Fallback, &o.ProxyNameservers, &o.NameserverPolicy, &o.FakeIPFilter, &o.Hosts, &o.DNSHijack,
+		&o.Fallback, &o.ProxyNameservers, &o.DirectNameservers, &o.NameserverPolicy, &o.FakeIPFilter, &o.Hosts, &o.DNSHijack,
 		&o.SniffHTTP, &o.SniffTLS, &o.SniffQUIC, &o.SniffSkip, &o.DevOffScenarios, &o.DevExtra}
 }
 
@@ -366,7 +369,7 @@ func (o Options) Validate() error {
 			return fmt.Errorf(i18n.T("引导 DNS 要写 IP: %s", "Bootstrap DNS servers must be IPs: %s"), ns)
 		}
 	}
-	for _, l := range [][]string{o.Nameservers, o.DefaultNameservers, o.Fallback, o.ProxyNameservers, o.FakeIPFilter, o.DNSHijack, o.SniffSkip} {
+	for _, l := range [][]string{o.Nameservers, o.DefaultNameservers, o.Fallback, o.ProxyNameservers, o.DirectNameservers, o.FakeIPFilter, o.DNSHijack, o.SniffSkip} {
 		for _, s := range l {
 			if strings.ContainsAny(s, " \t,") {
 				return fmt.Errorf(i18n.T("写法不对: %s", "Malformed entry: %s"), s)

@@ -90,3 +90,43 @@ func TestBuildConfigKnowsItsNameservers(t *testing.T) {
 		t.Fatalf("%v", hosts)
 	}
 }
+
+// Connections that go direct are resolved by the upstream servers unless
+// they are given servers of their own. On a network that reaches a site only
+// at the addresses its own DNS gives, the public servers' answer times out.
+func TestBuildConfigDirectNameservers(t *testing.T) {
+	in := devInput("rule", devnet.Overlay{})
+	for _, tun := range []bool{false, true} {
+		in.Tun = tun
+		in.Options.DirectNameservers = nil
+		dns, _ := build(t, in)["dns"].(map[string]any)
+		if dns["direct-nameserver"] != nil || dns["direct-nameserver-follow-policy"] != nil {
+			t.Fatalf("tun=%v: servers nobody chose: %v", tun, dns)
+		}
+		in.Options.DirectNameservers = []string{"system", "10.0.0.53"}
+		dns, _ = build(t, in)["dns"].(map[string]any)
+		if got := strs(dns["direct-nameserver"]); !slices.Equal(got, []string{"system", "10.0.0.53"}) {
+			t.Fatalf("tun=%v: %v", tun, dns)
+		}
+		// The policy's domains keep their servers.
+		if dns["direct-nameserver-follow-policy"] != true {
+			t.Fatalf("tun=%v: the policy is skipped: %v", tun, dns)
+		}
+	}
+
+	// With split DNS and no resolver switched on, the third shape.
+	split := devInput("rule", devnet.Overlay{Policy: []devnet.Policy{{Pattern: "+.corp.example", Server: "10.0.0.53"}}})
+	split.Options.DirectNameservers = []string{"system"}
+	dns, _ := build(t, split)["dns"].(map[string]any)
+	if got := strs(dns["direct-nameserver"]); !slices.Equal(got, []string{"system"}) {
+		t.Fatalf("split DNS: %v", dns)
+	}
+
+	// A server known by name that only these use still has its address.
+	in.Options.Nameservers = []string{"223.5.5.5"}
+	in.Options.DirectNameservers = []string{"tls://dot.pub"}
+	hosts, _ := build(t, in)["hosts"].(map[string]any)
+	if !slices.Equal(strs(hosts["dot.pub"]), NameserverHosts["dot.pub"]) {
+		t.Fatalf("no hosts for the direct server: %v", hosts)
+	}
+}
