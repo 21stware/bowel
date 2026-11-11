@@ -145,10 +145,25 @@ func TestExtraPortsRealCore(t *testing.T) {
 	}
 	waitFor("the held port is told", func() bool { return strings.Contains(m.Status().Error, strconv.Itoa(held)) })
 
-	for port, via := range map[int]string{ai: "AI 服务", media: "流媒体", mixed: "DIRECT"} {
+	get := func(port int) (*http.Response, error) {
 		proxy, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
 		client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: http.ProxyURL(proxy), DisableKeepAlives: true}}
-		res, err := client.Get(web.URL)
+		return client.Get(web.URL)
+	}
+	// The controller answers before the core routes anything: until then
+	// each of its ports answers 502 itself, with nothing in the log. Wait
+	// until a request gets through.
+	waitFor("the core routes", func() bool {
+		res, err := get(mixed)
+		if err != nil {
+			return false
+		}
+		res.Body.Close()
+		return res.StatusCode == 200
+	})
+
+	for port, via := range map[int]string{ai: "AI 服务", media: "流媒体", mixed: "DIRECT"} {
+		res, err := get(port)
 		if err != nil {
 			t.Fatalf("port %d: %v\n%s", port, err, m.logs.last(30))
 		}

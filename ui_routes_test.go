@@ -325,6 +325,43 @@ func TestScopeChipsTakeEveryClick(t *testing.T) {
 	}
 }
 
+// TestScopeChipsKeepTheirWidth: a chip is as wide with a narrowed count as
+// with the full one, so that choosing in one row moves nothing in the other.
+// A smaller count is not narrower on screen: 0 is wider than 1.
+func TestScopeChipsKeepTheirWidth(t *testing.T) {
+	u, regions := scopeFixture()
+	u.home.regionsMore = true
+	tt := ui.NewTester(u.view, 760, 760)
+	tt.Advance(time.Second)
+	chips := func(count string) []ui.Rect {
+		t.Helper()
+		var out []ui.Rect
+		for _, r := range regions {
+			a, ok := tt.AccessByRole(ui.RoleButton, r+count)
+			if !ok {
+				t.Fatalf("no chip %q: %q", r+count, tt.Texts())
+			}
+			out = append(out, a.Bounds)
+		}
+		return out
+	}
+	was := chips(" 1")
+	// The fixture's regions have their one node from the first source:
+	// with another chosen, each counts none.
+	other := slices.IndexFunc(u.snap.Providers, func(pv ProviderView) bool { return pv.Enabled && pv.ID != u.snap.Nodes[0].Provider })
+	if other < 0 {
+		t.Fatal("the fixture has one source only")
+	}
+	u.changePolicy("ai", func(q *routes.Policy) { q.Providers = []string{u.snap.Providers[other].ID} })
+	tt.Frame()
+	tt.Advance(50 * time.Millisecond)
+	for i, now := range chips(" 0") {
+		if now != was[i] {
+			t.Errorf("%s: %+v with one node, %+v with none", regions[i], was[i], now)
+		}
+	}
+}
+
 // TestRoutesFixAction: a broken group's notice opens its strategy, in
 // place on this tab and in 代理's expansion elsewhere.
 func TestRoutesFixAction(t *testing.T) {

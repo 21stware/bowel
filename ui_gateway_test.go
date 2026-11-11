@@ -68,7 +68,8 @@ func TestSettingsGateway(t *testing.T) {
 	tt := ui.NewTesterWith(u.settingsView, 760, 1500, ui.TesterOptions{})
 	tt.Advance(time.Second)
 	shot(t, tt, "gateway-settings")
-	for _, s := range []string{"网关模式", "192.168.31.28", "DNS 53 端口", "改用网线", "绑定固定地址", "关掉 IPv6", "阻止 Mac 自动休眠"} {
+	// i18n.T, for the tip names the computer as this system's interface does.
+	for _, s := range []string{"网关模式", "192.168.31.28", "DNS 53 端口", "改用网线", "绑定固定地址", "关掉 IPv6", i18n.T("阻止 Mac 自动休眠", "keeps the Mac from sleeping")} {
 		if !tt.HasText(s) {
 			t.Errorf("no %q: %q", s, tt.Texts())
 		}
