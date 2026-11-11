@@ -10,6 +10,7 @@ import (
 
 	"github.com/oboo/moho/internal/backup"
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/provider"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
 )
@@ -331,5 +332,43 @@ func TestConfigCLI(t *testing.T) {
 		if strings.HasPrefix(tool.Name, "config_") {
 			t.Errorf("agents have %s", tool.Name)
 		}
+	}
+}
+
+// TestConfigImportForgetsFilePaths: where a local file came from is a path
+// on the machine that exported it. Here nobody chose it, so it is not kept
+// for 重新读取 to read; a subscription's link stays.
+func TestConfigImportForgetsFilePaths(t *testing.T) {
+	a, _ := backupApp(t)
+	src := filepath.Join(t.TempDir(), "nodes.yaml")
+	if err := os.WriteFile(src, []byte("proxies:\n  - {name: A, type: direct}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := a.providers.AddFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "c."+backup.Ext)
+	if err := a.exportConfig(file, ""); err != nil {
+		t.Fatal(err)
+	}
+	c, err := readImport(file, "", a.settings.Get())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := false
+	for _, q := range c.providers {
+		switch {
+		case q.ID == p.ID:
+			seen = true
+			if q.Source != "" {
+				t.Errorf("the path came along: %q", q.Source)
+			}
+		case q.Kind == provider.Subscription && q.Source == "":
+			t.Errorf("%s lost its link", q.Name)
+		}
+	}
+	if !seen {
+		t.Error("the file's provider is not in the export")
 	}
 }

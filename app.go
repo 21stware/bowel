@@ -1470,6 +1470,68 @@ func (a *App) addProviderFile(ctx context.Context) (*ProviderView, error) {
 	return &v, err
 }
 
+// addProviderFileAs adds a local file under name, the name a config has for
+// a proxy-provider that is a local file: the config can be used from then on.
+func (a *App) addProviderFileAs(ctx context.Context, name string) error {
+	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+		Parent: mygo.CallerWindow(ctx), Title: fmt.Sprintf(i18n.T("选择「%s」的文件", "Choose the file of %s"), name),
+		Filters: []mygo.FileFilter{{Name: i18n.T("Clash 配置或节点列表", "Clash config or node list"), Extensions: []string{"yaml", "yml", "txt", "conf"}}},
+	})
+	if err != nil || len(paths) == 0 {
+		return err
+	}
+	return a.addFileAs(paths[0], name)
+}
+
+func (a *App) addFileAs(path, name string) error {
+	done := a.begin("add")
+	defer done()
+	p, err := a.providers.AddFile(path)
+	if err != nil {
+		return err
+	}
+	if p, err = a.providers.Rename(p.ID, name); err != nil {
+		_ = a.providers.Delete(p.ID)
+		return err
+	}
+	_, err = a.afterProviderAdded(p)
+	return err
+}
+
+// reloadProvider reads a local file's Provider again from the file it came
+// from. That is a file chosen on this machine; when there is none to go
+// back to (pasted text, a configuration imported from elsewhere), it asks.
+func (a *App) reloadProvider(ctx context.Context, id string) error {
+	p, ok := a.providers.Get(id)
+	if !ok {
+		return fmt.Errorf(i18n.T("没有这个 Provider: %s", "No such Provider: %s"), id)
+	}
+	path := ""
+	if p.Source == "" {
+		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+			Parent: mygo.CallerWindow(ctx), Title: fmt.Sprintf(i18n.T("选择「%s」的文件", "Choose the file of %s"), p.Name),
+			Filters: []mygo.FileFilter{{Name: i18n.T("Clash 配置或节点列表", "Clash config or node list"), Extensions: []string{"yaml", "yml", "txt", "conf"}}},
+		})
+		if err != nil || len(paths) == 0 {
+			return err
+		}
+		path = paths[0]
+	}
+	return a.reloadFile(id, path)
+}
+
+func (a *App) reloadFile(id, path string) error {
+	done := a.begin("provider:" + id)
+	defer done()
+	if _, err := a.providers.Reload(id, path); err != nil {
+		a.emit()
+		return err
+	}
+	err := a.applyConfig()
+	go a.healthCheck(id)
+	return err
+}
+
 func (a *App) afterProviderAdded(p provider.Provider) (ProviderView, error) {
 	if err := a.applyConfig(); err != nil {
 		_ = a.providers.Delete(p.ID)
@@ -1543,7 +1605,12 @@ func (a *App) setProviderEnabled(id string, on bool) error {
 }
 
 func (a *App) renameProvider(id, name string) error {
-	_, err := a.providers.Rename(id, name)
+	p, err := a.providers.Rename(id, name)
+	// A config's local file is found by its name: one in use may have just
+	// gained or lost its file.
+	if err == nil && p.Kind == provider.File && a.settings.Get().ImportedRouting != "" {
+		return a.applyConfig()
+	}
 	a.emit()
 	return err
 }

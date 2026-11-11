@@ -232,6 +232,44 @@ func (s *Store) Update(ctx context.Context, client *http.Client, id string) (Pro
 	})
 }
 
+// Reload reads a local file's provider again: from path, or from the file
+// it last came from when path is "". What it reads is checked as an update
+// is; if it won't do, the copy Moho has stays as it is.
+func (s *Store) Reload(id, path string) (Provider, error) {
+	p, ok := s.Get(id)
+	if !ok {
+		return p, fmt.Errorf(i18n.T("没有这个 Provider: %s", "No such Provider: %s"), id)
+	}
+	if p.Kind != File {
+		return p, nil
+	}
+	if path == "" {
+		path = p.Source
+	}
+	if path == "" {
+		return p, errors.New(i18n.T("不知道这个 Provider 来自哪个文件", "There is no telling which file this Provider came from"))
+	}
+	data, err := os.ReadFile(path)
+	if err == nil {
+		err = looksLikeNodes(data)
+	}
+	if err == nil && s.Vet != nil {
+		err = s.Vet(id, data)
+	}
+	if err != nil {
+		p, _ = s.update(id, func(p *Provider) { p.Error = err.Error() })
+		return p, err
+	}
+	tmp := s.Path(id) + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return p, err
+	}
+	if err := os.Rename(tmp, s.Path(id)); err != nil {
+		return p, err
+	}
+	return s.update(id, func(p *Provider) { p.Source, p.UpdatedAt, p.Error = path, time.Now(), "" })
+}
+
 // Due lists subscriptions whose auto-update interval has passed.
 func (s *Store) Due(now time.Time) []string {
 	var ids []string
