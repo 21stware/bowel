@@ -125,6 +125,30 @@ func TestImportedTakesOnlyRouting(t *testing.T) {
 	groupNamed(t, cfg, ProbeGroup)
 }
 
+// TestImportedSaysWhatIsUnused: what of the source's own settings acts on
+// traffic is named, in a fixed order, and only when it is switched on.
+func TestImportedSaysWhatIsUnused(t *testing.T) {
+	if got := mustParse(t, issue33).Unused; !slices.Equal(got, []string{"dns", "tun", "listeners", "mixed-port"}) {
+		t.Errorf("issue33: %v", got)
+	}
+	rules := "proxy-groups:\n  - {name: G, type: select, proxies: [DIRECT]}\nrules:\n  - MATCH,G\n"
+	for src, want := range map[string][]string{
+		"":                       nil,
+		"tun: {enable: false}\n": nil,
+		"dns:\n  enable: false\n  nameserver: [1.2.3.4]\n":                                      nil,
+		"listeners: []\nport: 0\nhosts: {}\n":                                                   nil,
+		"sniffer: ~\nlog-level: debug\nsecret: x\nexternal-controller: :9090\n":                 nil,
+		"sniffer: {enable: true}\nhosts: {a.example: 10.0.0.1}\nport: 7890\nsocks-port: 7891\n": {"hosts", "sniffer", "port", "socks-port"},
+		"tunnels: [tcp/udp,127.0.0.1:6553,8.8.8.8:53,DIRECT]\n":                                 {"tunnels"},
+		"dns: {nameserver-policy: {+.ts.net: 100.100.100.100}}\n":                               nil, // off, as the core reads it
+		"dns: {enable: true, nameserver-policy: {+.ts.net: 100.100.100.100}}\n":                 {"dns"},
+	} {
+		if got := mustParse(t, rules+src).Unused; !slices.Equal(got, want) {
+			t.Errorf("%q: %v, want %v", src, got, want)
+		}
+	}
+}
+
 // TestImportedPausesUserRules: the user's rules and rule sets name groups
 // the source doesn't have.
 func TestImportedPausesUserRules(t *testing.T) {

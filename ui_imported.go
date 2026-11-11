@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 
@@ -132,6 +133,11 @@ func (u *UI) importedPage(c *ui.Context, p *pal) {
 		note := i18n.T("新建路由组、改规则和测试一个地址现在不可用；实际命中了哪条规则，可以在「活动」里看。", "New route groups, rule changes and testing an address aren't available now; Activity shows which rule each connection matched.")
 		if im.PausedRules+im.PausedSets > 0 {
 			note = fmt.Sprintf(i18n.T("你的 %d 条规则和 %d 个规则集已暂停，改回 bowel 路由后恢复。", "Your %d rules and %d rule sets are paused until you go back to bowel's routing. "), im.PausedRules, im.PausedSets) + note
+		}
+		if len(im.Unused) > 0 {
+			ui.Text(c, note).FontSize(12).TextColor(p.mute).Padding(0, 26, 4, 26)
+			// Someone who wrote them expects them to work.
+			note = fmt.Sprintf(i18n.T("这份配置里的 %s 不会生效：DNS、TUN 和本机端口用的是 bowel 自己的设置。", "Not used from this config: %s. DNS, TUN and local ports follow bowel's own settings."), strings.Join(im.Unused, i18n.T("、", ", ")))
 		}
 		ui.Text(c, note).FontSize(12).TextColor(p.mute).Padding(0, 26, 12, 26)
 		ui.Row(c).Grow(1).Basis(0).MinHeight(0).Padding(0, 26, 18, 26).Gap(18).AlignItems(ui.Stretch).Children(func() {

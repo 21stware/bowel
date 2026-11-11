@@ -322,6 +322,9 @@ type ImportedView struct {
 	PausedRules int         `json:"pausedRules"`
 	PausedSets  int         `json:"pausedSets"`
 	Groups      []GroupView `json:"groups"`
+	// Unused are the config's settings that act on traffic and are not
+	// used, as the config names them (core.Imported.Unused).
+	Unused []string `json:"unused,omitempty"`
 }
 
 // GroupView is one group of an imported config.

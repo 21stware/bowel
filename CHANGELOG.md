@@ -6,6 +6,7 @@
 
 ## [Unreleased]
 
+- 使用导入配置自带的路由时，「路由组」页、`bowel routes` 和 MCP 的 `list_routes` 会说明这份配置里哪些设置不会生效，比如「这份配置里的 dns、hosts、listeners 不会生效：DNS、TUN 和本机端口用的是 bowel 自己的设置」。导入的配置一直只用节点、路由组、规则和规则集，DNS、hosts、嗅探、TUN、监听端口和端口设置都按 bowel 自己的，这一点不变；以前不会提示，从别的客户端搬来的 `nameserver-policy` 或 `listeners` 不生效，却看不出来。只列出配置里写了并且打开着的这几项，`enable: false`、端口 0 和空的不算
 - `bowel conns` 和 TUI 的连接页多了「规则」一栏，「路由」一栏写路由的名称，和窗口里日志页的连接列表一样：以前这一栏是路由的 ID，使用导入配置自带的路由时只看到 `g1`、`g2`，认不出是哪个路由组，也看不到连接命中的是哪条规则。规则集按你给它起的名字显示，比如 `RuleSet(Netflix)`。MCP 的 `list_connections` 也多了 `routeName` 和 `ruleName` 两项，原有的 `route`、`rule`、`payload` 不变
 - 开关 TUN、切换模式、改设置等要重新加载内核配置的操作更快：内核在运行时，bowel 把新配置直接交给它检查，不再每次另起一个 `mihomo -t` 进程把 GeoSite 数据重新读一遍。在 macOS 和 Linux 上实测，一条命令从约 100 毫秒降到不到 20 毫秒；Windows 上启动进程更慢，省下的时间应当更多，但还没有实测。内核拒绝的配置和以前一样不会生效：内核继续用原来的配置，`config.yaml` 不变，提示的原因也不变。内核没有在运行时（启动、重启）仍然先用 `mihomo -t` 检查（#60）
 - 每次重新加载配置后，日志里多一行耗时，比如 `bowel: config applied in 14ms (build 1ms, check by the running core, reload 4ms, after 2ms)`，用 `bowel logs` 可以看到。觉得开关慢时，把这一行贴到反馈里，就能知道时间花在哪一步（#60）

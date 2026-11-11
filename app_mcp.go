@@ -592,7 +592,7 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "list_routes", Title: "Routes and nodes", ReadOnly: true,
-				Description: "The routes (kinds of traffic: default, ai, media, dev, direct) with the node each uses, and every node with its last delay and location. Every node can serve every proxied route. When a provider's own config routes the traffic, `imported` has its groups, the routes are those groups that rules point at, and only select groups can change.",
+				Description: "The routes (kinds of traffic: default, ai, media, dev, direct) with the node each uses, and every node with its last delay and location. Every node can serve every proxied route. When a provider's own config routes the traffic, `imported` has its groups, the routes are those groups that rules point at, and only select groups can change. Its unusedSettings are the parts of that config that act on traffic and are not used (dns, hosts, tun, listeners, ports and the like): bowel's own settings do those.",
 				Run: func(ctx context.Context, s *mcp.Session, _ json.RawMessage) (any, error) {
 					snap := a.snapshot()
 					out := map[string]any{"routes": a.mcpRoutes(snap), "nodes": mcpNodes(snap, routes.Default)}

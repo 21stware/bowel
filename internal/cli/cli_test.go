@@ -277,6 +277,30 @@ func TestConnsNames(t *testing.T) {
 	}
 }
 
+// TestRoutesOfImportedConfig: under an imported config's routing its groups
+// are listed below the routes, and what of its settings is not used is said.
+func TestRoutesOfImportedConfig(t *testing.T) {
+	imported := map[string]any{"provider": "Full config", "groups": []any{
+		map[string]any{"name": "🎞Netflix", "kind": "select", "now": "HK", "selectable": true},
+	}, "unusedSettings": []any{"dns", "hosts", "listeners"}}
+	socket, _ := fake(t, map[string]func(map[string]any) (any, error){
+		"list_routes": func(map[string]any) (any, error) {
+			return map[string]any{"routes": []any{map[string]any{"id": "g1", "name": "🎞Netflix", "node": "HK"}}, "imported": imported}, nil
+		},
+	})
+	_, out, _ := run(t, Env{Socket: socket}, "routes")
+	for _, want := range []string{"Using Full config's own groups:", "🎞Netflix", "selectable",
+		"Not used from this config: dns, hosts, listeners. DNS, TUN and local ports follow bowel's own settings."} {
+		if !strings.Contains(out, want) {
+			t.Errorf("routes lack %q:\n%s", want, out)
+		}
+	}
+	imported["unusedSettings"] = []any{}
+	if _, out, _ = run(t, Env{Socket: socket}, "routes"); strings.Contains(out, "Not used") {
+		t.Errorf("nothing unused, but:\n%s", out)
+	}
+}
+
 // TestRender: a table lines up whatever its text is, colors only on a
 // terminal that wants them, and --json is the tool's answer.
 func TestRender(t *testing.T) {

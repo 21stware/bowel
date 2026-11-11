@@ -392,6 +392,7 @@ func runRoutes(c *Ctx) error {
 				Now        string `json:"now"`
 				Selectable bool   `json:"selectable"`
 			} `json:"groups"`
+			Unused []string `json:"unusedSettings"`
 		} `json:"imported"`
 	}
 	raw, err := c.get("list_routes", nil, &out)
@@ -427,6 +428,9 @@ func runRoutes(c *Ctx) error {
 			rows = append(rows, []cell{t(g.Name), t(g.Kind), t(g.Now), {sel, gray}})
 		}
 		c.table([]string{i18n.T("路由组", "Group"), i18n.T("类型", "Kind"), i18n.T("当前", "Now"), ""}, rows)
+		if len(im.Unused) > 0 {
+			fmt.Fprintln(c.out, c.paint(gray, fmt.Sprintf(i18n.T("这份配置里的 %s 不会生效：DNS、TUN 和本机端口用的是 bowel 自己的设置。", "Not used from this config: %s. DNS, TUN and local ports follow bowel's own settings."), strings.Join(im.Unused, i18n.T("、", ", ")))))
+		}
 	}
 	return nil
 }

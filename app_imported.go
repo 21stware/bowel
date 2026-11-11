@@ -197,7 +197,7 @@ func (a *App) importedView(s settings.Settings, im *core.Imported, px map[string
 	if im == nil {
 		return nil
 	}
-	v := &ImportedView{Provider: s.ImportedRouting, Name: a.providerTitle(s.ImportedRouting), Rules: len(im.Rules), PausedRules: len(s.Rules), PausedSets: len(a.ruleSetRefs(s)), Groups: []GroupView{}}
+	v := &ImportedView{Provider: s.ImportedRouting, Name: a.providerTitle(s.ImportedRouting), Rules: len(im.Rules), PausedRules: len(s.Rules), PausedSets: len(a.ruleSetRefs(s)), Groups: []GroupView{}, Unused: im.Unused}
 	byName := map[string]string{}
 	for _, r := range a.routes() {
 		byName[r.Name] = r.ID
@@ -422,7 +422,11 @@ func mcpImported(v *ImportedView) map[string]any {
 		}
 		groups = append(groups, map[string]any{"name": g.Name, "kind": g.Kind, "now": g.Now, "exit": display(g.Exit), "selectable": g.Selectable, "rules": g.Rules, "members": members})
 	}
-	return map[string]any{"provider": v.Name, "rules": v.Rules, "pausedUserRules": v.PausedRules, "pausedRuleSets": v.PausedSets, "groups": groups}
+	unused := v.Unused
+	if unused == nil {
+		unused = []string{}
+	}
+	return map[string]any{"provider": v.Name, "rules": v.Rules, "pausedUserRules": v.PausedRules, "pausedRuleSets": v.PausedSets, "groups": groups, "unusedSettings": unused}
 }
 
 // mcpSelectMember is select_node under an imported config.
