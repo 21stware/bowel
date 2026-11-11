@@ -782,7 +782,7 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "set_takeover", Title: "Set the takeover", Destructive: true,
-				Description: "Turns bowel's takeover of this Mac's traffic on or off, and chooses its entries: the system proxy and TUN (all traffic; the first time macOS asks the user for an administrator's password). Give only what should change.",
+				Description: "Turns bowel's takeover of this Mac's traffic on or off, and chooses its entries: the system proxy and TUN (all traffic; the first time macOS asks the user for an administrator's password). Give only what should change. Asking for TUN on while its status is error tries its core again.",
 				Input: obj(map[string]any{
 					"enabled":     map[string]any{"type": "boolean", "description": "Take over traffic at all (false pauses it, keeping the entries)."},
 					"systemProxy": map[string]any{"type": "boolean", "description": "Use the system proxy."},
@@ -805,8 +805,14 @@ func (a *App) mcpServer() *mcp.Server {
 					if p.SystemProxy != nil {
 						note("systemProxy", st.SystemProxy, *p.SystemProxy)
 					}
+					// TUN wanted and not had (its core did not start): asking
+					// for it again is asking to try again.
+					retry := p.Tun != nil && *p.Tun && st.Tun && a.tunFailed()
 					if p.Tun != nil {
 						note("tun", st.Tun, *p.Tun)
+					}
+					if retry {
+						lines = append(lines, "tun: retry")
 					}
 					if p.Enabled != nil {
 						note("enabled", a.takeoverOn(st), *p.Enabled)
@@ -820,7 +826,7 @@ func (a *App) mcpServer() *mcp.Server {
 								return err
 							}
 						}
-						if p.Tun != nil && *p.Tun != st.Tun {
+						if p.Tun != nil && (*p.Tun != st.Tun || retry) {
 							if err := a.setTun(*p.Tun); err != nil {
 								return err
 							}

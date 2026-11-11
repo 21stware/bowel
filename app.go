@@ -59,6 +59,10 @@ type App struct {
 	coreBin   string      // the bundled core
 	tunBin    string      // the setuid copy TUN runs
 	tunStale  atomic.Bool // tunBin is another version than coreBin
+	// tunFault is why the core at tunBin did not start; while it is set
+	// the bundled core runs in its place, with TUN out of its config.
+	tunFault  atomic.Pointer[string]
+	tunGone   atomic.Bool // what tunBin's installation stands for was removed: it is to be made again
 	probePort int
 	gw        *gateway.Gateway
 
@@ -144,11 +148,12 @@ func newApp() (*App, error) {
 		return nil, err
 	}
 	i18n.Set(st.Get().Language)
-	ps, err := provider.Open(filepath.Join(data, "providers"))
+	provDir := storeDir(data, "providers", runtime.GOOS)
+	ps, err := provider.Open(provDir)
 	if err != nil {
 		return nil, err
 	}
-	sets, err := ruleset.Open(filepath.Join(data, "rulesets"))
+	sets, err := ruleset.Open(storeDir(data, "rulesets", runtime.GOOS))
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +190,7 @@ func newApp() (*App, error) {
 	}
 	ps.Vet = a.vetUpdate
 	a.tunStale.Store(stale)
-	cm.SafePaths = []string{filepath.Join(data, "providers"), sets.Dir()}
+	cm.SafePaths = []string{provDir, sets.Dir()} // for a core that is the app's child; see storeDir
 	a.keepRuleSets()
 	a.mon.SkipGroup = core.ProbeGroup // the location probe's own traffic
 	a.mon.FindProcess = procinfo.New().Find
@@ -194,6 +199,36 @@ func newApp() (*App, error) {
 	cm.OnListenError = func() { a.emit() }
 	a.mon.OnTick(a.onTick)
 	return a, nil
+}
+
+// storeDir is where the files of one kind ("providers", "rulesets") are
+// kept, which the core's config names. mihomo reads nothing outside its
+// own directory unless a SAFE_PATHS variable allows it, and only a core
+// that is the app's child can be given one. On Windows the core TUN runs
+// on is started by a scheduled task, with no environment of the app's, so
+// there the files live inside the core's directory, and what an earlier
+// version kept beside it is moved in once. A move that fails (a file in
+// use) leaves the files where they were, for the next start to try again.
+func storeDir(data, name, goos string) string {
+	old := filepath.Join(data, name)
+	if goos != "windows" {
+		return old
+	}
+	dir := filepath.Join(data, "core", name)
+	if _, err := os.Lstat(dir); err == nil {
+		return dir
+	}
+	if _, err := os.Lstat(old); err != nil {
+		return dir // nothing to move
+	}
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err == nil {
+		err = os.Rename(old, dir)
+		if err == nil {
+			return dir
+		}
+		log.Printf("moving %s into the core's directory: %v", old, err)
+	}
+	return old
 }
 
 // bundledCore finds mihomo: $MOHO_CORE, else bin/mihomo among the resources.
@@ -367,9 +402,11 @@ func (a *App) uiRef() *UI {
 }
 
 // pollEvery is how often the monitor reads the core's connections: every
-// second while the window or the menu bar panel shows them, every 5 s
-// otherwise. The totals stay exact, as they are the core's own counters;
-// what goes is the rates' detail and connections too short to be seen.
+// second while the window or the menu bar panel shows them, every 2 s
+// while only the menu bar icon shows the rates (Settings.TraySpeed), every
+// 5 s otherwise. The totals stay exact, as they are the core's own
+// counters; what goes is the rates' detail and connections too short to
+// be seen.
 func (a *App) pollEvery() time.Duration {
 	if a.winShown.Load() {
 		return time.Second
@@ -379,6 +416,9 @@ func (a *App) pollEvery() time.Duration {
 	}
 	if time.Now().Unix()-a.watchedAt.Load() < 5 {
 		return time.Second
+	}
+	if st := a.settings.Get(); st.TraySpeed && a.takeoverOn(st) {
+		return traySpeedEvery
 	}
 	return 5 * time.Second
 }
@@ -515,6 +555,26 @@ func (a *App) onCoreStatus(s core.Status) {
 	a.emit()
 }
 
+// tunEntry is TUN as it really is. wanted is the user's choice and on is
+// whether takeover is; installed is whether its core has its
+// authorisation; fault is why that core did not start, when another runs
+// in its place.
+func tunEntry(wanted, on, installed bool, fault string, state core.State) Entry {
+	e := Entry{Wanted: wanted, Status: "off"}
+	switch {
+	case !installed:
+		e.Status = "install"
+	case !on || !wanted:
+	case fault != "":
+		e.Status, e.Detail = "error", fmt.Sprintf(i18n.T("TUN 的内核没有启动，其余功能照常：%s", "The core TUN runs on didn't start; everything else works: %s"), fault)
+	case state == core.Running:
+		e.Status = "on"
+	default:
+		e.Status, e.Detail = "error", i18n.T("内核没有运行", "The core isn't running")
+	}
+	return e
+}
+
 // ---- Config ----
 
 func (a *App) takeoverOn(s settings.Settings) bool { return !s.Paused && (s.SystemProxy || s.Tun) }
@@ -557,7 +617,7 @@ func (a *App) buildConfig(s settings.Settings, dev devnet.Overlay, im *core.Impo
 	scopes, orders := a.nodeLists(all)
 	return core.BuildConfig(core.Input{
 		Providers: refs, RuleSets: a.ruleSetRefs(s), Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
-		Tun:      s.Tun && a.takeoverOn(s) && tun.Installed(a.tunBin),
+		Tun:      s.Tun && a.takeoverOn(s) && osTun.installed(a.tunBin) && a.tunFault.Load() == nil,
 		Gateway:  a.gatewayOn(s),
 		LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
 		Options: s.Options, Dev: dev, IPv6Usable: a.devEnv().IPv6.Usable, Imported: im,
@@ -849,6 +909,8 @@ func (a *App) setTun(on bool) error {
 		if err := a.installTun(); err != nil {
 			return err
 		}
+	} else if on {
+		a.retryTunCore()
 	}
 	if _, err := a.settings.Update(func(s *settings.Settings) {
 		s.Tun = on
@@ -863,7 +925,45 @@ func (a *App) setTun(on bool) error {
 
 // tunNeedsInstall is whether turning TUN on takes an authorization.
 func (a *App) tunNeedsInstall() bool {
-	return !osTun.installed(a.tunBin) || a.tunStale.Load()
+	return !osTun.installed(a.tunBin) || a.tunStale.Load() || a.tunGone.Load()
+}
+
+// leaveTunCore answers a core that did not come up: when it was the copy
+// TUN runs on, the bundled core takes its place, so that one failure does
+// not cost the user everything else the core does, and why is kept for
+// the TUN entry to show. It reports whether the core is to be started
+// again, with a config built anew (TUN is out of it now).
+func (a *App) leaveTunCore(err error) bool {
+	var se *core.StartError
+	if !errors.As(err, &se) || a.tunBin == a.coreBin || a.core.Bin != a.tunBin {
+		return false
+	}
+	why := err.Error()
+	a.tunFault.Store(&why)
+	if errors.Is(err, tun.ErrGone) {
+		a.tunGone.Store(true)
+	}
+	log.Println("tun: its core did not start, running the bundled one:", why)
+	a.core.Stop()
+	a.core.SetBin(a.coreBin)
+	return true
+}
+
+// retryTunCore goes back to the copy TUN runs on after leaveTunCore left
+// it, for the next config to start; and a core that is not running has
+// nothing to reload, so the next config starts it whatever it was.
+func (a *App) retryTunCore() {
+	if a.tunFault.Swap(nil) == nil {
+		return
+	}
+	a.core.Stop()
+	a.core.SetBin(a.tunBin)
+}
+
+// tunFailed is whether TUN is wanted and is not what the user has: asking
+// for it again is then a request to try again, not one already met.
+func (a *App) tunFailed() bool {
+	return a.snapshot().Takeover.Tun.Status == "error"
 }
 
 // installTun puts this version's core in the root copy and runs on it.
@@ -878,6 +978,8 @@ func (a *App) installTun() error {
 // tunInstalled moves the core to the root copy, just (re)installed.
 func (a *App) tunInstalled() {
 	a.tunStale.Store(false)
+	a.tunGone.Store(false)
+	a.tunFault.Store(nil)
 	a.core.Stop()
 	a.core.SetBin(a.tunBin)
 }
@@ -1003,11 +1105,12 @@ func migrateData(dir string) {
 }
 
 // appOnly says whether next differs from old only in what the core does
-// not see: the language, starting hidden, the theme color, the appearance,
-// the skin and the board's borders.
+// not see: the language, starting hidden, the menu bar's speed, the theme
+// color, the appearance, the skin and the board's borders.
 func appOnly(old, next settings.Settings) bool {
 	next.Language, next.StartHidden, next.Accent, next.Appearance = old.Language, old.StartHidden, old.Accent, old.Appearance
 	next.Skin, next.Borders, next.CommonRegions = old.Skin, old.Borders, old.CommonRegions
+	next.TraySpeed = old.TraySpeed
 	next.MCPPolicy = old.MCPPolicy                  // the MCP server's, not the core's
 	if routingCoreSame(old.Routing, next.Routing) { // a strategy is a selector's position
 		next.Routing = old.Routing
@@ -1060,6 +1163,10 @@ func (a *App) updateSettingsAnd(fn func(*settings.Settings), reapply bool) error
 	i18n.Set(next.Language)
 	if appearanceOf(next) != appearanceOf(old) && !a.headless {
 		mygo.Theme.SetSource(mygo.ThemeSource(appearanceOf(next)))
+	}
+	if next.TraySpeed != old.TraySpeed {
+		a.mon.Wake() // the rates beside the icon: now, and at their own pace
+		a.trayTick()
 	}
 	if !reapply && appOnly(old, next) { // the core does not care
 		var err error
@@ -1889,16 +1996,11 @@ func (a *App) snapshot() Snapshot {
 			tk.System.Status, tk.System.Detail = "hijacked", i18n.T("系统代理被关掉了", "The system proxy was turned off")
 		}
 	}
-	installed := tun.Installed(a.tunBin)
-	tk.Tun = Entry{Wanted: s.Tun, Status: "off"}
-	switch {
-	case on && s.Tun && installed && cs.State == core.Running:
-		tk.Tun.Status = "on"
-	case on && s.Tun && installed:
-		tk.Tun.Status, tk.Tun.Detail = "error", i18n.T("内核没有运行", "The core isn't running")
-	case !installed:
-		tk.Tun.Status = "install"
+	fault := ""
+	if f := a.tunFault.Load(); f != nil {
+		fault = *f
 	}
+	tk.Tun = tunEntry(s.Tun, on, osTun.installed(a.tunBin) && !a.tunGone.Load(), fault, cs.State)
 	if s.AllowLan {
 		tk.LanAddr = lanAddr(s.MixedPort)
 	}

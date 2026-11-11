@@ -69,6 +69,9 @@ type Settings struct {
 
 	// StartHidden: opened at login, Moho stays in the menu bar.
 	StartHidden bool `json:"startHidden"`
+	// TraySpeed: the rates stand beside the menu bar icon (in its tooltip
+	// on Windows, whose tray has no text). Off unless asked for.
+	TraySpeed bool `json:"traySpeed"`
 
 	// MCPPolicy is what happens when an agent asks, over MCP, to change
 	// something: "ask" the user each time, "allow" it, or "deny" it.

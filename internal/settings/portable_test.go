@@ -29,7 +29,7 @@ var portableKeys = []string{
 	"language", "accent", "appearance", "borders", "skin",
 	"mode", "bypass", "logLevel", "testUrl",
 	"routeTargets", "rules", "routing", "importedRouting", "commonRegions",
-	"startHidden",
+	"startHidden", "traySpeed",
 	"ipv6", "unifiedDelay", "tcpConcurrent", "findProcess",
 	"keepAliveInterval", "disableKeepAlive", "fingerprint",
 	"urlTestInterval", "urlTestTolerance", "healthInterval",

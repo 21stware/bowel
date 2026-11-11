@@ -55,16 +55,32 @@ func winInstallStep(tmp, dst, xml, task, mark string) Step {
 	}
 }
 
+// taskRunErr is why the task did not run, from what schtasks /Run said
+// and what /Query says of the same task. A task the Task Scheduler does
+// not have is an installation that is gone, whatever the mark says; what
+// schtasks prints is in the system's language, so only whether the query
+// failed is read.
+func taskRunErr(run, query error) error {
+	if query != nil {
+		return ErrGone
+	}
+	return fmt.Errorf(i18n.T("无法通过计划任务启动内核：%s", "Couldn't start the core through its scheduled task: %s"), run)
+}
+
 // taskXML is the task's definition. It runs as the user without their
 // password being kept (S4U), so it has no window to show, at the highest
 // run level the user has; it has no trigger, starts only on demand, and
-// is never ended for running long or on battery.
+// is never ended for running long or on battery. The core is the action
+// itself, with nothing in between that could set its environment: ending
+// the task ends that one process, and a shell around the core would be
+// ended in its place. What the description tells the user to delete is
+// what Uninstall deletes.
 func taskXML(sid, bin, coreDir string) string {
 	args := fmt.Sprintf(`-d "%s" -f "%s"`, coreDir, coreDir+`\config.yaml`)
 	return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>bowel: runs the mihomo core with the rights TUN mode needs. Delete this task to undo it.</Description>
+    <Description>bowel: runs the mihomo core with the rights TUN mode needs. To undo it, delete this task and the folder ` + xmlText(winDir(bin)) + `</Description>
   </RegistrationInfo>
   <Triggers />
   <Principals>

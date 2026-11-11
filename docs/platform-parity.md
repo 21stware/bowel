@@ -6,7 +6,7 @@ How far each implementation has been tried is its own column, because "it compil
 
 - **macOS**: developed and run on.
 - **Linux**: the package tests run on Ubuntu 24.04 (arm64, kernel 6.8), unprivileged and with no desktop session. Anything that needs a desktop (polkit's dialog, GNOME's or KDE's settings, the tray, a screenshot tool) or root on a real network (the TUN device itself, forwarding) has **not** been run.
-- **Windows**: cross-compiled and vetted, with the logic that needs no Windows API tested on other systems. **Nothing has run on Windows.**
+- **Windows**: cross-compiled and vetted, with the logic that needs no Windows API tested on other systems. **Nothing has run on Windows on our side**; what is known from a real machine comes from users' reports, noted where it applies.
 
 ## The table
 
@@ -15,6 +15,8 @@ How far each implementation has been tried is its own column, because "it compil
 | TUN: one authorisation | `osascript` with administrator privileges | `pkexec` (polkit) | UAC prompt (`ShellExecuteEx`, `runas`) |
 | TUN: what it grants | setuid-root copy of the core in the data directory | root-owned copy with file capabilities `cap_net_admin,cap_net_bind_service,cap_net_raw`; setuid root where `setcap` is missing | copy under `%ProgramData%\bowel\tun\<SID>\` writable by administrators only, and a scheduled task that runs it elevated |
 | TUN: running the core | child process | child process | the task, started and ended with `schtasks`; log read from the controller |
+| TUN: files the core's config names (providers, rule sets) | beside the core's directory, allowed through `SAFE_PATHS` in the child's environment | same | inside the core's directory (`core\providers`, `core\rulesets`): the task's core has no environment of the app's |
+| TUN: its core does not start | the bundled core runs as a child in its place; the TUN entry says why, and turning TUN on again tries again | same | same; a task that was deleted counts as not installed, and is asked for again |
 | TUN: stale copy after an update | offered, one authorisation | same | same |
 | System proxy: set, restore | `networksetup`, every service | GNOME (`gsettings`, shared by Cinnamon, MATE, Budgie…) and KDE (`kwriteconfig`, `kioslaverc`) | WinINet LAN settings |
 | System proxy: measured every 2 s | `scutil --proxy` | the session's own desktop's settings | WinINet |
@@ -64,6 +66,8 @@ The rules are the same on every system: the authorisation is asked once, it gran
 | Windows TUN | `mkdir`, `icacls`, `copy`, `schtasks /Create` | protected copy, task `bowel-tun-<SID>` | delete the task and the directory |
 | macOS, Linux gateway | `install`, `visudo -c`, `mv` | `/etc/sudoers.d/bowel-gateway-<uid>`: two `sysctl` commands | delete the file |
 
+On Windows the mark beside the copy is what `Installed` reads, so deleting the task alone leaves it: the app finds the task missing the next time it starts the core (`schtasks /Query`), runs the bundled core, and asks for the authorisation again when TUN is next turned on. The task's description names both things to delete.
+
 At run time: forwarding as it was is kept in `gateway-before.json` and put back when the gateway goes off or on the next start; the system proxy as it was is kept in `sysproxy-before.json` and restored on quit; TUN's routes go with the core's process. On Windows a core that a crash of the app left running is ended (`schtasks /End`) before the next one starts.
 
 ## Not yet run on a real machine
@@ -78,7 +82,7 @@ Linux:
 6. Screen scanning with each screenshot tool, on Wayland and X11; the tray.
 7. `ping` (the test machine has none installed).
 
-Windows, all of it. In the order they would fail:
+Windows, all of it on our side. A user's report on Windows 11 (issue 59, bowel 0.3.0) covers the first three for TUN: the UAC installation, the copy, its mark and the task were made as written; with the core able to read its files, the task started from the unelevated `schtasks /Run`, the adapter and routes came up, and `/End` took them down. That report is also where the fixes after 0.3.0 come from (files inside the core's directory, the bundled core as a fallback), and those have **not** been run on Windows. In the order they would fail:
 
 1. The UAC prompt and the elevated command: `ShellExecuteExW`'s structure, cmd's quoting, `icacls` and `schtasks /Create /XML` with a UTF-16 definition.
 2. Whether a task with an S4U principal and `HighestAvailable` starts from the user's unelevated `schtasks /Run`, runs elevated with no window, and ends with `/End`.

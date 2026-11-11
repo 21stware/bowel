@@ -46,7 +46,7 @@ func gatewayPrompt() string {
 // gatewayOn is whether the gateway should be in effect: wanted, and TUN
 // in effect (takeover on, TUN wanted and installed).
 func (a *App) gatewayOn(s settings.Settings) bool {
-	return s.Gateway && a.takeoverOn(s) && s.Tun && osTun.installed(a.tunBin)
+	return s.Gateway && a.takeoverOn(s) && s.Tun && osTun.installed(a.tunBin) && a.tunFault.Load() == nil
 }
 
 // setGateway turns gateway mode on or off. On needs TUN, so it turns TUN
