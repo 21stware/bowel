@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -601,11 +602,18 @@ func (a *App) takeoverOn(s settings.Settings) bool { return !s.Paused && (s.Syst
 
 // applyConfig rebuilds the runtime config and makes the core use it.
 func (a *App) applyConfig() error {
+	began := time.Now()
 	a.dropImported() // a provider's file, or whether it is in use, may have changed
 	s := a.settings.Get()
 	a.ensureIPv6(s)
 	im := a.importedNow()
-	err := a.applyDev(s, func(dev devnet.Overlay) ([]byte, error) { return a.buildConfig(s, dev, im) })
+	var build time.Duration
+	err := a.applyDev(s, func(dev devnet.Overlay) ([]byte, error) {
+		defer func(t time.Time) { build += time.Since(t) }(time.Now())
+		return a.buildConfig(s, dev, im)
+	})
+	applied := time.Now()
+	defer func() { a.mon.Note(applyNote(err, began, applied, time.Now(), build, a.core.Timing())) }()
 	if err != nil {
 		a.emit()
 		return err
@@ -622,6 +630,32 @@ func (a *App) applyConfig() error {
 	a.syncGateway()
 	a.refresh()
 	return nil
+}
+
+// applyNote is the line applyConfig leaves in the log: how long a change
+// of the config took and where the time went, for a report of a slow
+// switch to say which part was slow (#60). check is `mihomo -t`, which a
+// running core that accepts the config spares.
+func applyNote(err error, began, applied, done time.Time, build time.Duration, t core.ApplyTiming) string {
+	ms := func(d time.Duration) string { return strconv.FormatInt(d.Milliseconds(), 10) + "ms" }
+	what := "config applied"
+	if err != nil {
+		what = "config not applied"
+	}
+	check := "by the running core"
+	if t.Check > 0 {
+		check = ms(t.Check)
+	}
+	parts := []string{"build " + ms(build), "check " + check}
+	if t.Start > 0 {
+		parts = append(parts, "core start "+ms(t.Start))
+	} else {
+		parts = append(parts, "reload "+ms(t.Reload))
+	}
+	if err == nil {
+		parts = append(parts, "after "+ms(done.Sub(applied)))
+	}
+	return "bowel: " + what + " in " + ms(done.Sub(began)) + " (" + strings.Join(parts, ", ") + ")"
 }
 
 // buildConfig is the core's config for s; im, if not nil, is the routing to

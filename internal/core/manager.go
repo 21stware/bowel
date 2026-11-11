@@ -95,6 +95,7 @@ type Manager struct {
 	status    Status
 	listenErr string // the proxy port the running core could not open
 	loading   bool   // see Loading
+	timing    ApplyTiming
 	stopping  bool
 	closed    bool // by Close
 	cancel    context.CancelFunc
@@ -259,46 +260,98 @@ func (m *Manager) Check(cfg []byte) error {
 
 // Apply writes cfg as the runtime config and makes the core use it:
 // a running core reloads it, a stopped one starts.
+//
+// config.yaml is only ever replaced by a config the core has accepted or
+// that passed Test. A running core is the check: it parses a reload in
+// full before it changes anything, and refuses with what `mihomo -t`
+// would say, staying on the config it has. That spares a second process
+// that loads the geodata again for every switch flipped (#60). When the
+// reload is not plainly accepted (refused, or no answer in time), Test
+// says whether the config is at fault.
 func (m *Manager) Apply(cfg []byte) error {
+	var t ApplyTiming
+	defer func() {
+		m.mu.Lock()
+		m.timing = t
+		m.mu.Unlock()
+	}()
 	tmp := filepath.Join(m.Dir, "config.next.yaml")
 	if err := os.WriteFile(tmp, cfg, 0o600); err != nil {
 		return err
 	}
-	if err := m.Test(tmp); err != nil {
-		return err
+	test := func() error {
+		defer since(&t.Check, time.Now())
+		return m.Test(tmp)
 	}
-	if err := os.Rename(tmp, m.ConfigPath()); err != nil {
-		return err
-	}
-	if c, err := m.Client(); err == nil {
-		wait := m.ReloadWait
-		if wait <= 0 {
-			wait = 15 * time.Second // what the client waits for any answer
+	c, err := m.Client()
+	if err != nil { // no core to ask
+		if err := test(); err != nil {
+			return err
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), wait)
-		defer cancel()
-		m.setListenErr("") // a reload tries a port again, and says so if it fails
-		err := c.Reload(ctx, m.ConfigPath())
+		if err := os.Rename(tmp, m.ConfigPath()); err != nil {
+			return err
+		}
+		m.mu.Lock()
+		m.loading = false
+		m.mu.Unlock()
+		defer since(&t.Start, time.Now())
+		return m.start()
+	}
+	wait := m.ReloadWait
+	if wait <= 0 {
+		wait = 15 * time.Second // what the client waits for any answer
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), wait)
+	defer cancel()
+	m.mu.Lock()
+	listenErr := m.listenErr
+	m.mu.Unlock()
+	m.setListenErr("") // a reload tries a port again, and says so if it fails
+	began := time.Now()
+	err = c.Reload(ctx, tmp)
+	since(&t.Reload, began)
+	slow := false
+	if err != nil {
+		if terr := test(); terr != nil {
+			m.setListenErr(listenErr) // the core is as it was
+			return terr
+		}
 		// The core answers a reload only once it has fetched every remote
 		// file the config names for the first time (a rule set, a
 		// subscription of the config's own), and one it can't reach takes
-		// it 20 s. The config has passed the check above, so a core that
+		// it 20 s. The config has passed the check, so a core that
 		// outlasts the wait and still answers is loading it, not refusing
 		// it: Loading says so until a reload is answered again.
-		slow := err != nil && isTimeout(err) && m.answers(c)
-		m.mu.Lock()
-		m.loading = slow
-		m.mu.Unlock()
-		if slow {
-			return nil
-		}
-		return err
+		slow = isTimeout(err) && m.answers(c)
+	}
+	if rerr := os.Rename(tmp, m.ConfigPath()); rerr != nil {
+		return rerr
 	}
 	m.mu.Lock()
-	m.loading = false
+	m.loading = slow
 	m.mu.Unlock()
-	return m.start()
+	if slow {
+		return nil
+	}
+	return err
 }
+
+// ApplyTiming is where the last Apply spent its time. Check is zero when
+// the running core accepted the config itself.
+type ApplyTiming struct {
+	Check  time.Duration // `mihomo -t`
+	Reload time.Duration // the running core's answer to the reload
+	Start  time.Duration // starting a core that was not running
+}
+
+// Timing is the last Apply's.
+func (m *Manager) Timing() ApplyTiming {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.timing
+}
+
+func since(d *time.Duration, t time.Time) { *d = time.Since(t) }
 
 // Loading says whether the core was still fetching what the last config
 // names when Apply stopped waiting for it.
