@@ -85,7 +85,8 @@ func TestUTF16File(t *testing.T) {
 // the mark last, once everything else has worked.
 func TestWinInstallStep(t *testing.T) {
 	dst := `C:\ProgramData\bowel\tun\S-1\mihomo.exe`
-	st := winInstallStep(`C:\Users\a b\Temp\bowel-tun\.mihomo-1`, dst, `C:\Users\a b\Temp\bowel-tun\.mihomo-task.xml`, "bowel-tun-S-1", "abcd")
+	st := winInstallStep(`C:\Users\a b\Temp\bowel-tun\.mihomo-1`, dst, `C:\Users\a b\Temp\bowel-tun\.mihomo-task.xml`, "bowel-tun-S-1",
+		`C:\Users\a b\Temp\bowel-tun\.mihomo-task-interactive.xml`, "bowel-tun-S-1-interactive", "abcd")
 	if len(st)%2 != 0 || st[len(st)-1] != `C:\ProgramData\bowel\tun\S-1\installed` {
 		t.Fatalf("step doesn't end on the mark: %q", st)
 	}
@@ -104,6 +105,7 @@ func TestWinInstallStep(t *testing.T) {
 		` && (if exist "C:\ProgramData\bowel\tun\S-1\mihomo.exe" move /y "C:\ProgramData\bowel\tun\S-1\mihomo.exe" "C:\ProgramData\bowel\tun\S-1\mihomo.exe.old" >nul)` +
 		` && copy /y /b "C:\Users\a b\Temp\bowel-tun\.mihomo-1" "C:\ProgramData\bowel\tun\S-1\mihomo.exe" >nul` +
 		` && schtasks /Create /F /TN "bowel-tun-S-1" /XML "C:\Users\a b\Temp\bowel-tun\.mihomo-task.xml" >nul` +
+		` && schtasks /Create /F /TN "bowel-tun-S-1-interactive" /XML "C:\Users\a b\Temp\bowel-tun\.mihomo-task-interactive.xml" >nul` +
 		` && (echo abcd)> "C:\ProgramData\bowel\tun\S-1\installed"`
 	if got != want {
 		t.Fatalf("script:\n got %s\nwant %s", got, want)
@@ -166,8 +168,16 @@ func TestTaskDescriptionNamesTheFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := task.RegistrationInfo.Description
-	if !strings.Contains(d, "delete this task and the folder "+`C:\ProgramData\bowel\tun\S & 1`) || strings.Contains(d, "mihomo.exe") {
+	if !strings.Contains(d, "delete this task and the folder "+`C:\ProgramData\bowel\tun\S & 1`+", and the task bowel-tun-S-1-interactive") || strings.Contains(d, "mihomo.exe") {
 		t.Errorf("description %q", d)
+	}
+	// The second task's names the first.
+	x = fallbackTaskXML("S-1", `C:\Windows\System32\conhost.exe`, `C:\ProgramData\bowel\tun\S & 1\mihomo.exe`, `C:\core`)
+	if err := xml.Unmarshal([]byte(strings.TrimPrefix(x, `<?xml version="1.0" encoding="UTF-16"?>`)), &task); err != nil {
+		t.Fatal(err)
+	}
+	if d := task.RegistrationInfo.Description; !strings.HasSuffix(d, "delete this task and the folder "+`C:\ProgramData\bowel\tun\S & 1`+", and the task bowel-tun-S-1") {
+		t.Errorf("the second task's description %q", d)
 	}
 	if markPath(`C:\ProgramData\bowel\tun\S & 1\mihomo.exe`) != `C:\ProgramData\bowel\tun\S & 1\installed` {
 		t.Error("the mark is not in the folder the description names")
@@ -184,5 +194,121 @@ func TestTaskRunErr(t *testing.T) {
 	err := taskRunErr(run, nil)
 	if errors.Is(err, ErrGone) || !strings.Contains(err.Error(), "exit status 1: ERROR") {
 		t.Errorf("task that is there: %v", err)
+	}
+}
+
+// The second task differs from the first in two things only: it runs in
+// the session the user is logged on in, which takes no logon and so no
+// domain controller, and the core is started by the console host, run
+// headless, so that it has no window there.
+func TestFallbackTaskXML(t *testing.T) {
+	sid, bin, dir := "S-1-5-21-1-2-3-1001", `C:\ProgramData\bowel\tun\S-1-5-21-1-2-3-1001\mihomo.exe`, `C:\Users\张 & 三\AppData\Roaming\bowel\core`
+	conhost := `C:\Windows\System32\conhost.exe`
+	x := fallbackTaskXML(sid, conhost, bin, dir)
+	var task struct {
+		Principals struct {
+			Principal struct{ UserId, LogonType, RunLevel string }
+		}
+		Actions struct {
+			Exec struct{ Command, Arguments, WorkingDirectory string }
+		}
+	}
+	if err := xml.Unmarshal([]byte(strings.TrimPrefix(x, `<?xml version="1.0" encoding="UTF-16"?>`)), &task); err != nil {
+		t.Fatalf("not XML: %v\n%s", err, x)
+	}
+	if p := task.Principals.Principal; p.UserId != sid || p.LogonType != "InteractiveToken" || p.RunLevel != "HighestAvailable" {
+		t.Errorf("principal %+v", p)
+	}
+	e := task.Actions.Exec
+	if e.Command != conhost || e.WorkingDirectory != dir ||
+		e.Arguments != `--headless "`+bin+`" -d "`+dir+`" -f "`+dir+`\config.yaml"` {
+		t.Errorf("action %+v", e)
+	}
+	// Everything else is the first task's.
+	first := taskXML(sid, bin, dir)
+	same := strings.NewReplacer(
+		"<LogonType>InteractiveToken</LogonType>", "<LogonType>S4U</LogonType>",
+		"<Command>"+conhost+"</Command>", "<Command>"+bin+"</Command>",
+		`<Arguments>--headless "`+bin+`" `, "<Arguments>",
+		", and the task bowel-tun-"+sid+"</Description>", ", and the task bowel-tun-"+sid+"-interactive</Description>",
+	).Replace(x)
+	if same != first {
+		t.Errorf("the second task differs in more than its logon and its action:\n%s\n%s", x, first)
+	}
+	if fallbackName(taskNameOf(sid)) != "bowel-tun-"+sid+"-interactive" {
+		t.Error("the second task's name")
+	}
+}
+
+func TestTaskOrder(t *testing.T) {
+	for last, want := range map[string]string{
+		"":              "t t-interactive",
+		"interactive\n": "t-interactive t",
+		"garbage":       "t t-interactive",
+	} {
+		if got := strings.Join(taskOrder("t", last), " "); got != want {
+			t.Errorf("after %q: %s, want %s", last, got, want)
+		}
+	}
+}
+
+// Which task starts the core, and what is said when none does.
+func TestStartTask(t *testing.T) {
+	missing := errors.New("exit status 1: ERROR: The system cannot find the file specified.")
+	refused := errors.New("exit status 1: ERROR: refused")
+	type task struct {
+		run     error // what schtasks /Run says
+		absent  bool  // the Task Scheduler does not have it
+		started bool  // the core's process appears after it ran
+	}
+	for _, c := range []struct {
+		name            string
+		last            string
+		first, fallback task
+		want            string // the task that started the core
+		gone            bool   // the error is ErrGone
+		err             string // part of the error's text, in the language tests run in
+		ran             string // the tasks run, in order
+	}{
+		{name: "the first task starts it", first: task{started: true}, fallback: task{started: true},
+			want: "t", ran: "t"},
+		{name: "a logon that fails starts nothing, and the second task does", first: task{}, fallback: task{started: true},
+			want: "t-interactive", ran: "t t-interactive"},
+		{name: "the second task first when it was what worked", last: "interactive", first: task{started: true}, fallback: task{started: true},
+			want: "t-interactive", ran: "t-interactive"},
+		{name: "nobody logged on at the desktop: back to the first", last: "interactive", first: task{started: true}, fallback: task{},
+			want: "t", ran: "t-interactive t"},
+		{name: "the first task was deleted", first: task{run: missing, absent: true}, fallback: task{started: true},
+			gone: true, ran: "t"},
+		{name: "an older installation, whose first task starts nothing", first: task{}, fallback: task{run: missing, absent: true},
+			gone: true, err: "连不上域控制器", ran: "t t-interactive"},
+		{name: "an older installation, whose first task starts it", last: "interactive", first: task{started: true}, fallback: task{run: missing, absent: true},
+			want: "t", ran: "t-interactive t"},
+		{name: "neither starts it", first: task{}, fallback: task{},
+			err: "没有把内核启动起来", ran: "t t-interactive"},
+		{name: "the first task's reason is the one given", last: "interactive", first: task{run: refused}, fallback: task{},
+			err: "refused", ran: "t-interactive t"},
+	} {
+		tasks := map[string]task{"t": c.first, "t-interactive": c.fallback}
+		var ran []string
+		got, err := startTask("t", c.last,
+			func(n string) error { ran = append(ran, n); return tasks[n].run },
+			func(n string) error {
+				if tasks[n].absent {
+					return missing
+				}
+				return nil
+			},
+			func() bool { return tasks[ran[len(ran)-1]].started })
+		if got != c.want || (err == nil) != (c.want != "") {
+			t.Errorf("%s: started by %q, %v", c.name, got, err)
+			continue
+		}
+		if strings.Join(ran, " ") != c.ran {
+			t.Errorf("%s: ran %v, want %s", c.name, ran, c.ran)
+		}
+		if err != nil && (errors.Is(err, ErrGone) != c.gone || !strings.Contains(err.Error(), c.err)) {
+			t.Errorf("%s: error %v (gone %v)", c.name, err, errors.Is(err, ErrGone))
+		}
 	}
 }
