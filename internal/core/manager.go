@@ -110,8 +110,22 @@ type Process interface {
 	Stop()
 }
 
-// child is the core as a child of the app.
+// child is the core as a child of the app. macOS starts it another way
+// (startCore in proc_darwin.go).
 type child struct{ cmd *exec.Cmd }
+
+// startChild runs bin as a child of the app, its output going to out.
+func startChild(bin string, args []string, dir string, env []string, out io.Writer) (Process, error) {
+	c := nowindow.Command(bin, args...)
+	c.Dir = dir
+	c.Env = env
+	setProcAttr(c)
+	c.Stdout, c.Stderr = out, out
+	if err := c.Start(); err != nil {
+		return nil, err
+	}
+	return child{c}, nil
+}
 
 func (c child) Pid() int    { return c.cmd.Process.Pid }
 func (c child) Wait() error { return c.cmd.Wait() }
@@ -314,17 +328,13 @@ func (m *Manager) run() error {
 		}
 	}
 	if cmd == nil {
-		c := nowindow.Command(m.Bin, "-d", m.Dir, "-f", m.ConfigPath())
-		c.Dir = m.Dir
-		c.Env = m.env()
-		setProcAttr(c)
-		c.Stdout, c.Stderr = pw, pw
-		if err := c.Start(); err != nil {
+		p, err := startCore(m.Bin, []string{"-d", m.Dir, "-f", m.ConfigPath()}, m.Dir, m.env(), pw)
+		if err != nil {
 			pw.Close()
 			m.setStatus(Status{State: Failed, Error: err.Error()})
 			return err
 		}
-		cmd = child{c}
+		cmd = p
 	}
 	_ = os.WriteFile(filepath.Join(m.Dir, "mihomo.pid"), []byte(strconv.Itoa(cmd.Pid())), 0o600)
 	go m.readLogs(pr)
@@ -455,7 +465,7 @@ func (m *Manager) Stop() {
 	if c, ok := cmd.(child); ok {
 		c.kill()
 	} else {
-		cmd.Stop()
+		cmd.Stop() // a second time insists
 	}
 	select {
 	case <-exited:

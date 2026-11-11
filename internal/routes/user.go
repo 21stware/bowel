@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/netip"
 	"net/url"
+	"path"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -17,8 +19,8 @@ import (
 // UserRule is a rule people add: what it matches and the route it sends
 // there. User rules come before the template's, so they win.
 type UserRule struct {
-	Kind  string `json:"kind"`  // suffix, domain, keyword, ip
-	Value string `json:"value"` // a domain in ASCII, a keyword, or an IP prefix
+	Kind  string `json:"kind"`  // suffix, domain, keyword, ip, app
+	Value string `json:"value"` // a domain in ASCII, a keyword, an IP prefix, or an application
 	Route string `json:"route"` // a route group's id
 	// Service is the id of the service it is in; "" is the group's 我添加的.
 	Service string `json:"service,omitempty"`
@@ -30,6 +32,7 @@ const (
 	KindDomain  = "domain"  // that name only
 	KindKeyword = "keyword" // any name containing it
 	KindIP      = "ip"      // an address or a range
+	KindApp     = "app"     // an application on this computer, whatever it connects to
 	KindGeo     = "geo"     // Moho's own: a GeoSite list
 	KindGeoIP   = "geoip"   // Moho's own: a GeoIP list
 )
@@ -37,9 +40,24 @@ const (
 // Kinds are the kinds of UserRule, in the order the interface offers them.
 var Kinds = []string{KindSuffix, KindDomain, KindKeyword, KindIP}
 
+// AllKinds are Kinds and KindApp: every kind a rule of the user's can have.
+// An application is never guessed, and only offered where AppRules is true.
+func AllKinds() []string { return append(slices.Clone(Kinds), KindApp) }
+
+// AppRules says whether a rule for an application can work here: whether
+// the core can tell which program opened a connection. It can on the
+// desktops; on macOS because the core is started detached from the app
+// (core.startCore), or the kernel would hide the socket list from it. On
+// Android and iOS no app may read another's sockets. A rule saved
+// elsewhere stays valid here; it only never matches.
+var AppRules = runtime.GOOS == "windows" || runtime.GOOS == "linux" || runtime.GOOS == "darwin"
+
 // Same reports whether two rules match the same traffic, whatever their
-// routes.
-func (r UserRule) Same(o UserRule) bool { return r.Kind == o.Kind && r.Value == o.Value }
+// routes. Every value but an application's is in lower case already, and
+// the core compares an application's name without regard to case.
+func (r UserRule) Same(o UserRule) bool {
+	return r.Kind == o.Kind && strings.EqualFold(r.Value, o.Value)
+}
 
 // Mihomo is the rule as mihomo writes it, without its target.
 func (r UserRule) Mihomo() string {
@@ -50,8 +68,26 @@ func (r UserRule) Mihomo() string {
 		return "DOMAIN-KEYWORD," + r.Value
 	case KindIP:
 		return "IP-CIDR," + r.Value + ",no-resolve"
+	case KindApp:
+		if isBundle(r.Value) {
+			// Every program inside the bundle: a browser's connections
+			// are its helpers'.
+			return "PROCESS-PATH-WILDCARD,*/" + r.Value + "/*"
+		}
+		return "PROCESS-NAME," + r.Value
 	}
 	return "DOMAIN-SUFFIX," + r.Value
+}
+
+// bundles says whether applications are bundles here, as on macOS, where
+// what people call an app is a directory of programs. Elsewhere a name
+// ending in ".app" is a program's like any other.
+var bundles = runtime.GOOS == "darwin"
+
+// isBundle reports whether an application is named as a macOS bundle
+// ("Google Chrome.app") and not as a program ("chrome.exe").
+func isBundle(app string) bool {
+	return bundles && len(app) > 4 && strings.EqualFold(app[len(app)-4:], ".app")
 }
 
 // Describe is the rule in words: what it matches.
@@ -63,6 +99,8 @@ func (r UserRule) Describe() string {
 		return fmt.Sprintf(i18n.T("名字含 “%s” 的域名", "Domains containing “%s”"), r.Value)
 	case KindIP:
 		return fmt.Sprintf(i18n.T("IP %s", "IP %s"), r.Value)
+	case KindApp:
+		return fmt.Sprintf(i18n.T("应用 %s", "App %s"), r.Value)
 	}
 	return fmt.Sprintf(i18n.T("%s 及其子域名", "%s and its subdomains"), r.Value)
 }
@@ -76,6 +114,8 @@ func KindName(kind string) string {
 		return i18n.T("关键词", "Keyword")
 	case KindIP:
 		return i18n.T("IP 段", "IP range")
+	case KindApp:
+		return i18n.T("应用", "App")
 	case KindGeo:
 		return i18n.T("内置域名库", "Built-in domain list")
 	case KindGeoIP:
@@ -88,6 +128,10 @@ func KindName(kind string) string {
 // payload (as /connections reports them: "DomainSuffix", "openai.com")
 // matched this rule.
 func (r UserRule) Matched(ruleType, payload string) bool {
+	if r.Kind == KindApp {
+		kind, pattern, _ := strings.Cut(r.Mihomo(), ",")
+		return strings.EqualFold(strings.ReplaceAll(kind, "-", ""), ruleType) && strings.EqualFold(payload, pattern)
+	}
 	want := map[string]string{KindSuffix: "domainsuffix", KindDomain: "domain", KindKeyword: "domainkeyword", KindIP: "ipcidr"}[r.Kind]
 	t := strings.ToLower(strings.ReplaceAll(ruleType, "-", ""))
 	if r.Kind == KindIP && t == "ipcidr6" {
@@ -97,7 +141,8 @@ func (r UserRule) Matched(ruleType, payload string) bool {
 }
 
 // Matches reports whether the rule would take a connection to host (a
-// domain, or "") at ip (or "").
+// domain, or "") at ip (or ""). A rule for an application never does: it
+// goes by who connects (MatchesApp), not by where to.
 func (r UserRule) Matches(host, ip string) bool {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
 	switch r.Kind {
@@ -115,14 +160,67 @@ func (r UserRule) Matches(host, ip string) bool {
 	return false
 }
 
+// MatchesApp reports whether a rule for an application takes the
+// connections of the program named process, whose executable is at
+// processPath; either may be "".
+func (r UserRule) MatchesApp(process, processPath string) bool {
+	if r.Kind != KindApp {
+		return false
+	}
+	p := strings.ReplaceAll(processPath, `\`, "/")
+	if isBundle(r.Value) {
+		return strings.Contains(strings.ToLower(p), "/"+strings.ToLower(r.Value)+"/")
+	}
+	if process == "" && p != "" {
+		process = path.Base(p)
+	}
+	return process != "" && strings.EqualFold(process, r.Value)
+}
+
+// AppOf is the application a program belongs to, as a rule names it: the
+// outermost bundle of a path on macOS ("Google Chrome.app" for the helper
+// deep inside it), else the program's file name. "" when there is none.
+func AppOf(processPath string) string {
+	p := strings.TrimRight(strings.ReplaceAll(strings.TrimSpace(processPath), `\`, "/"), "/")
+	if i := strings.Index(strings.ToLower(p), ".app/"); i > 0 && bundles {
+		p = p[:i+4]
+	}
+	if p == "" {
+		return ""
+	}
+	return path.Base(p)
+}
+
+// parseApp reads an application's name, or the path of its program.
+func parseApp(s string) (string, error) {
+	app := AppOf(s)
+	bad := strings.ContainsFunc(app, func(c rune) bool { return c == ',' || c < ' ' || c == 0x7f })
+	if app == "" || app == "." || app == ".." || bad || len(app) > 255 {
+		return "", fmt.Errorf(i18n.T("不是应用的进程名: %s", "Not a program's name: %s"), s)
+	}
+	return app, nil
+}
+
 // ParseRule reads what a person typed into a rule of kind for route.
 // kind "" guesses: an address or a range is an IP rule, anything else a
 // domain and its subdomains. It takes a pasted link, "*.example.com" and
-// ".example.com" too.
+// ".example.com" too. An application is never guessed, since "Code.exe"
+// reads as a domain: its kind has to be given, with the program's name
+// or path.
 func ParseRule(kind, text, route string) (UserRule, error) {
 	s := strings.TrimSpace(text)
 	if s == "" {
+		if kind == KindApp {
+			return UserRule{}, errors.New(i18n.T("先写应用的进程名", "Type the program's name first"))
+		}
 		return UserRule{}, errors.New(i18n.T("先写一个域名或 IP", "Type a domain or an IP first"))
+	}
+	if kind == KindApp {
+		app, err := parseApp(s)
+		if err != nil {
+			return UserRule{}, err
+		}
+		return UserRule{Kind: KindApp, Value: app, Route: route}, nil
 	}
 	if kind == "" || kind == KindIP {
 		if p, ok := parseIP(s); ok {

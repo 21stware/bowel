@@ -312,9 +312,16 @@ func RuleSetProvider(id string) string { return "rs-" + id }
 // specific rule goes first. A whole name, then longer suffixes, longer
 // keywords, the built-in domain lists, longer address prefixes, the
 // built-in address lists.
+//
+// A rule for an application goes before them all: it says where that
+// program's traffic goes, all of it, and after the domain rules it would
+// keep only what no service knows.
 func rank(text string) (class, length int) {
 	kind, rest, _ := strings.Cut(text, ",")
 	value, _, _ := strings.Cut(rest, ",")
+	if strings.HasPrefix(kind, "PROCESS-") {
+		return -1, 0
+	}
 	switch kind {
 	case "DOMAIN":
 		return 0, 0

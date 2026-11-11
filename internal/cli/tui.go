@@ -763,14 +763,18 @@ func (t *tui) handlePage(r rune) {
 	case tabRules:
 		switch {
 		case r == 'a':
-			t.input = &prompt{label: i18n.T("添加规则（地址 路由）", "Add a rule (target route)"), submit: func(s string) {
+			t.input = &prompt{label: i18n.T("添加规则（地址 路由 [类型]）", "Add a rule (target route [kind])"), submit: func(s string) {
 				f := strings.Fields(s)
-				if len(f) != 2 {
-					t.say(i18n.T("要写成：地址 路由，例如 openai.com ai", "Write it as: target route, as openai.com ai"), true)
+				if len(f) != 2 && len(f) != 3 {
+					t.say(i18n.T("要写成：地址 路由，例如 openai.com ai；按应用加第三项 app，例如 Telegram.exe ai app", "Write it as: target route, as openai.com ai; for an app add a third word, as Telegram.exe ai app"), true)
 					return
 				}
+				args := map[string]any{"target": f[0], "route": f[1]}
+				if len(f) == 3 {
+					args["kind"] = f[2]
+				}
 				t.call(i18n.T("正在添加规则…", "Adding the rule…"), fmt.Sprintf(i18n.T("%s 现在走 %s", "%s now goes to %s"), f[0], f[1]),
-					"add_rule", map[string]any{"target": f[0], "route": f[1]})
+					"add_rule", args)
 			}}
 		case r == 'd' && t.sel[tabRules] < len(t.rules):
 			ru := t.rules[t.sel[tabRules]]

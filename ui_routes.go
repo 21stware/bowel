@@ -10,6 +10,7 @@ package main
 
 import (
 	"fmt"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -53,12 +54,19 @@ type ruleConflict struct {
 	from routes.Service
 }
 
-// routeKinds are the choices for a new rule's kind; "" guesses.
-var routeKinds = []string{"", routes.KindSuffix, routes.KindDomain, routes.KindKeyword, routes.KindIP}
+// routeKinds are the choices for a new rule's kind; "" guesses. An
+// application is among them where a rule for one can work.
+func routeKinds() []string {
+	out := []string{"", routes.KindSuffix, routes.KindDomain, routes.KindKeyword, routes.KindIP}
+	if routes.AppRules {
+		out = append(out, routes.KindApp)
+	}
+	return out
+}
 
 func routeKindLabels() []string {
 	out := []string{i18n.T("自动识别", "Detect")}
-	for _, k := range routeKinds[1:] {
+	for _, k := range routeKinds()[1:] {
 		out = append(out, routes.KindName(k))
 	}
 	return out
@@ -1113,8 +1121,12 @@ func (u *UI) ruleInput(c *ui.Context, p *pal, all []routes.Route, s routes.Servi
 		st.rule, st.focusRule = "", true
 	}
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(4, 0, 0, 0).Children(func() {
+		hint := i18n.T("*.netflix.com、openai.com 或 10.0.0.0/8", "*.netflix.com, openai.com or 10.0.0.0/8")
+		if st.kind == routes.KindApp {
+			hint = appExample()
+		}
 		in := ui.TextInput(c.Key("rule"), &st.rule).Bind(&st.ruleH).Label(i18n.T("新规则", "New rule")).
-			Placeholder(i18n.T("*.netflix.com、openai.com 或 10.0.0.0/8", "*.netflix.com, openai.com or 10.0.0.0/8")).
+			Placeholder(hint).
 			Padding(5, 9).Radius(p.r(7)).Background(p.paper).Border(1, p.hair).FontSize(12.5).Font(actMono).Grow(1).Basis(0).MinWidth(0)
 		if in.Changed() {
 			st.ruleErr, st.conflict = "", nil
@@ -1123,9 +1135,11 @@ func (u *UI) ruleInput(c *ui.Context, p *pal, all []routes.Route, s routes.Servi
 			add()
 		}
 		kl := routeKindLabels()
-		cur := kl[max(0, slices.Index(routeKinds, st.kind))]
+		kinds := routeKinds()
+		cur := kl[max(0, slices.Index(kinds, st.kind))]
 		if ui.Select(c.Key("kind"), &cur, kl).Label(i18n.T("匹配方式", "Match")).Width(128).Changed() {
-			st.kind = routeKinds[max(0, slices.Index(kl, cur))]
+			st.kind = kinds[max(0, slices.Index(kl, cur))]
+			st.ruleErr, st.conflict = "", nil
 		}
 		b := btn(c.Key("add"), p, i18n.T("添加", "Add"))
 		if typed && err == nil {
@@ -1137,6 +1151,10 @@ func (u *UI) ruleInput(c *ui.Context, p *pal, all []routes.Route, s routes.Servi
 	switch {
 	case st.ruleErr != "":
 		ui.Text(c, st.ruleErr).FontSize(11.5).TextColor(p.signal)
+	case st.kind == routes.KindApp && u.shownSettings().FindProcess == "off":
+		ui.Text(c, i18n.T("「进程匹配」已在设置里关闭，按应用的规则不会生效。", "Process matching is off in Settings, so a rule for an app won't match.")).FontSize(11.5).TextColor(p.signal)
+	case !typed && st.kind == routes.KindApp:
+		ui.Text(c, i18n.T("写应用或进程的名字，或粘贴日志里「进程」一栏的路径。它的所有连接都走这个路由组，排在其他规则之前；只管这台电脑上的应用。", "Type the app's or the program's name, or paste the path from the Log's Process row. Everything it connects to goes by this group, ahead of every other rule; only apps on this computer.")).FontSize(11.5).TextColor(p.faint)
 	case !typed:
 		ui.Text(c, i18n.T("粘贴链接也可以，会自动提取域名。", "A pasted link works too: the domain is taken from it.")).FontSize(11.5).TextColor(p.faint)
 	case err != nil:
@@ -1156,6 +1174,17 @@ func (u *UI) ruleInput(c *ui.Context, p *pal, all []routes.Route, s routes.Servi
 			btn(c.Key("cf-x"), p, i18n.T("取消", "Cancel")).OnClick(func() { st.conflict = nil })
 		})
 	}
+}
+
+// appExample is a program's name as this system writes one.
+func appExample() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "Telegram.exe"
+	case "darwin":
+		return "Telegram.app"
+	}
+	return "telegram-desktop"
 }
 
 func (u *UI) groupDelete(c *ui.Context, p *pal, all []routes.Route, r routes.Route) {

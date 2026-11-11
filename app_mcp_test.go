@@ -13,6 +13,7 @@ import (
 	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/mcp"
+	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
 	"github.com/oboo/moho/internal/sysproxy"
 )
@@ -246,6 +247,30 @@ func TestMCPChanges(t *testing.T) {
 	must("remove_rule", map[string]any{"target": "api.example.com"})
 	if r := a.settings.Get().Rules; len(r) != 0 {
 		t.Errorf("removed: %+v", r)
+	}
+
+	// A rule for an application: only with its kind, only where the core
+	// can tell applications apart, and removed whatever the case.
+	appRules := routes.AppRules
+	defer func() { routes.AppRules = appRules }()
+	routes.AppRules = false
+	if _, err := callTool(t, srv, s, "add_rule", map[string]any{"target": "Telegram.exe", "route": "ai", "kind": "app"}); err == nil {
+		t.Error("a rule for an app should fail where the core can't name apps")
+	}
+	routes.AppRules = true
+	out := must("add_rule", map[string]any{"target": "Telegram.exe", "route": "ai", "kind": "app"})
+	if r := a.settings.Get().Rules; len(r) != 1 || r[0] != (routes.UserRule{Kind: routes.KindApp, Value: "Telegram.exe", Route: "ai"}) {
+		t.Fatalf("app rule: %+v", r)
+	}
+	if rule, _ := out["rule"].(map[string]any); rule["mihomo"] != "PROCESS-NAME,Telegram.exe" {
+		t.Errorf("add_rule answered %v", out)
+	}
+	if cfg, err := os.ReadFile(a.core.ConfigPath()); err != nil || !strings.Contains(string(cfg), "PROCESS-NAME,Telegram.exe,") {
+		t.Errorf("the core's config lacks the rule (%v)", err)
+	}
+	must("remove_rule", map[string]any{"target": "telegram.exe"})
+	if r := a.settings.Get().Rules; len(r) != 0 {
+		t.Errorf("app rule removed: %+v", r)
 	}
 
 	// Whitelists.

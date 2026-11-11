@@ -30,6 +30,7 @@ How far each implementation has been tried is its own column, because "it compil
 | Gateway mode | sudoers rule for two `sysctl` commands, `caffeinate` | sudoers rule for two `sysctl` commands, `systemd-inhibit` | **later** |
 | Gateway: network facts (Wi-Fi, DHCP, firewall) | `networksetup`, `ipconfig`, socketfilterfw | sysfs, `ip addr`, ufw / firewalld | adapters (Wi-Fi, DHCP); no firewall check |
 | Which app owns a connection | bowel reads the kernel's socket list | **not needed** | **not needed** |
+| Rules by application (`routes.KindApp`) | yes: the core is started detached from the app (`core.startCore`), or macOS 27 would hide the socket list from it; an app is its bundle | yes: the core names processes itself | yes: the core names processes itself |
 | Developer tools: terminal | zsh (`.zshenv`) | zsh or bash (`.bashrc`), by `$SHELL` | **later** |
 | Developer tools: Git HTTPS, Git SSH | yes | yes; SSH with OpenBSD `nc` or `ncat` | **later** |
 | Developer tools: Docker daemon | Colima | Colima only; the system's dockerd **later** | **later** |
@@ -42,7 +43,7 @@ How far each implementation has been tried is its own column, because "it compil
 
 ## Not needed, and why
 
-- **Which app owns a connection** (`internal/procinfo`). mihomo names the process behind a connection itself, on every system. `procinfo` exists only because macOS 27 hides the kernel's socket list from a process whose parent is an ad-hoc signed app, which the core is; bowel, opened like any app, reads the list for it. Linux (`sock_diag` and `/proc`) and Windows (`GetExtendedTcpTable`) put no such limit on the core, so the monitor's fallback is never asked.
+- **Which app owns a connection** (`internal/procinfo`). mihomo names the process behind a connection itself, on every system. `procinfo` exists because macOS 27 hides the kernel's socket list from a process whose parent is an app, which the core was; bowel, opened like any app, read the list for it. The core is now started detached and reads the list itself, so there `procinfo` is left with the connections the core does not look up (a route group's own port). Linux (`sock_diag` and `/proc`) and Windows (`GetExtendedTcpTable`) put no such limit on the core, so the monitor's fallback is never asked.
 - **Dock icon** (`syncDock`), **flag drawing** (`flagdraw_darwin.go`), **quit pump** (`quit_pump_darwin.go`). The first is the Dock's, which the other systems do not have. The second works around how macOS's text system colours emoji flags; elsewhere the plain drawing is right. The third keeps AppKit's run loop turning during a quit.
 - **Screen Recording permission**. Only macOS keeps the screen behind a permission of its own. Elsewhere a capture that fails says so.
 
