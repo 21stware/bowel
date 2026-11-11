@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/oboo/moho/internal/mcp"
 	"github.com/oboo/moho/internal/mihomo"
 	"github.com/oboo/moho/internal/provider"
 	"github.com/oboo/moho/internal/routes"
@@ -240,6 +241,36 @@ func TestImportedRoutingEndToEnd(t *testing.T) {
 	}
 	if a.settings.Get().ImportedRouting != "" || hasRoute(a, "Japan") {
 		t.Errorf("deleted: %q", a.settings.Get().ImportedRouting)
+	}
+}
+
+// TestImportedUnusedSettings: what of the config's own settings acts on
+// traffic and is not used comes with the routing in use, to the window and
+// to agents, and follows the config's updates.
+func TestImportedUnusedSettings(t *testing.T) {
+	a, id, serve := importedApp(t)
+	if err := a.setImportedRouting(id); err != nil {
+		t.Fatal(err)
+	}
+	a.refresh()
+	if got := a.snapshot().Imported.Unused; len(got) != 0 {
+		t.Errorf("issue33 has nothing unused: %v", got)
+	}
+	serve(issue33Sub + "dns: {enable: true, nameserver-policy: {+.ts.net: 100.100.100.100}}\nlisteners:\n  - {name: hk, type: mixed, port: 7901, proxy: Streaming}\nlog-level: debug\n")
+	if err := a.updateProvider(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	a.refresh()
+	if got := a.snapshot().Imported.Unused; !slices.Equal(got, []string{"dns", "listeners"}) {
+		t.Errorf("unused = %v", got)
+	}
+	out, err := callTool(t, a.mcpServer(), &mcp.Session{}, "list_routes", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	im, _ := out["imported"].(map[string]any)
+	if got, _ := im["unusedSettings"].([]any); len(got) != 2 || got[0] != "dns" || got[1] != "listeners" {
+		t.Errorf("list_routes: %v", im["unusedSettings"])
 	}
 }
 

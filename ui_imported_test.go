@@ -32,6 +32,18 @@ func TestImportedPageShowsTheGroups(t *testing.T) {
 	if tt.HasText("＋ 新建路由组") {
 		t.Error("new route groups are offered while the config's routing is in use")
 	}
+	if tt.HasText("不会生效") {
+		t.Errorf("a config that has nothing unused says something is: %q", tt.Texts())
+	}
+	// What of the config's own settings is not used is named.
+	u.snap.Imported.Unused = []string{"dns", "tun", "listeners"}
+	tt = ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})
+	tt.Advance(time.Second)
+	shot(t, tt, "imported-routes-unused")
+	if !tt.HasText("这份配置里的 dns、tun、listeners 不会生效：DNS、TUN 和本机端口用的是 bowel 自己的设置。") || !tt.HasText("新建路由组、改规则和测试一个地址现在不可用") {
+		t.Errorf("unused settings: %q", tt.Texts())
+	}
+	u.snap.Imported.Unused = nil
 	// A group only rules' targets lead to is read-only in its own words.
 	u.routes.group = "Japan"
 	tt = ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})

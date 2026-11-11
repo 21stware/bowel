@@ -32,6 +32,51 @@ type Imported struct {
 	SubRules       map[string][]string       `yaml:"sub-rules"`
 	RuleProviders  map[string]map[string]any `yaml:"rule-providers"`
 	ProxyProviders map[string]map[string]any `yaml:"proxy-providers"`
+	// Unused are the parts of the config, of unusedKeys, that it has and
+	// that are not used: someone who wrote them expects them to work.
+	Unused []string `yaml:"-"`
+}
+
+// unusedKeys are the settings of a config that act on traffic, and that
+// bowel has its own of instead: how names resolve, what listens, how
+// traffic is taken in. In the order they are named in. The rest of what a
+// config has beside its routing (its log level, a dashboard, a secret)
+// changes nothing anyone would miss.
+var unusedKeys = []string{"dns", "hosts", "sniffer", "tun", "listeners", "tunnels", "mixed-port", "port", "socks-port", "redir-port", "tproxy-port"}
+
+// unused are the unusedKeys data has at its top level, switched on.
+func unused(data []byte) []string {
+	var top map[string]yaml.Node
+	if yaml.Unmarshal(data, &top) != nil {
+		return nil
+	}
+	var out []string
+	for _, k := range unusedKeys {
+		if v, ok := top[k]; ok && !switchedOff(k, &v) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// switchedOff says whether a setting is there only to be off: empty, port
+// 0, or dns, tun and sniffer without `enable: true`, as the core reads them.
+func switchedOff(key string, n *yaml.Node) bool {
+	switch n.Kind {
+	case yaml.MappingNode:
+		if key == "dns" || key == "tun" || key == "sniffer" {
+			var m struct {
+				Enable bool `yaml:"enable"`
+			}
+			return n.Decode(&m) != nil || !m.Enable
+		}
+		return len(n.Content) == 0
+	case yaml.SequenceNode:
+		return len(n.Content) == 0
+	case yaml.ScalarNode:
+		return n.Tag == "!!null" || n.Value == "0" || n.Value == "false"
+	}
+	return false
 }
 
 // builtinTargets exist in every core without being defined.
@@ -52,6 +97,7 @@ func ParseImported(data []byte, local func(name string) []string) (*Imported, er
 	if err := im.check(local); err != nil {
 		return nil, err
 	}
+	im.Unused = unused(data)
 	return &im, nil
 }
 
