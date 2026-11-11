@@ -367,9 +367,11 @@ func (a *App) uiRef() *UI {
 }
 
 // pollEvery is how often the monitor reads the core's connections: every
-// second while the window or the menu bar panel shows them, every 5 s
-// otherwise. The totals stay exact, as they are the core's own counters;
-// what goes is the rates' detail and connections too short to be seen.
+// second while the window or the menu bar panel shows them, every 2 s
+// while only the menu bar icon shows the rates (Settings.TraySpeed), every
+// 5 s otherwise. The totals stay exact, as they are the core's own
+// counters; what goes is the rates' detail and connections too short to
+// be seen.
 func (a *App) pollEvery() time.Duration {
 	if a.winShown.Load() {
 		return time.Second
@@ -379,6 +381,9 @@ func (a *App) pollEvery() time.Duration {
 	}
 	if time.Now().Unix()-a.watchedAt.Load() < 5 {
 		return time.Second
+	}
+	if st := a.settings.Get(); st.TraySpeed && a.takeoverOn(st) {
+		return traySpeedEvery
 	}
 	return 5 * time.Second
 }
@@ -1003,11 +1008,12 @@ func migrateData(dir string) {
 }
 
 // appOnly says whether next differs from old only in what the core does
-// not see: the language, starting hidden, the theme color, the appearance,
-// the skin and the board's borders.
+// not see: the language, starting hidden, the menu bar's speed, the theme
+// color, the appearance, the skin and the board's borders.
 func appOnly(old, next settings.Settings) bool {
 	next.Language, next.StartHidden, next.Accent, next.Appearance = old.Language, old.StartHidden, old.Accent, old.Appearance
 	next.Skin, next.Borders, next.CommonRegions = old.Skin, old.Borders, old.CommonRegions
+	next.TraySpeed = old.TraySpeed
 	next.MCPPolicy = old.MCPPolicy                  // the MCP server's, not the core's
 	if routingCoreSame(old.Routing, next.Routing) { // a strategy is a selector's position
 		next.Routing = old.Routing
@@ -1053,6 +1059,10 @@ func (a *App) updateSettings(fn func(*settings.Settings)) error {
 	i18n.Set(next.Language)
 	if appearanceOf(next) != appearanceOf(old) && !a.headless {
 		mygo.Theme.SetSource(mygo.ThemeSource(appearanceOf(next)))
+	}
+	if next.TraySpeed != old.TraySpeed {
+		a.mon.Wake() // the rates beside the icon: now, and at their own pace
+		a.trayTick()
 	}
 	if appOnly(old, next) { // the core does not care
 		var err error
