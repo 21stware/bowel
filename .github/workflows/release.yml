@@ -177,7 +177,7 @@ jobs:
 
       - name: Install NSIS, for the Windows installer
         if: matrix.goos == 'windows'
-        run: sudo apt-get update && sudo apt-get install -y nsis
+        run: ./scripts/apt-install.sh nsis
 
       - name: Fetch the mihomo core and geo data
         env:
@@ -354,7 +354,7 @@ jobs:
           path: release
 
       - name: Install rpmsign
-        run: sudo apt-get update && sudo apt-get install -y rpm
+        run: ./scripts/apt-install.sh rpm
 
       - name: Sign the rpms and write SHA256SUMS
         env:
@@ -381,7 +381,7 @@ jobs:
         run: ./scripts/install-deploy-key.sh
 
       - name: Install the repository tools
-        run: sudo apt-get update && sudo apt-get install -y apt-utils createrepo-c
+        run: ./scripts/apt-install.sh apt-utils createrepo-c
 
       - name: Download the packages
         env:
