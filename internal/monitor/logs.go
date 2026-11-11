@@ -102,6 +102,13 @@ func (m *Monitor) ownerOf(f dialFailure) string {
 
 // addLog keeps one line of the core's log and turns failed dials into
 // failed connections and events, and refusals into blocked connections.
+// Note adds a line of bowel's own among the core's, as info.
+func (m *Monitor) Note(text string) {
+	if m != nil {
+		m.addLog(mihomo.Log{Type: "info", Payload: text}, time.Now())
+	}
+}
+
 func (m *Monitor) addLog(l mihomo.Log, now time.Time) {
 	var blocked dialFailure
 	var isBlocked bool

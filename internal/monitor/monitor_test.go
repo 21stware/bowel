@@ -694,3 +694,14 @@ func TestPollEvery(t *testing.T) {
 	m.Wake()
 	wait("after Wake")
 }
+
+func TestNote(t *testing.T) {
+	m := New("")
+	m.Note("bowel: config applied in 14ms")
+	l := m.Logs(0)
+	if len(l) != 1 || l[0].Level != "info" || l[0].Text != "bowel: config applied in 14ms" {
+		t.Fatalf("logs = %+v", l)
+	}
+	var none *Monitor
+	none.Note("x") // an app without a monitor yet
+}
