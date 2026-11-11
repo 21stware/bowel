@@ -1680,6 +1680,9 @@ func (a *App) addRule(r routes.UserRule) (int, error) {
 	if a.route(r.Route).ID == "" {
 		return 0, errors.New(i18n.T("没有这条路由", "No such route"))
 	}
+	if err := appRuleWorks(r); err != nil {
+		return 0, err
+	}
 	if err := a.updateSettings(func(s *settings.Settings) {
 		s.Routing.Claim(s.Rules, r)
 		s.Rules = routes.Upsert(s.Rules, r)
@@ -1687,6 +1690,16 @@ func (a *App) addRule(r routes.UserRule) (int, error) {
 		return 0, err
 	}
 	return a.reroute(r, r.Route), nil
+}
+
+// appRuleWorks refuses a new rule for an application where the core cannot
+// tell applications apart (routes.AppRules): it would be kept and never
+// match. One that came with imported settings stays, and can be removed.
+func appRuleWorks(r routes.UserRule) error {
+	if r.Kind == routes.KindApp && !routes.AppRules {
+		return errors.New(i18n.T("这个系统上内核认不出连接来自哪个应用，按应用的规则不会生效", "On this system the core can't tell which app opened a connection, so a rule for an app would never match"))
+	}
+	return nil
 }
 
 // removeRule takes out the rule for r's traffic, and closes the
@@ -1701,6 +1714,9 @@ func (a *App) removeRule(r routes.UserRule) (int, error) {
 // reroute closes the open connections r matches that are not on route
 // keep. A failure only leaves them open: the rule holds for new ones.
 func (a *App) reroute(r routes.UserRule, keep string) int {
+	if r.Kind == routes.KindApp {
+		return a.rerouteWhere(func(_, _, process, path string) bool { return r.MatchesApp(process, path) }, keep)
+	}
 	return a.rerouteBy(r.Matches, keep)
 }
 
@@ -1761,6 +1777,12 @@ func (a *App) closeRoute(id string) int {
 
 // rerouteBy is reroute for whatever match catches.
 func (a *App) rerouteBy(match func(host, ip string) bool, keep string) int {
+	return a.rerouteWhere(func(host, ip, _, _ string) bool { return match(host, ip) }, keep)
+}
+
+// rerouteWhere is rerouteBy with the program that connected, as the core
+// names it, and its path.
+func (a *App) rerouteWhere(match func(host, ip, process, path string) bool, keep string) int {
 	c, err := a.core.Client()
 	if err != nil {
 		return 0
@@ -1777,7 +1799,7 @@ func (a *App) rerouteBy(match func(host, ip string) bool, keep string) int {
 		if host == "" {
 			host = cn.Metadata.SniffHost
 		}
-		if !match(host, cn.Metadata.DestinationIP) {
+		if !match(host, cn.Metadata.DestinationIP, cn.Metadata.Process, cn.Metadata.ProcessPath) {
 			continue
 		}
 		group := ""

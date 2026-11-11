@@ -130,3 +130,107 @@ func TestExplain(t *testing.T) {
 		t.Errorf("geosite is the core's to say: %s %v", id, sure)
 	}
 }
+
+// asOn makes applications bundles, as on macOS, or not, for the test.
+func asOn(t *testing.T, macOS bool) {
+	old := bundles
+	bundles = macOS
+	t.Cleanup(func() { bundles = old })
+}
+
+// TestAppRule: a rule for an application takes a program's name or its
+// path, is never guessed, and is written for the core by name, or for a
+// macOS bundle by everything inside it.
+func TestAppRule(t *testing.T) {
+	asOn(t, true)
+	for _, tc := range []struct{ text, value, mihomo string }{
+		{" Telegram.exe ", "Telegram.exe", "PROCESS-NAME,Telegram.exe"},
+		{`C:\Program Files\Telegram Desktop\Telegram.exe`, "Telegram.exe", "PROCESS-NAME,Telegram.exe"},
+		{"/usr/lib/firefox/firefox", "firefox", "PROCESS-NAME,firefox"},
+		{"com.example", "com.example", "PROCESS-NAME,com.example"},
+		{"/Applications/Google Chrome.app/Contents/Frameworks/X.app/Contents/MacOS/Google Chrome Helper", "Google Chrome.app", "PROCESS-PATH-WILDCARD,*/Google Chrome.app/*"},
+		{"/Applications/Claude.app/", "Claude.app", "PROCESS-PATH-WILDCARD,*/Claude.app/*"},
+	} {
+		r, err := ParseRule(KindApp, tc.text, "ai")
+		if err != nil {
+			t.Errorf("ParseRule(app, %q): %v", tc.text, err)
+			continue
+		}
+		if r.Kind != KindApp || r.Value != tc.value || r.Route != "ai" {
+			t.Errorf("ParseRule(app, %q) = %+v, want value %q", tc.text, r, tc.value)
+		}
+		if got := r.Mihomo(); got != tc.mihomo {
+			t.Errorf("%q: Mihomo() = %q, want %q", tc.text, got, tc.mihomo)
+		}
+		if err := r.Valid(); err != nil {
+			t.Errorf("%+v is not valid: %v", r, err)
+		}
+		if back := ruleOf(r.Mihomo()); back.Kind != KindApp || back.Value != r.Value {
+			t.Errorf("ruleOf(%q) = %+v", r.Mihomo(), back)
+		}
+	}
+	for _, bad := range []string{"", "  ", "a,b.exe", "/", "x\ty", ".."} {
+		if r, err := ParseRule(KindApp, bad, ""); err == nil {
+			t.Errorf("ParseRule(app, %q) = %+v, want an error", bad, r)
+		}
+	}
+	// Without its kind a program's name is a domain, as it always was.
+	if r, err := ParseRule("", "Code.exe", ""); err != nil || r.Kind != KindSuffix {
+		t.Errorf("guessing made %+v, %v of Code.exe", r, err)
+	}
+	if slices.Contains(Kinds, KindApp) || !slices.Contains(AllKinds(), KindApp) {
+		t.Errorf("Kinds %q are what is guessed and what the phone offers; AllKinds %q has the application", Kinds, AllKinds())
+	}
+	// Off macOS there are no bundles: ".app" is part of a name or a path.
+	asOn(t, false)
+	for text, want := range map[string]string{"viewer.app": "PROCESS-NAME,viewer.app", "/opt/viewer.app/bin/viewer": "PROCESS-NAME,viewer"} {
+		if r, err := ParseRule(KindApp, text, ""); err != nil || r.Mihomo() != want {
+			t.Errorf("off macOS %q is %q, %v; want %q", text, r.Mihomo(), err, want)
+		}
+	}
+	asOn(t, true)
+	// Someone else's wildcard is not an application of ours.
+	if r := ruleOf("PROCESS-PATH-WILDCARD,*/bin/*"); r.Kind != "" {
+		t.Errorf("ruleOf read %+v", r)
+	}
+}
+
+// TestAppRuleMatches: by who connects, as the core compares: without
+// regard to case, a bundle by any program inside it.
+func TestAppRuleMatches(t *testing.T) {
+	asOn(t, true)
+	name := UserRule{Kind: KindApp, Value: "Telegram.exe"}
+	bundle := UserRule{Kind: KindApp, Value: "Google Chrome.app"}
+	helper := "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper"
+	for _, tc := range []struct {
+		r             UserRule
+		process, path string
+		want          bool
+	}{
+		{name, "telegram.exe", `C:\Apps\telegram.exe`, true},
+		{name, "", `C:\Apps\Telegram.exe`, true},
+		{name, "Telegram.exe.bak", "", false},
+		{name, "", "", false},
+		{bundle, "Google Chrome Helper", helper, true},
+		{bundle, "Google Chrome Helper", "/Applications/Other.app/Contents/MacOS/Google Chrome Helper", false},
+		{bundle, "Google Chrome.app", "", false},
+		{UserRule{Kind: KindSuffix, Value: "telegram.exe"}, "telegram.exe", "", false},
+	} {
+		if got := tc.r.MatchesApp(tc.process, tc.path); got != tc.want {
+			t.Errorf("%+v.MatchesApp(%q, %q) = %v", tc.r, tc.process, tc.path, got)
+		}
+	}
+	if name.Matches("telegram.exe", "1.2.3.4") {
+		t.Error("a rule for an application matched an address")
+	}
+	// As /connections names the rule a connection matched.
+	if !name.Matched("ProcessName", "Telegram.exe") || !bundle.Matched("ProcessPathWildcard", "*/Google Chrome.app/*") {
+		t.Error("the core's own name for the rule isn't recognised")
+	}
+	if name.Matched("ProcessName", "Other.exe") || name.Matched("DomainSuffix", "Telegram.exe") {
+		t.Error("another rule is taken for this one")
+	}
+	if !name.Same(UserRule{Kind: KindApp, Value: "TELEGRAM.EXE", Route: "x"}) || name.Same(UserRule{Kind: KindSuffix, Value: "Telegram.exe"}) {
+		t.Error("Same: an application's name goes without regard to case, within its kind")
+	}
+}

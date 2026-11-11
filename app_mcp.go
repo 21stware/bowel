@@ -907,11 +907,11 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "add_rule", Title: "Add a rule",
-				Description: "Sends traffic to a route with a rule of the user's, which wins over the built-in ones. It replaces a rule for the same traffic. Open connections it now sends elsewhere are closed, so the change shows at once. kind: suffix (the domain and its subdomains; the default for names), domain (that name only), keyword (names containing it), ip (an address or CIDR; the default for addresses).",
+				Description: "Sends traffic to a route with a rule of the user's, which wins over the built-in ones. It replaces a rule for the same traffic. Open connections it now sends elsewhere are closed, so the change shows at once. kind: suffix (the domain and its subdomains; the default for names), domain (that name only), keyword (names containing it), ip (an address or CIDR; the default for addresses), app (everything a program on this computer connects to, by its process name as list_connections shows it, e.g. Telegram.exe; never guessed, comes before every other rule, and only on Windows and Linux, where the core can tell programs apart; not for devices using this computer as a gateway).",
 				Input: obj(map[string]any{
-					"target": str("A domain, *.domain, URL, keyword or IP/CIDR."),
+					"target": str("A domain, *.domain, URL, keyword or IP/CIDR; with kind app, a program's name or path."),
 					"route":  routeArg,
-					"kind":   str("The kind of rule; guessed when left out.", routes.Kinds...),
+					"kind":   str("The kind of rule; guessed between the domain and IP kinds when left out.", routes.AllKinds()...),
 				}, "target", "route"),
 				Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
 					var p struct{ Target, Route, Kind string }
@@ -927,6 +927,9 @@ func (a *App) mcpServer() *mcp.Server {
 					}
 					r, err := parseTarget(p.Kind, p.Target, rt.ID)
 					if err != nil {
+						return nil, err
+					}
+					if err := appRuleWorks(r); err != nil {
 						return nil, err
 					}
 					diff, err := a.changeSettings(ctx, s, words{"添加规则", "Add a rule"}, func(st *settings.Settings) error {
@@ -947,7 +950,7 @@ func (a *App) mcpServer() *mcp.Server {
 				Description: "Takes out the user's rule for some traffic, as list_rules shows it (kind and value, or the target as add_rule took it).",
 				Input: obj(map[string]any{
 					"target": str("The rule's value, or what was given to add_rule."),
-					"kind":   str("The rule's kind; guessed when left out.", routes.Kinds...),
+					"kind":   str("The rule's kind; guessed when left out.", routes.AllKinds()...),
 				}, "target"),
 				Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
 					var p struct{ Target, Kind string }
@@ -1070,7 +1073,7 @@ func (a *App) mcpServer() *mcp.Server {
 func (a *App) ruleFor(kind, target string) (routes.UserRule, error) {
 	rules := a.settings.Get().Rules
 	for _, r := range rules {
-		if r.Value == strings.TrimSpace(strings.ToLower(target)) && (kind == "" || kind == r.Kind) {
+		if strings.EqualFold(r.Value, strings.TrimSpace(target)) && (kind == "" || kind == r.Kind) {
 			return r, nil
 		}
 	}
