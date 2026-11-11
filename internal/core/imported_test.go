@@ -358,3 +358,68 @@ rules: ['MATCH,G']
 		t.Errorf("no store: %v", err)
 	}
 }
+
+// TestImportedIssue101 is the template of issue #101 as it was pasted, every
+// node line still a comment: anchors and merge keys, include-all groups
+// with look-behind filters, mrs rule sets and a logical rule are all read,
+// and the core takes what is built of them. That it has no node is for
+// whoever adds it to say (provider.Store); nothing here is wrong with it.
+func TestImportedIssue101(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "testdata", "issue101.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	im, err := ParseImported(src, nil)
+	if err != nil || im == nil {
+		t.Fatalf("im = %v, err = %v", im, err)
+	}
+	if len(im.Groups) != 18 || len(im.Rules) != 21 || len(im.RuleProviders) != 19 || len(im.Proxies)+len(im.ProxyProviders) != 0 {
+		t.Fatalf("%d groups, %d rules, %d rule sets, %d nodes, %d subscriptions", len(im.Groups), len(im.Rules), len(im.RuleProviders), len(im.Proxies), len(im.ProxyProviders))
+	}
+	if p := im.RuleProviders["Private"]; p["format"] != "mrs" || p["behavior"] != "domain" || p["type"] != "http" {
+		t.Errorf("the merge key was not followed: %v", p)
+	}
+	if hosts := im.RemoteHosts([]string{"Private", "ChinaIP"}); !slices.Equal(hosts, []string{"github.com"}) {
+		t.Errorf("hosts = %v", hosts)
+	}
+	cfg := buildImported(t, Input{Imported: im, Routes: routes.Template(), MixedPort: 17899, Mode: "rule", LogLevel: "info", TestURL: "http://t", ProbePort: 17900})
+	// With no node to include, a group falls back as the config says, or
+	// as the core would have made it.
+	if g := groupNamed(t, cfg, "香港策略"); !slices.Equal(stringsOf(g["proxies"]), []string{"REJECT"}) || g["include-all"] != nil {
+		t.Errorf("香港策略 = %v", g)
+	}
+	if g := groupNamed(t, cfg, "全球手动"); !slices.Equal(stringsOf(g["proxies"]), []string{"COMPATIBLE"}) {
+		t.Errorf("全球手动 = %v", g)
+	}
+
+	bin, geo := bundledMihomo(t)
+	bin, _ = filepath.Abs(bin)
+	dir := coreDir(t, geo)
+	b, err := BuildConfig(Input{Imported: im, Routes: routes.Template(), MixedPort: 17899, Mode: "rule", LogLevel: "info", TestURL: "http://t", ProbePort: 17900})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(bin, "-t", "-d", dir, "-f", path).CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+func TestCoreSaid(t *testing.T) {
+	out := `time="2026-11-11T08:21:18.129168000-05:00" level=info msg="Start initial configuration in progress"
+time="2026-11-11T08:21:18.129264000-05:00" level=error msg="proxy group[0]: G: 'nope' not found"
+configuration file /tmp/x/config.next.yaml test failed
+`
+	if got := coreSaid(out); got != "proxy group[0]: G: 'nope' not found" {
+		t.Errorf("got %q", got)
+	}
+	if got := coreSaid(`time="x" level=fatal msg="Parse config error: rules[1] [RULE-SET,x,DIRECT] error: rule set [x] not found"`); got != "Parse config error: rules[1] [RULE-SET,x,DIRECT] error: rule set [x] not found" {
+		t.Errorf("got %q", got)
+	}
+	if got := coreSaid("a\nb\nc\nd\n"); got != "b\nc\nd" {
+		t.Errorf("what is no log line: %q", got)
+	}
+}

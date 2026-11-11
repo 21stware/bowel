@@ -249,7 +249,37 @@ func (a *App) importedIssue(s settings.Settings, snap Snapshot) *Issue {
 			return &Issue{Level: "warn", Text: fmt.Sprintf(i18n.T("%s 这次更新没有应用，路由没有变化", "%s: the last update wasn't applied; the routing is unchanged"), p.Name), Detail: p.Error, Action: "providers", Label: i18n.T("查看", "View")}
 		}
 	}
-	return nil
+	a.mu.Lock()
+	waiting := a.impWaiting
+	a.mu.Unlock()
+	return waiting.issue(a.importedNow())
+}
+
+// importedWaiting is what a config in use names for the core to download
+// that the core has nothing of: rule sets without a rule, and node
+// providers without a node. The core fetches them directly, before any
+// node is there to go through, so an address that can't be reached from
+// this network stays empty.
+type importedWaiting struct{ sets, subs []string }
+
+func (w importedWaiting) issue(im *core.Imported) *Issue {
+	if im == nil || len(w.sets)+len(w.subs) == 0 {
+		return nil
+	}
+	hosts := im.RemoteHosts(slices.Concat(w.subs, w.sets))
+	detail := fmt.Sprintf(i18n.T("内核直接从 %s 下载它们，现在还没有下到。", "The core downloads them straight from %s and has not got them yet."), strings.Join(hosts, i18n.T("、", ", ")))
+	if len(w.subs) > 0 {
+		detail += " " + fmt.Sprintf(i18n.T("没有节点的订阅：%s。", "Subscriptions without nodes: %s."), strings.Join(w.subs, i18n.T("、", ", ")))
+	}
+	if len(w.sets) > 0 {
+		detail += " " + fmt.Sprintf(i18n.T("空的规则集：%s。用到它们的规则在下载好之前不会匹配。", "Empty rule sets: %s. The rules that use them match nothing until they arrive."), strings.Join(w.sets, i18n.T("、", ", ")))
+	}
+	detail += " " + i18n.T("如果这些地址在当前网络下打不开，可以改回 bowel 路由，或把配置里的地址换成能直连的镜像。", "If these addresses can't be opened from this network, go back to bowel's routing, or point the config at a mirror that can be reached directly.")
+	text := fmt.Sprintf(i18n.T("这份配置有 %d 个规则集还没下载下来", "%d of this config's rule sets haven't been downloaded"), len(w.sets))
+	if len(w.subs) > 0 {
+		text = fmt.Sprintf(i18n.T("这份配置的订阅「%s」还没下载到节点", "This config's subscription %s has no nodes yet"), w.subs[0])
+	}
+	return &Issue{Level: "warn", Text: text, Detail: detail, Action: "providers", Label: i18n.T("查看", "View")}
 }
 
 // providerRouting says what p's file brings. Asked for each snapshot, it
@@ -270,7 +300,7 @@ func (a *App) providerRouting(p provider.Provider) ProviderRouting {
 					info.routing.NeedsFile = missing.Name
 				}
 			} else if im != nil {
-				info.routing.Groups, info.routing.Rules = len(im.Groups), len(im.Rules)
+				info.routing.Groups, info.routing.Rules, info.routing.Remote = len(im.Groups), len(im.Rules), len(im.ProviderNames())
 			}
 		}
 		a.routesMu.Lock()

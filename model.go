@@ -300,6 +300,10 @@ type ProviderRouting struct {
 	Groups int  `json:"groups,omitempty"`
 	Rules  int  `json:"rules,omitempty"`
 	InUse  bool `json:"inUse,omitempty"` // it is what routes traffic now
+	// Remote is how many subscriptions of its own (proxy-providers) the
+	// config's groups take nodes from: the core downloads those, and only
+	// while the routing is in use.
+	Remote int `json:"remote,omitempty"`
 	// Problem is why it can't be used, "" when it can.
 	Problem string `json:"problem,omitempty"`
 	// NeedsFile is the proxy-provider of its config that is a local file

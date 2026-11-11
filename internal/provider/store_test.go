@@ -209,3 +209,48 @@ func TestReloadLocalFile(t *testing.T) {
 		t.Errorf("links were replaced: %v", err)
 	}
 }
+
+// A config with nothing to give nodes is refused in so many words (issue
+// #101: a template added with its subscriptions still commented out); one
+// whose nodes are its own subscriptions' is a config, but not a node file.
+func TestConfigWithoutNodes(t *testing.T) {
+	template, err := os.ReadFile(filepath.Join("..", "..", "testdata", "issue101.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{string(template), "proxies:\n", "proxies: []\nproxy-groups:\n  - {name: G, type: select, proxies: [DIRECT]}\n", "proxy-groups:\n  - {name: G, type: select, include-all: true}\nrules: [\"MATCH,G\"]\n"} {
+		if err := looksLikeNodes([]byte(bad)); err == nil || !strings.Contains(err.Error(), "一个节点都没有") {
+			t.Errorf("%.40q: %v", bad, err)
+		}
+	}
+	filled := strings.Replace(string(template), "# Primary:", "Primary:", 1)
+	if err := looksLikeNodes([]byte(filled)); err != nil {
+		t.Errorf("with a subscription: %v", err)
+	}
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Add(context.Background(), nil, string(template)); err == nil || !strings.Contains(err.Error(), "一个节点都没有") {
+		t.Errorf("pasted: %v", err)
+	}
+	if len(s.List()) != 0 {
+		t.Error("it was kept")
+	}
+	p, err := s.Add(context.Background(), nil, filled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.OwnNodes(p.ID) {
+		t.Error("a config with subscriptions only is said to have nodes of its own")
+	}
+	for _, own := range []string{"proxies:\n  - {name: a, type: direct}\n", "vmess://abc"} {
+		q, err := s.Add(context.Background(), nil, own)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !s.OwnNodes(q.ID) {
+			t.Errorf("%q is said to have no nodes", own)
+		}
+	}
+}
