@@ -67,6 +67,9 @@ type Snapshot struct {
 	// ControllerTCP is Moho's own controller address when it fell back to
 	// TCP; the dashboards' controller is then that one.
 	ControllerTCP string `json:"controllerTcp,omitempty"`
+	// CanUndoImport: a configuration was imported, and what it replaced is
+	// kept (app_backup.go).
+	CanUndoImport bool `json:"canUndoImport,omitempty"`
 	// Dev is what the developer networks page shows.
 	Dev DevNet `json:"dev"`
 	// Tools are the developer tools found.

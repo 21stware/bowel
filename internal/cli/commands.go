@@ -116,6 +116,7 @@ func tree() *Command {
 				{Name: "set", Args: i18n.T("<key> <值>", "<key> <value>"), Min: 2, Max: 2, Short: words{"修改一项设置；列表写成 JSON", "Change one setting; write a list as JSON"},
 					Examples: []string{"bowel settings set logLevel debug", "bowel settings set allowLan true", `bowel settings set bypass '["localhost","*.lan"]'`, "bowel settings set mcpPolicy deny"}, Run: runSettingsSet},
 			}},
+			configCommand(),
 			{Name: "tun", Args: "<on|off>", Min: 1, Max: 1, Choices: onOffChoices, Short: words{"打开或关闭 TUN（接管全部流量）", "Turn TUN on or off (it takes all traffic)"},
 				Examples: []string{"bowel tun on", "bowel tun off"}, Run: runTun},
 			{Name: "gateway", Args: "<on|off>", Min: 1, Max: 1, Choices: onOffChoices, Short: words{"打开或关闭网关模式（让局域网其他设备经这台电脑上网）", "Turn gateway mode on or off (other devices on the LAN go out through this computer)"},
