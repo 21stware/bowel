@@ -107,6 +107,8 @@ var trayOn = struct {
 	sync.Mutex
 	set, on    bool
 	title, tip string
+	// nodes: the Linux menu last set offers the nodes.
+	nodes bool
 }{tip: trayName}
 
 // trayName is the tooltip when it tells no rates.
@@ -128,7 +130,7 @@ func (a *App) refreshTray(s Snapshot) {
 		_ = tray.SetIcon(trayIcon(on), true)
 	}
 	if runtime.GOOS == "linux" {
-		tray.SetMenu(a.trayMenu(s))
+		a.setTrayMenu(tray, s)
 	}
 	a.traySpeed(tray)
 	// The window's Update set the snapshot; the redraw queues after it.
@@ -145,10 +147,31 @@ func (a *App) trayTick() {
 	a.mu.Unlock()
 	if tray != nil {
 		a.traySpeed(tray)
+		// The Linux menu is built from the snapshot, which traffic does not
+		// change: rebuild it when traffic through the port comes or goes
+		// while not taken over, as that is what offers the nodes.
+		if runtime.GOOS == "linux" {
+			s := a.snapshot()
+			trayOn.Lock()
+			stale := trayOn.nodes != trayNodes(s.Takeover.On, a.tick())
+			trayOn.Unlock()
+			if stale {
+				a.setTrayMenu(tray, s)
+			}
+		}
 	}
 	if u := a.uiRef(); u != nil {
 		u.panelRedraw()
 	}
+}
+
+// setTrayMenu sets the Linux menu for s, and notes whether it offers the
+// nodes.
+func (a *App) setTrayMenu(tray *mygo.Tray, s Snapshot) {
+	trayOn.Lock()
+	trayOn.nodes = trayNodes(s.Takeover.On, a.tick())
+	trayOn.Unlock()
+	tray.SetMenu(a.trayMenu(s))
 }
 
 // traySpeed sets the rates beside the icon and in its tooltip, or takes
@@ -172,6 +195,10 @@ func (a *App) traySpeed(tray *mygo.Tray) {
 // trafficNow says whether t has traffic in it: a connection, or bytes
 // moving. Not taken over, the tray tells its rates only then.
 func trafficNow(t Tick) bool { return t.Active > 0 || t.Down > 0 || t.Up > 0 }
+
+// trayNodes says whether the tray offers the nodes: taken over, or with
+// traffic through the port, which leaves through the node chosen.
+func trayNodes(on bool, t Tick) bool { return on || trafficNow(t) }
 
 // trayText is what stands beside the icon and what its tooltip says, on
 // the system goos, with the rates shown or not. Windows has no text beside
@@ -251,7 +278,7 @@ func (a *App) trayMenu(s Snapshot) *mygo.Menu {
 			sub = groupMenu(a, r, s.Imported)
 		}
 		items = append(items, &mygo.MenuItem{Label: label, Submenu: sub,
-			Disabled: len(s.Nodes) == 0 || !s.Takeover.On || s.Mode == "direct"})
+			Disabled: len(s.Nodes) == 0 || !trayNodes(s.Takeover.On, a.tick()) || s.Mode == "direct"})
 	}
 	items = append(items, mygo.Separator())
 	for _, m := range [][2]string{{"rule", i18n.T("规则模式", "Rule mode")}, {"global", i18n.T("全局模式", "Global mode")}, {"direct", i18n.T("直连模式", "Direct mode")}} {

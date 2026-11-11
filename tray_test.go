@@ -75,6 +75,25 @@ func TestTrayText(t *testing.T) {
 
 // The rates beside the icon are off unless asked for, are the app's own
 // business, and cost polls only while they show.
+// Not taken over, the tray offers the nodes only with traffic through the
+// port.
+func TestTrayNodes(t *testing.T) {
+	for _, c := range []struct {
+		on   bool
+		tick Tick
+		want bool
+	}{
+		{true, Tick{}, true},
+		{false, Tick{}, false},
+		{false, Tick{Active: 1}, true},
+		{false, Tick{Down: 512}, true},
+	} {
+		if got := trayNodes(c.on, c.tick); got != c.want {
+			t.Errorf("trayNodes(%v, %+v) = %v", c.on, c.tick, got)
+		}
+	}
+}
+
 func TestTraySpeedSetting(t *testing.T) {
 	if settings.Defaults.TraySpeed {
 		t.Fatal("the menu bar shows the speed by default")

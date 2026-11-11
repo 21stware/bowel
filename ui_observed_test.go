@@ -182,7 +182,7 @@ func TestPanelOffFollowsObserved(t *testing.T) {
 	for _, c := range observedCases {
 		t.Run(c.name, func(t *testing.T) {
 			u := observedUI(c)
-			tt := panelTester(u, 560, false)
+			tt := panelTester(u, 640, false)
 			shot(t, tt, "panel-off-"+c.name)
 			wantTexts(t, tt, "未接管", "打开 bowel")
 			if got := tt.HasText(none); got == c.seen {
@@ -190,6 +190,12 @@ func TestPanelOffFollowsObserved(t *testing.T) {
 			}
 			if got := tt.HasText(some); got != c.seen {
 				t.Errorf("%q shown = %v, want %v: %q", some, got, c.seen, tt.Texts())
+			}
+			// The nodes: traffic through the port leaves through the one chosen.
+			for _, s := range []string{"自动", "香港 03 IPLC", "全部节点…"} {
+				if got := tt.HasText(s); got != c.seen {
+					t.Errorf("%q shown = %v, want %v: %q", s, got, c.seen, tt.Texts())
+				}
 			}
 			// The rates and today's total.
 			if got := hasTextPart(tt, "今日"); got != c.seen {
