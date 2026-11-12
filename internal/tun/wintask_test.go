@@ -248,6 +248,16 @@ func TestFallbackNote(t *testing.T) {
 	if n := fallbackNote(" \r\n"); !strings.Contains(n, "没有给出原因") {
 		t.Errorf("note %q", n)
 	}
+	// What Windows said gives no reason: the note says what most likely
+	// refused the task, and that TUN does without it.
+	for _, said := range []string{"ERROR: Unspecified error\r\n", "", "错误: 未指定的错误\r\n"} {
+		if n := fallbackNote(said); !strings.Contains(n, "可能是安全软件拦下了这个任务的注册") || !strings.Contains(n, "TUN 没有它也能用") {
+			t.Errorf("%q: no hint in %q", said, n)
+		}
+	}
+	if n := fallbackNote("ERROR: Access is denied.\r\n"); strings.Contains(n, "安全软件") || !strings.HasSuffix(n, "才会受影响") {
+		t.Errorf("a hint where Windows gave a reason: %q", n)
+	}
 	if noFallbackPath(`C:\P\mihomo.exe`) != `C:\P\no-fallback` {
 		t.Error(noFallbackPath(`C:\P\mihomo.exe`))
 	}
@@ -535,5 +545,60 @@ func TestTaskRev(t *testing.T) {
 	}
 	if mark(`C:\ProgramData\bowel\tun\S-1\mihomo.exe`, `C:\Users\u\AppData\Roaming\bowel\core`, "S-1") != "683192c73d93601c" {
 		t.Error("the mark of an installation 0.4.1 made is no longer the one expected")
+	}
+}
+
+// The hint about security software is for a task's registration that
+// Windows refused without a reason (issue 117: 360's active defence), and
+// for nothing else.
+func TestNoReasonHint(t *testing.T) {
+	for said, want := range map[string]bool{
+		"":                          true,
+		"ERROR: Unspecified error":  true,
+		"error: unspecified ERROR ": true,
+		"错误: 未指定的错误":                true,
+		"錯誤: 未指定的錯誤":                true,
+		"エラー: エラーを特定できません。":                               true,
+		"ERROR: Access is denied.":                        false,
+		"错误: 拒绝访问。":                                       false,
+		"ERROR: The task XML is malformed.":               false,
+		"ERROR: The specified account name is not valid.": false,
+	} {
+		if noReason(said) != want {
+			t.Errorf("noReason(%q) = %v", said, !want)
+		}
+	}
+	const hint = "可能是安全软件拦下了计划任务的注册"
+	head := "[staged]\n[dir]\n[launcher]\n[core]\n"
+	for _, c := range []struct {
+		name, log string
+		hint      bool
+	}{
+		{"the first task, no reason", head + "[task]\nERROR: Unspecified error\n", true},
+		{"the first task, nothing printed", head + "[task]\n", true},
+		{"the first task, a reason", head + "[task]\nERROR: Access is denied.\n", false},
+		// A step that is not a registration says the same words: no hint.
+		{"another step, no reason", "[staged]\n[dir]\nUnspecified error\n", false},
+		{"another step, nothing printed", "[staged]\n", false},
+		{"the mark, after both tasks", head + "[task]\nSUCCESS\n[fallback]\n[mark]\nUnspecified error\n", false},
+		{"done", head + "[task]\n[fallback]\n[mark]\n[done]\n", false},
+	} {
+		why := readReport(c.log).failure()
+		if strings.Contains(why, hint) != c.hint {
+			t.Errorf("%s: %q", c.name, why)
+		}
+		// The error after the prompt and the TUN entry's note carry it alike.
+		if err := installErr(1, c.log).Error(); strings.Contains(err, hint) != c.hint {
+			t.Errorf("%s: error %q", c.name, err)
+		}
+		if note := failureNote(c.log); strings.Contains(note, hint) != c.hint {
+			t.Errorf("%s: note %q", c.name, note)
+		}
+	}
+	// The second task's step ends the installation only in an older
+	// version's log; what it would say is hinted the same.
+	r := installReport{step: "fallback", said: "ERROR: Unspecified error"}
+	if why := r.failure(); !strings.Contains(why, "Windows 的输出：ERROR: Unspecified error。"+hint) || !strings.Contains(why, "再授权一次就能注册") {
+		t.Errorf("fallback: %q", why)
 	}
 }
