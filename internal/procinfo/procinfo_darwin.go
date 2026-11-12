@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"net/netip"
+	"os"
 	"syscall"
 	"unsafe"
 
@@ -84,6 +85,22 @@ func parse(b []byte) (map[netip.AddrPort]int32, error) {
 }
 
 func rup8(n int) int { return (n + 7) &^ 7 }
+
+// running asks the kernel for this user's processes (kern.proc.uid), then
+// each one's path.
+func running() []string {
+	procs, err := unix.SysctlKinfoProcSlice("kern.proc.uid", os.Getuid())
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, p := range procs {
+		if path := pidPath(p.Proc.P_pid); path != "" {
+			out = append(out, path)
+		}
+	}
+	return out
+}
 
 // pidPath asks proc_pidpath (proc_info with PROC_PIDPATHINFO).
 func pidPath(pid int32) string {

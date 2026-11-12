@@ -4,6 +4,10 @@
 它随应用打包，显示在“更新内容”窗口里；`mygo build` 也从这里取升级包的说明，
 签名发布时缺少当前版本的一节会构建失败。发版时把 Unreleased 改成版本号。
 
+## [Unreleased]
+
+- 添加「应用」规则时可以直接从正在运行的应用里选：在「路由组」页「我添加的」下面选了「应用」，输入框下面会列出这台电脑上正在运行的应用，最近有连接的排在前面，标出连接数；点一个就填进规则，输入文字会按名字筛选，列表里没有的照样可以手写。macOS 上列的是应用的 bundle（带图标，`Claude.app` 这样，助手进程算在它里面，系统自己的后台服务不列出）；Windows 上是进程名（`Telegram.exe`），Linux 上是程序名（`telegram-desktop`），都只列当前用户的，没有图标。macOS 上实测过；Linux 上只跑了测试，Windows 上只检查了能编译，两者的窗口都没有实测
+
 ## [0.4.2] - 2026-11-12
 
 - macOS 上开着 TUN 时，按域名的规则（`GEOSITE` 等）以前可能全部不生效、流量都落到默认路由组，而 `bowel status` 显示一切正常。原因是网络下发的系统 DNS 通常是路由器的局域网地址，而局域网段不进 TUN，查询绕过了 DNS 劫持，系统拿到的是真实地址而不是 fake-ip，连接到达 TUN 时只剩 IP。现在 TUN 生效期间，bowel 会把每个启用的网络服务的 DNS 设为 `223.5.5.5`、`119.29.29.29`（公网地址会进 TUN，由内核代答；不需要授权），原来的值记在数据目录的 `dns-before.json` 里；关闭 TUN、暂停接管、TUN 内核没启动、退出 bowel 时还原，意外退出的在下次启动时还原。只还原仍是这两个地址的服务，期间你自己改过的不动。`*.lan` 这类本地名字仍然问网络自己的 DNS，Tailscale、公司 VPN 按域名分流的解析不受影响。不想让 bowel 动系统 DNS，可以在「设置 → TUN」里关掉「接管系统 DNS」（`bowel settings set tunKeepSystemDns true`）；手动撤销是对每个服务执行 `networksetup -setdnsservers Wi-Fi Empty`（#117）
