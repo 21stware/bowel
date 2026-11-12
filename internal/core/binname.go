@@ -14,8 +14,10 @@ import "runtime"
 // core as upstream ships it is signed "a.out" by the linker, which passes,
 // and an ad hoc build leaves that signature alone.) The kind of signature
 // counts as well: ad hoc and Developer ID pass with a dot, while an Apple
-// Development one, which `mygo dev` gives everything in the bundle, shows
-// the core nothing whatever its identifier (#131, measured on 27.2).
+// Development one, which `mygo dev` gives everything in the bundle when
+// the keychain has such an identity, showed the core nothing in every
+// combination tried (#131: two identifiers, hardened runtime on and off,
+// three teams, on 27.2, not under TUN).
 var BinName = binName(runtime.GOOS)
 
 func binName(goos string) string {

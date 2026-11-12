@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/netip"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -36,6 +37,18 @@ func (m *Monitor) apply(s mihomo.Snapshot, now time.Time) {
 		return int64(float64(delta)/secs + 0.5)
 	}
 
+	var addrs []netip.Addr
+	var addrsRead bool
+	mine := func(a netip.Addr) bool { // this computer's, asked once a poll
+		if m.Mine == nil {
+			return false
+		}
+		if !addrsRead {
+			addrs, addrsRead = m.Mine(), true
+		}
+		return slices.Contains(addrs, a)
+	}
+
 	var sumDown, sumUp int64
 	groups := map[string]int64{}
 	seen := make(map[string]bool, len(s.Connections))
@@ -52,7 +65,7 @@ func (m *Monitor) apply(s mihomo.Snapshot, now time.Time) {
 		}
 		t, ok := m.active[mc.ID]
 		if !ok {
-			m.countNamed(mc) // before bowel's own lookup fills in
+			m.countNamed(mc, mine) // before bowel's own lookup fills in
 			t = &tracked{Conn: convert(mc)}
 			if p := procs[mc.ID]; p != "" {
 				t.Process, t.App = p, appName("", p)

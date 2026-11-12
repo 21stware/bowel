@@ -11,7 +11,6 @@ import (
 	"maps"
 	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -212,7 +211,7 @@ func newApp() (*App, error) {
 	a.keepRuleSets()
 	a.mon.SkipGroup = core.ProbeGroup // the location probe's own traffic
 	a.mon.FindProcess = procinfo.New().Find
-	a.mon.Mine = func(ip netip.Addr) bool { return slices.Contains(gateway.LocalAddrs(), ip) }
+	a.mon.Mine = gateway.LocalAddrs
 	a.mon.Every = a.pollEvery
 	cm.OnStatus = func(s core.Status) { a.onCoreStatus(s) }
 	cm.OnListenError = func() { a.emit() }

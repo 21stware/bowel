@@ -595,8 +595,9 @@ func TestFindProcessAndSkip(t *testing.T) {
 }
 
 // TestUnnamed: the core named the program behind none of five connections
-// from this computer, and only then; another device's connections and
-// bowel's own lookup don't count, and one named settles it.
+// from this computer, and only then; another device's connections, those
+// through a route group's own port and bowel's own lookup don't count, and
+// one named settles it, also after the fifth.
 func TestUnnamed(t *testing.T) {
 	now := time.Now()
 	conn := func(id, src string, named bool) mihomo.Connection {
@@ -614,15 +615,30 @@ func TestUnnamed(t *testing.T) {
 
 	m := New("")
 	m.FindProcess = func(string, netip.AddrPort) string { return "/usr/bin/curl" } // bowel's own lookup
-	m.Mine = func(a netip.Addr) bool { return a == netip.MustParseAddr("198.18.0.1") }
+	asked := 0
+	m.Mine = func() []netip.Addr { asked++; return []netip.Addr{netip.MustParseAddr("198.18.0.1")} }
 	if poll(m, conn("a1", "127.0.0.1", false), conn("a2", "::1", false), conn("a3", "198.18.0.1", false), conn("a4", "127.0.0.1", false)) {
 		t.Error("unnamed after four")
 	}
-	if poll(m, conn("d1", "192.168.1.20", false), conn("d2", "192.168.1.20", false)) {
+	if poll(m, conn("d1", "192.168.1.20", false), conn("d2", "192.168.1.21", false)) {
 		t.Error("another device's connections counted")
+	}
+	if asked != 2 {
+		t.Errorf("addresses asked %d times in two polls, want 2", asked)
+	}
+	port := func(id string) mihomo.Connection {
+		c := conn(id, "127.0.0.1", false)
+		c.Metadata.InboundName = "bowel-port-7901"
+		return c
+	}
+	if poll(m, port("p1"), port("p2"), port("p3")) {
+		t.Error("connections through a route group's port counted")
 	}
 	if !poll(m, conn("a5", "127.0.0.1", false)) {
 		t.Error("not unnamed after five from this computer")
+	}
+	if poll(m, conn("a6", "127.0.0.1", true)) {
+		t.Error("still unnamed after the core named one")
 	}
 
 	m = New("")

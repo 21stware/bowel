@@ -2,8 +2,9 @@
 //
 // mihomo does this itself. On macOS 27 the kernel's socket list
 // (net.inet.tcp.pcblist_n) holds only the asker's own sockets unless the
-// asker is signed under an identifier with a dot in it, not by an Apple
-// Development certificate, and its parent is not an app; the core is
+// asker is signed under an identifier with a dot in it, and not by an
+// Apple Development certificate (no combination tried on 27.2 passed,
+// #131), and its parent is not an app; the core is
 // started detached (core.startCore) and named (core.BinName) so that a
 // release's is all three, and bowel, opened like any app, is all three by
 // itself. The monitor still asks here for the connections the

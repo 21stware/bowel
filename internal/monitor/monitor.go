@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/netip"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -91,10 +92,11 @@ type Monitor struct {
 	// behind a client socket the core reported without one. Set it before
 	// Run.
 	FindProcess func(network string, src netip.AddrPort) string
-	// Mine, if set, says a source address other than loopback is this
-	// computer's own, as under TUN. Only connections from this computer
-	// have a program the core could name. Set it before Run.
-	Mine func(netip.Addr) bool
+	// Mine, if set, lists this computer's own addresses, so a source other
+	// than loopback, as under TUN, counts as this computer's. Only
+	// connections from this computer have a program the core could name.
+	// It is asked at most once a poll. Set it before Run.
+	Mine func() []netip.Addr
 	// Every, if set, is how long to wait before the next poll, asked
 	// after each: longer while no one looks. Wake polls at once. Set it
 	// before Run.
@@ -128,9 +130,8 @@ type Monitor struct {
 	failSeq    int64
 	paths      map[string]string // process name -> path, from polls
 	ticks      []func()
-	// Of this Run's connections from this computer, until one is named or
-	// unnamedAfter are not: whether the core named one, and how many it
-	// did not.
+	// Of this Run's connections from this computer, until one is named:
+	// whether the core named one, and how many it did not.
 	named   bool
 	unnamed int
 }
@@ -267,17 +268,22 @@ func (m *Monitor) Now() Snapshot {
 }
 
 // countNamed counts a new connection the core reported, whether or not it
-// named its program, while the question is open. Locked.
-func (m *Monitor) countNamed(mc mihomo.Connection) {
-	if m.named || m.unnamed >= unnamedAfter {
+// named its program, until it names one; so a named connection after
+// unnamedAfter still clears Unnamed. mine says an address is this
+// computer's. Locked.
+func (m *Monitor) countNamed(mc mihomo.Connection, mine func(netip.Addr) bool) {
+	if m.named {
 		return
 	}
 	md := mc.Metadata
+	if strings.HasPrefix(md.InboundName, "bowel-port-") {
+		return // core.ExtraPortListener: the core doesn't look these up
+	}
 	src, err := netip.ParseAddr(md.SourceIP)
 	if err != nil {
 		return
 	}
-	if src = src.Unmap(); !src.IsLoopback() && (m.Mine == nil || !m.Mine(src)) {
+	if src = src.Unmap(); !src.IsLoopback() && !mine(src) {
 		return // another device's: no program of this computer's
 	}
 	if md.ProcessPath != "" || md.Process != "" {
