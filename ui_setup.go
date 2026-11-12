@@ -186,6 +186,9 @@ func (u *UI) setupReady(c *ui.Context, p *pal) {
 	if pv.Error != "" {
 		ui.Text(c, pv.Error).FontSize(12).TextColor(p.signal).MaxLines(2).Margin(10, 0, 0, 0)
 	}
+	// A complete config is asked about here too: someone who added one for
+	// its routing would otherwise leave this page on bowel's.
+	ui.Column(c.Key("routing")).Margin(10, 0, 0, 0).Children(func() { u.provRouting(c, p, pv) })
 	ui.Column(c).Gap(10).Margin(28, 0, 0, 0).Children(func() { u.entryChoices(c, p) })
 }
 

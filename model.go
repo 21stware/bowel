@@ -325,6 +325,12 @@ type ImportedView struct {
 	// Unused are the config's settings that act on traffic and are not
 	// used, as the config names them (core.Imported.Unused).
 	Unused []string `json:"unused,omitempty"`
+	// DNSFill are the config's DNS lists (nameserver, hosts and the like,
+	// as the config names them) that the settings have differently: they
+	// can be copied into the settings, once, when asked. DNSSkipped are the
+	// entries of them that would be left out.
+	DNSFill    []string `json:"dnsFill,omitempty"`
+	DNSSkipped []string `json:"dnsSkipped,omitempty"`
 }
 
 // GroupView is one group of an imported config.

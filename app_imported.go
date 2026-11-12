@@ -198,6 +198,10 @@ func (a *App) importedView(s settings.Settings, im *core.Imported, px map[string
 		return nil
 	}
 	v := &ImportedView{Provider: s.ImportedRouting, Name: a.providerTitle(s.ImportedRouting), Rules: len(im.Rules), PausedRules: len(s.Rules), PausedSets: len(a.ruleSetRefs(s)), Groups: []GroupView{}, Unused: im.Unused}
+	opts := s.Options.Clone()
+	if v.DNSFill = im.DNS.Apply(&opts); len(v.DNSFill) > 0 {
+		v.DNSSkipped = im.DNS.Skipped
+	}
 	byName := map[string]string{}
 	for _, r := range a.routes() {
 		byName[r.Name] = r.ID
@@ -375,6 +379,24 @@ func (a *App) setImportedRouting(id string) error {
 	_ = a.coreCall(5*time.Second, func(ctx context.Context, c *mihomo.Client) error { return c.CloseAllConnections(ctx) })
 	go a.locateExits(false)
 	return nil
+}
+
+// fillImportedDNS copies the DNS servers, policy, fake-ip filter and hosts
+// of the config in use into the settings, and says which of the config's
+// keys it took. Once, when asked: from then on they are settings like any
+// typed in, and an update of the config does not change them. A list the
+// config lacks stays as it is. If the core refuses the result, the settings
+// are as they were.
+func (a *App) fillImportedDNS() ([]string, error) {
+	im := a.importedNow()
+	if im == nil {
+		return nil, errors.New(i18n.T("没有在使用导入配置的路由", "No imported config's routing is in use"))
+	}
+	var took []string
+	if err := a.updateSettings(func(s *settings.Settings) { took = im.DNS.Apply(&s.Options) }); err != nil {
+		return nil, err
+	}
+	return took, nil
 }
 
 // selectMember points an imported group of the kind the user chooses in at

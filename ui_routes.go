@@ -27,6 +27,9 @@ type routesUI struct {
 	svc   string // the service open, "" for none
 	pol   bool   // the strategy card is open
 	test  string // 测试一个地址
+	// fillDNS: the imported config's page is asking before it copies the
+	// config's DNS into the settings.
+	fillDNS bool
 
 	// The group's name as typed, and whose it is.
 	name, nameOf, nameErr string
