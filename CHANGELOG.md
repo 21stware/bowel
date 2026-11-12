@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+- macOS 上开着 TUN 时，按域名的规则（`GEOSITE` 等）以前可能全部不生效、流量都落到默认路由组，而 `bowel status` 显示一切正常。原因是网络下发的系统 DNS 通常是路由器的局域网地址，而局域网段不进 TUN，查询绕过了 DNS 劫持，系统拿到的是真实地址而不是 fake-ip，连接到达 TUN 时只剩 IP。现在 TUN 生效期间，bowel 会把每个启用的网络服务的 DNS 设为 `223.5.5.5`、`119.29.29.29`（公网地址会进 TUN，由内核代答；不需要授权），原来的值记在数据目录的 `dns-before.json` 里；关闭 TUN、暂停接管、TUN 内核没启动、退出 bowel 时还原，意外退出的在下次启动时还原。只还原仍是这两个地址的服务，期间你自己改过的不动。`*.lan` 这类本地名字仍然问网络自己的 DNS，Tailscale、公司 VPN 按域名分流的解析不受影响。不想让 bowel 动系统 DNS，可以在「设置 → TUN」里关掉「接管系统 DNS」（`bowel settings set tunKeepSystemDns true`）；手动撤销是对每个服务执行 `networksetup -setdnsservers Wi-Fi Empty`（#117）
+- 系统 DNS 绕过 TUN 时，状态里会提示「系统 DNS 没有经过 TUN，按域名的规则不会生效」：macOS 上是关掉了上面的开关或系统拒绝修改时，提示带一键接管；没有 systemd-resolved 的 Linux 上是 `/etc/resolv.conf` 指向局域网地址时，只提示、不改系统设置。Windows 上是否有同样的情况还没有实测，暂时不处理（#117）
 - Linux 上从 0.3.0 及更早版本升级、并且一直开着 TUN 的：以前升级后 TUN 显示「生效中」，实际上系统 DNS 没有指向 TUN，域名解析不经过 bowel，不走代理端口的流量只能按 IP 分流，按域名的规则对它们不生效，而走代理端口的一切正常，看起来像分流坏了（#117）。原因是 0.4.0 起授权时会多留一条 polkit 规则，让内核可以把 systemd-resolved 指向 TUN；旧的安装没有这条规则，而 bowel 只在「打开 TUN」的那一刻检查，TUN 本来就开着时不会问。现在启动后就会提示「TUN 缺少设置系统 DNS 的授权」，点「授权」一次补上（网络会中断几秒）；标题栏、托盘、`bowel status`、TUI 和 MCP 的状态里都有，没有窗口时运行 `bowel tun on` 即可，以前这种情况它只回答「TUN 已经是开」。polkit 的目录拒绝过这条规则的机器和以前一样只问过一次，不会每次启动都提示
 - Linux 上开着 TUN 时，bowel 每 10 秒看一次 systemd-resolved 里 TUN 网卡有没有 DNS 服务器（`resolvectl dns <网卡>`，内核启动 15 秒后开始，连续两次都没有才算）：没有就在 TUN 的状态和标题栏里写明「系统 DNS 没有指向 TUN」，`bowel status --json` 里是 `takeover.tun.detail`，不管原因是缺规则、授权窗口被关掉，还是规则在但 polkit 没有认。看到网卡上有 DNS 服务器时，即使缺规则也不再提示。没有 systemd-resolved、读不到或读不懂输出时不作判断，也不提示
 - Linux 上授权时如果没有 polkit 认证代理（通过 SSH 登录，或桌面没有自带认证代理），报错会直接说明这一点并提示先启动一个认证代理，不再只是「无法取得授权（桌面可能没有运行…）」后面跟一段 pkexec 的原文

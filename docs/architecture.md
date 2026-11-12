@@ -55,6 +55,7 @@ internal/procinfo          which app owns a local socket (macOS, where the core 
 internal/netif             what an interface is where its name doesn't say: tunnels, routes, adapters (Linux, Windows)
 internal/nowindow          start a program without a console window (Windows); every exec goes through it, and a test checks
 internal/locate, geo       exit locations
+internal/sysdns            point macOS's DNS servers into TUN while it is on, and put them back
 internal/sysproxy          set, check and restore the system proxy: macOS, Windows, GNOME and KDE
 internal/tun               the one authorisation TUN takes: setuid (macOS), file capabilities (Linux), an elevated task (Windows)
 internal/gateway           IPv4 forwarding, LAN detection, the gateway's checks

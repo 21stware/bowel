@@ -349,9 +349,15 @@ func BuildConfig(in Input) ([]byte, error) {
 		if len(o.ProxyNameservers) > 0 {
 			dns["proxy-server-nameserver"] = o.ProxyNameservers
 		}
+		// The system's own servers, unless bowel has set those to its
+		// placeholder for TUN: then the network's, which it kept.
+		local := []string{"system"}
+		if in.Tun && len(dev.LocalDNS) > 0 {
+			local = dev.LocalDNS
+		}
 		for _, pattern := range dev.SystemDNS {
 			if _, ok := policy[pattern]; !ok {
-				policy[pattern] = []string{"system"}
+				policy[pattern] = local
 			}
 		}
 		if len(policy) > 0 {

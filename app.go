@@ -76,6 +76,12 @@ type App struct {
 	// proxyMu is held while the system proxy changes, so that quitting
 	// waits for a change under way instead of being undone by it.
 	proxyMu sync.Mutex
+	// dnsMu is held while the system's DNS servers change, as proxyMu is.
+	dnsMu sync.Mutex
+	// dnsErr is why they could not be pointed into TUN, and dnsHeld since
+	// when they are.
+	dnsErr  atomic.Pointer[string]
+	dnsHeld atomic.Pointer[time.Time]
 	// openAtLogin is whether Moho is a login item, as last read.
 	openAtLogin bool
 	mu          sync.Mutex
@@ -576,6 +582,7 @@ func (a *App) onCoreStatus(s core.Status) {
 		}
 		go func() {
 			a.applySystemProxy()
+			a.applySystemDNS()
 			a.refresh()
 			a.locateExits(true)
 		}()
@@ -681,7 +688,7 @@ func (a *App) buildConfig(s settings.Settings, dev devnet.Overlay, im *core.Impo
 	scopes, orders := a.nodeLists(all)
 	return core.BuildConfig(core.Input{
 		Providers: refs, RuleSets: a.ruleSetRefs(s), Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
-		Tun:      s.Tun && a.takeoverOn(s) && osTun.installed(a.tunBin) && a.tunFault.Load() == nil,
+		Tun:      a.tunOn(s),
 		Gateway:  a.gatewayOn(s),
 		LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
 		Options: s.Options, Dev: dev, IPv6Usable: a.devEnv().IPv6.Usable, Imported: im,
@@ -1111,6 +1118,7 @@ func (a *App) updateTun() error {
 func (a *App) afterTakeover() error {
 	err := a.applyConfig()
 	a.applySystemProxy()
+	a.applySystemDNS()
 	a.refresh()
 	return err
 }
@@ -1317,6 +1325,9 @@ func (a *App) updateSettingsAnd(fn func(*settings.Settings), reapply bool) error
 		i18n.Set(old.Language)
 		_ = a.applyConfig()
 		return err
+	}
+	if next.TunKeepDNS != old.TunKeepDNS || (len(next.DNSHijack) == 0) != (len(old.DNSHijack) == 0) {
+		a.applySystemDNS()
 	}
 	if next.MixedPort != old.MixedPort {
 		a.applySystemProxy(old.MixedPort) // points the system at the new port
@@ -2438,6 +2449,9 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 	}
 	if is := a.importedIssue(s, snap); is != nil {
 		return StateOK, is
+	}
+	if is := a.dnsIssue(s, cs); is != nil {
+		return StateDegraded, is
 	}
 	// The takeover works, so the light stays green; the user's list does not.
 	if tk.System.Status == "on" && tk.System.Detail != "" {

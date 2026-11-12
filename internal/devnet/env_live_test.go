@@ -13,13 +13,13 @@ import (
 func TestDetectLive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	routes, resolvers := osDetect(ctx)
+	routes, resolvers, defaultDNS := osDetect(ctx)
 	if len(routes) == 0 {
 		t.Skip("no routes could be read here")
 	}
 	var e Env
 	e.applyRoutes(routes)
-	t.Logf("%d routes, %d resolvers, primary %q, VPNs %+v, default tunnels %v", len(routes), len(resolvers), e.PrimaryIface, e.VPNs, e.DefaultTunnels)
+	t.Logf("%d routes, %d resolvers, default DNS %v, primary %q, VPNs %+v, default tunnels %v", len(routes), len(resolvers), defaultDNS, e.PrimaryIface, e.VPNs, e.DefaultTunnels)
 	hasDefault := false
 	for _, r := range routes {
 		if r.Iface == "" {

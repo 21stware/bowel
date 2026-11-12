@@ -196,3 +196,24 @@ func TestDevOptionsValidate(t *testing.T) {
 		t.Error("nope is no scenario")
 	}
 }
+
+// While bowel has the system's DNS servers set to its placeholder for TUN,
+// the names that are the system's to resolve go to the network's own
+// servers: "system" would be the placeholder (#117).
+func TestDevNetworkLocalDNS(t *testing.T) {
+	env := devEnv()
+	env.LocalDNS = []string{"192.168.50.1"}
+	in := devInput("rule", devnet.Compile(devnet.Options{}, env))
+	in.Tun = true
+	dns, _ := build(t, in)["dns"].(map[string]any)
+	policy, _ := dns["nameserver-policy"].(map[string]any)
+	if got := strs(policy["+.lan"]); !slices.Equal(got, []string{"192.168.50.1"}) {
+		t.Errorf("+.lan under TUN: %v", got)
+	}
+	in.Tun, in.DNS = false, true // the DNS switch alone: the system's servers are its own
+	dns, _ = build(t, in)["dns"].(map[string]any)
+	policy, _ = dns["nameserver-policy"].(map[string]any)
+	if got := strs(policy["+.lan"]); !slices.Equal(got, []string{"system"}) {
+		t.Errorf("+.lan without TUN: %v", got)
+	}
+}

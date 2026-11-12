@@ -993,6 +993,10 @@ func (u *UI) tunSection(c *ui.Context, p *pal, s settings.Settings) {
 			u.setOpt(func(s *settings.Settings) { s.TunMTU = v })
 		})
 	})
+	if osDNS.supported {
+		u.optSwitch(c, p, "sysdns", i18n.T("接管系统 DNS", "Take over system DNS"), i18n.T("TUN 开着时把各网络服务的 DNS 设为 223.5.5.5 等公网地址，让查询进 TUN；关闭 TUN 或退出时还原", "While TUN is on, set every network service's DNS to public addresses such as 223.5.5.5, so that queries enter TUN; put back when TUN goes off or bowel quits"), !s.TunKeepDNS,
+			func(s *settings.Settings, on bool) { s.TunKeepDNS = !on })
+	}
 	optWide(c, p, i18n.T("DNS 劫持", "DNS hijack"), i18n.T("发到这些地址的 DNS 查询交给 mihomo，如 any:53", "DNS queries to these addresses go to mihomo, as any:53"), func() {
 		u.optList(c, p, "hijack", i18n.T("DNS 劫持", "DNS hijack"), s.DNSHijack, func(v []string) {
 			u.setOpt(func(s *settings.Settings) { s.DNSHijack = v })

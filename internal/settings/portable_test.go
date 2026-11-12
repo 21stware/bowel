@@ -36,7 +36,7 @@ var portableKeys = []string{
 	"dns", "dnsMode", "nameservers", "defaultNameservers", "fallback", "proxyNameservers", "directNameservers",
 	"nameserverPolicy", "fakeIpRange", "fakeIpFilter", "hosts", "respectRules", "useHosts",
 	"useSystemHosts", "preferH3",
-	"tunStack", "strictRoute", "tunMtu", "autoDetectInterface", "dnsHijack", "endpointIndependentNat",
+	"tunStack", "strictRoute", "tunMtu", "autoDetectInterface", "dnsHijack", "endpointIndependentNat", "tunKeepSystemDns",
 	"sniff", "sniffHttp", "sniffTls", "sniffQuic", "sniffOverride", "sniffForceDnsMapping",
 	"sniffParsePureIp", "sniffSkip",
 	"geoAutoUpdate", "geoUpdateInterval", "geoipUrl", "geositeUrl", "mmdbUrl",
