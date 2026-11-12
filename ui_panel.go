@@ -152,6 +152,10 @@ func (u *UI) panelIssueAction(action string) {
 		if u.app != nil {
 			u.do(u.app.retake)
 		}
+	case "tun-update":
+		if u.app != nil {
+			u.do(u.app.updateTun)
+		}
 	case "activity", "providers":
 		u.panelShow(func() { u.page = action })
 	}

@@ -126,7 +126,10 @@ type App struct {
 	gwProbe   gwProbe
 	gwProbing bool
 	gwErr     error
-	upd       updateState
+	// Whether the system's DNS is pointed at TUN, as last asked (app_tun.go).
+	tunDNS     tunDNSProbe
+	tunDNSBusy bool
+	upd        updateState
 	// headless: no window, tray or main thread's loop (`bowel daemon`,
 	// app_daemon.go). stop ends such a run.
 	headless bool
@@ -478,6 +481,7 @@ const nodesEvery = 15 * time.Second
 func (a *App) refresh() {
 	a.probeSoon()
 	a.probeTunUp()
+	a.probeTunDNS()
 	// The system proxy is judged only while it is wanted: otherwise no
 	// scutil every 2 s for nothing.
 	if st := a.settings.Get(); a.takeoverOn(st) && st.SystemProxy {
@@ -1058,9 +1062,17 @@ func (a *App) retryTunCore() {
 }
 
 // tunFailed is whether TUN is wanted and is not what the user has: asking
-// for it again is then a request to try again, not one already met.
+// for it again is then a request to try again, not one already met. So it
+// is for a TUN that is on without the rule that points the system's DNS
+// at it (Linux): asking again is how the authorization is given where
+// there is no window to click in.
 func (a *App) tunFailed() bool {
-	return a.snapshot().Takeover.Tun.Status == "error"
+	tk := a.snapshot().Takeover.Tun
+	if tk.Status == "on" {
+		noRule, _ := a.tunDNSState(a.core.Status())
+		return noRule
+	}
+	return tk.Status == "error"
 }
 
 // installTun puts this version's core in the root copy and runs on it.
@@ -1084,7 +1096,9 @@ func (a *App) tunInstalled() {
 	a.core.SetBin(a.tunBin)
 }
 
-// updateTun replaces a root copy older than this version, on the user's word.
+// updateTun replaces a root copy older than this version, or one whose
+// installation lacks what this version leaves (Linux: the polkit rule), on
+// the user's word.
 func (a *App) updateTun() error {
 	done := a.begin("tun-update")
 	defer done()
@@ -2255,6 +2269,9 @@ func (a *App) snapshot() Snapshot {
 		// goes on without it.
 		if why := a.tunDown(cs); why != "" {
 			tk.Tun.Status, tk.Tun.Detail = "error", why
+		} else {
+			// TUN is on, and may still not be where the system's lookups go.
+			tk.Tun.Detail = tunDNSDetail(a.tunDNSState(cs))
 		}
 	}
 	if s.AllowLan {
@@ -2429,6 +2446,9 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 	// Nothing is wrong yet, so the light stays green.
 	if s.Tun && a.tunStale.Load() {
 		return StateOK, &Issue{Level: "warn", Text: i18n.T("TUN 内核需要更新", "The TUN core needs updating"), Detail: i18n.T("bowel 升级后带了新内核，TUN 还在用旧的。授权一次就能换上，网络会中断几秒。", "This version of bowel has a newer core and TUN still runs the old one. One authorization replaces it; the network drops for a few seconds."), Action: "tun-update", Label: i18n.T("更新", "Update")}
+	}
+	if is := a.tunDNSIssue(s, cs, tk); is != nil {
+		return StateOK, is
 	}
 	return StateOK, nil
 }
