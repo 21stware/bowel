@@ -12,7 +12,10 @@ import "runtime"
 // extension: "mihomo" for mihomo, which names no process and matches no
 // rule for an application, and "dev.moho.app.core" for this name. (The
 // core as upstream ships it is signed "a.out" by the linker, which passes,
-// and an ad hoc build leaves that signature alone.)
+// and an ad hoc build leaves that signature alone.) The kind of signature
+// counts as well: ad hoc and Developer ID pass with a dot, while an Apple
+// Development one, which `mygo dev` gives everything in the bundle, shows
+// the core nothing whatever its identifier (#131, measured on 27.2).
 var BinName = binName(runtime.GOOS)
 
 func binName(goos string) string {

@@ -186,6 +186,7 @@ Restart=on-failure
 ```bash
 ./scripts/fetch-core.sh     # 下载 mihomo 内核和 GeoSite/GeoIP 数据到 resources/
 go tool mygo dev            # 运行，改代码自动重建
+go tool mygo dev -sign -    # 同上，用临时签名：在 macOS 上试按应用的规则要用这个
 go tool mygo build          # 打包 bowel.app 和 .dmg（已签名，未公证）
 ./scripts/release.sh        # 打包、公证并装订，发版用这个
 CGO_ENABLED=0 go test ./... # 包含会启动真实内核的测试

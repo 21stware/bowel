@@ -375,6 +375,11 @@ type Tick struct {
 	TodayDown int64            `json:"todayDown"`
 	TodayUp   int64            `json:"todayUp"`
 	MonthDown int64            `json:"monthDown"`
+	// AppsUnknown: the core can't tell which program on this computer
+	// opened a connection (monitor.Snapshot.Unnamed), so no rule for an
+	// application matches. On macOS it takes how the core is signed: an
+	// Apple Development signature, as `mygo dev` gives, never sees.
+	AppsUnknown bool `json:"appsUnknown,omitempty"`
 }
 
 type AppRate struct {

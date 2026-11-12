@@ -186,6 +186,7 @@ Needs Go 1.27.3+ (`GOTOOLCHAIN=auto` fetches it). No Node or Bun.
 ```bash
 ./scripts/fetch-core.sh     # mihomo + GeoSite/GeoIP data into resources/
 go tool mygo dev            # the app, rebuilt on every change
+go tool mygo dev -sign -    # the same, signed ad hoc: needed to try rules for apps on macOS
 go tool mygo build          # bowel.app and a .dmg, signed but not notarized
 ./scripts/release.sh        # build, notarize and staple: use this for releases
 CGO_ENABLED=0 go test ./... # includes tests that start the real core

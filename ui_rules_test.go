@@ -180,6 +180,48 @@ func TestRoutesAddAppRule(t *testing.T) {
 	}
 }
 
+// TestAppsUnknownSaysSo: when the core names no program (#131), the Log,
+// its 让它走… menu and 应用 in the editor say that a rule for an app won't
+// match; otherwise none of them does.
+func TestAppsUnknownSaysSo(t *testing.T) {
+	withAppRules(t, true)
+	note := appsUnknownNote()
+	for _, unknown := range []bool{false, true} {
+		u := actUI()
+		u.tick.AppsUnknown = unknown
+		tt := ui.NewTester(u.view, 1060, 760)
+		tt.Advance(time.Second)
+		if tt.HasText(note) != unknown {
+			t.Errorf("unknown %v: the note on the Log is %v", unknown, !unknown)
+		}
+		if err := tt.Click("api.anthropic.com:443"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Advance(time.Second)
+		if err := tt.Click("让它走…"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Advance(300 * time.Millisecond)
+		if m := tt.Menu(); slices.Contains(m, note) != unknown {
+			t.Errorf("unknown %v: the menu is %q", unknown, m)
+		}
+		if unknown {
+			shot(t, tt, "activity-apps-unknown")
+		}
+
+		r := routesFixture()
+		r.tick.AppsUnknown = unknown
+		r.selectGroup("ai")
+		r.routes.svc = routes.MineID("ai")
+		r.routes.kind = routes.KindApp
+		tt = ui.NewTester(r.view, 1060, 1400)
+		tt.Advance(time.Second)
+		if tt.HasText(note) != unknown || hasTextPart(tt, "只管这台电脑上的应用") == unknown {
+			t.Errorf("unknown %v: the editor says %q", unknown, tt.Texts())
+		}
+	}
+}
+
 // TestAppRuleWorks: a new rule for an application is refused where it
 // could never match; other rules are not its business.
 func TestAppRuleWorks(t *testing.T) {

@@ -131,6 +131,9 @@ func (u *UI) actRouteBtn(c *ui.Context, p *pal, cn Conn) {
 		if app, err := routes.ParseRule(routes.KindApp, cn.Process, ""); err == nil && routes.AppRules {
 			m.Separator()
 			m.Submenu(fmt.Sprintf(i18n.T("让 %s 的所有连接走…", "Everything from %s via…"), app.Value), func(m *ui.Menu) { items(m, app) })
+			if u.tick.AppsUnknown { // the name may be bowel's own lookup's
+				m.Item(appsUnknownNote()).Disabled(true)
+			}
 		}
 		if hasMine {
 			m.Separator()
@@ -143,6 +146,11 @@ func (u *UI) actRouteBtn(c *ui.Context, p *pal, cn Conn) {
 			u.openRules(cmp.Or(cn.Route, routes.Default))
 		}
 	})
+}
+
+// appsUnknownNote says what Tick.AppsUnknown means for the user.
+func appsUnknownNote() string {
+	return i18n.T("内核现在认不出这台电脑上的连接来自哪个应用，按应用的规则不会生效。", "The core can't tell which app on this computer opened a connection, so rules for apps won't match for now.")
 }
 
 // openRules opens 路由组 at the service holding r's traffic, or the group's

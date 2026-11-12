@@ -594,6 +594,44 @@ func TestFindProcessAndSkip(t *testing.T) {
 	}
 }
 
+// TestUnnamed: the core named the program behind none of five connections
+// from this computer, and only then; another device's connections and
+// bowel's own lookup don't count, and one named settles it.
+func TestUnnamed(t *testing.T) {
+	now := time.Now()
+	conn := func(id, src string, named bool) mihomo.Connection {
+		c := fakeConn(id, 0, 0, now, "DIRECT")
+		c.Metadata.SourceIP, c.Metadata.SourcePort = src, "5000"+id[len(id)-1:]
+		if !named {
+			c.Metadata.ProcessPath = ""
+		}
+		return c
+	}
+	poll := func(m *Monitor, cs ...mihomo.Connection) bool {
+		m.apply(mihomo.Snapshot{Connections: cs}, now)
+		return m.Now().Unnamed
+	}
+
+	m := New("")
+	m.FindProcess = func(string, netip.AddrPort) string { return "/usr/bin/curl" } // bowel's own lookup
+	m.Mine = func(a netip.Addr) bool { return a == netip.MustParseAddr("198.18.0.1") }
+	if poll(m, conn("a1", "127.0.0.1", false), conn("a2", "::1", false), conn("a3", "198.18.0.1", false), conn("a4", "127.0.0.1", false)) {
+		t.Error("unnamed after four")
+	}
+	if poll(m, conn("d1", "192.168.1.20", false), conn("d2", "192.168.1.20", false)) {
+		t.Error("another device's connections counted")
+	}
+	if !poll(m, conn("a5", "127.0.0.1", false)) {
+		t.Error("not unnamed after five from this computer")
+	}
+
+	m = New("")
+	poll(m, conn("b1", "127.0.0.1", false), conn("b2", "127.0.0.1", true))
+	if poll(m, conn("b3", "127.0.0.1", false), conn("b4", "127.0.0.1", false), conn("b5", "127.0.0.1", false), conn("b6", "127.0.0.1", false), conn("b7", "127.0.0.1", false)) {
+		t.Error("unnamed after the core named one")
+	}
+}
+
 // TestRejectedConnections: what a rule refused becomes a blocked connection
 // from its log line, once; what only ends in REJECT, or a poll happens to
 // catch, doesn't; and a flood leaves the other connections and the events be.

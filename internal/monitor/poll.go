@@ -52,6 +52,7 @@ func (m *Monitor) apply(s mihomo.Snapshot, now time.Time) {
 		}
 		t, ok := m.active[mc.ID]
 		if !ok {
+			m.countNamed(mc) // before bowel's own lookup fills in
 			t = &tracked{Conn: convert(mc)}
 			if p := procs[mc.ID]; p != "" {
 				t.Process, t.App = p, appName("", p)
