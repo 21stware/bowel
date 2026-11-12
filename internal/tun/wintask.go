@@ -201,10 +201,41 @@ func (r installReport) failure() string {
 	if r.step == "" || r.done {
 		return ""
 	}
+	why := fmt.Sprintf(i18n.T("停在「%s」这一步，Windows 的输出：%s", "it stopped at %s, where Windows said: %s"), stepText(r.step), r.said)
 	if r.said == "" {
-		return fmt.Sprintf(i18n.T("停在「%s」这一步，Windows 没有给出原因", "it stopped at %s, and Windows gave no reason"), stepText(r.step))
+		why = fmt.Sprintf(i18n.T("停在「%s」这一步，Windows 没有给出原因", "it stopped at %s, and Windows gave no reason"), stepText(r.step))
 	}
-	return fmt.Sprintf(i18n.T("停在「%s」这一步，Windows 的输出：%s", "it stopped at %s, where Windows said: %s"), stepText(r.step), r.said)
+	if (r.step == "task" || r.step == "fallback") && noReason(r.said) {
+		return fmt.Sprintf(i18n.T("%s。可能是安全软件拦下了计划任务的注册（在 360 安全卫士上见过）：在安全软件里放行 bowel，或者暂时退出它，再授权一次就能注册",
+			"%s. Security software may have blocked registering the task (seen with 360 Total Security): allow bowel there, or quit it for a moment, and authorizing again registers it"), why)
+	}
+	return why
+}
+
+// noReasonTexts are how Windows words E_FAIL (0x80004005), the error that
+// names no cause: in English, which is what issue 117's machine printed,
+// and as Windows' Simplified Chinese, Traditional Chinese and Japanese
+// message tables have it. The last three were not read off a machine.
+var noReasonTexts = []string{"unspecified error", "未指定的错误", "未指定的錯誤", "エラーを特定できません"}
+
+// noReason is whether what schtasks /Create printed, said, gives no
+// reason for failing: nothing at all, or only that the error is
+// unspecified. That is what it prints when security software refuses the
+// registration (issue 117: 360's active defence, for a task whose program
+// is bowel's own, which has no code signature), and the same definition
+// registers once that software is quit. Anything else Windows says is a
+// reason, and gets no hint.
+func noReason(said string) bool {
+	said = strings.ToLower(strings.TrimSpace(said))
+	if said == "" {
+		return true
+	}
+	for _, t := range noReasonTexts {
+		if strings.Contains(said, t) {
+			return true
+		}
+	}
+	return false
 }
 
 // installErr is what the installation's authorisation returns when the
@@ -227,14 +258,23 @@ func failureNote(log string) string {
 }
 
 // fallbackNote is what is said, once, of an installation whose second
-// task could not be registered; said is what schtasks printed.
+// task could not be registered; said is what schtasks printed. When that
+// gives no reason (see noReason) the note adds what most likely refused it.
 func fallbackNote(said string) string {
 	said = clip(strings.Join(strings.Fields(said), " "))
+	blocked := noReason(said)
 	if said == "" {
 		said = i18n.T("没有给出原因", "no reason given")
 	}
-	return fmt.Sprintf(i18n.T("TUN 已安装，但备用的计划任务没能注册（Windows 的输出：%s）。TUN 照常使用第一个任务；只有它启动不了内核时（多半是域账户连不上域控制器）才会受影响",
+	note := fmt.Sprintf(i18n.T("TUN 已安装，但备用的计划任务没能注册（Windows 的输出：%s）。TUN 照常使用第一个任务；只有它启动不了内核时（多半是域账户连不上域控制器）才会受影响",
 		"TUN is installed, but its second scheduled task couldn't be registered (Windows said: %s). TUN runs on the first task as usual; this only matters when that one can't start the core (most likely a domain account whose controller can't be reached)"), said)
+	if blocked {
+		// The installation stands, so nothing asks for the authorization
+		// again: the task is registered by the next installation.
+		note = fmt.Sprintf(i18n.T("%s。可能是安全软件拦下了这个任务的注册（在 360 安全卫士上见过）；TUN 没有它也能用，可以不处理。想补上它，就在安全软件里放行 bowel 或者暂时退出它，下一次安装 TUN 时会再注册",
+			"%s. Security software may have blocked registering this task (seen with 360 Total Security); TUN works without it, and nothing needs doing. To have it, allow bowel there or quit it for a moment: the next installation of TUN registers it again"), note)
+	}
+	return note
 }
 
 // taskRunErr is why the task did not run, from what schtasks /Run said
