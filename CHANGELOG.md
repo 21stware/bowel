@@ -9,6 +9,7 @@
 - Windows 上接管系统代理时，有的系统在读取原来的代理设置这一步就失败了，报错 `reading the system proxy: InternetQueryOption: The parameter is incorrect.`，接管、关闭和恢复系统代理都做不了，0.4.2 写入时的三步降级也轮不到。报告里的 Windows 11 26200 不接受不带会话句柄、也不带连接名的读取，而 bowel 一直是这样读的。现在这样读被拒绝时，bowel 会用 `InternetOpen` 打开一个会话再读一次局域网设置，读完就关掉；在其他系统上和以前完全一样。写入仍然不带句柄，因为写到会话句柄上的设置可能只对这个会话有效。这项改动没有在 Windows 上实测，只有不依赖系统的测试；写入在这类系统上能不能成功，要等报告者确认（#124）
 - Windows 上「设置 → 关于」里运行配置的按钮以前点了只会报错，现在会在资源管理器中打开所在文件夹并选中该文件。
 - Linux 上「设置 → 关于」里运行配置的按钮以前调用的是 macOS 的 `open -R`，点了没有作用，按钮上还写着 Finder；现在叫「在文件管理器中显示」，会在文件管理器里打开所在文件夹并选中该文件（Nautilus、Dolphin 等支持 `org.freedesktop.FileManager1` 的文件管理器），不支持时用 `xdg-open` 打开所在文件夹
+- Windows 上测速改用系统的 IP Helper（`IcmpSendEcho2Ex`），不再为每个节点启动一个 `ping.exe`；开着 TUN 时仍从物理网卡发出，不会被 TUN 代答。系统里用不了这个接口时才退回 `ping.exe`（#92）。
 
 ## [0.4.2] - 2026-11-12
 
