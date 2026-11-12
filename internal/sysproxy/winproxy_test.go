@@ -2,11 +2,15 @@ package sysproxy
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+
+	"github.com/oboo/moho/internal/settings"
 )
 
 func TestParseWinServer(t *testing.T) {
@@ -396,5 +400,78 @@ func TestWinRefusalAndRestoreSet(t *testing.T) {
 	}
 	if winRestoreSet(winSettings{}, winSettings{}) != setFlags|setServer|setBypass {
 		t.Error("restoring without a script writes more than the three")
+	}
+}
+
+func TestWinQuery(t *testing.T) {
+	refused := fmt.Errorf("InternetQueryOption: %w", winInvalidParameter)
+	type call struct {
+		asked  []uintptr
+		opened int
+		closed int
+	}
+	run := func(answer func(h uintptr) (string, error), openErr error) (string, error, call) {
+		var c call
+		v, err := winQuery(func(h uintptr) (string, error) {
+			c.asked = append(c.asked, h)
+			return answer(h)
+		}, func() (uintptr, func(), error) {
+			c.opened++
+			if openErr != nil {
+				return 0, nil, openErr
+			}
+			return 0xcc, func() { c.closed++ }, nil
+		})
+		return v, err, c
+	}
+
+	t.Run("answered without a handle", func(t *testing.T) {
+		v, err, c := run(func(uintptr) (string, error) { return "lan", nil }, nil)
+		if v != "lan" || err != nil || !slices.Equal(c.asked, []uintptr{0}) || c.opened != 0 {
+			t.Errorf("got %q, %v, %+v", v, err, c)
+		}
+	})
+	t.Run("refused without a handle (#124)", func(t *testing.T) {
+		v, err, c := run(func(h uintptr) (string, error) {
+			if h == 0 {
+				return "", refused
+			}
+			return "lan", nil
+		}, nil)
+		if v != "lan" || err != nil || !slices.Equal(c.asked, []uintptr{0, 0xcc}) || c.opened != 1 || c.closed != 1 {
+			t.Errorf("got %q, %v, %+v", v, err, c)
+		}
+	})
+	t.Run("another error is not retried", func(t *testing.T) {
+		other := fmt.Errorf("InternetQueryOption: %w", syscall.Errno(5))
+		_, err, c := run(func(uintptr) (string, error) { return "", other }, nil)
+		if err != other || c.opened != 0 {
+			t.Errorf("got %v, %+v", err, c)
+		}
+	})
+	t.Run("refused on the handle too", func(t *testing.T) {
+		_, err, c := run(func(uintptr) (string, error) { return "", refused }, nil)
+		if !errors.Is(err, winInvalidParameter) || !strings.Contains(err.Error(), "session handle") || c.closed != 1 {
+			t.Errorf("got %v, %+v", err, c)
+		}
+	})
+	t.Run("no session", func(t *testing.T) {
+		openErr := errors.New("InternetOpen: no")
+		_, err, c := run(func(uintptr) (string, error) { return "", refused }, openErr)
+		if !errors.Is(err, winInvalidParameter) || !errors.Is(err, openErr) || len(c.asked) != 1 {
+			t.Errorf("got %v, %+v", err, c)
+		}
+	})
+}
+
+// Windows refuses a bypass list with a network in it (#124), so the
+// default one has to go in as wildcards.
+func TestWinBypassDefaults(t *testing.T) {
+	got, dropped := winBypass(settings.Defaults.Bypass)
+	if strings.Contains(got, "/") || dropped != nil {
+		t.Errorf("winBypass(defaults) = %q, dropped %v", got, dropped)
+	}
+	if !strings.Contains(got, "169.254.*") || !strings.Contains(got, "192.168.*") {
+		t.Errorf("winBypass(defaults) = %q, want the networks as wildcards", got)
 	}
 }
