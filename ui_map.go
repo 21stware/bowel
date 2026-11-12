@@ -373,7 +373,8 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 		tx, ty := place(a.route, a.place, .64, .8)
 		w, al := float32(1), float32(.3)
 		if a.live {
-			w, al = 1+float32(a.share)*9, .9
+			// Thicker with traffic, but a hairline still: 1.2 to 4 px.
+			w, al = 1.2+float32(a.share)*2.8, .9
 		}
 		if !on {
 			w, al = 0, 0
