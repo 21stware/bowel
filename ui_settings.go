@@ -1093,7 +1093,7 @@ func (u *UI) aboutSection(c *ui.Context, p *pal, _ settings.Settings) {
 	}
 	u.updateRow(c, p)
 	optRow(c, p, i18n.T("运行配置", "Running config"), i18n.T("bowel 生成、mihomo 正在用的配置文件", "The config file bowel writes and mihomo runs on"), func() {
-		btn(c.Key("reveal"), p, i18n.T("在 Finder 中显示", "Show in Finder")).OnClick(func() {
+		btn(c.Key("reveal"), p, revealLabel()).OnClick(func() {
 			if u.app != nil {
 				go func() {
 					if err := u.app.revealConfig(); err != nil {
