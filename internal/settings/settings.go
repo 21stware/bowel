@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -144,8 +145,18 @@ func Open(dir string) (*Store, error) {
 	if err != nil {
 		b = []byte("{}") // no file yet: the defaults
 	}
-	st.s, _ = Decode(b)
+	if st.s, err = Decode(b); err != nil {
+		// What could not be read is the defaults from here on, and the
+		// next save writes them over the file: keep what it held.
+		log.Println("settings: unreadable, kept as", filepath.Base(brokenPath(st.path))+":", err)
+		_ = os.WriteFile(brokenPath(st.path), b, 0o600)
+	}
 	return st, nil
+}
+
+// brokenPath is where a settings file that could not be read is kept.
+func brokenPath(path string) string {
+	return strings.TrimSuffix(path, ".json") + ".broken.json"
 }
 
 // Decode is the settings a settings.json holds: what it leaves out is the

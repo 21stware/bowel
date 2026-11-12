@@ -90,3 +90,45 @@ func tailscaleWord(ts devnet.Tailscale) string {
 	}
 	return i18n.T("未连接", "Not connected")
 }
+
+// meshWord is what 直连 says of Tailscale: whether its machines are kept
+// direct, and how many there are.
+func meshWord(s settings.Settings, ts devnet.Tailscale) string {
+	switch {
+	case s.DevOff || slices.Contains(s.DevOffScenarios, devnet.Mesh):
+		return i18n.T("没有自动直连", "Not kept direct")
+	case ts.Iface == "":
+		return tailscaleWord(ts)
+	}
+	if n := len(ts.Peers); n > 0 {
+		return fmt.Sprintf(i18n.T("已连接 · %d 台设备", "Connected · %d devices"), n)
+	}
+	return i18n.T("已连接", "Connected")
+}
+
+// openDevnet shows 设置 > 开发者网络.
+func (u *UI) openDevnet() {
+	u.set.section, u.set.query, u.set.lit = "devnet", "", nil
+	u.openSettings()
+}
+
+// meshRow is 直连's line about Tailscale, where one would look for a group
+// of its own: its machines go direct by 开发者网络, not by a rule here.
+// A machine without Tailscale has none.
+func (u *UI) meshRow(c *ui.Context, p *pal) {
+	ts := u.snap.Dev.Env.Tailscale
+	if !ts.Installed {
+		return
+	}
+	tip := i18n.T("在设置的「开发者网络」里查看和调整", "See and change it under Developer networks in Settings")
+	b := ui.ButtonBase(c.Key("mesh")).Row().Gap(10).Padding(10, 14).AlignItems(ui.Center).
+		Radius(p.r(10)).Background(p.card).Border(1, p.hair).Margin(0, 0, 14, 0)
+	b.Label("Tailscale").Tooltip(tip).OnClick(u.openDevnet).Children(func() {
+		ui.Text(c, "Tailscale").FontSize(12.5).FontWeight(600).TextColor(p.ink).NoWrap().Shrink(0)
+		ui.Text(c, i18n.T("设备、MagicDNS 和子网自动直连，全局模式下也一样", "Machines, MagicDNS and subnets go direct, in global mode too")).
+			FontSize(12).TextColor(p.mute).SingleLine().Shrink(1).MinWidth(0)
+		ui.Spacer(c)
+		ui.Text(c, meshWord(u.shownSettings(), ts)).FontSize(12.5).TextColor(p.ink2).NoWrap().Shrink(0)
+		ui.Text(c, "›").FontSize(13).TextColor(p.mute).Shrink(0)
+	})
+}
