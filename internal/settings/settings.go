@@ -42,6 +42,10 @@ type Settings struct {
 	// Gateway: this Mac is the LAN's gateway and DNS, through TUN. Like
 	// the entries, it waits while takeover is paused or TUN is off.
 	Gateway bool `json:"gateway"`
+	// TunKeepDNS leaves the system's DNS servers alone under TUN. Unless
+	// set, macOS's are pointed into TUN while it is on (sysdns): settings
+	// saved before this existed take them over too.
+	TunKeepDNS bool `json:"tunKeepSystemDns"`
 
 	Mode      string   `json:"mode"` // rule, global, direct
 	MixedPort int      `json:"mixedPort"`

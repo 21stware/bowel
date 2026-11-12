@@ -19,7 +19,7 @@ var nrptKeys = []string{
 // osDetect reads the route table, and the DNS Windows splits by domain:
 // the policy table's rules, and the suffix of each tunnel's adapter with
 // that adapter's servers.
-func osDetect(ctx context.Context) (routes []Route, resolvers []Resolver) {
+func osDetect(ctx context.Context) (routes []Route, resolvers []Resolver, defaultDNS []string) {
 	routes = fromSystem(netif.Routes(ctx))
 	for _, path := range nrptKeys {
 		resolvers = append(resolvers, nrptRules(path)...)
@@ -32,7 +32,7 @@ func osDetect(ctx context.Context) (routes []Route, resolvers []Resolver) {
 			resolvers = append(resolvers, splitResolvers([]string{a.DNSSuffix}, s, a.Name, proxyDNS)...)
 		}
 	}
-	return routes, dedupeResolvers(resolvers)
+	return routes, dedupeResolvers(resolvers), nil
 }
 
 // nrptRules reads the rules under one key: each a subkey with the names

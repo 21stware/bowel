@@ -50,16 +50,19 @@ type Policy struct {
 // Overlay is what the core's config and the system proxy take from Compile.
 // Each list is what to add: the user's own entries win over them.
 type Overlay struct {
-	Bypass       []string            `json:"bypass"`
-	NoProxy      []string            `json:"noProxy"`
-	FakeIPFilter []string            `json:"fakeIpFilter"`
-	Policy       []Policy            `json:"policy,omitempty"`
-	SystemDNS    []string            `json:"systemDns,omitempty"` // patterns the system's own DNS answers
-	Hosts        map[string][]string `json:"hosts,omitempty"`
-	Rules        []Rule              `json:"rules"`
-	Outbounds    []Outbound          `json:"outbounds,omitempty"`
-	TunExclude   []string            `json:"tunExclude"`
-	SniffSkip    []string            `json:"sniffSkip"`
+	Bypass       []string `json:"bypass"`
+	NoProxy      []string `json:"noProxy"`
+	FakeIPFilter []string `json:"fakeIpFilter"`
+	Policy       []Policy `json:"policy,omitempty"`
+	SystemDNS    []string `json:"systemDns,omitempty"` // patterns the system's own DNS answers
+	// LocalDNS are the servers to ask about SystemDNS in place of the
+	// system's, while those are bowel's placeholder (Env.LocalDNS).
+	LocalDNS   []string            `json:"localDns,omitempty"`
+	Hosts      map[string][]string `json:"hosts,omitempty"`
+	Rules      []Rule              `json:"rules"`
+	Outbounds  []Outbound          `json:"outbounds,omitempty"`
+	TunExclude []string            `json:"tunExclude"`
+	SniffSkip  []string            `json:"sniffSkip"`
 
 	domains  []string
 	prefixes []netip.Prefix
@@ -231,6 +234,9 @@ func Compile(opts Options, env Env) Overlay {
 				b.cidr(p, Direct, true)
 			}
 		}
+	}
+	if len(b.o.SystemDNS) > 0 {
+		b.o.LocalDNS = slices.Clone(env.LocalDNS)
 	}
 	return b.finish()
 }

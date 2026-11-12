@@ -2,6 +2,7 @@ package devnet
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"time"
 
@@ -10,8 +11,9 @@ import (
 
 // osDetect reads the routes of every table with iproute2, and the DNS
 // the system splits by domain from systemd-resolved, where it runs.
-// Without it the system has one set of servers, and nothing is split.
-func osDetect(ctx context.Context) (routes []Route, resolvers []Resolver) {
+// Without it the system has one set of servers, and nothing is split:
+// those of /etc/resolv.conf, which nothing points at the core under TUN.
+func osDetect(ctx context.Context) (routes []Route, resolvers []Resolver, defaultDNS []string) {
 	routes = fromSystem(netif.Routes(ctx))
 	for _, bin := range []string{"resolvectl", "/usr/bin/resolvectl", "/bin/resolvectl"} {
 		path, err := exec.LookPath(bin)
@@ -21,11 +23,14 @@ func osDetect(ctx context.Context) (routes []Route, resolvers []Resolver) {
 		dns, err1 := run(ctx, path, "dns")
 		domains, err2 := run(ctx, path, "domain")
 		if err1 == nil && err2 == nil {
-			resolvers = parseResolved(dns, domains, proxyDNS, isTunnel)
+			return routes, parseResolved(dns, domains, proxyDNS, isTunnel), nil
 		}
-		break
+		break // resolvectl is there, systemd-resolved is not running
 	}
-	return routes, resolvers
+	if b, err := os.ReadFile("/etc/resolv.conf"); err == nil {
+		defaultDNS = parseResolvConf(string(b))
+	}
+	return routes, resolvers, defaultDNS
 }
 
 func run(ctx context.Context, name string, args ...string) (string, error) {

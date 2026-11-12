@@ -492,6 +492,8 @@ func (u *UI) issueAction(action string) {
 		u.do(u.app.retake)
 	case "tun-update":
 		u.do(u.app.updateTun)
+	case "take-dns":
+		u.do(u.app.takeDNSNow)
 	case "activity":
 		u.page = "activity"
 	case "providers":
