@@ -49,6 +49,13 @@ type routesUI struct {
 	armed string // "g:id" or "s:id": 删除 asks to be pressed again
 	delTo string // who inherits a group being deleted
 
+	// main is the group's column, edit the open service's editor as the
+	// last frame laid it out, and reveal a service just opened, made or
+	// moved here, to bring into view once it shows.
+	main   *ui.ScrollState
+	edit   ui.Rect
+	reveal string
+
 	rs ruleSetDraft // 导入规则集
 }
 
@@ -80,7 +87,7 @@ func routeKindLabels() []string {
 func (u *UI) openRoutes(group, svc string) {
 	u.page = "routes"
 	u.selectGroup(group)
-	u.routes.svc = svc
+	u.routes.svc, u.routes.reveal = svc, svc
 }
 
 // ruleHome is where in 路由组 the rule a connection matched lives.
@@ -95,7 +102,7 @@ func (u *UI) ruleHome(cn Conn) (group, svc string, ok bool) {
 
 func (u *UI) selectGroup(id string) {
 	r := &u.routes
-	r.group, r.svc, r.pol, r.armed, r.nameOf, r.nameErr = id, "", false, "", "", ""
+	r.group, r.svc, r.pol, r.armed, r.nameOf, r.nameErr, r.reveal = id, "", false, "", "", "", ""
 	u.home.region, u.home.query = "", ""
 	u.clearRuleDraft()
 	u.closeRuleSetImport()
@@ -531,8 +538,15 @@ func (u *UI) routesPage(c *ui.Context, p *pal) {
 					FontSize(11).TextColor(p.mute).Padding(0, 10)
 				btn(c.Key("new"), p, i18n.T("＋ 新建路由组", "＋ New route group")).AlignSelf(ui.Start).OnClick(func() { u.newGroup(all) })
 			})
-			ui.Scroll(c.Key("main:"+st.group)).Grow(1).Basis(0).MinWidth(0).Padding(0, 12, 0, 0).Children(func() {
-				u.routesGroup(c, p, all, all[at])
+			main := ui.Scroll(c.Key("main:"+st.group)).Grow(1).Basis(0).MinWidth(0).Padding(0, 12, 0, 0)
+			// Both last as long as the column: a group comes up at its top,
+			// with 我添加的 first if it has rules then, and keeps that order
+			// while it shows, so that adding the first rule or removing the
+			// last doesn't carry the list away from under the pointer.
+			st.main = ui.Local(main, "scroll", func() ui.ScrollState { return ui.ScrollState{} })
+			mineUp := *ui.Local(main, "mine-up", func() bool { return hasMine(all[at]) })
+			main.TrackScroll(st.main).Children(func() {
+				u.routesGroup(c, p, all, all[at], mineUp)
 			})
 		})
 	})
@@ -669,8 +683,19 @@ func (u *UI) testerPath(c *ui.Context, p *pal, s settings.Settings, all []routes
 	}
 }
 
-// routesGroup is the chosen group: name, strategy, services.
-func (u *UI) routesGroup(c *ui.Context, p *pal, all []routes.Route, r routes.Route) {
+// hasMine tells whether r's 我添加的 has rules.
+func hasMine(r routes.Route) bool {
+	for _, s := range r.Services {
+		if s.Mine && len(s.Rules) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// routesGroup is the chosen group: name, strategy, services. 我添加的 is
+// listed first when mineUp, and last otherwise.
+func (u *UI) routesGroup(c *ui.Context, p *pal, all []routes.Route, r routes.Route, mineUp bool) {
 	st := &u.routes
 	v := u.route(r.ID)
 	fixedName := routes.Fixed(r.ID)
@@ -756,7 +781,7 @@ func (u *UI) routesGroup(c *ui.Context, p *pal, all []routes.Route, r routes.Rou
 			return 1
 		case !s.Mine:
 			return 2
-		case len(s.Rules) > 0:
+		case mineUp:
 			return 0
 		}
 		return 3
@@ -833,7 +858,7 @@ func (u *UI) servicesHead(c *ui.Context, p *pal, all []routes.Route, r routes.Ro
 			if i := slices.Index(labels, cur) - 1; i >= 0 {
 				id := ids[i]
 				u.changeRouting(func(s *settings.Settings) { s.Routing.MoveService(s.Rules, id, r.ID) }, nil)
-				st.svc = id
+				st.svc, st.reveal = id, id
 				u.clearRuleDraft()
 			}
 		}
@@ -843,7 +868,7 @@ func (u *UI) servicesHead(c *ui.Context, p *pal, all []routes.Route, r routes.Ro
 			s := u.shownSettings().Clone()
 			id := s.Routing.AddService(s.Rules, r.ID, base)
 			u.changeRouting(func(s *settings.Settings) { s.Routing.AddService(s.Rules, r.ID, base) }, nil)
-			st.svc = id
+			st.svc, st.reveal = id, id // it is listed last, often out of view
 			u.clearRuleDraft()
 		})
 	})
@@ -870,8 +895,14 @@ func (u *UI) serviceRow(c *ui.Context, p *pal, all []routes.Route, r routes.Rout
 			sub += i18n.T(" 等", " and more")
 		}
 	}
-	ui.Column(c.Key(s.ID)).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
+	row := ui.Column(c.Key(s.ID)).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2)
+	if st.reveal == s.ID { // as little as shows it, gliding
+		st.reveal = ""
+		row.ScrollIntoView(ui.ScrollIntoViewOptions{Animation: &ui.Smooth})
+	}
+	row.Children(func() {
 		b := ui.ButtonBase(c.Key("head")).Row().Gap(10).Padding(9, 4).AlignItems(ui.Center)
+		at := b.Bounds()
 		over := false
 		if s.Source != "" { // rule sets apply in the order they are listed in
 			b.Drag(setDrag(s.ID))
@@ -894,7 +925,14 @@ func (u *UI) serviceRow(c *ui.Context, p *pal, all []routes.Route, r routes.Rout
 			if open {
 				st.svc = ""
 			} else {
-				st.svc = s.ID
+				// The editor open above this row closes as it opens: scroll
+				// up as far, so that the row stays under the pointer, then
+				// glide only as far as shows its editor. At the top of the
+				// list there is nothing to scroll up, and the row moves up.
+				if st.svc != "" && st.edit.H > 0 && st.edit.Y < at.Y && st.main != nil {
+					st.main.Y -= st.edit.H
+				}
+				st.svc, st.reveal = s.ID, s.ID
 			}
 			st.armed = ""
 			u.clearRuleDraft()
@@ -929,7 +967,9 @@ func (u *UI) serviceRow(c *ui.Context, p *pal, all []routes.Route, r routes.Rout
 
 func (u *UI) serviceEditor(c *ui.Context, p *pal, all []routes.Route, r routes.Route, s routes.Service) {
 	st := &u.routes
-	ui.Column(c.Key("editor")).Gap(8).Padding(2, 4, 12, 4).Children(func() {
+	ed := ui.Column(c.Key("editor")).Gap(8).Padding(2, 4, 12, 4)
+	st.edit = ed.Bounds()
+	ed.Children(func() {
 		if !s.Builtin && !s.Mine {
 			u.serviceName(c, p, all, s)
 		}
@@ -967,7 +1007,7 @@ func (u *UI) serviceEditor(c *ui.Context, p *pal, all []routes.Route, r routes.R
 					to := ids[i]
 					u.changeRouting(func(st *settings.Settings) { st.Routing.MoveService(st.Rules, s.ID, to) }, nil)
 					u.selectGroup(to)
-					st.svc = s.ID
+					st.svc, st.reveal = s.ID, s.ID
 				}
 			}
 			n := 0
