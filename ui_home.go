@@ -2132,6 +2132,9 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 				status = i18n.T("正在应用…", "Applying…")
 			case t.System.Status == "on":
 				status = i18n.T("生效中", "Active")
+				if t.System.Detail != "" {
+					status += " · " + t.System.Detail
+				}
 			case t.System.Status == "hijacked":
 				status = i18n.T("被其他程序改掉了 · ", "Changed by another app · ") + t.System.Detail
 			case t.System.Status == "error":
