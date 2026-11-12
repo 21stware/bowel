@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/i18n"
@@ -376,5 +377,103 @@ func TestTunInstallIsNoted(t *testing.T) {
 	osTun.note = func(dst string) string { return "no second task for " + dst }
 	if err := a.installTun(); err != nil || last() != "bowel: tun: no second task for /tun" {
 		t.Errorf("made without the second task: %v, logged %q", err, last())
+	}
+}
+
+// Issue 117: with TUN in the config, the core that runs is the copy the
+// installation made. An app that started before the installation was
+// valid runs the bundled core, which has no right to make the device.
+func TestTurningTunOnMovesToTheInstalledCore(t *testing.T) {
+	saved := osTun
+	defer func() { osTun = saved }()
+	installed := true
+	osTun.installed = func(string) bool { return installed }
+	dir := t.TempDir()
+	st, err := settings.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := core.New("/bundle/mihomo", filepath.Join(dir, "core"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &App{core: m, coreBin: "/bundle/mihomo", tunBin: "/tun/mihomo", settings: st}
+	on := settings.Settings{Tun: true}
+	for _, tc := range []struct {
+		name string
+		s    settings.Settings
+		prep func()
+		want string
+	}{
+		{name: "TUN is not wanted", s: settings.Settings{SystemProxy: true}, want: "/bundle/mihomo"},
+		{name: "takeover is paused", s: settings.Settings{Tun: true, Paused: true}, want: "/bundle/mihomo"},
+		{name: "not installed", s: on, prep: func() { installed = false }, want: "/bundle/mihomo"},
+		{name: "its task is gone", s: on, prep: func() { a.tunGone.Store(true) }, want: "/bundle/mihomo"},
+		{name: "its core was given up on", s: on, prep: func() { why := "no"; a.tunFault.Store(&why) }, want: "/bundle/mihomo"},
+		{name: "installed and wanted", s: on, want: "/tun/mihomo"},
+	} {
+		installed = true
+		a.tunGone.Store(false)
+		a.tunFault.Store(nil)
+		m.SetBin("/bundle/mihomo")
+		if tc.prep != nil {
+			tc.prep()
+		}
+		a.useTunCore(tc.s)
+		if got := m.BinPath(); got != tc.want {
+			t.Errorf("%s: the core is %s, want %s", tc.name, got, tc.want)
+		}
+	}
+}
+
+// Issue 117: TUN is on when the core says its device is up, not when the
+// settings say it should be.
+func TestTunDownIsToldByTheCore(t *testing.T) {
+	a := &App{}
+	started := time.Now()
+	cs := core.Status{State: core.Running, StartedAt: started}
+	if why := a.tunDown(cs); why != "" {
+		t.Errorf("nothing known: %q", why)
+	}
+	// The core's own line is believed before anything was asked.
+	said := cs
+	said.TunError = "configure tun interface: Access is denied."
+	if why := a.tunDown(said); !strings.Contains(why, "TUN 设备") || !strings.Contains(why, "Access is denied.") {
+		t.Errorf("the core's line: %q", why)
+	}
+	// One answer is not enough (the device is taken down and up when the
+	// config changes), two in a row are.
+	a.tunUp = tunUpProbe{started: started, since: started}
+	p := a.tunUp
+	if a.noteTunUp(p, false, true) || a.tunDown(cs) != "" {
+		t.Error("one answer was believed")
+	}
+	if !a.noteTunUp(p, false, true) || a.tunDown(cs) == "" {
+		t.Error("two answers in a row were not")
+	}
+	if why := a.tunDown(said); !strings.Contains(why, "Access is denied.") {
+		t.Errorf("down, with the reason heard: %q", why)
+	}
+	// No answer changes nothing, and an answer about another run is dropped.
+	if a.noteTunUp(p, true, false) || a.tunDown(cs) == "" {
+		t.Error("no answer was taken for one")
+	}
+	other := cs
+	other.StartedAt = started.Add(time.Minute)
+	if a.tunDown(other) != "" {
+		t.Error("an answer about another run of the core was believed")
+	}
+	if a.noteTunUp(tunUpProbe{started: other.StartedAt, since: started}, true, true) || a.tunDown(cs) == "" {
+		t.Error("an answer to a question about another run was taken")
+	}
+	// Up again: and a line from before does not outlast the core's answer.
+	if !a.noteTunUp(p, true, true) || a.tunDown(cs) != "" || a.tunDown(said) != "" {
+		t.Error("the device is up and is said to be down")
+	}
+	// A core that is not running has its own way of being told of.
+	a.noteTunUp(p, false, true)
+	a.noteTunUp(p, false, true)
+	if a.tunDown(core.Status{State: core.Failed, StartedAt: started}) != "" {
+		t.Error("a core that is not running was said to have TUN down")
 	}
 }

@@ -41,7 +41,11 @@ type Status struct {
 	Version string `json:"version,omitempty"`
 	// Error is why the core failed or, while it runs, the proxy port it
 	// could not open.
-	Error     string    `json:"error,omitempty"`
+	Error string `json:"error,omitempty"`
+	// TunError is what the running core said when it could not bring the
+	// TUN device up, "" when it said nothing of the kind or the device
+	// came up since.
+	TunError  string    `json:"tunError,omitempty"`
 	PID       int       `json:"pid,omitempty"`
 	StartedAt time.Time `json:"startedAt,omitzero"`
 }
@@ -94,6 +98,7 @@ type Manager struct {
 	client    *mihomo.Client
 	status    Status
 	listenErr string // the proxy port the running core could not open
+	tunErr    string // why the running core could not bring the TUN device up
 	loading   bool   // see Loading
 	timing    ApplyTiming
 	stopping  bool
@@ -202,6 +207,13 @@ func (m *Manager) SetBin(bin string) {
 	m.mu.Unlock()
 }
 
+// BinPath is the executable the next start uses.
+func (m *Manager) BinPath() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.Bin
+}
+
 // Status returns the current status.
 func (m *Manager) Status() Status {
 	m.mu.Lock()
@@ -209,6 +221,7 @@ func (m *Manager) Status() Status {
 	s := m.status
 	if s.State == Running {
 		s.Error = m.listenErr
+		s.TunError = m.tunErr
 	}
 	return s
 }
@@ -307,6 +320,7 @@ func (m *Manager) Apply(cfg []byte) error {
 	listenErr := m.listenErr
 	m.mu.Unlock()
 	m.setListenErr("") // a reload tries a port again, and says so if it fails
+	m.setTunErr("")    // and the TUN device
 	began := time.Now()
 	err = c.Reload(ctx, tmp)
 	since(&t.Reload, began)
@@ -425,6 +439,7 @@ func (m *Manager) run() error {
 	}
 	killStale(filepath.Join(m.Dir, "mihomo.pid"))
 	m.setListenErr("")
+	m.setTunErr("")
 	if m.socket != "" {
 		_ = os.Remove(m.socket)
 	}
@@ -627,7 +642,51 @@ func (m *Manager) readLogs(r io.Reader) {
 	for sc.Scan() {
 		m.logs.add(sc.Text())
 		m.noteListenError(sc.Text())
+		m.noteTunError(sc.Text())
 	}
+}
+
+// tunListenFailed is what mihomo logs for a TUN device it cannot bring
+// up (no right to make one: a core that is not the installed copy, or
+// that Windows' task did not start). Like a port it cannot open, it goes
+// on without it. tunListening is its line for a device that came up.
+var (
+	tunListenFailed = regexp.MustCompile(`Start TUN listening error: (.*?)"?\s*$`)
+	tunListening    = regexp.MustCompile(`\[TUN\] Tun adapter listening at`)
+)
+
+func (m *Manager) noteTunError(line string) {
+	if g := tunListenFailed.FindStringSubmatch(line); g != nil {
+		m.setTunErr(g[1])
+	} else if tunListening.MatchString(line) {
+		m.setTunErr("")
+	}
+}
+
+func (m *Manager) setTunErr(msg string) {
+	m.mu.Lock()
+	changed := m.tunErr != msg
+	m.tunErr = msg
+	fn := m.OnListenError
+	m.mu.Unlock()
+	if changed && fn != nil {
+		fn()
+	}
+}
+
+// TunUp asks the running core whether its TUN device is up: its answer
+// is the listener as it is, whatever the config asked for. known is false
+// when there is no core to ask or it did not answer.
+func (m *Manager) TunUp(ctx context.Context) (up, known bool) {
+	c, err := m.Client()
+	if err != nil {
+		return false, false
+	}
+	cfg, err := c.Config(ctx)
+	if err != nil {
+		return false, false
+	}
+	return cfg.Tun.Enable, true
 }
 
 // proxyListenFailed is what mihomo logs for a proxy port it cannot open. It

@@ -108,6 +108,12 @@ type Config struct {
 	AllowLan  bool   `json:"allow-lan"`
 	LogLevel  string `json:"log-level"`
 	IPv6      bool   `json:"ipv6"`
+	// Tun is the TUN listener as it is, not as the config asked for it:
+	// a device the core could not bring up reads as not enabled.
+	Tun struct {
+		Enable bool   `json:"enable"`
+		Device string `json:"device"`
+	} `json:"tun"`
 }
 
 func (c *Client) Config(ctx context.Context) (Config, error) {
