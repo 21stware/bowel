@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+
+	"golang.org/x/image/draw"
 
 	"github.com/oboo/moho/internal/nowindow"
 )
@@ -72,4 +76,28 @@ func pngWidth(b []byte) int {
 		return 0
 	}
 	return int(binary.BigEndian.Uint32(b[16:]))
+}
+
+// maxIcon is the largest side of an icon bowel decodes. A PNG's header
+// can claim any size, and the decoder allocates what it claims.
+const maxIcon = 1024
+
+// iconImage is an icon's PNG decoded and scaled down to px wide, as it is
+// kept while the window lasts; nil when it isn't a PNG or is larger than
+// maxIcon a side.
+func iconImage(b []byte, px int) image.Image {
+	cfg, err := png.DecodeConfig(bytes.NewReader(b))
+	if err != nil || cfg.Width < 1 || cfg.Height < 1 || cfg.Width > maxIcon || cfg.Height > maxIcon {
+		return nil
+	}
+	img, err := png.Decode(bytes.NewReader(b))
+	if err != nil {
+		return nil
+	}
+	if cfg.Width <= px {
+		return img
+	}
+	small := image.NewRGBA(image.Rect(0, 0, px, max(1, cfg.Height*px/cfg.Width)))
+	draw.CatmullRom.Scale(small, small.Bounds(), img, img.Bounds(), draw.Src, nil)
+	return small
 }

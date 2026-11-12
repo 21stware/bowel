@@ -2,6 +2,8 @@ package main
 
 import (
 	"cmp"
+	"os"
+	"path"
 	"runtime"
 	"slices"
 	"strings"
@@ -30,19 +32,20 @@ func (a *App) runningApps() []appChoice {
 
 // appChoices are the applications of the running programs and of the
 // connections' (their paths, or names), each once: those with connections
-// first, then by name. On macOS an application is a bundle, so a running
-// program outside one (a daemon, a shell) is left out, and so are the
-// system's own bundles (/System/Library); a program with connections is
-// offered whatever it is, since its rule is what was asked for.
+// first, then by name. A running program is offered only when offered says
+// so; a program with connections is offered whatever it is, since its rule
+// is what was asked for. bowel itself is never offered. Of two bundles of
+// the same name, one where apps are installed is shown, by its spelling:
+// Claude Code keeps a claude.app of its own beside /Applications/Claude.app.
 func appChoices(running, connected []string) []appChoice {
 	var out []appChoice
 	add := func(p string, conn bool) {
 		name := routes.AppOf(p)
-		if name == "" {
+		if name == "" || strings.EqualFold(name, ownApp) {
 			return
 		}
 		bundle := bundleOf(p, name)
-		if !conn && runtime.GOOS == "darwin" && (bundle == "" || systemBundle(bundle)) {
+		if !conn && !offered(p, bundle) {
 			return
 		}
 		i := slices.IndexFunc(out, func(c appChoice) bool { return strings.EqualFold(c.Name, name) })
@@ -50,8 +53,8 @@ func appChoices(running, connected []string) []appChoice {
 			out = append(out, appChoice{Name: name, Bundle: bundle})
 			i = len(out) - 1
 		}
-		if out[i].Bundle == "" {
-			out[i].Bundle = bundle
+		if bundle != "" && (out[i].Bundle == "" || installed(bundle) && !installed(out[i].Bundle)) {
+			out[i].Name, out[i].Bundle = name, bundle
 		}
 		if conn {
 			out[i].Conns++
@@ -87,6 +90,56 @@ func bundleOf(p, name string) string {
 		return ""
 	}
 	return p[:i+1+len(name)]
+}
+
+// ownApp is bowel's own application, as a rule would name it.
+var ownApp = func() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return routes.AppOf(exe)
+}()
+
+// offered says whether a running program is offered without connections.
+// On macOS an application is a bundle, so a program outside one (a daemon,
+// a shell) is not, nor are the system's own bundles (/System/Library) and
+// those inside a framework (Homebrew's Python.app). On Linux the system's
+// helpers and the shells are left out. On Windows none is, until the list
+// has been tried on a Windows machine: there only apps with connections.
+func offered(p, bundle string) bool {
+	switch runtime.GOOS {
+	case "darwin":
+		return bundle != "" && !systemBundle(bundle) && !strings.Contains(strings.ToLower(bundle), ".framework/")
+	case "windows":
+		return false
+	case "linux":
+		for _, dir := range []string{"/usr/lib/systemd/", "/lib/systemd/", "/usr/libexec/"} {
+			if strings.HasPrefix(p, dir) {
+				return false
+			}
+		}
+		return !slices.Contains(shells, path.Base(p))
+	}
+	return true
+}
+
+// shells are the common shells, programs no one gives a rule of their own.
+var shells = []string{"sh", "bash", "dash", "zsh", "fish", "ksh", "mksh", "tcsh", "csh", "nu", "elvish"}
+
+// installed says whether a bundle is where apps are installed: the
+// Applications folders of the system, the computer and the user.
+func installed(b string) bool {
+	dirs := []string{"/Applications/", "/System/Applications/"}
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, home+"/Applications/")
+	}
+	for _, dir := range dirs {
+		if strings.HasPrefix(b, dir) {
+			return true
+		}
+	}
+	return false
 }
 
 // systemBundle says whether a bundle is part of macOS itself, where no one

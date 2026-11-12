@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"image"
-	"image/png"
 	"runtime"
 	"slices"
 	"strings"
@@ -26,6 +24,10 @@ type appPicker struct {
 	icons map[string]*ui.Bitmap
 	tried map[string]bool // bundles whose icon was looked for
 }
+
+// none says the list came back empty: no process list here and no
+// connections, so there is nothing to pick.
+func (pk *appPicker) none() bool { return !pk.at.IsZero() && len(pk.apps) == 0 }
 
 // appsEvery is how old the list may get while the editor shows it.
 const appsEvery = 5 * time.Second
@@ -51,10 +53,8 @@ func (u *UI) loadApps() {
 				continue
 			}
 			tried[a.Bundle] = true
-			if b := bundleIcon(a.Bundle, 36); b != nil {
-				if img, err := png.Decode(bytes.NewReader(b)); err == nil {
-					icons[a.Bundle] = img
-				}
+			if img := iconImage(bundleIcon(a.Bundle, 36), 36); img != nil {
+				icons[a.Bundle] = img
 			}
 		}
 		u.win.Update(func() {

@@ -89,3 +89,19 @@ func TestPickable(t *testing.T) {
 		}
 	}
 }
+
+// TestRoutesPickAppNone: where there is nothing to pick (no process list
+// and no connections), the hint doesn't point at a list below.
+func TestRoutesPickAppNone(t *testing.T) {
+	withAppRules(t, true)
+	u := routesFixture()
+	u.selectGroup("ai")
+	u.routes.svc = routes.MineID("ai")
+	u.routes.kind = routes.KindApp
+	u.routes.picker = appPicker{at: time.Now()}
+	tt := ui.NewTester(u.view, 1060, 1400)
+	tt.Advance(time.Second)
+	if hasTextPart(tt, "在下面点一个正在运行的应用") || !hasTextPart(tt, "写应用或进程的名字") {
+		t.Errorf("hint with nothing to pick: %q", tt.Texts())
+	}
+}

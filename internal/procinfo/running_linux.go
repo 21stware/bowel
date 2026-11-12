@@ -3,6 +3,7 @@ package procinfo
 import (
 	"os"
 	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -23,8 +24,10 @@ func running() []string {
 		if fi, err := os.Stat(dir); err != nil || fi.Sys().(*syscall.Stat_t).Uid != uid {
 			continue
 		}
+		// A program replaced on disk since it started (by an upgrade) reads
+		// as "<path> (deleted)".
 		if exe, err := os.Readlink(dir + "/exe"); err == nil && exe != "" {
-			out = append(out, exe)
+			out = append(out, strings.TrimSuffix(exe, " (deleted)"))
 		}
 	}
 	return out
