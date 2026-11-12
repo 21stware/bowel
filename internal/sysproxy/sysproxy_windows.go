@@ -27,6 +27,8 @@ var (
 	wininet         = windows.NewLazySystemDLL("wininet.dll")
 	procSetOption   = wininet.NewProc("InternetSetOptionW")
 	procQueryOption = wininet.NewProc("InternetQueryOptionW")
+	procOpen        = wininet.NewProc("InternetOpenW")
+	procCloseHandle = wininet.NewProc("InternetCloseHandle")
 	procGlobalFree  = windows.NewLazySystemDLL("kernel32.dll").NewProc("GlobalFree")
 )
 
@@ -132,14 +134,32 @@ func apply(ws winSettings, set winSet) error {
 	return write(opts, keep...)
 }
 
+// openSession opens a WinINet session that takes the system's settings,
+// for read to ask on when Windows refuses to answer without one.
+func openSession() (uintptr, func(), error) {
+	agent, _ := windows.UTF16PtrFromString("bowel")
+	const preconfig = 0 // INTERNET_OPEN_TYPE_PRECONFIG
+	h, _, err := procOpen.Call(uintptr(unsafe.Pointer(agent)), preconfig, 0, 0, 0)
+	runtime.KeepAlive(agent)
+	if h == 0 {
+		return 0, nil, fmt.Errorf("InternetOpen: %w", err)
+	}
+	return h, func() { procCloseHandle.Call(h) }, nil
+}
+
 // read reads the LAN settings.
 func read() (winSettings, error) {
+	return winQuery(readOn, openSession)
+}
+
+// readOn reads the LAN settings on WinINet handle h, 0 for none.
+func readOn(h uintptr) (winSettings, error) {
 	query := func(flagsOption uint32) ([]perConnOption, error) {
 		opts := []perConnOption{{option: flagsOption}, {option: connServer}, {option: connBypass}, {option: connPAC}}
 		list := perConnOptionList{count: uint32(len(opts)), options: &opts[0]}
 		list.size = uint32(unsafe.Sizeof(list))
 		n := list.size
-		r, _, err := procQueryOption.Call(0, optPerConnection, uintptr(unsafe.Pointer(&list)), uintptr(unsafe.Pointer(&n)))
+		r, _, err := procQueryOption.Call(h, optPerConnection, uintptr(unsafe.Pointer(&list)), uintptr(unsafe.Pointer(&n)))
 		runtime.KeepAlive(opts)
 		if r == 0 {
 			return nil, fmt.Errorf("InternetQueryOption: %w", err)
