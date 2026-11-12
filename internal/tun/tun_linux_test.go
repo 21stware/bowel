@@ -1,6 +1,7 @@
 package tun
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"io/fs"
@@ -131,6 +132,19 @@ func TestAdminError(t *testing.T) {
 	}
 	if err := adminError(1, "chown: no", e); !strings.Contains(err.Error(), "chown: no") {
 		t.Errorf("1: %v", err)
+	}
+	// No agent to ask the user (SSH, a minimal desktop): said as that, with
+	// pkexec's own line and not its whole text.
+	for _, msg := range []string{
+		"Error executing command as another user: No authentication agent found.",
+		"Error creating textual authentication agent: Error opening current controlling terminal for the process (`/dev/tty'): No such device or address\nmore",
+	} {
+		err := adminError(127, msg, e)
+		first, _, _ := strings.Cut(msg, "\n")
+		if err == ErrCanceled || !strings.Contains(err.Error(), first) || strings.Contains(err.Error(), "more") ||
+			err.Error() == adminError(127, "Not authorized", e).Error() || !strings.Contains(err.Error(), "polkit") {
+			t.Errorf("no agent: %v", err)
+		}
 	}
 }
 
@@ -503,5 +517,43 @@ func TestInstallStepWithRule(t *testing.T) {
 	plain, err := installStep(tmp, dst)
 	if err != nil || plain[len(plain)-1] != dst {
 		t.Errorf("step = %q, %v", plain, err)
+	}
+}
+
+// What resolved says of the TUN device: servers, none, or nothing that
+// can be read as either.
+func TestLinkDNS(t *testing.T) {
+	for _, c := range []struct {
+		out            string
+		pointed, known bool
+	}{
+		{"Link 7 (Meta): 198.18.0.2\n", true, true},
+		{"Link 7 (Meta): 198.18.0.2 fdfe:dcba:9876::2\n", true, true},
+		{"Link 7 (Meta):\n", false, true},
+		{"Link 7 (Meta): \n", false, true},
+		{"Link 7 (Meta):\n          198.18.0.2\n", true, true},
+		{"Link 2 (enp3s0): 192.168.1.1\n", false, false}, // another link
+		{"Link 7 (Meta):\nLink 8 (x): 1.1.1.1\n", false, false},
+		{"Global: 1.1.1.1\n", false, false},
+		{"", false, false},
+	} {
+		if p, k := parseLinkDNS(c.out, "Meta"); p != c.pointed || k != c.known {
+			t.Errorf("%q: pointed %v, known %v", c.out, p, k)
+		}
+	}
+	saved := linkDNSRun
+	defer func() { linkDNSRun = saved; SetDevice("") }()
+	asked := ""
+	linkDNSRun = func(_ context.Context, dev string) (string, error) {
+		asked = dev
+		return "Link 9 (" + dev + "):\n", nil
+	}
+	SetDevice("bowel0")
+	if p, k := LinkDNS(context.Background()); p || !k || asked != "bowel0" {
+		t.Errorf("pointed %v, known %v, asked %q", p, k, asked)
+	}
+	linkDNSRun = func(context.Context, string) (string, error) { return "", errors.New("Failed to resolve interface") }
+	if p, k := LinkDNS(context.Background()); p || k {
+		t.Errorf("no device: pointed %v, known %v", p, k)
 	}
 }

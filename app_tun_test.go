@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/i18n"
@@ -341,5 +342,100 @@ func TestTunCoreFailureKeepsACore(t *testing.T) {
 	}
 	if tk := a.snapshot().Takeover.Tun; tk.Status != "off" || attempts() != 2 || a.core.Status().State != core.Running {
 		t.Fatalf("after tun off: %+v, %d attempts, core %+v", tk, attempts(), a.core.Status())
+	}
+}
+
+// TestTunWithoutDNSRuleIsANotice: issue 117. TUN on with an installation
+// from before the polkit rule looked fine and was not: the system's DNS
+// was never pointed at TUN. It is told of as a stale core is, with the
+// one authorization as its action, and the light stays green.
+func TestTunWithoutDNSRuleIsANotice(t *testing.T) {
+	saved := osTun
+	defer func() { osTun = saved }()
+	ruled := false
+	osTun.needsRule = func(string) bool { return !ruled }
+	started := time.Now().Add(-time.Minute)
+	cs := core.Status{State: core.Running, StartedAt: started}
+	snap := Snapshot{Nodes: []NodeView{{Name: "n"}}}
+	on := Takeover{Tun: Entry{Wanted: true, Status: "on"}}
+	tunOn := settings.Settings{Tun: true}
+	a := &App{}
+
+	st, is := a.judge(true, tunOn, cs, on, snap, nil)
+	if st != StateOK || is == nil || is.Action != "tun-update" || is.Detail == "" {
+		t.Fatalf("no rule: state %v, issue %+v", st, is)
+	}
+	if d := tunDNSDetail(a.tunDNSState(cs)); d == "" {
+		t.Error("no rule: the TUN entry says nothing")
+	}
+	// Not for a TUN that is not on: turning it on asks, as before.
+	for _, tk := range []Takeover{{}, {Tun: Entry{Wanted: true, Status: "install"}}, {Tun: Entry{Wanted: true, Status: "error"}}} {
+		if _, is := a.judge(true, tunOn, cs, tk, snap, nil); is != nil {
+			t.Errorf("TUN %q: %+v", tk.Tun.Status, is)
+		}
+	}
+	if _, is := a.judge(true, settings.Settings{}, cs, Takeover{}, snap, nil); is != nil {
+		t.Errorf("TUN not wanted: %+v", is)
+	}
+	// A stale core is replaced under the same authorization, and says so first.
+	a.tunStale.Store(true)
+	if _, is := a.judge(true, tunOn, cs, on, snap, nil); is == nil || !strings.Contains(is.Text, i18n.T("内核", "core")) {
+		t.Errorf("stale and no rule: %+v", is)
+	}
+	a.tunStale.Store(false)
+
+	// resolved seen without servers for the device: said outright.
+	a.tunDNS = tunDNSProbe{started: started, since: started}
+	a.tunDNS.note(time.Now(), false, true)
+	if _, unpointed := a.tunDNSState(cs); unpointed {
+		t.Error("one look is believed: a device being replaced has no servers for a moment")
+	}
+	a.tunDNS.note(time.Now(), false, true)
+	_, both := a.judge(true, tunOn, cs, on, snap, nil)
+	if both == nil || both.Action != "tun-update" || both.Text == is.Text {
+		t.Errorf("no rule and no servers: %+v", both)
+	}
+	// The same with the rule there (refused by polkit, or of no use): told
+	// of, and no authorization offered, since it would change nothing.
+	ruled = true
+	if _, is := a.judge(true, tunOn, cs, on, snap, nil); is == nil || is.Action != "" || is.Text != both.Text {
+		t.Errorf("rule and no servers: %+v", is)
+	}
+	if d := tunDNSDetail(a.tunDNSState(cs)); d == "" {
+		t.Error("no servers: the TUN entry says nothing")
+	}
+	// What was seen belongs to one run of the core.
+	if _, unpointed := a.tunDNSState(core.Status{State: core.Running, StartedAt: time.Now()}); unpointed {
+		t.Error("another run of the core is judged by the last one's look")
+	}
+
+	// Servers seen there: nothing to tell, even without the rule (the user
+	// answered the system's own dialogs).
+	ruled = false
+	a.tunDNS.note(time.Now(), true, true)
+	if _, is := a.judge(true, tunOn, cs, on, snap, nil); is != nil {
+		t.Errorf("pointed: %+v", is)
+	}
+	if d := tunDNSDetail(a.tunDNSState(cs)); d != "" {
+		t.Errorf("pointed: the entry says %q", d)
+	}
+	// resolved not answering says nothing either way.
+	a.tunDNS.note(time.Now(), false, false)
+	if noRule, unpointed := a.tunDNSState(cs); !noRule || unpointed {
+		t.Errorf("unknown: noRule %v, unpointed %v", noRule, unpointed)
+	}
+}
+
+// TestTunDNSRuleNotAskedWhereRefused: where polkit's directory refused
+// the rule the installation says it needs none (tun.NeedsRule), and bowel
+// does not ask at every start.
+func TestTunDNSRuleNotAskedWhereRefused(t *testing.T) {
+	saved := osTun
+	defer func() { osTun = saved }()
+	osTun.needsRule = func(string) bool { return false }
+	a := &App{}
+	cs := core.Status{State: core.Running, StartedAt: time.Now()}
+	if _, is := a.judge(true, settings.Settings{Tun: true}, cs, Takeover{Tun: Entry{Wanted: true, Status: "on"}}, Snapshot{Nodes: []NodeView{{Name: "n"}}}, nil); is != nil {
+		t.Errorf("%+v", is)
 	}
 }

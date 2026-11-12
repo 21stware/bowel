@@ -1,6 +1,7 @@
 package tun
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,7 +10,9 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 )
 
 // With TUN on, the core points systemd-resolved at its own resolver for
@@ -199,4 +202,58 @@ func ruleStepWith(tmp, refused, rule, mark string) Step {
 	return Step{" && { " + tool("install") + " -m 0644 -o root -g root ", tmp, " ", rule,
 		" && " + mv, tmp, " ", mark, " || " + mv, refused, " ", mark,
 		"; " + tool("rm") + " -f ", tmp, " ", refused, "; }"}
+}
+
+// linkDNSRun is `resolvectl dns <dev>`, which asks polkit for nothing.
+// Tests replace it.
+var linkDNSRun = func(ctx context.Context, dev string) (string, error) {
+	path, err := ruleLook("resolvectl")
+	if err != nil {
+		return "", err
+	}
+	c, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(c, path, "dns", dev).Output()
+	return string(out), err
+}
+
+var linkDNSLine = regexp.MustCompile(`^Link \d+ \(([^)]+)\):(.*)$`)
+
+// LinkDNS asks systemd-resolved what DNS servers the TUN device has:
+// those the core gave it with `resolvectl dns`, when it was allowed to.
+// None means the system's lookups do not go to TUN's resolver. known is
+// false wherever that cannot be told: no resolvectl, resolved not
+// running, no such device, or an answer in a form not understood.
+func LinkDNS(ctx context.Context) (pointed, known bool) {
+	dev := ruleDevice()
+	out, err := linkDNSRun(ctx, dev)
+	if err != nil {
+		return false, false
+	}
+	return parseLinkDNS(out, dev)
+}
+
+// parseLinkDNS reads `resolvectl dns <dev>`: one line, going on over
+// indented ones when the list is long.
+//
+//	Link 7 (Meta): 198.18.0.2
+func parseLinkDNS(out, dev string) (pointed, known bool) {
+	lines := strings.Split(strings.TrimRight(out, "\r\n"), "\n")
+	m := linkDNSLine.FindStringSubmatch(strings.TrimRight(lines[0], " \r"))
+	if m == nil || m[1] != dev {
+		return false, false
+	}
+	if strings.TrimSpace(m[2]) != "" {
+		return true, true
+	}
+	for _, l := range lines[1:] {
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		if !strings.HasPrefix(l, " ") && !strings.HasPrefix(l, "\t") {
+			return false, false
+		}
+		return true, true
+	}
+	return false, true
 }
