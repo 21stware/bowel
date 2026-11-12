@@ -18,7 +18,9 @@ import (
 // Imported is the routing a complete Clash config brings with it: its nodes,
 // groups and rules, and what those depend on. Everything else in such a
 // config (ports, DNS, TUN, listeners, a controller, scripts) is Moho's to
-// decide or none of the source's business, and is never read.
+// decide or none of the source's business, and is never used. Of that only
+// the DNS lists are read at all (DNSFill), to be copied into the settings
+// if the user asks.
 //
 // The nodes keep the names the source gave them and go at the top level of
 // the runtime config. A group's `proxies:` can only name top-level proxies,
@@ -35,6 +37,9 @@ type Imported struct {
 	// Unused are the parts of the config, of unusedKeys, that it has and
 	// that are not used: someone who wrote them expects them to work.
 	Unused []string `yaml:"-"`
+	// DNS is what the config says of DNS that the settings have a place
+	// for. It is not used either; it is there to be copied over when asked.
+	DNS DNSFill `yaml:"-"`
 }
 
 // unusedKeys are the settings of a config that act on traffic, and that
@@ -98,6 +103,7 @@ func ParseImported(data []byte, local func(name string) []string) (*Imported, er
 		return nil, err
 	}
 	im.Unused = unused(data)
+	im.DNS = importedDNS(data)
 	return &im, nil
 }
 

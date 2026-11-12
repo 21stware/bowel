@@ -30,6 +30,7 @@ type providersUI struct {
 	empty bool   // the list was empty in the last frame
 
 	open    string    // the provider whose nodes show, "" for none
+	offer   string    // the provider just added whose config brings a routing: it is asked about once
 	confirm string    // the provider whose 删除 asks to be pressed again
 	confAt  time.Time // when it started asking
 
@@ -255,8 +256,8 @@ func (u *UI) provFileBtn(c *ui.Context, p *pal, fail func(string)) {
 			case err != nil:
 				fail(err.Error())
 			case pv != nil && u.win != nil:
-				id := pv.ID
-				u.win.Update(func() { u.prov.open = id })
+				added := *pv
+				u.win.Update(func() { u.provAdded(added) })
 			}
 		}()
 	})
@@ -345,10 +346,20 @@ func (u *UI) provSubmit(input string, fail func(string)) {
 				if strings.TrimSpace(u.prov.input) == input {
 					u.prov.input = ""
 				}
-				u.prov.open = pv.ID
+				u.provAdded(pv)
 			})
 		}
 	}()
+}
+
+// provAdded opens the provider just added. One whose config brings a routing
+// of its own is asked about there and then: it is the moment someone knows
+// what they added, and the line under the name is easy to miss.
+func (u *UI) provAdded(pv ProviderView) {
+	u.prov.open = pv.ID
+	if pv.Routing.Groups > 0 && pv.Routing.Problem == "" && !pv.Routing.InUse {
+		u.prov.offer = pv.ID
+	}
 }
 
 // ---- Rows ----

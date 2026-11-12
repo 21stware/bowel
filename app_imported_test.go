@@ -15,6 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
+	"github.com/oboo/moho/internal/core"
+	"github.com/oboo/moho/internal/devnet"
 	"github.com/oboo/moho/internal/mcp"
 	"github.com/oboo/moho/internal/mihomo"
 	"github.com/oboo/moho/internal/provider"
@@ -317,6 +321,132 @@ func TestImportedUnusedSettings(t *testing.T) {
 	im, _ := out["imported"].(map[string]any)
 	if got, _ := im["unusedSettings"].([]any); len(got) != 2 || got[0] != "dns" || got[1] != "listeners" {
 		t.Errorf("list_routes: %v", im["unusedSettings"])
+	}
+}
+
+// TestImportedDNSFill: the config's DNS is not used, and can be copied into
+// the settings once. What the config lacks stays, the result is one the core
+// takes with TUN and the gateway on, and a later update changes nothing.
+func TestImportedDNSFill(t *testing.T) {
+	a, id, serve := importedApp(t)
+	ctx := context.Background()
+	if err := a.setImportedRouting(id); err != nil {
+		t.Fatal(err)
+	}
+	a.refresh()
+	if im := a.snapshot().Imported; len(im.DNSFill) != 0 {
+		t.Errorf("issue33 has no DNS to copy: %v", im.DNSFill)
+	}
+	if took, err := a.fillImportedDNS(); err != nil || len(took) != 0 {
+		t.Errorf("nothing to copy: %v, %v", took, err)
+	}
+	const dns = `dns:
+  enable: true
+  enhanced-mode: redir-host
+  listen: 0.0.0.0:5353
+  nameserver: [223.5.5.5, 119.29.29.29]
+  nameserver-policy: {"+.corp.example": [10.0.0.2, 10.0.0.3], "rule-set:mine": 1.2.3.4}
+  fake-ip-filter: ["+.corp.example"]
+hosts: {nas.home: 192.168.1.9}
+`
+	serve(issue33Sub + dns)
+	if err := a.updateProvider(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	a.refresh()
+	before := a.settings.Get()
+	im := a.snapshot().Imported
+	if want := []string{"nameserver", "nameserver-policy", "fake-ip-filter", "hosts"}; !slices.Equal(im.DNSFill, want) {
+		t.Errorf("to copy = %v, want %v", im.DNSFill, want)
+	}
+	if !slices.Equal(im.DNSSkipped, []string{"nameserver-policy: rule-set:mine"}) {
+		t.Errorf("skipped = %v", im.DNSSkipped)
+	}
+	if got := a.settings.Get(); !slices.Equal(got.Nameservers, before.Nameservers) {
+		t.Error("the update changed the settings by itself")
+	}
+	took, err := a.fillImportedDNS()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(took, im.DNSFill) {
+		t.Errorf("took %v", took)
+	}
+	s := a.settings.Get()
+	if !slices.Equal(s.Nameservers, []string{"223.5.5.5", "119.29.29.29"}) ||
+		!slices.Equal(s.NameserverPolicy, []string{"+.corp.example=10.0.0.2", "+.corp.example=10.0.0.3"}) ||
+		!slices.Equal(s.FakeIPFilter, []string{"+.corp.example"}) || !slices.Equal(s.Hosts, []string{"nas.home=192.168.1.9"}) {
+		t.Errorf("settings: %v %v %v %v", s.Nameservers, s.NameserverPolicy, s.FakeIPFilter, s.Hosts)
+	}
+	// Not the config's to say: the mode, and the lists it has nothing of.
+	if s.DNSMode != before.DNSMode || !slices.Equal(s.DefaultNameservers, before.DefaultNameservers) || !slices.Equal(s.Fallback, before.Fallback) || s.DNS != before.DNS {
+		t.Errorf("more than the config's lists changed: %+v", s.Options)
+	}
+	a.refresh()
+	if im := a.snapshot().Imported; len(im.DNSFill) != 0 || len(im.DNSSkipped) != 0 {
+		t.Errorf("still offered after copying: %v %v", im.DNSFill, im.DNSSkipped)
+	}
+	// The core takes it as it does any settings, whichever way traffic is
+	// taken over and with the developer networks' own DNS beside it. Built
+	// here, since TUN is not installed where the tests run.
+	dev := devnet.Overlay{
+		Rules:     []devnet.Rule{{Text: "IP-CIDR,10.0.0.0/8,no-resolve", Target: "DIRECT"}},
+		Policy:    []devnet.Policy{{Pattern: "+.corp.example", Server: "10.9.9.9"}, {Pattern: "+.ts.net", Server: "100.100.100.100"}},
+		SystemDNS: []string{"+.vpn.example"}, FakeIPFilter: []string{"+.ts.net"},
+	}
+	for _, c := range []struct{ dns, tun, gateway bool }{{}, {dns: true}, {tun: true}, {tun: true, gateway: true}} {
+		in := core.Input{Mode: "rule", MixedPort: s.MixedPort, LogLevel: "info", TestURL: "http://x/", ProbePort: a.probePort,
+			Tun: c.tun, Gateway: c.gateway, Dev: dev, Imported: a.importedNow(), Options: s.Options.Clone()}
+		in.Options.DNS = c.dns
+		cfg, err := core.BuildConfig(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := a.core.Check(cfg); err != nil {
+			t.Errorf("%+v: %v\n%s", c, err, cfg)
+		}
+		// The user's servers for a pattern are kept; the developer
+		// networks' are for the patterns the user says nothing of.
+		var got struct {
+			DNS struct {
+				Mode   string              `yaml:"enhanced-mode"`
+				Policy map[string][]string `yaml:"nameserver-policy"`
+				Filter []string            `yaml:"fake-ip-filter"`
+			} `yaml:"dns"`
+		}
+		if err := yaml.Unmarshal(cfg, &got); err != nil {
+			t.Fatal(err)
+		}
+		pol := got.DNS.Policy
+		if !slices.Equal(pol["+.corp.example"], []string{"10.0.0.2", "10.0.0.3"}) || !slices.Equal(pol["+.ts.net"], []string{"100.100.100.100"}) {
+			t.Errorf("%+v: policy %v", c, pol)
+		}
+		if c.tun && !slices.Equal(pol["+.vpn.example"], []string{"system"}) {
+			t.Errorf("%+v: no system DNS for the VPN's names: %v", c, pol)
+		}
+		if c.gateway && (got.DNS.Mode != "fake-ip" || !slices.Contains(got.DNS.Filter, "+.ts.net") || !slices.Contains(got.DNS.Filter, "+.corp.example")) {
+			t.Errorf("gateway: %s %v", got.DNS.Mode, got.DNS.Filter)
+		}
+	}
+	// A later update of the config leaves the settings alone, and offers
+	// what is new in it.
+	serve(issue33Sub + strings.Replace(dns, "223.5.5.5, 119.29.29.29", "9.9.9.9", 1))
+	if err := a.updateProvider(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	a.refresh()
+	if got := a.settings.Get().Nameservers; !slices.Equal(got, []string{"223.5.5.5", "119.29.29.29"}) {
+		t.Errorf("the update changed the servers: %v", got)
+	}
+	if im := a.snapshot().Imported; !slices.Equal(im.DNSFill, []string{"nameserver"}) {
+		t.Errorf("after the update, to copy = %v", im.DNSFill)
+	}
+	// Back on bowel's routing there is no config to copy from.
+	if err := a.setImportedRouting(""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.fillImportedDNS(); err == nil {
+		t.Error("copied with no config in use")
 	}
 }
 
