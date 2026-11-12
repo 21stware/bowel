@@ -12,6 +12,7 @@ import (
 	"github.com/oboo/moho/internal/gateway"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
+	"github.com/oboo/moho/internal/sysproxy"
 )
 
 // ---- State ----
@@ -150,6 +151,10 @@ type Takeover struct {
 	Lan     bool     `json:"lan"`
 	LanAddr string   `json:"lanAddr,omitempty"`
 	Bypass  []string `json:"bypass"`
+	// Written is what the last takeover of the system proxy gave the OS,
+	// where the OS takes the bypass list in a form of its own (Windows):
+	// the list as written, the entries left out, and what the OS refused.
+	Written *sysproxy.Written `json:"written,omitempty"`
 	// Gateway is this Mac as the LAN's gateway, as it really is.
 	Gateway GatewayView `json:"gateway"`
 }

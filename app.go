@@ -83,6 +83,7 @@ type App struct {
 	sys         sysproxy.Status
 	proxyErr    string       // why the last try to take the system proxy failed
 	failed      *failedWrite // that try, if the OS refused it: see retryWrite
+	writtenLine string       // what noteWritten last put in the log
 	proxies     map[string]mihomo.Proxy
 	provNodes   map[string][]string // provider id → node names, in the provider's order
 	// nodesSig is the names /proxies had when provNodes was read, at
@@ -697,7 +698,9 @@ var osProxy = struct {
 	snapshot  func() (sysproxy.Saved, error)
 	restore   func(context.Context, sysproxy.Saved) error
 	listening func(ctx context.Context, host string, port int) bool
-}{sysproxy.Enable, sysproxy.Disable, sysproxy.Snapshot, sysproxy.Restore, sysproxy.Listening}
+	// written is what the last enable gave the OS, and what the OS refused.
+	written func() sysproxy.Written
+}{sysproxy.Enable, sysproxy.Disable, sysproxy.Snapshot, sysproxy.Restore, sysproxy.Listening, sysproxy.LastWrite}
 
 // applySystemProxy makes the OS match the settings. prev are mixed ports
 // the system may still point at, as after the port changed.
@@ -780,7 +783,9 @@ func (a *App) writeProxy(s settings.Settings, ports []int, keep bool) (*failedWr
 		}
 	}
 	bypass := a.bypassOf(s)
-	if err := osProxy.enable("127.0.0.1", s.MixedPort, bypass); err != nil {
+	err := osProxy.enable("127.0.0.1", s.MixedPort, bypass)
+	a.noteWritten()
+	if err != nil {
 		left, serr := osProxy.snapshot()
 		if serr != nil {
 			return nil, err // no telling later whether another program came
@@ -791,6 +796,24 @@ func (a *App) writeProxy(s settings.Settings, ports []int, keep bool) (*failedWr
 	a.dev.bypass = bypass
 	a.dev.mu.Unlock()
 	return nil, nil
+}
+
+// noteWritten puts in the log what the OS refused of the write just made,
+// or what did not fit in it, once for each such outcome: the 2 s and 30 s
+// rounds write the same again.
+func (a *App) noteWritten() {
+	w := osProxy.written()
+	line := ""
+	if w.Refused != nil || slices.ContainsFunc(w.Dropped, func(d sysproxy.Dropped) bool { return d.Why != "ipv6" }) {
+		line = w.Line()
+	}
+	a.mu.Lock()
+	same := line == a.writtenLine
+	a.writtenLine = line
+	a.mu.Unlock()
+	if line != "" && !same {
+		log.Println("system proxy:", line)
+	}
 }
 
 // proxyRetries is how many times a write the OS refused is tried again. With
@@ -2192,11 +2215,16 @@ func (a *App) snapshot() Snapshot {
 
 	// Takeover, as it really is.
 	tk := Takeover{On: on, Port: s.MixedPort, Lan: s.AllowLan, Bypass: s.Bypass}
+	written := osProxy.written()
+	if !written.Empty() {
+		tk.Written = &written
+	}
 	tk.System = Entry{Wanted: s.SystemProxy, Status: "off"}
 	if on && s.SystemProxy {
 		switch {
 		case sys.Ours:
-			tk.System.Status = "on"
+			// A takeover that works, with less than was asked: say so.
+			tk.System.Status, tk.System.Detail = "on", written.Note()
 		case proxyErr != "": // bowel's own failure, whatever the system has
 			tk.System.Status, tk.System.Detail = "error", proxyErr
 		case sys.On:
@@ -2371,6 +2399,10 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 	}
 	if is := a.importedIssue(s, snap); is != nil {
 		return StateOK, is
+	}
+	// The takeover works, so the light stays green; the user's list does not.
+	if tk.System.Status == "on" && tk.System.Detail != "" {
+		return StateOK, &Issue{Level: "warn", Text: tk.System.Detail, Detail: i18n.T("被拒绝的内容在日志和 bowel status --json 的 takeover.written 里。", "What was refused is in the log and in takeover.written of bowel status --json.")}
 	}
 	// Nothing is wrong yet, so the light stays green.
 	if s.Tun && a.tunStale.Load() {
