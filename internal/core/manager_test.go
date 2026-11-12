@@ -403,3 +403,36 @@ func TestProxyPortTaken(t *testing.T) {
 	}
 	c.Close()
 }
+
+// Issue 117: a core that cannot bring the TUN device up says so in one
+// line and goes on; the reason is kept until the device comes up, the
+// config is loaded again or the core starts anew.
+func TestTunErrorFromCoreLog(t *testing.T) {
+	m := &Manager{status: Status{State: Running}}
+	calls := 0
+	m.OnListenError = func() { calls++ }
+	m.noteTunError(`time="2026-11-12T01:08:08Z" level=info msg="[TUN] default interface changed by monitor, => WLAN"`)
+	if got := m.Status().TunError; got != "" || calls != 0 {
+		t.Fatalf("nothing failed: %q, %d calls", got, calls)
+	}
+	m.noteTunError(`time="2026-11-12T01:08:08Z" level=error msg="Start TUN listening error: configure tun interface: Access is denied."`)
+	if got := m.Status().TunError; got != "configure tun interface: Access is denied." || calls != 1 {
+		t.Fatalf("as the core prints it: %q, %d calls", got, calls)
+	}
+	// As streamLogs writes what the controller says of a task's core.
+	m.setTunErr("")
+	m.noteTunError(`level=error msg="Start TUN listening error: create tun: operation not permitted"`)
+	if got := m.Status().TunError; got != "create tun: operation not permitted" {
+		t.Fatalf("from the controller: %q", got)
+	}
+	m.noteTunError(`level=info msg="[TUN] Tun adapter listening at: Meta([198.18.0.1/30],[]), mtu: 9000"`)
+	if got := m.Status().TunError; got != "" {
+		t.Fatalf("the device came up: %q", got)
+	}
+	// A core that is not running has no device to speak of.
+	m.setTunErr("x")
+	m.status = Status{State: Stopped}
+	if got := m.Status().TunError; got != "" {
+		t.Fatalf("stopped: %q", got)
+	}
+}

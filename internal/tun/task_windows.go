@@ -50,7 +50,7 @@ func Spawn(bin string) (*Task, error) {
 	}
 	before := pids(t.exe) // other programs' cores of the same name
 	last, _ := os.ReadFile(rememberPath())
-	name, err := startTask(first, string(last),
+	name, err := startTask(first, string(last), hasFallback(bin),
 		func(name string) error { return schtasks("/Run", "/TN", name) },
 		func(name string) error { return schtasks("/Query", "/TN", name) },
 		func() bool {

@@ -13,3 +13,11 @@ func Spawn(bin string) (*Task, error) { return nil, nil }
 func (*Task) Pid() int    { return 0 }
 func (*Task) Wait() error { return nil }
 func (*Task) Stop()       {}
+
+// Failure is why an installation stopped half way. Only Windows, whose
+// elevated command cannot say so itself, keeps that.
+func Failure() string { return "" }
+
+// FallbackNote is always "": only Windows' installation has a second way
+// to start the core that can be missing.
+func FallbackNote(dst string) string { return "" }

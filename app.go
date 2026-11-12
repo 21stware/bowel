@@ -64,6 +64,7 @@ type App struct {
 	// the bundled core runs in its place, with TUN out of its config.
 	tunFault  atomic.Pointer[string]
 	tunGone   atomic.Bool // what tunBin's installation stands for was removed: it is to be made again
+	tunUp     tunUpProbe  // whether the core's TUN device is up, as last asked (app_tun.go); under mu
 	probePort int
 	gw        *gateway.Gateway
 
@@ -479,6 +480,7 @@ const nodesEvery = 15 * time.Second
 
 func (a *App) refresh() {
 	a.probeSoon()
+	a.probeTunUp()
 	a.probeTunDNS()
 	// The system proxy is judged only while it is wanted: otherwise no
 	// scutil every 2 s for nothing.
@@ -610,6 +612,7 @@ func (a *App) applyConfig() error {
 	began := time.Now()
 	a.dropImported() // a provider's file, or whether it is in use, may have changed
 	s := a.settings.Get()
+	a.useTunCore(s)
 	a.ensureIPv6(s)
 	im := a.importedNow()
 	var build time.Duration
@@ -1003,7 +1006,11 @@ func (a *App) setTun(on bool) error {
 	}); err != nil {
 		return err
 	}
-	return a.afterTakeover()
+	err := a.afterTakeover()
+	if on && err == nil {
+		a.awaitTunUp() // so that what is answered is what the core did
+	}
+	return err
 }
 
 // tunNeedsInstall is whether turning TUN on takes an authorization. On
@@ -1071,7 +1078,9 @@ func (a *App) tunFailed() bool {
 // installTun puts this version's core in the root copy and runs on it.
 func (a *App) installTun() error {
 	a.tellTunDevice()
-	if err := osTun.install(a.coreBin, a.tunBin); err != nil {
+	err := osTun.install(a.coreBin, a.tunBin)
+	a.noteTunInstall(err)
+	if err != nil {
 		return err
 	}
 	a.tunInstalled()
@@ -2252,9 +2261,18 @@ func (a *App) snapshot() Snapshot {
 		fault = *f
 	}
 	tk.Tun = tunEntry(s.Tun, on, osTun.installed(a.tunBin) && !a.tunGone.Load(), fault, cs.State)
+	if tk.Tun.Status == "install" {
+		tk.Tun.Detail = osTun.failure() // an installation that stopped half way says where
+	}
 	if tk.Tun.Status == "on" {
-		// TUN is on, and may still not be where the system's lookups go.
-		tk.Tun.Detail = tunDNSDetail(a.tunDNSState(cs))
+		// The setting is not the device: a core that could not bring it up
+		// goes on without it.
+		if why := a.tunDown(cs); why != "" {
+			tk.Tun.Status, tk.Tun.Detail = "error", why
+		} else {
+			// TUN is on, and may still not be where the system's lookups go.
+			tk.Tun.Detail = tunDNSDetail(a.tunDNSState(cs))
+		}
 	}
 	if s.AllowLan {
 		tk.LanAddr = lanAddr(s.MixedPort)
@@ -2378,6 +2396,9 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 	}
 	if tk.System.Status == "hijacked" {
 		return StateError, &Issue{Level: "error", Text: i18n.T("系统代理被其他程序改掉了", "Another program changed the system proxy"), Detail: i18n.T("网页流量现在没有经过 bowel。", "Web traffic isn't going through bowel now."), Action: "retake", Label: i18n.T("重新接管", "Take over again")}
+	}
+	if tk.Tun.Wanted && tk.Tun.Status == "error" && a.tunDown(cs) != "" {
+		return StateDegraded, &Issue{Level: "warn", Text: i18n.T("TUN 没有生效", "TUN isn't working"), Detail: tk.Tun.Detail}
 	}
 	if g := tk.Gateway; g.Status == "error" {
 		return StateDegraded, &Issue{Level: "warn", Text: i18n.T("网关模式没有生效", "Gateway mode isn't working"), Detail: g.Detail}
