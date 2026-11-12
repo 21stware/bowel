@@ -4,7 +4,7 @@
 它随应用打包，显示在“更新内容”窗口里；`mygo build` 也从这里取升级包的说明，
 签名发布时缺少当前版本的一节会构建失败。发版时把 Unreleased 改成版本号。
 
-## [Unreleased]
+## [0.4.2] - 2026-11-12
 
 - macOS 上开着 TUN 时，按域名的规则（`GEOSITE` 等）以前可能全部不生效、流量都落到默认路由组，而 `bowel status` 显示一切正常。原因是网络下发的系统 DNS 通常是路由器的局域网地址，而局域网段不进 TUN，查询绕过了 DNS 劫持，系统拿到的是真实地址而不是 fake-ip，连接到达 TUN 时只剩 IP。现在 TUN 生效期间，bowel 会把每个启用的网络服务的 DNS 设为 `223.5.5.5`、`119.29.29.29`（公网地址会进 TUN，由内核代答；不需要授权），原来的值记在数据目录的 `dns-before.json` 里；关闭 TUN、暂停接管、TUN 内核没启动、退出 bowel 时还原，意外退出的在下次启动时还原。只还原仍是这两个地址的服务，期间你自己改过的不动。`*.lan` 这类本地名字仍然问网络自己的 DNS，Tailscale、公司 VPN 按域名分流的解析不受影响。不想让 bowel 动系统 DNS，可以在「设置 → TUN」里关掉「接管系统 DNS」（`bowel settings set tunKeepSystemDns true`）；手动撤销是对每个服务执行 `networksetup -setdnsservers Wi-Fi Empty`（#117）
 - 系统 DNS 绕过 TUN 时，状态里会提示「系统 DNS 没有经过 TUN，按域名的规则不会生效」：macOS 上是关掉了上面的开关或系统拒绝修改时，提示带一键接管；没有 systemd-resolved 的 Linux 上是 `/etc/resolv.conf` 指向局域网地址时，只提示、不改系统设置。Windows 上是否有同样的情况还没有实测，暂时不处理（#117）
