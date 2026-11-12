@@ -4,12 +4,14 @@ package sysproxy
 // read and write them (sysproxy_windows.go) so that it is tested anywhere.
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"unicode/utf16"
 
 	"github.com/oboo/moho/internal/i18n"
@@ -359,4 +361,31 @@ func wildcards(cidr string) []string {
 		out = append(out, w)
 	}
 	return out
+}
+
+// winInvalidParameter is ERROR_INVALID_PARAMETER, what WinINet answers
+// for a call it does not take.
+const winInvalidParameter = syscall.Errno(87)
+
+// winQuery reads the LAN settings through query, which takes the WinINet
+// handle to ask on. It asks with none, as Windows' own examples do; some
+// builds refuse that as an invalid parameter (#124, Windows 11 26200), so
+// then it asks again on a session handle from open, which loads the same
+// settings. The handle is closed before it returns. Only reads go this
+// way: a write on a session handle may change only that session.
+func winQuery[T any](query func(h uintptr) (T, error), open func() (uintptr, func(), error)) (T, error) {
+	v, err := query(0)
+	if err == nil || !errors.Is(err, winInvalidParameter) {
+		return v, err
+	}
+	h, done, oerr := open()
+	if oerr != nil {
+		return v, fmt.Errorf("%w (and on a session handle: %w)", err, oerr)
+	}
+	defer done()
+	v, herr := query(h)
+	if herr != nil {
+		return v, fmt.Errorf("%w (and on a session handle: %w)", err, herr)
+	}
+	return v, nil
 }
