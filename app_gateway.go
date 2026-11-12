@@ -6,6 +6,7 @@ package main
 // measured, every few seconds while it is wanted.
 
 import (
+	"context"
 	"log"
 	"net"
 	"time"
@@ -26,8 +27,11 @@ var osTun = struct {
 	step      func(src, dst string) (tun.Step, error)
 	admin     func(prompt string, steps ...tun.Step) error
 	install   func(src, dst string) error
-	needsRule func(dst string) bool // Linux: the polkit rule for the core's resolvectl is missing or another device's
-}{tun.Installed, tun.InstallStep, tun.Admin, tun.Install, tun.NeedsRule}
+	needsRule func(dst string) bool                           // Linux: the polkit rule for the core's resolvectl is missing or another device's
+	linkDNS   func(ctx context.Context) (pointed, known bool) // Linux: whether systemd-resolved has DNS servers for the TUN device
+	failure   func() string                                   // Windows: why the last installation stopped half way
+	note      func(dst string) string                         // Windows: what an installation that was made lacks
+}{tun.Installed, tun.InstallStep, tun.Admin, tun.Install, tun.NeedsRule, tun.LinkDNS, tun.Failure, tun.FallbackNote}
 
 // gwProbe is what the last look at the gateway found.
 type gwProbe struct {
@@ -101,6 +105,9 @@ func (a *App) prepareGateway() error {
 		err = osTun.admin(tun.Prompt(), pre...)
 	} else {
 		err = sys.Prepare(gatewayPrompt(), pre...)
+	}
+	if needTun {
+		a.noteTunInstall(err)
 	}
 	if err != nil {
 		return err

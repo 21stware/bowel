@@ -8,9 +8,11 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/monitor"
 	"github.com/oboo/moho/internal/settings"
 	"github.com/oboo/moho/internal/tun"
 )
@@ -341,5 +343,232 @@ func TestTunCoreFailureKeepsACore(t *testing.T) {
 	}
 	if tk := a.snapshot().Takeover.Tun; tk.Status != "off" || attempts() != 2 || a.core.Status().State != core.Running {
 		t.Fatalf("after tun off: %+v, %d attempts, core %+v", tk, attempts(), a.core.Status())
+	}
+}
+
+// Issue 117, Windows: an installation that stopped half way says where in
+// the logs and on the TUN entry, one that was made without its second
+// task says so in the logs, and a prompt the user dismissed says nothing.
+func TestTunInstallIsNoted(t *testing.T) {
+	saved := osTun
+	defer func() { osTun = saved }()
+	m, err := core.New("/old", filepath.Join(t.TempDir(), "core"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &App{core: m, tunBin: "/tun", mon: monitor.New(filepath.Join(t.TempDir(), "stats.json"))}
+	last := func() string {
+		logs := a.mon.Logs(0)
+		if len(logs) == 0 {
+			return ""
+		}
+		return logs[len(logs)-1].Text
+	}
+	osTun.note = func(string) string { return "" }
+	osTun.install = func(string, string) error { return tun.ErrCanceled }
+	if err := a.installTun(); !errors.Is(err, tun.ErrCanceled) || last() != "" {
+		t.Errorf("dismissed: %v, logged %q", err, last())
+	}
+	osTun.install = func(string, string) error { return errors.New("stopped at the task: ERROR: Unspecified error") }
+	if err := a.installTun(); err == nil || last() != "bowel: tun: stopped at the task: ERROR: Unspecified error" {
+		t.Errorf("failed: %v, logged %q", err, last())
+	}
+	osTun.install = func(string, string) error { return nil }
+	osTun.note = func(dst string) string { return "no second task for " + dst }
+	if err := a.installTun(); err != nil || last() != "bowel: tun: no second task for /tun" {
+		t.Errorf("made without the second task: %v, logged %q", err, last())
+	}
+}
+
+// Issue 117: with TUN in the config, the core that runs is the copy the
+// installation made. An app that started before the installation was
+// valid runs the bundled core, which has no right to make the device.
+func TestTurningTunOnMovesToTheInstalledCore(t *testing.T) {
+	saved := osTun
+	defer func() { osTun = saved }()
+	installed := true
+	osTun.installed = func(string) bool { return installed }
+	dir := t.TempDir()
+	st, err := settings.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := core.New("/bundle/mihomo", filepath.Join(dir, "core"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &App{core: m, coreBin: "/bundle/mihomo", tunBin: "/tun/mihomo", settings: st}
+	on := settings.Settings{Tun: true}
+	for _, tc := range []struct {
+		name string
+		s    settings.Settings
+		prep func()
+		want string
+	}{
+		{name: "TUN is not wanted", s: settings.Settings{SystemProxy: true}, want: "/bundle/mihomo"},
+		{name: "takeover is paused", s: settings.Settings{Tun: true, Paused: true}, want: "/bundle/mihomo"},
+		{name: "not installed", s: on, prep: func() { installed = false }, want: "/bundle/mihomo"},
+		{name: "its task is gone", s: on, prep: func() { a.tunGone.Store(true) }, want: "/bundle/mihomo"},
+		{name: "its core was given up on", s: on, prep: func() { why := "no"; a.tunFault.Store(&why) }, want: "/bundle/mihomo"},
+		{name: "installed and wanted", s: on, want: "/tun/mihomo"},
+	} {
+		installed = true
+		a.tunGone.Store(false)
+		a.tunFault.Store(nil)
+		m.SetBin("/bundle/mihomo")
+		if tc.prep != nil {
+			tc.prep()
+		}
+		a.useTunCore(tc.s)
+		if got := m.BinPath(); got != tc.want {
+			t.Errorf("%s: the core is %s, want %s", tc.name, got, tc.want)
+		}
+	}
+}
+
+// Issue 117: TUN is on when the core says its device is up, not when the
+// settings say it should be.
+func TestTunDownIsToldByTheCore(t *testing.T) {
+	a := &App{}
+	started := time.Now()
+	cs := core.Status{State: core.Running, StartedAt: started}
+	if why := a.tunDown(cs); why != "" {
+		t.Errorf("nothing known: %q", why)
+	}
+	// The core's own line is believed before anything was asked.
+	said := cs
+	said.TunError = "configure tun interface: Access is denied."
+	if why := a.tunDown(said); !strings.Contains(why, "TUN 设备") || !strings.Contains(why, "Access is denied.") {
+		t.Errorf("the core's line: %q", why)
+	}
+	// One answer is not enough (the device is taken down and up when the
+	// config changes), two in a row are.
+	a.tunUp = tunUpProbe{started: started, since: started}
+	p := a.tunUp
+	if a.noteTunUp(p, false, true) || a.tunDown(cs) != "" {
+		t.Error("one answer was believed")
+	}
+	if !a.noteTunUp(p, false, true) || a.tunDown(cs) == "" {
+		t.Error("two answers in a row were not")
+	}
+	if why := a.tunDown(said); !strings.Contains(why, "Access is denied.") {
+		t.Errorf("down, with the reason heard: %q", why)
+	}
+	// No answer changes nothing, and an answer about another run is dropped.
+	if a.noteTunUp(p, true, false) || a.tunDown(cs) == "" {
+		t.Error("no answer was taken for one")
+	}
+	other := cs
+	other.StartedAt = started.Add(time.Minute)
+	if a.tunDown(other) != "" {
+		t.Error("an answer about another run of the core was believed")
+	}
+	if a.noteTunUp(tunUpProbe{started: other.StartedAt, since: started}, true, true) || a.tunDown(cs) == "" {
+		t.Error("an answer to a question about another run was taken")
+	}
+	// Up again: and a line from before does not outlast the core's answer.
+	if !a.noteTunUp(p, true, true) || a.tunDown(cs) != "" || a.tunDown(said) != "" {
+		t.Error("the device is up and is said to be down")
+	}
+	// A core that is not running has its own way of being told of.
+	a.noteTunUp(p, false, true)
+	a.noteTunUp(p, false, true)
+	if a.tunDown(core.Status{State: core.Failed, StartedAt: started}) != "" {
+		t.Error("a core that is not running was said to have TUN down")
+	}
+}
+
+// TestTunWithoutDNSRuleIsANotice: issue 117. TUN on with an installation
+// from before the polkit rule looked fine and was not: the system's DNS
+// was never pointed at TUN. It is told of as a stale core is, with the
+// one authorization as its action, and the light stays green.
+func TestTunWithoutDNSRuleIsANotice(t *testing.T) {
+	saved := osTun
+	defer func() { osTun = saved }()
+	ruled := false
+	osTun.needsRule = func(string) bool { return !ruled }
+	started := time.Now().Add(-time.Minute)
+	cs := core.Status{State: core.Running, StartedAt: started}
+	snap := Snapshot{Nodes: []NodeView{{Name: "n"}}}
+	on := Takeover{Tun: Entry{Wanted: true, Status: "on"}}
+	tunOn := settings.Settings{Tun: true}
+	a := &App{}
+
+	st, is := a.judge(true, tunOn, cs, on, snap, nil)
+	if st != StateOK || is == nil || is.Action != "tun-update" || is.Detail == "" {
+		t.Fatalf("no rule: state %v, issue %+v", st, is)
+	}
+	if d := tunDNSDetail(a.tunDNSState(cs)); d == "" {
+		t.Error("no rule: the TUN entry says nothing")
+	}
+	// Not for a TUN that is not on: turning it on asks, as before.
+	for _, tk := range []Takeover{{}, {Tun: Entry{Wanted: true, Status: "install"}}, {Tun: Entry{Wanted: true, Status: "error"}}} {
+		if _, is := a.judge(true, tunOn, cs, tk, snap, nil); is != nil {
+			t.Errorf("TUN %q: %+v", tk.Tun.Status, is)
+		}
+	}
+	if _, is := a.judge(true, settings.Settings{}, cs, Takeover{}, snap, nil); is != nil {
+		t.Errorf("TUN not wanted: %+v", is)
+	}
+	// A stale core is replaced under the same authorization, and says so first.
+	a.tunStale.Store(true)
+	if _, is := a.judge(true, tunOn, cs, on, snap, nil); is == nil || !strings.Contains(is.Text, i18n.T("内核", "core")) {
+		t.Errorf("stale and no rule: %+v", is)
+	}
+	a.tunStale.Store(false)
+
+	// resolved seen without servers for the device: said outright.
+	a.tunDNS = tunDNSProbe{started: started, since: started}
+	a.tunDNS.note(time.Now(), false, true)
+	if _, unpointed := a.tunDNSState(cs); unpointed {
+		t.Error("one look is believed: a device being replaced has no servers for a moment")
+	}
+	a.tunDNS.note(time.Now(), false, true)
+	_, both := a.judge(true, tunOn, cs, on, snap, nil)
+	if both == nil || both.Action != "tun-update" || both.Text == is.Text {
+		t.Errorf("no rule and no servers: %+v", both)
+	}
+	// The same with the rule there (refused by polkit, or of no use): told
+	// of, and no authorization offered, since it would change nothing.
+	ruled = true
+	if _, is := a.judge(true, tunOn, cs, on, snap, nil); is == nil || is.Action != "" || is.Text != both.Text {
+		t.Errorf("rule and no servers: %+v", is)
+	}
+	if d := tunDNSDetail(a.tunDNSState(cs)); d == "" {
+		t.Error("no servers: the TUN entry says nothing")
+	}
+	// What was seen belongs to one run of the core.
+	if _, unpointed := a.tunDNSState(core.Status{State: core.Running, StartedAt: time.Now()}); unpointed {
+		t.Error("another run of the core is judged by the last one's look")
+	}
+
+	// Servers seen there: nothing to tell, even without the rule (the user
+	// answered the system's own dialogs).
+	ruled = false
+	a.tunDNS.note(time.Now(), true, true)
+	if _, is := a.judge(true, tunOn, cs, on, snap, nil); is != nil {
+		t.Errorf("pointed: %+v", is)
+	}
+	if d := tunDNSDetail(a.tunDNSState(cs)); d != "" {
+		t.Errorf("pointed: the entry says %q", d)
+	}
+	// resolved not answering says nothing either way.
+	a.tunDNS.note(time.Now(), false, false)
+	if noRule, unpointed := a.tunDNSState(cs); !noRule || unpointed {
+		t.Errorf("unknown: noRule %v, unpointed %v", noRule, unpointed)
+	}
+}
+
+// TestTunDNSRuleNotAskedWhereRefused: where polkit's directory refused
+// the rule the installation says it needs none (tun.NeedsRule), and bowel
+// does not ask at every start.
+func TestTunDNSRuleNotAskedWhereRefused(t *testing.T) {
+	saved := osTun
+	defer func() { osTun = saved }()
+	osTun.needsRule = func(string) bool { return false }
+	a := &App{}
+	cs := core.Status{State: core.Running, StartedAt: time.Now()}
+	if _, is := a.judge(true, settings.Settings{Tun: true}, cs, Takeover{Tun: Entry{Wanted: true, Status: "on"}}, Snapshot{Nodes: []NodeView{{Name: "n"}}}, nil); is != nil {
+		t.Errorf("%+v", is)
 	}
 }

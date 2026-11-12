@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf16"
+	"unicode/utf8"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -32,7 +34,13 @@ import (
 //
 // A mark beside the copy, written by the same elevated command, says what
 // the task was registered for: Installed reads it, with no call to the
-// Task Scheduler.
+// Task Scheduler. The second task is not part of what the mark stands
+// for: where Windows refuses to register it, a file beside the mark says
+// so (see noFallbackPath) and the installation counts as made.
+//
+// The elevated command is hidden and returns an exit code alone, so it
+// writes what each of its parts did to a log in the directory the copy
+// was staged in, which is where a failure's reason comes from.
 
 // Path is where the copy of the core that TUN runs on is kept: a
 // directory of this user's under %ProgramData%, closed to all but
@@ -91,16 +99,71 @@ func installStep(tmp, dst string) (Step, error) {
 	}
 	xml := filepath.Join(filepath.Dir(tmp), ".mihomo-task.xml")
 	xml2 := filepath.Join(filepath.Dir(tmp), ".mihomo-task-interactive.xml")
-	for path, def := range map[string]string{
-		xml:  taskXML(sid, dst, CoreDir),
-		xml2: fallbackTaskXML(sid, launcherPath(dst), dst, CoreDir),
+	// The log starts empty and is the app's own file, which the elevated
+	// command adds to.
+	log := installLogPath()
+	for path, def := range map[string][]byte{
+		xml:  utf16File(taskXML(sid, dst, CoreDir)),
+		xml2: utf16File(fallbackTaskXML(sid, launcherPath(dst), dst, CoreDir)),
+		log:  nil,
 	} {
-		if err := os.WriteFile(path, utf16File(def), 0o600); err != nil {
+		if err := os.WriteFile(path, def, 0o600); err != nil {
 			_ = os.Remove(ltmp)
 			return nil, err
 		}
 	}
-	return winInstallStep(tmp, ltmp, dst, xml, taskName(), xml2, fallbackName(taskName()), mark(dst, CoreDir, sid)), nil
+	return winInstallStep(tmp, ltmp, dst, xml, taskName(), xml2, fallbackName(taskName()), mark(dst, CoreDir, sid), log), nil
+}
+
+// installLogPath is where the elevated command's log is, and stays after
+// an installation that stopped, until the next one is tried.
+func installLogPath() string { return filepath.Join(stageDir(""), installLogName) }
+
+// Failure is why the last installation stopped half way, "" when it did
+// not or was not tried: the part of the elevated command that failed and
+// what Windows said there. It is for the TUN entry to show while
+// Installed is false.
+func Failure() string {
+	b, err := os.ReadFile(installLogPath())
+	if err != nil {
+		return ""
+	}
+	return failureNote(consoleText(b))
+}
+
+// FallbackNote is what to tell the user of the installation at dst when
+// its second task could not be registered, "" when it has both.
+func FallbackNote(dst string) string {
+	b, err := os.ReadFile(noFallbackPath(dst))
+	if err != nil {
+		return ""
+	}
+	return fallbackNote(consoleText(b))
+}
+
+// hasFallback is whether the installation registered its second task.
+func hasFallback(dst string) bool {
+	_, err := os.Lstat(noFallbackPath(dst))
+	return err != nil
+}
+
+// consoleText is what a console program wrote to a file, as text: in the
+// system's OEM code page, which is not UTF-8 where the system's language
+// is not English (schtasks answers in that language).
+func consoleText(b []byte) string {
+	if len(b) == 0 || utf8.Valid(b) {
+		return string(b)
+	}
+	const oem = 1 // CP_OEMCP
+	n, err := windows.MultiByteToWideChar(oem, 0, &b[0], int32(len(b)), nil, 0)
+	if err != nil || n <= 0 {
+		return strings.ToValidUTF8(string(b), "?")
+	}
+	u := make([]uint16, n)
+	if _, err := windows.MultiByteToWideChar(oem, 0, &b[0], int32(len(b)), &u[0], n); err != nil {
+		return strings.ToValidUTF8(string(b), "?")
+	}
+	return string(utf16.Decode(u))
 }
 
 // Uninstall deletes the tasks and the copy's directory, which takes an
@@ -146,6 +209,9 @@ func runAdmin(_ string, steps []Step) error {
 	if err != nil {
 		return err
 	}
+	// An installation among the steps reports to a log (see
+	// winInstallStep): the exit code says only that something failed.
+	log := installLog(steps)
 	sys, err := windows.GetSystemDirectory()
 	if err != nil {
 		return err
@@ -164,6 +230,9 @@ func runAdmin(_ string, steps []Step) error {
 	info.size = uint32(unsafe.Sizeof(info))
 	if r, _, err := procShellExecuteEx.Call(uintptr(unsafe.Pointer(&info))); r == 0 {
 		if errors.Is(err, windows.ERROR_CANCELLED) {
+			if log != "" {
+				_ = os.Remove(log) // nothing ran: there is nothing to say
+			}
 			return ErrCanceled
 		}
 		return fmt.Errorf(i18n.T("授权失败：%s", "Authorization failed: %s"), err)
@@ -180,7 +249,15 @@ func runAdmin(_ string, steps []Step) error {
 		return err
 	}
 	if code != 0 {
-		return fmt.Errorf(i18n.T("授权后的安装没有完成（退出码 %d）", "The installation didn't finish after the authorization (exit code %d)"), code)
+		// The log stays where it is, for Failure to read later.
+		var said []byte
+		if log != "" {
+			said, _ = os.ReadFile(log)
+		}
+		return installErr(code, consoleText(said))
+	}
+	if log != "" {
+		_ = os.Remove(log)
 	}
 	return nil
 }

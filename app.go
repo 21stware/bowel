@@ -64,6 +64,7 @@ type App struct {
 	// the bundled core runs in its place, with TUN out of its config.
 	tunFault  atomic.Pointer[string]
 	tunGone   atomic.Bool // what tunBin's installation stands for was removed: it is to be made again
+	tunUp     tunUpProbe  // whether the core's TUN device is up, as last asked (app_tun.go); under mu
 	probePort int
 	gw        *gateway.Gateway
 
@@ -131,7 +132,10 @@ type App struct {
 	gwProbe   gwProbe
 	gwProbing bool
 	gwErr     error
-	upd       updateState
+	// Whether the system's DNS is pointed at TUN, as last asked (app_tun.go).
+	tunDNS     tunDNSProbe
+	tunDNSBusy bool
+	upd        updateState
 	// headless: no window, tray or main thread's loop (`bowel daemon`,
 	// app_daemon.go). stop ends such a run.
 	headless bool
@@ -482,6 +486,8 @@ const nodesEvery = 15 * time.Second
 
 func (a *App) refresh() {
 	a.probeSoon()
+	a.probeTunUp()
+	a.probeTunDNS()
 	// The system proxy is judged only while it is wanted: otherwise no
 	// scutil every 2 s for nothing.
 	if st := a.settings.Get(); a.takeoverOn(st) && st.SystemProxy {
@@ -613,6 +619,7 @@ func (a *App) applyConfig() error {
 	began := time.Now()
 	a.dropImported() // a provider's file, or whether it is in use, may have changed
 	s := a.settings.Get()
+	a.useTunCore(s)
 	a.ensureIPv6(s)
 	im := a.importedNow()
 	var build time.Duration
@@ -1006,7 +1013,11 @@ func (a *App) setTun(on bool) error {
 	}); err != nil {
 		return err
 	}
-	return a.afterTakeover()
+	err := a.afterTakeover()
+	if on && err == nil {
+		a.awaitTunUp() // so that what is answered is what the core did
+	}
+	return err
 }
 
 // tunNeedsInstall is whether turning TUN on takes an authorization. On
@@ -1058,15 +1069,25 @@ func (a *App) retryTunCore() {
 }
 
 // tunFailed is whether TUN is wanted and is not what the user has: asking
-// for it again is then a request to try again, not one already met.
+// for it again is then a request to try again, not one already met. So it
+// is for a TUN that is on without the rule that points the system's DNS
+// at it (Linux): asking again is how the authorization is given where
+// there is no window to click in.
 func (a *App) tunFailed() bool {
-	return a.snapshot().Takeover.Tun.Status == "error"
+	tk := a.snapshot().Takeover.Tun
+	if tk.Status == "on" {
+		noRule, _ := a.tunDNSState(a.core.Status())
+		return noRule
+	}
+	return tk.Status == "error"
 }
 
 // installTun puts this version's core in the root copy and runs on it.
 func (a *App) installTun() error {
 	a.tellTunDevice()
-	if err := osTun.install(a.coreBin, a.tunBin); err != nil {
+	err := osTun.install(a.coreBin, a.tunBin)
+	a.noteTunInstall(err)
+	if err != nil {
 		return err
 	}
 	a.tunInstalled()
@@ -1082,7 +1103,9 @@ func (a *App) tunInstalled() {
 	a.core.SetBin(a.tunBin)
 }
 
-// updateTun replaces a root copy older than this version, on the user's word.
+// updateTun replaces a root copy older than this version, or one whose
+// installation lacks what this version leaves (Linux: the polkit rule), on
+// the user's word.
 func (a *App) updateTun() error {
 	done := a.begin("tun-update")
 	defer done()
@@ -2249,6 +2272,19 @@ func (a *App) snapshot() Snapshot {
 		fault = *f
 	}
 	tk.Tun = tunEntry(s.Tun, on, osTun.installed(a.tunBin) && !a.tunGone.Load(), fault, cs.State)
+	if tk.Tun.Status == "install" {
+		tk.Tun.Detail = osTun.failure() // an installation that stopped half way says where
+	}
+	if tk.Tun.Status == "on" {
+		// The setting is not the device: a core that could not bring it up
+		// goes on without it.
+		if why := a.tunDown(cs); why != "" {
+			tk.Tun.Status, tk.Tun.Detail = "error", why
+		} else {
+			// TUN is on, and may still not be where the system's lookups go.
+			tk.Tun.Detail = tunDNSDetail(a.tunDNSState(cs))
+		}
+	}
 	if s.AllowLan {
 		tk.LanAddr = lanAddr(s.MixedPort)
 	}
@@ -2372,6 +2408,9 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 	if tk.System.Status == "hijacked" {
 		return StateError, &Issue{Level: "error", Text: i18n.T("系统代理被其他程序改掉了", "Another program changed the system proxy"), Detail: i18n.T("网页流量现在没有经过 bowel。", "Web traffic isn't going through bowel now."), Action: "retake", Label: i18n.T("重新接管", "Take over again")}
 	}
+	if tk.Tun.Wanted && tk.Tun.Status == "error" && a.tunDown(cs) != "" {
+		return StateDegraded, &Issue{Level: "warn", Text: i18n.T("TUN 没有生效", "TUN isn't working"), Detail: tk.Tun.Detail}
+	}
 	if g := tk.Gateway; g.Status == "error" {
 		return StateDegraded, &Issue{Level: "warn", Text: i18n.T("网关模式没有生效", "Gateway mode isn't working"), Detail: g.Detail}
 	}
@@ -2421,6 +2460,9 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 	// Nothing is wrong yet, so the light stays green.
 	if s.Tun && a.tunStale.Load() {
 		return StateOK, &Issue{Level: "warn", Text: i18n.T("TUN 内核需要更新", "The TUN core needs updating"), Detail: i18n.T("bowel 升级后带了新内核，TUN 还在用旧的。授权一次就能换上，网络会中断几秒。", "This version of bowel has a newer core and TUN still runs the old one. One authorization replaces it; the network drops for a few seconds."), Action: "tun-update", Label: i18n.T("更新", "Update")}
+	}
+	if is := a.tunDNSIssue(s, cs, tk); is != nil {
+		return StateOK, is
 	}
 	return StateOK, nil
 }

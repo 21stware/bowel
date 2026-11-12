@@ -236,9 +236,26 @@ func adminError(code int, msg string, err error) error {
 	if msg == "" {
 		msg = err.Error()
 	}
+	if noAgent(msg) {
+		return fmt.Errorf(i18n.T("没有 polkit 认证代理，系统弹不出授权窗口（常见于通过 SSH 登录，或没有自带认证代理的精简桌面）。请在桌面会话里启动一个认证代理（比如 polkit-gnome、lxqt-policykit）后再试：%s",
+			"No polkit agent is running, so the system can't ask for the authorization (usual over SSH, or on a minimal desktop that starts none). Start one in the desktop session (polkit-gnome or lxqt-policykit, say) and try again: %s"), firstLine(msg))
+	}
 	if code == 127 {
 		return fmt.Errorf(i18n.T("无法取得授权（桌面可能没有运行 polkit 认证代理）：%s",
 			"Couldn't get an authorization (the desktop may have no polkit agent running): %s"), msg)
 	}
 	return fmt.Errorf(i18n.T("授权失败：%s", "Authorization failed: %s"), msg)
+}
+
+// noAgent is whether pkexec said that nothing could ask the user: no
+// agent is registered for the session, and it could not be one itself
+// for want of a terminal.
+func noAgent(msg string) bool {
+	return strings.Contains(msg, "No authentication agent found") ||
+		strings.Contains(msg, "textual authentication agent")
+}
+
+func firstLine(s string) string {
+	s, _, _ = strings.Cut(strings.TrimSpace(s), "\n")
+	return strings.TrimSpace(s)
 }

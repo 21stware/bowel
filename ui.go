@@ -468,6 +468,8 @@ func (u *UI) notice(c *ui.Context, p *pal) {
 					label := is.Label
 					if busy && is.Action == "retake" {
 						label = i18n.T("正在重新接管…", "Retaking…")
+					} else if busy && u.snap.Settings.Tun && u.snap.Takeover.Tun.Detail != "" { // the missing rule, not a stale core
+						label = i18n.T("正在授权…", "Authorizing…")
 					} else if busy {
 						label = i18n.T("正在更新…", "Updating…")
 					}
