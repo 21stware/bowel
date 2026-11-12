@@ -877,7 +877,7 @@ func wavyLine(path *ui.Path, gap float32, a, b [2]float32, down bool) {
 func (u *UI) viewOf(c *ui.Context, p *pal, id, v string, box ui.Rect) {
 	switch v {
 	case "normal":
-		u.normalView(c, p, id)
+		u.normalView(c, p, id, box.W)
 	case "compact":
 		u.compactView(c, p, id, variant(box))
 	default:
@@ -885,7 +885,7 @@ func (u *UI) viewOf(c *ui.Context, p *pal, id, v string, box ui.Rect) {
 	}
 }
 
-func (u *UI) normalView(c *ui.Context, p *pal, id string) {
+func (u *UI) normalView(c *ui.Context, p *pal, id string, w float32) {
 	switch id {
 	case "hero":
 		u.heroNormal(c, p)
@@ -894,7 +894,7 @@ func (u *UI) normalView(c *ui.Context, p *pal, id string) {
 	case "takeover":
 		u.takeoverNormal(c, p)
 	case "routes":
-		u.routesNormal(c, p)
+		u.routesNormal(c, p, w)
 	case "speed":
 		u.speedNormal(c, p)
 	case "apps":
@@ -2261,21 +2261,47 @@ func tunDNSText(s settings.Settings) string {
 
 // ---- Routes ----
 
-func (u *UI) routesNormal(c *ui.Context, p *pal) {
+// The names on the board share one column, so the nodes beside them line
+// up: it is as wide as the longest name, from the 58 it had when names
+// were short to a share of the cell, past which a name ends in "…".
+const (
+	routeNameMin   = 58
+	routeNameShare = .35
+)
+
+// routeNameColumn is the names' column for names this wide, in a cell
+// whose rows are avail wide.
+func routeNameColumn(widths []float32, avail float32) float32 {
+	w := float32(routeNameMin)
+	for _, x := range widths {
+		w = max(w, float32(math.Ceil(float64(x))))
+	}
+	return min(w, max(routeNameMin, float32(math.Floor(float64(avail*routeNameShare)))))
+}
+
+func (u *UI) routesNormal(c *ui.Context, p *pal, w float32) {
+	var shown []RouteView
+	var widths []float32
+	for _, r := range u.snap.Routes {
+		if r.ID == "default" || r.Reject {
+			continue
+		}
+		shown = append(shown, r)
+		nw, _ := c.MeasureText(0, ui.Span{Text: r.Name, Size: 12.5, Weight: 600})
+		widths = append(widths, nw)
+	}
+	nameW := routeNameColumn(widths, w-32) // the cell's padding
 	pad(c, 16).Children(func() {
 		cellKicker(c, p, "routes", i18n.T("分流", "By rule"))
 		ui.Column(c).Margin(4, 0, 0, 0).Children(func() {
-			for _, r := range u.snap.Routes {
-				if r.ID == "default" || r.Reject {
-					continue
-				}
-				u.routeRow(c, p, r)
+			for i, r := range shown {
+				u.routeRow(c, p, r, nameW, widths[i] > nameW)
 			}
 		})
 	})
 }
 
-func (u *UI) routeRow(c *ui.Context, p *pal, r RouteView) {
+func (u *UI) routeRow(c *ui.Context, p *pal, r RouteView, nameW float32, cut bool) {
 	rid := r.ID
 	b := ui.ButtonBase(c.Key(rid)).Row().Gap(10).Padding(3, 0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).
 		OnClick(func() {
@@ -2290,7 +2316,11 @@ func (u *UI) routeRow(c *ui.Context, p *pal, r RouteView) {
 	b.Children(func() {
 		swatch(c, p.routeColor(rid), 8)
 		u.share(c, routeNameMatch{rid}, "route:"+rid, func(c *ui.Context) ui.Element {
-			return ui.Text(c, r.Name).FontSize(12.5).FontWeight(600).TextColor(p.ink).Width(58).Shrink(0).NoWrap()
+			t := ui.Text(c, r.Name).FontSize(12.5).FontWeight(600).TextColor(p.ink).Width(nameW).Shrink(0).SingleLine()
+			if cut {
+				t = t.Tooltip(r.Name)
+			}
+			return t
 		})
 		name, delay := i18n.T("直接连接", "Direct"), i18n.T("国内 · 局域网", "Domestic · LAN")
 		n, hasNode := u.node(r.Node)
