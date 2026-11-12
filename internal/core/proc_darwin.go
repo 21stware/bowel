@@ -24,7 +24,9 @@ import (
 // matches, and the core names no process. What counts is the parent the
 // core has now. So a shell starts it in the background and exits, which
 // leaves the core to launchd. That is one of two conditions, measured on
-// macOS 27.2; the other is how the core is signed, which BinName sees to.
+// macOS 27.2; the other is how the core is signed, which BinName sees to
+// in a release (a `mygo dev` build signed by an Apple Development identity
+// did not pass in any combination tried, #131).
 //
 // It is the same process otherwise: its output still comes on a pipe it
 // inherited, so a core that outlives the app ends at its next line, as a

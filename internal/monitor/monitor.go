@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/netip"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -69,7 +70,16 @@ type Snapshot struct {
 	GroupBytes                    map[string]int64
 	Active                        int
 	TodayDown, TodayUp, MonthDown int64
+	// Unnamed: the core named the program behind none of the first
+	// connections from this computer since it started (see Mine).
+	Unnamed bool
 }
+
+// unnamedAfter is how many connections from this computer the core has to
+// leave without a program, and none named, for Unnamed. One can go
+// unnamed in a working core too, when the program has gone by the time it
+// looks; five in a row, none named, has not been seen.
+const unnamedAfter = 5
 
 // Monitor keeps what it has seen of the core. Its methods are safe for
 // concurrent use.
@@ -82,6 +92,11 @@ type Monitor struct {
 	// behind a client socket the core reported without one. Set it before
 	// Run.
 	FindProcess func(network string, src netip.AddrPort) string
+	// Mine, if set, lists this computer's own addresses, so a source other
+	// than loopback, as under TUN, counts as this computer's. Only
+	// connections from this computer have a program the core could name.
+	// It is asked at most once a poll. Set it before Run.
+	Mine func() []netip.Addr
 	// Every, if set, is how long to wait before the next poll, asked
 	// after each: longer while no one looks. Wake polls at once. Set it
 	// before Run.
@@ -115,6 +130,10 @@ type Monitor struct {
 	failSeq    int64
 	paths      map[string]string // process name -> path, from polls
 	ticks      []func()
+	// Of this Run's connections from this computer, until one is named:
+	// whether the core named one, and how many it did not.
+	named   bool
+	unnamed int
 }
 
 type tracked struct {
@@ -151,6 +170,7 @@ func (m *Monitor) Run(ctx context.Context, c *mihomo.Client) {
 
 	m.mu.Lock()
 	m.lastPoll = time.Time{}
+	m.named, m.unnamed = false, 0 // another core: ask again
 	m.mu.Unlock()
 
 	var wg sync.WaitGroup
@@ -243,6 +263,33 @@ func (m *Monitor) Now() Snapshot {
 	return Snapshot{
 		Down: m.down, Up: m.up, ByGroup: g, GroupBytes: maps.Clone(m.groupBytes), Active: len(m.active),
 		TodayDown: m.stats.TodayDown, TodayUp: m.stats.TodayUp, MonthDown: m.stats.MonthDown,
+		Unnamed: !m.named && m.unnamed >= unnamedAfter,
+	}
+}
+
+// countNamed counts a new connection the core reported, whether or not it
+// named its program, until it names one; so a named connection after
+// unnamedAfter still clears Unnamed. mine says an address is this
+// computer's. Locked.
+func (m *Monitor) countNamed(mc mihomo.Connection, mine func(netip.Addr) bool) {
+	if m.named {
+		return
+	}
+	md := mc.Metadata
+	if strings.HasPrefix(md.InboundName, "bowel-port-") {
+		return // core.ExtraPortListener: the core doesn't look these up
+	}
+	src, err := netip.ParseAddr(md.SourceIP)
+	if err != nil {
+		return
+	}
+	if src = src.Unmap(); !src.IsLoopback() && !mine(src) {
+		return // another device's: no program of this computer's
+	}
+	if md.ProcessPath != "" || md.Process != "" {
+		m.named = true
+	} else {
+		m.unnamed++
 	}
 }
 

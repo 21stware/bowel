@@ -391,6 +391,9 @@ func (u *UI) activityPage(c *ui.Context, p *pal) {
 	c.OnWindowShortcut(0, ui.KeyEscape, func() { a.open = "" })
 	ui.Column(c).Fill().Children(func() {
 		u.actHead(c, p)
+		if u.tick.AppsUnknown {
+			ui.Text(c, appsUnknownNote()).FontSize(12).TextColor(p.signal).Padding(0, 26, 10, 26)
+		}
 		if a.logTab {
 			u.actLogBar(c, p)
 			u.actLogList(c, p)

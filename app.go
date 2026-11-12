@@ -215,6 +215,7 @@ func newApp() (*App, error) {
 	a.keepRuleSets()
 	a.mon.SkipGroup = core.ProbeGroup // the location probe's own traffic
 	a.mon.FindProcess = procinfo.New().Find
+	a.mon.Mine = gateway.LocalAddrs
 	a.mon.Every = a.pollEvery
 	cm.OnStatus = func(s core.Status) { a.onCoreStatus(s) }
 	cm.OnListenError = func() { a.emit() }
@@ -2180,7 +2181,9 @@ func (a *App) tick() Tick {
 func (a *App) buildTick() Tick {
 	n := a.mon.Now()
 	t := Tick{Down: n.Down, Up: n.Up, ByRoute: map[string]int64{}, Active: n.Active,
-		TodayDown: n.TodayDown, TodayUp: n.TodayUp, MonthDown: n.MonthDown, Apps: []AppRate{}, Events: []Event{}}
+		TodayDown: n.TodayDown, TodayUp: n.TodayUp, MonthDown: n.MonthDown, Apps: []AppRate{}, Events: []Event{},
+		// Only "always" asks the core to look every connection up.
+		AppsUnknown: n.Unnamed && a.settings.Get().FindProcess == "always"}
 	for g, v := range n.ByGroup {
 		// A DIRECT group can be the direct route or the default's DIRECT; count it as direct.
 		id := a.routeOfGroup(g, "x")
