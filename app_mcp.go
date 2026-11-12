@@ -819,8 +819,9 @@ func (a *App) mcpServer() *mcp.Server {
 					if p.SystemProxy != nil {
 						note("systemProxy", st.SystemProxy, *p.SystemProxy)
 					}
-					// TUN wanted and not had (its core did not start): asking
-					// for it again is asking to try again.
+					// TUN wanted and not had (its core did not start), or on
+					// without the rule that points the system's DNS at it:
+					// asking for it again is asking to try again.
 					retry := p.Tun != nil && *p.Tun && st.Tun && a.tunFailed()
 					if p.Tun != nil {
 						note("tun", st.Tun, *p.Tun)
