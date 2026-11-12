@@ -147,9 +147,14 @@ type App struct {
 }
 
 type switchNote struct {
-	route, from, to string // route is the route's ID
+	route, from, to string // route is the route's ID; from and to are the core's node names
 	at              time.Time
 }
+
+// switchShow is how long the news line says a switch. It is news, not a state:
+// the route has already moved, and the line must not keep the title bar for as
+// long as the node it left stays down.
+const switchShow = time.Minute
 
 func newApp() (*App, error) {
 	data, err := mygo.App.Path(mygo.PathUserData)
@@ -1549,6 +1554,9 @@ func currentNode(px map[string]mihomo.Proxy, r routes.Route) string {
 }
 
 // noticeSwitches records a route's automatic group moving off a failed node.
+// What is kept here is the core's own names: how they read is worked out when
+// the note is shown (switchFor), where a.mu is not held and a name that
+// changed in between shows at once.
 func (a *App) noticeSwitches() {
 	s := a.settings.Get()
 	a.mu.Lock()
@@ -1560,13 +1568,36 @@ func (a *App) noticeSwitches() {
 		n := currentNode(a.proxies, r)
 		prev := a.lastNode[r.ID]
 		a.lastNode[r.ID] = n
-		if now := a.proxies[routes.Group(r)].Now; prev == "" || prev == n || (now != routes.Auto(r) && now != routes.Backup(r)) {
+		if now := a.proxies[routes.Group(r)].Now; prev == "" || prev == n || n == "" || (now != routes.Auto(r) && now != routes.Backup(r)) {
 			continue
 		}
-		if h := a.proxies[prev].HistoryOf(s.TargetsOf(r.ID)[0].URL); len(h) > 0 && h[len(h)-1].Delay == 0 {
-			a.switched = &switchNote{route: r.ID, from: a.label(a.provNodes, prev), to: a.label(a.provNodes, n), at: time.Now()}
+		targets := s.TargetsOf(r.ID)
+		if len(targets) == 0 {
+			continue
+		}
+		if h := a.proxies[prev].HistoryOf(targets[0].URL); len(h) > 0 && h[len(h)-1].Delay == 0 {
+			note := &switchNote{route: r.ID, from: prev, to: n, at: time.Now()}
+			a.switched = note
+			a.hideSwitchAt(note)
 		}
 	}
+}
+
+// hideSwitchAt takes the note out when its time is up, rather than at the next
+// refresh, up to two seconds later. The pointer says which note this timer is
+// about: a newer switch has a timer of its own.
+func (a *App) hideSwitchAt(n *switchNote) {
+	time.AfterFunc(switchShow, func() {
+		a.mu.Lock()
+		gone := a.switched == n
+		if gone {
+			a.switched = nil
+		}
+		a.mu.Unlock()
+		if gone {
+			a.emit() // outside the lock: emit and snapshot take a.mu
+		}
+	})
 }
 
 // ---- Providers ----
@@ -1996,6 +2027,45 @@ func (a *App) display(node string) string {
 	return a.label(pn, node)
 }
 
+// nodeShown is a node as the news line names it: "[Provider]Node" when the
+// app has more than one provider, the node alone otherwise, both names read as
+// the node list reads them. A node a name leaves nothing of still reads as
+// something.
+func (a *App) nodeShown(provNodes map[string][]string, node string) string {
+	shown := a.label(provNodes, node) // as NodeView.Display is made
+	if shown == "" {
+		shown = "…"
+	}
+	id := providerOf(node)
+	if id == "" || !severalProviders(provNodes) {
+		return shown
+	}
+	p, ok := a.providers.Get(id)
+	if !ok {
+		return shown // the provider is gone: the node alone is truer than a bare id
+	}
+	name := trimFlag(geo.Visible(p.Name))
+	if name == "" || name == shown {
+		return shown // a link provider's only node already goes by its name
+	}
+	return "[" + name + "]" + shown
+}
+
+// severalProviders says whether naming a node's provider adds anything: with
+// one provider, its name is the same on every line.
+func severalProviders(provNodes map[string][]string) bool {
+	seen := 0
+	for _, nodes := range provNodes {
+		if len(nodes) > 0 {
+			seen++
+			if seen > 1 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func providerOf(node string) string {
 	if i := strings.Index(node, core.NodeSep); i >= 0 {
 		return node[i+len(core.NodeSep):]
@@ -2221,7 +2291,8 @@ func (a *App) snapshot() Snapshot {
 	s := a.settings.Get()
 	cs := a.core.Status()
 	a.mu.Lock()
-	sys, proxyErr, px, provNodes, you, sw := a.sys, a.proxyErr, a.proxies, a.provNodes, a.you, a.switched
+	sys, proxyErr, px, provNodes, you := a.sys, a.proxyErr, a.proxies, a.provNodes, a.you
+	note := a.switched // taken with px: a refresh may record a newer switch
 	pings, sites := a.pings, a.sites
 	openAtLogin := a.openAtLogin
 	gwp, gwErr := a.gwProbe, a.gwErr
@@ -2235,6 +2306,9 @@ func (a *App) snapshot() Snapshot {
 	slices.Sort(pending)
 
 	on := a.takeoverOn(s)
+	// After the lock: a node's name is read through the interface's own rules,
+	// and the note is dropped here once it no longer tells what happens.
+	sw := a.switchFor(note, px, provNodes, cs, s, on)
 	snap := Snapshot{
 		Update: a.updateView(), UpdateInfo: a.updateInfo(),
 		Mode: s.Mode, Pending: pending, Version: mygo.App.Version(), RuleCount: a.ruleCount(s),
@@ -2392,7 +2466,71 @@ func (a *App) snapshot() Snapshot {
 	return snap
 }
 
-func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, snap Snapshot, sw *switchNote) (State, *Issue) {
+// switchSay is a switch as the news line says it: the names shown, not the
+// core's.
+type switchSay struct {
+	title, from, to string
+}
+
+// switchFor is the switch, if the news line should still say it: nil once its
+// time is up, the route is on another node, its group was pinned by hand, the
+// node it left answers again, or traffic is not being taken over. The names
+// are made here rather than where the note is recorded, which runs under a.mu.
+// switchFor renders n, or nothing when it no longer tells what happens. n is
+// read together with px, so both describe the same moment: a refresh that
+// records a newer switch while a snapshot is being built would otherwise be
+// judged against the nodes of the snapshot before it, and dropped as stale.
+func (a *App) switchFor(n *switchNote, px map[string]mihomo.Proxy, provNodes map[string][]string, cs core.Status, s settings.Settings, on bool) *switchSay {
+	if n == nil {
+		return nil
+	}
+	note := *n // the fields are written once, before the note is published
+	if !on || cs.State != core.Running || switchExpired(&note, time.Now()) || a.switchStale(&note, px, s) {
+		a.dropSwitch(n)
+		return nil
+	}
+	return &switchSay{
+		title: routes.Title(a.route(note.route)),
+		from:  a.nodeShown(provNodes, note.from),
+		to:    a.nodeShown(provNodes, note.to),
+	}
+}
+
+// dropSwitch forgets n, unless a newer switch replaced it meanwhile.
+func (a *App) dropSwitch(n *switchNote) {
+	a.mu.Lock()
+	if a.switched == n {
+		a.switched = nil
+	}
+	a.mu.Unlock()
+}
+
+func switchExpired(n *switchNote, now time.Time) bool { return now.Sub(n.at) >= switchShow }
+
+// switchStale says whether the note no longer tells what happens: the route is
+// on another node, its group was given a node by hand, or the node it left
+// answers again. The group check mirrors noticeSwitches'.
+func (a *App) switchStale(n *switchNote, px map[string]mihomo.Proxy, s settings.Settings) bool {
+	r := a.route(n.route)
+	if r.ID == "" || r.Direct {
+		return true
+	}
+	g, ok := px[routes.Group(r)]
+	if !ok || (g.Now != routes.Auto(r) && g.Now != routes.Backup(r)) {
+		return true // a fixed pick, or another strategy: the user chose
+	}
+	if currentNode(px, r) != n.to {
+		return true // the group moved again
+	}
+	if targets := s.TargetsOf(r.ID); len(targets) > 0 {
+		if h := px[n.from].HistoryOf(targets[0].URL); len(h) > 0 && h[len(h)-1].Delay > 0 {
+			return true // the node it left works again
+		}
+	}
+	return false
+}
+
+func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, snap Snapshot, sw *switchSay) (State, *Issue) {
 	if !on {
 		return StateOff, nil
 	}
@@ -2417,8 +2555,8 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 	if len(snap.Nodes) == 0 && s.Mode != "direct" {
 		return StateDegraded, &Issue{Level: "warn", Text: i18n.T("还没有节点，流量正在直连", "No nodes yet; traffic is going direct"), Action: "providers", Label: i18n.T("添加提供商", "Add Provider")}
 	}
-	if sw != nil && time.Since(sw.at) < 10*time.Minute {
-		return StateDegraded, &Issue{Level: "warn", Text: fmt.Sprintf(i18n.T("%s：%s 不可用，已换到 %s", "%s: %s is down, switched to %s"), routes.Title(a.route(sw.route)), sw.from, sw.to), Action: "activity", Label: i18n.T("查看", "View")}
+	if sw != nil {
+		return StateDegraded, &Issue{Level: "warn", Text: fmt.Sprintf(i18n.T("%s：%s 不可用，已换到 %s", "%s: %s is down, switched to %s"), sw.title, sw.from, sw.to), Action: "activity", Label: i18n.T("查看", "View")}
 	}
 	var broken []RouteView
 	for _, r := range snap.Routes {
