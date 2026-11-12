@@ -11,6 +11,7 @@ import (
 
 	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/monitor"
 	"github.com/oboo/moho/internal/settings"
 	"github.com/oboo/moho/internal/tun"
 )
@@ -341,5 +342,39 @@ func TestTunCoreFailureKeepsACore(t *testing.T) {
 	}
 	if tk := a.snapshot().Takeover.Tun; tk.Status != "off" || attempts() != 2 || a.core.Status().State != core.Running {
 		t.Fatalf("after tun off: %+v, %d attempts, core %+v", tk, attempts(), a.core.Status())
+	}
+}
+
+// Issue 117, Windows: an installation that stopped half way says where in
+// the logs and on the TUN entry, one that was made without its second
+// task says so in the logs, and a prompt the user dismissed says nothing.
+func TestTunInstallIsNoted(t *testing.T) {
+	saved := osTun
+	defer func() { osTun = saved }()
+	m, err := core.New("/old", filepath.Join(t.TempDir(), "core"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &App{core: m, tunBin: "/tun", mon: monitor.New(filepath.Join(t.TempDir(), "stats.json"))}
+	last := func() string {
+		logs := a.mon.Logs(0)
+		if len(logs) == 0 {
+			return ""
+		}
+		return logs[len(logs)-1].Text
+	}
+	osTun.note = func(string) string { return "" }
+	osTun.install = func(string, string) error { return tun.ErrCanceled }
+	if err := a.installTun(); !errors.Is(err, tun.ErrCanceled) || last() != "" {
+		t.Errorf("dismissed: %v, logged %q", err, last())
+	}
+	osTun.install = func(string, string) error { return errors.New("stopped at the task: ERROR: Unspecified error") }
+	if err := a.installTun(); err == nil || last() != "bowel: tun: stopped at the task: ERROR: Unspecified error" {
+		t.Errorf("failed: %v, logged %q", err, last())
+	}
+	osTun.install = func(string, string) error { return nil }
+	osTun.note = func(dst string) string { return "no second task for " + dst }
+	if err := a.installTun(); err != nil || last() != "bowel: tun: no second task for /tun" {
+		t.Errorf("made without the second task: %v, logged %q", err, last())
 	}
 }

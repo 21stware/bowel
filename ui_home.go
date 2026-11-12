@@ -2159,6 +2159,9 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 				status = i18n.T("生效中", "Active")
 			case t.Tun.Status == "install":
 				status = tunInstallHint()
+				if t.Tun.Detail != "" { // the last attempt stopped half way
+					status = t.Tun.Detail
+				}
 			case t.Tun.Status == "error":
 				status = t.Tun.Detail
 			}

@@ -326,6 +326,11 @@ func (c *Ctx) takeoverNotes(tk takeover) {
 		cl := entryCell(e.e.Status, e.e.Detail)
 		c.warn(e.name + ": " + cl.text)
 	}
+	// An installation of TUN that stopped half way says where, whether or
+	// not TUN is wanted now: it is why turning it on asks again.
+	if tk.Tun.Status == "install" && tk.Tun.Detail != "" {
+		c.warn("TUN: " + tk.Tun.Detail)
+	}
 }
 
 func runTakeover(c *Ctx, on bool) error {

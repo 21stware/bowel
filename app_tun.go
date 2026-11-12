@@ -1,6 +1,9 @@
 package main
 
 import (
+	"errors"
+	"log"
+
 	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/tun"
 )
@@ -15,4 +18,24 @@ func spawnTun(bin string) (core.Process, error) {
 		return nil, err
 	}
 	return t, err
+}
+
+// noteTunInstall puts how TUN's installation went among the logs, where
+// there is something to say: why it failed (on Windows, the part of the
+// elevated command that stopped and what Windows said), or what an
+// installation that was made is without. A prompt the user dismissed is
+// not a failure.
+func (a *App) noteTunInstall(err error) {
+	text := ""
+	switch {
+	case err == nil:
+		text = osTun.note(a.tunBin)
+	case !errors.Is(err, tun.ErrCanceled):
+		text = err.Error()
+	}
+	if text == "" {
+		return
+	}
+	log.Println("tun: installation:", text)
+	a.mon.Note("bowel: tun: " + text)
 }

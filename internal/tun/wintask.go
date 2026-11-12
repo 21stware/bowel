@@ -40,11 +40,52 @@ func mark(dst, coreDir, sid string) string {
 // SYSTEM; users read and run what is in it.
 const dirACL = `*S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX`
 
+// noFallbackPath is the file that says the installation has no second
+// task: registering it failed, and what schtasks said is what the file
+// holds. Like the mark it is in the directory only administrators write.
+func noFallbackPath(dst string) string { return winDir(dst) + `\no-fallback` }
+
+// installLogName is the file, in the directory the copy is staged in,
+// that the elevated command reports to: the app sees nothing of that
+// command but its exit code. The user can write there, as they can write
+// the staged copy; what the file says is shown and decides nothing.
+const installLogName = ".mihomo-install.log"
+
+// installSteps are the parts of the elevated command, in order: each
+// writes its name, in brackets, to the log before it begins, and what its
+// commands print follows. The command stops at the first that fails, so
+// the last name in the log is the part that failed, unless it is done.
+// The first, which only looks for the staged copy, is named when the copy
+// is missing: the copy has to stay the step's first path.
+var installSteps = []string{"staged", "dir", "launcher", "core", "task", "fallback", "mark"}
+
+const installDone = "done"
+
+// stepText is a part of the installation as the user is told of it.
+func stepText(step string) string {
+	switch step {
+	case "staged":
+		return i18n.T("找到待安装的内核副本", "finding the copy of the core to install")
+	case "dir":
+		return i18n.T("建立安装目录并设置权限", "making the installation's folder and setting its permissions")
+	case "launcher":
+		return i18n.T("替换启动器 bowel-tun.exe", "replacing the launcher bowel-tun.exe")
+	case "core":
+		return i18n.T("替换内核 mihomo.exe", "replacing the core mihomo.exe")
+	case "task":
+		return i18n.T("注册计划任务", "registering the scheduled task")
+	case "fallback":
+		return i18n.T("注册备用的计划任务", "registering the second scheduled task")
+	case "mark":
+		return i18n.T("写入安装标记", "writing the installation's mark")
+	}
+	return step
+}
+
 // winInstallStep is the elevated command. The copy in use may be
 // running, and a running program's file can be renamed but not written:
 // it steps aside as .old, which the next installation deletes. The copy
-// to install is the step's first path, as Install expects. Both tasks
-// are registered, the second being the one startTask falls back to.
+// to install is the step's first path, as Install expects.
 //
 // ltmp is the app's own program, which becomes the second task's
 // launcher (see fallbackTaskXML); it is copied, not moved, so that it
@@ -53,22 +94,147 @@ const dirACL = `*S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(C
 // and the new launcher, elevated here, ends any core still running from
 // dst: one that a task's end left behind, which the app has no right to
 // end itself.
-func winInstallStep(tmp, ltmp, dst, xml, task, xml2, task2, mark string) Step {
+//
+// Both tasks are registered, the second being the one startTask falls
+// back to. The first is the installation: without it there is no mark.
+// The second is for the accounts the first starts nothing for, and a
+// machine that refuses it still has TUN: what schtasks said goes to
+// noFallbackPath, which stays only when it failed, whatever was left of
+// an older second task is deleted, and the mark is written all the same.
+//
+// log is where each part's name and output go (see installSteps); the
+// app reads it afterwards, since the exit code is all it gets otherwise.
+func winInstallStep(tmp, ltmp, dst, xml, task, xml2, task2, mark, log string) Step {
 	dir := winDir(dst)
 	old := dst + ".old"
 	launcher := launcherPath(dst)
 	lold := launcher + ".old"
+	nofb := noFallbackPath(dst)
 	return Step{
-		"(if not exist ", tmp, " exit /b 1) && (if not exist ", dir, " mkdir ", dir,
-		") && icacls ", dir, " /setowner *S-1-5-32-544 /T /C >nul && icacls ", dir, " /inheritance:r /grant:r " + dirACL + " >nul" +
-			" && (schtasks /End /TN ", task, " >nul 2>nul & schtasks /End /TN ", task2, " >nul 2>nul & ver >nul)" +
+		"(if not exist ", tmp, " echo [staged]>> ", log, ") && (if not exist ", tmp, " exit /b 1) && (echo [dir])>> ", log,
+		" && (if not exist ", dir, " mkdir ", dir, ") >> ", log, " 2>&1 && icacls ", dir, " /setowner *S-1-5-32-544 /T /C >> ", log,
+		" 2>&1 && icacls ", dir, " /inheritance:r /grant:r " + dirACL + " >> ", log,
+		" 2>&1 && (echo [launcher])>> ", log,
+		" && (schtasks /End /TN ", task, " >nul 2>nul & schtasks /End /TN ", task2, " >nul 2>nul & ver >nul)" +
 			" && (del /f /q ", lold, " 2>nul & ver >nul) && (if exist ", launcher, " move /y ", launcher, " ", lold,
-		" >nul) && copy /y /b ", ltmp, " ", launcher, " >nul && (del /f /q ", ltmp, ` 2>nul & start "" /wait `, launcher, " " + LauncherArg + " " + launcherKill + " ", dst,
-		" & ver >nul) && (del /f /q ", old, " 2>nul & ver >nul) && (if exist ", dst, " move /y ", dst, " ", old,
-		" >nul) && copy /y /b ", tmp, " ", dst, " >nul && schtasks /Create /F /TN ", task, " /XML ", xml,
-		" >nul && schtasks /Create /F /TN ", task2, " /XML ", xml2,
-		" >nul && (echo " + mark + ")> ", markPath(dst),
+		") >> ", log, " 2>&1 && copy /y /b ", ltmp, " ", launcher, " >> ", log,
+		" 2>&1 && (del /f /q ", ltmp, ` 2>nul & start "" /wait `, launcher, " " + LauncherArg + " " + launcherKill + " ", dst,
+		" & ver >nul) && (echo [core])>> ", log,
+		" && (del /f /q ", old, " 2>nul & ver >nul) && (if exist ", dst, " move /y ", dst, " ", old,
+		") >> ", log, " 2>&1 && copy /y /b ", tmp, " ", dst, " >> ", log,
+		" 2>&1 && (echo [task])>> ", log, " && schtasks /Create /F /TN ", task, " /XML ", xml, " >> ", log,
+		" 2>&1 && (echo [fallback])>> ", log,
+		" && (schtasks /Create /F /TN ", task2, " /XML ", xml2, " > ", nofb, " 2>&1 && (del /f /q ", nofb,
+		" 2>nul & ver >nul) || (schtasks /Delete /F /TN ", task2, " >nul 2>nul & ver >nul)) && (echo [mark])>> ", log,
+		" && (echo " + mark + ")> ", markPath(dst), " && (echo [" + installDone + "])>> ", log,
 	}
+}
+
+// installLog is the log among the steps' paths, "" when none of them is
+// an installation.
+func installLog(steps []Step) string {
+	for _, st := range steps {
+		for i := 1; i < len(st); i += 2 {
+			if j := strings.LastIndexAny(st[i], `\/`); st[i][j+1:] == installLogName {
+				return st[i]
+			}
+		}
+	}
+	return ""
+}
+
+// installReport is what the elevated command left in its log.
+type installReport struct {
+	step string // the last part begun, "" when nothing was written
+	said string // what that part's commands printed
+	done bool   // every part ran
+}
+
+// readReport reads the log: the last part named in it and what follows
+// that name. What the commands print is in the system's language and is
+// passed on as it is, on one line.
+func readReport(log string) installReport {
+	var r installReport
+	var said []string
+	for _, line := range strings.Split(log, "\n") {
+		line = strings.TrimSpace(line)
+		if name, ok := stepName(line); ok {
+			r.step, r.done, said = name, name == installDone, nil
+			continue
+		}
+		if line != "" {
+			said = append(said, line)
+		}
+	}
+	r.said = clip(strings.Join(said, " "))
+	return r
+}
+
+func stepName(line string) (string, bool) {
+	if !strings.HasPrefix(line, "[") || !strings.HasSuffix(line, "]") {
+		return "", false
+	}
+	name := line[1 : len(line)-1]
+	if name == installDone {
+		return name, true
+	}
+	for _, s := range installSteps {
+		if s == name {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// clip keeps what a command said short enough to show.
+func clip(s string) string {
+	const max = 600
+	if r := []rune(s); len(r) > max {
+		return string(r[:max]) + "…"
+	}
+	return s
+}
+
+// failure is why the installation stopped, "" when the log does not say
+// that it did: nothing in it, or all of it done.
+func (r installReport) failure() string {
+	if r.step == "" || r.done {
+		return ""
+	}
+	if r.said == "" {
+		return fmt.Sprintf(i18n.T("停在「%s」这一步，Windows 没有给出原因", "it stopped at %s, and Windows gave no reason"), stepText(r.step))
+	}
+	return fmt.Sprintf(i18n.T("停在「%s」这一步，Windows 的输出：%s", "it stopped at %s, where Windows said: %s"), stepText(r.step), r.said)
+}
+
+// installErr is what the installation's authorisation returns when the
+// elevated command ended with code: with the part it stopped at when the
+// log has one.
+func installErr(code uint32, log string) error {
+	if why := readReport(log).failure(); why != "" {
+		return fmt.Errorf(i18n.T("授权后的安装没有完成（退出码 %d）：%s", "The installation didn't finish after the authorization (exit code %d): %s"), code, why)
+	}
+	return fmt.Errorf(i18n.T("授权后的安装没有完成（退出码 %d）", "The installation didn't finish after the authorization (exit code %d)"), code)
+}
+
+// failureNote is what the TUN entry says of an installation that stopped,
+// from the log it left, "" when it left none that says so.
+func failureNote(log string) string {
+	if why := readReport(log).failure(); why != "" {
+		return i18n.T("上一次安装没有完成：", "The last installation didn't finish: ") + why
+	}
+	return ""
+}
+
+// fallbackNote is what is said, once, of an installation whose second
+// task could not be registered; said is what schtasks printed.
+func fallbackNote(said string) string {
+	said = clip(strings.Join(strings.Fields(said), " "))
+	if said == "" {
+		said = i18n.T("没有给出原因", "no reason given")
+	}
+	return fmt.Sprintf(i18n.T("TUN 已安装，但备用的计划任务没能注册（Windows 的输出：%s）。TUN 照常使用第一个任务；只有它启动不了内核时（多半是域账户连不上域控制器）才会受影响",
+		"TUN is installed, but its second scheduled task couldn't be registered (Windows said: %s). TUN runs on the first task as usual; this only matters when that one can't start the core (most likely a domain account whose controller can't be reached)"), said)
 }
 
 // taskRunErr is why the task did not run, from what schtasks /Run said
@@ -263,10 +429,15 @@ func winScript(steps []Step) (string, error) {
 // the core last when it was not the first.
 const rememberFallback = "interactive"
 
-// taskOrder is the order the two tasks are tried in: the first task
-// first, unless the second was the one that worked last time.
-func taskOrder(task, last string) []string {
-	if strings.TrimSpace(last) == rememberFallback {
+// taskOrder is the order the tasks are tried in: the first task first,
+// unless the second was the one that worked last time. An installation
+// whose second task could not be registered (fallback is false) has the
+// first alone, whatever was remembered.
+func taskOrder(task, last string, fallback bool) []string {
+	switch {
+	case !fallback:
+		return []string{task}
+	case strings.TrimSpace(last) == rememberFallback:
 		return []string{fallbackName(task), task}
 	}
 	return []string{task, fallbackName(task)}
@@ -289,6 +460,14 @@ func notStartedErr() error {
 	return errors.New(i18n.T("计划任务没有把内核启动起来", "The scheduled task didn't start the core"))
 }
 
+// unregisteredErr is err, why the first task did not start the core,
+// for an installation that has no second task because Windows refused
+// it. Making the installation again would be refused the same, so this
+// is not ErrGone.
+func unregisteredErr(err error) error {
+	return fmt.Errorf(i18n.T("%s；备用的计划任务在安装时没能注册，没有别的方式可以启动内核", "%s; the second scheduled task couldn't be registered when TUN was installed, so there is no other way to start the core"), err)
+}
+
 // startTask starts the core through one of the installation's two tasks
 // and returns the name of the one that did. run and query are schtasks'
 // /Run and /Query of a task; started waits for the core's process after a
@@ -297,10 +476,11 @@ func notStartedErr() error {
 //
 // Without its first task the installation is gone. A second task that is
 // missing is an older version's installation, which matters only once the
-// first has started nothing.
-func startTask(task, last string, run, query func(name string) error, started func() bool) (string, error) {
+// first has started nothing; one the installation says it could not
+// register (fallback is false) is not tried at all.
+func startTask(task, last string, fallback bool, run, query func(name string) error, started func() bool) (string, error) {
 	var failed, old error
-	for _, name := range taskOrder(task, last) {
+	for _, name := range taskOrder(task, last, fallback) {
 		err := run(name)
 		if err == nil {
 			if started() {
@@ -322,6 +502,9 @@ func startTask(task, last string, run, query func(name string) error, started fu
 	}
 	if old != nil {
 		return "", old
+	}
+	if !fallback && failed != nil {
+		return "", unregisteredErr(failed)
 	}
 	return "", failed
 }

@@ -1059,7 +1059,9 @@ func (a *App) tunFailed() bool {
 // installTun puts this version's core in the root copy and runs on it.
 func (a *App) installTun() error {
 	a.tellTunDevice()
-	if err := osTun.install(a.coreBin, a.tunBin); err != nil {
+	err := osTun.install(a.coreBin, a.tunBin)
+	a.noteTunInstall(err)
+	if err != nil {
 		return err
 	}
 	a.tunInstalled()
@@ -2238,6 +2240,9 @@ func (a *App) snapshot() Snapshot {
 		fault = *f
 	}
 	tk.Tun = tunEntry(s.Tun, on, osTun.installed(a.tunBin) && !a.tunGone.Load(), fault, cs.State)
+	if tk.Tun.Status == "install" {
+		tk.Tun.Detail = osTun.failure() // an installation that stopped half way says where
+	}
 	if s.AllowLan {
 		tk.LanAddr = lanAddr(s.MixedPort)
 	}
