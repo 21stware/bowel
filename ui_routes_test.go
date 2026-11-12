@@ -652,3 +652,87 @@ func TestDragToReorder(t *testing.T) {
 		t.Errorf("sets after a drag onto a service: %v", got)
 	}
 }
+
+// inView tells whether the box is wholly inside a window h tall.
+func inView(r ui.Rect, h float32) bool { return r.H > 0 && r.Y >= 0 && r.Y+r.H <= h }
+
+// TestRoutesOpeningKeepsTheRow: opening a service below the open one
+// closes that one's editor, and the clicked row stays under the pointer.
+func TestRoutesOpeningKeepsTheRow(t *testing.T) {
+	u := routesFixture()
+	u.selectGroup("ai")
+	u.routes.svc = "openai"
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	tt.Wheel(700, 500, 0, 400) // OpenAI's editor above, partly scrolled away
+	tt.Advance(time.Second)
+	before, ok := tt.Find("Claude")
+	if !ok || !inView(before, 760) {
+		t.Fatalf("Claude not in view: %v %v", before, ok)
+	}
+	tt.ClickAt(before.X+before.W/2, before.Y+before.H/2)
+	tt.Advance(time.Second)
+	if u.routes.svc != "claude" {
+		t.Fatalf("open: %q", u.routes.svc)
+	}
+	after, _ := tt.Find("Claude")
+	if d := after.Y - before.Y; d < -1 || d > 1 {
+		t.Errorf("the row moved from y %.0f to %.0f", before.Y, after.Y)
+	}
+}
+
+// TestRoutesMineStaysPut: 我添加的 opened from elsewhere comes into view,
+// and its first rule doesn't move it to the top while the group shows.
+// Shown again, the group lists it first.
+func TestRoutesMineStaysPut(t *testing.T) {
+	u := routesFixture()
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	u.openRoutes("ai", routes.MineID("ai"))
+	tt.Frame()
+	tt.Advance(time.Second)
+	before, ok := tt.Find("我添加的")
+	if !ok || !inView(before, 760) {
+		t.Fatalf("我添加的 not in view: %v %v", before, ok)
+	}
+	typeInto(t, tt, "新规则", "example.org")
+	tt.Key(0, ui.KeyEnter)
+	tt.Advance(time.Second)
+	if got := u.shownSettings().Rules; len(got) != 1 || got[0].Service != "" || got[0].Route != "ai" {
+		t.Fatalf("rules: %+v", got)
+	}
+	if after, _ := tt.Find("我添加的"); after.Y < before.Y-1 || after.Y > before.Y+1 {
+		t.Errorf("我添加的 moved from y %.0f to %.0f", before.Y, after.Y)
+	}
+	if !inView(must(tt.Find("*.example.org")), 760) {
+		t.Errorf("the new rule is out of view: %q", tt.Texts())
+	}
+
+	u.selectGroup(routes.Default)
+	tt.Frame()
+	u.selectGroup("ai")
+	tt.Frame()
+	tt.Frame()
+	mine, _ := tt.Find("我添加的")
+	openai, _ := tt.Find("OpenAI")
+	if mine.Y >= openai.Y {
+		t.Errorf("shown again, 我添加的 (y %.0f) is not above OpenAI (y %.0f)", mine.Y, openai.Y)
+	}
+}
+
+// TestRoutesNewServiceInView: a new service, listed last, comes into view.
+func TestRoutesNewServiceInView(t *testing.T) {
+	u := routesFixture()
+	u.selectGroup("ai")
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	if err := tt.Click("＋ 新建服务"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if r, ok := tt.Find("新服务"); !ok || !inView(r, 760) {
+		t.Errorf("新服务 not in view: %v %v", r, ok)
+	}
+}
+
+func must(r ui.Rect, ok bool) ui.Rect { return r }
