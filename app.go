@@ -66,6 +66,9 @@ type App struct {
 	tunUp     tunUpProbe  // whether the core's TUN device is up, as last asked (app_tun.go); under mu
 	probePort int
 	gw        *gateway.Gateway
+	// tunFirewall is whether a firewall that may drop what comes back on
+	// the TUN device was on at the last look (probeTunDNS).
+	tunFirewall atomic.Bool
 
 	setMu     sync.Mutex // serialises updateSettings
 	routesMu  sync.Mutex // guards the two below: see routes
@@ -2358,8 +2361,12 @@ func (a *App) snapshot() Snapshot {
 		if why := a.tunDown(cs); why != "" {
 			tk.Tun.Status, tk.Tun.Detail = "error", why
 		} else {
-			// TUN is on, and may still not be where the system's lookups go.
+			// TUN is on, and may still not be where the system's lookups go,
+			// or the firewall may drop what its stack hands back.
 			tk.Tun.Detail = tunDNSDetail(a.tunDNSState(cs))
+			if tk.Tun.Detail == "" {
+				tk.Tun.Detail = tunStackDetail(s.TunStack, a.tunFirewall.Load())
+			}
 		}
 	}
 	if s.AllowLan {

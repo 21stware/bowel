@@ -12,6 +12,7 @@ import (
 
 	"github.com/oboo/moho/internal/devnet"
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/provider"
 	"github.com/oboo/moho/internal/routes"
 )
 
@@ -234,6 +235,9 @@ func BuildConfig(in Input) ([]byte, error) {
 			"path":         p.Path,
 			"health-check": map[string]any{"enable": true, "url": in.TestURL, "interval": o.HealthInterval, "lazy": true},
 			"override":     map[string]any{"additional-suffix": NodeSep + p.ID},
+			// Entries that only say how much traffic is left and the like
+			// are no nodes (provider.InfoPattern).
+			"exclude-filter": provider.InfoPattern,
 		}
 	}
 	if len(providers) > 0 {

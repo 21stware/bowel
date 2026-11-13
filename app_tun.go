@@ -280,6 +280,7 @@ func (a *App) probeTunDNS() {
 	}
 	go func() {
 		a.tellTunDevice()
+		fw := osTun.firewall()
 		pointed, known := osTun.linkDNS(context.Background())
 		a.mu.Lock()
 		a.tunDNSBusy = false
@@ -290,10 +291,27 @@ func (a *App) probeTunDNS() {
 			changed = before != [2]bool{q.unpointed(), q.pointed()}
 		}
 		a.mu.Unlock()
+		if a.tunFirewall.Swap(fw) != fw {
+			changed = true
+		}
 		if changed {
 			a.emit()
 		}
 	}()
+}
+
+// tunStackDetail is what the TUN entry says of a firewall that may drop
+// what the system stack gets back on the device: ufw's default drops
+// what comes in, and with the system and mixed stacks the TCP that does
+// not use the proxy port then times out, which gVisor avoids (#117). It
+// is a note, not an issue: a firewall that lets the device in is fine,
+// and that can't be read without root.
+func tunStackDetail(stack string, firewall bool) string {
+	if !firewall || stack == "gvisor" {
+		return ""
+	}
+	return fmt.Sprintf(i18n.T("ufw 或 firewalld 开着：协议栈是 %s 时，防火墙可能拦下 TUN 上不走代理端口的 TCP，表现为超时。改用 gVisor 协议栈可以避开（设置 → TUN → 协议栈，或 bowel settings set tunStack gvisor）；已在防火墙里放行 TUN 网卡的可以忽略",
+		"ufw or firewalld is on: with the %s stack it may drop TCP on TUN that doesn't use the proxy port, which then times out. The gVisor stack avoids it (Settings → TUN → Stack, or bowel settings set tunStack gvisor); if the firewall lets the TUN device in, ignore this"), stack)
 }
 
 // note takes one look's answer.

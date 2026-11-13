@@ -233,6 +233,13 @@ func PrimaryInterface() string {
 	return iface
 }
 
+// TunFirewall says whether a firewall that filters what comes in is on,
+// which may drop what the system stack gets back on the TUN device: the
+// core's system and mixed stacks hand TCP to the kernel through it, so
+// with ufw's default the connections that don't use the proxy port time
+// out, where gVisor's keep it in the core (#117).
+func TunFirewall() bool { return firewallOn() }
+
 // firewallOn says whether a firewall that filters by default is on: ufw
 // or firewalld, either of which may drop port 53 and what is forwarded.
 func firewallOn() bool {

@@ -264,3 +264,7 @@ func firewallOn() bool {
 	s := string(out)
 	return strings.Contains(s, "State = 1") || strings.Contains(s, "State = 2") || strings.Contains(s, "is enabled")
 }
+
+// TunFirewall is Linux's: a firewall here does not filter what comes back
+// on the TUN device.
+func TunFirewall() bool { return false }

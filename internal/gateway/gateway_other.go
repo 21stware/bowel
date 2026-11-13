@@ -32,3 +32,7 @@ func (other) Prepare(string, ...tun.Step) error { return errUnsupported }
 func (other) KeepAwake() (func(), error)        { return nil, errUnsupported }
 func (other) Network() Network                  { return scanLAN() }
 func (other) AnswersDNS(addr string) bool       { return answersDNS(addr, time.Second) }
+
+// TunFirewall is Linux's: a firewall here does not filter what comes back
+// on the TUN device.
+func TunFirewall() bool { return false }
