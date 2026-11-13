@@ -35,10 +35,23 @@ type Rule struct {
 	Target string `json:"target"`
 }
 
-// Outbound is a direct connection that leaves by one interface.
+// Outbound is a direct connection that leaves by one interface, or with
+// Tsnet set, the core's own node of a tailnet.
 type Outbound struct {
 	Name  string `json:"name"`
 	Iface string `json:"iface"`
+	Tsnet *Tsnet `json:"tsnet,omitempty"`
+}
+
+// Tsnet is a node of a tailnet that runs inside the core: it needs no
+// interface of the system's, so it works where the Tailscale app can't run
+// beside bowel. Its state is kept in the core's folder.
+type Tsnet struct {
+	Hostname string `json:"hostname,omitempty"`
+	AuthKey  string `json:"authKey,omitempty"`
+	// StateDir is the folder of its state, in the core's; "" is the core's
+	// default.
+	StateDir string `json:"stateDir,omitempty"`
 }
 
 // Policy sends a domain's questions to a server.
@@ -247,7 +260,7 @@ func (b *builder) tailscale(env Env) {
 		return
 	}
 	b.o.Outbounds = append(b.o.Outbounds, Outbound{Name: TailscaleOutbound, Iface: ts.Iface})
-	names := []string{ts.Suffix, "ts.net", "beta.tailscale.net"}
+	names := append([]string{ts.Suffix}, tailnetDomains...)
 	if ts.Shadowed {
 		// The system's own route would lose this traffic; the core's
 		// outbound, bound to the interface, does not.
@@ -277,6 +290,31 @@ func (b *builder) tailscale(env Env) {
 		b.short(p.Name, TailscaleOutbound)
 	}
 }
+
+// TsnetOverlay sends the tailnet's addresses and names to the core's own
+// node of it, and touches nothing else: there is no system proxy or system
+// route to keep them from, and its names must reach the core as names
+// (fake-ip), since only the node knows MagicDNS. Short names are not
+// handled: the node's peers are not known before it runs.
+func TsnetOverlay(t Tsnet) Overlay {
+	b := &builder{domains: map[string]bool{}, prefixes: map[netip.Prefix]bool{}, o: Overlay{Hosts: map[string][]string{}}}
+	b.o.Outbounds = []Outbound{{Name: TailscaleOutbound, Tsnet: &t}}
+	for _, d := range tailnetDomains {
+		b.domains[d] = true
+		b.o.domains = append(b.o.domains, d)
+		b.domainRs = append(b.domainRs, Rule{"DOMAIN-SUFFIX," + d, TailscaleOutbound})
+	}
+	for _, c := range meshCIDRs {
+		p := netip.MustParsePrefix(c)
+		b.prefixes[p] = true
+		b.o.prefixes = append(b.o.prefixes, p)
+		b.cidrRs = append(b.cidrRs, cidrRule{p, TailscaleOutbound})
+	}
+	return b.finish()
+}
+
+// tailnetDomains are where MagicDNS names live, whatever the tailnet.
+var tailnetDomains = []string{"ts.net", "beta.tailscale.net"}
 
 // hostIPs is what a hosts entry may hold. The core picks one of an entry's
 // addresses at random and tries no other, so a machine with both families

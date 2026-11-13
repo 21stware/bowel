@@ -51,11 +51,13 @@ type settingsData struct {
 	// shows as on, which is what it comes to.
 	IPv6      bool `json:"ipv6"`
 	GeoUpdate bool `json:"canUpdateGeo"`
+	// Tailnet: the core's own Tailscale can be turned on here.
+	CanTailnet bool `json:"canTailnet"`
 }
 
 func (x *bridge) settingsData() settingsData {
 	s := x.set.Get()
-	return settingsData{Settings: s, IPv6: s.Options.IPv6 != core.IPv6Off, GeoUpdate: canUpdateGeo}
+	return settingsData{Settings: s, IPv6: s.Options.IPv6 != core.IPv6Off, GeoUpdate: canUpdateGeo, CanTailnet: canTailnet}
 }
 
 // setLanguage changes the language of what the bridge writes. It touches

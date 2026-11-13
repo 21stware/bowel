@@ -453,6 +453,16 @@ func Call(method, payload string) (string, error) {
 		return "null", x.flushDNS(ctx)
 	case "updateGeo":
 		return "null", x.updateGeo()
+	case "tailnet":
+		return encode(x.tailnet())
+	case "tailnetLogin":
+		d, err := x.tailnetLogin(ctx)
+		if err != nil {
+			return "", err
+		}
+		return encode(d)
+	case "tailnetLogout":
+		return "null", x.tailnetLogout(ctx)
 	}
 	return "", fmt.Errorf("unknown method %q", method)
 }
@@ -489,11 +499,19 @@ func encode(v any) (string, error) {
 func (x *bridge) setMode(ctx context.Context, mode string) error {
 	x.setMu.Lock()
 	defer x.setMu.Unlock()
-	if _, err := x.set.Update(func(s *settings.Settings) { s.Mode = mode }); err != nil {
+	s, err := x.set.Update(func(s *settings.Settings) { s.Mode = mode })
+	if err != nil {
 		return err
 	}
 	if c, _ := x.core(); c != nil {
-		if err := c.Patch(ctx, map[string]any{"mode": mode}); err != nil {
+		// With the tailnet's rules the core stays in rule mode, and the mode
+		// is the list's last line (core.BuildConfig): it takes a new config.
+		if !tailnetOverlay(s.Tailnet).Empty() {
+			err = x.reload(ctx, c)
+		} else {
+			err = c.Patch(ctx, map[string]any{"mode": mode})
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -637,6 +655,7 @@ func (x *bridge) writeConfig() error {
 	raw, err := core.BuildConfig(core.Input{
 		Providers: refs, Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders,
 		Mode: s.Mode, Tun: true, LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: probePort, Options: opts,
+		Dev: tailnetOverlay(s.Tailnet),
 	})
 	if err != nil {
 		return err

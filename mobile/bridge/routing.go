@@ -324,6 +324,9 @@ func (x *bridge) explain(input string) explainData {
 		return explainData{Error: err.Error()}
 	}
 	s := x.set.Get()
+	if r, ok := tailnetOverlay(s.Tailnet).Match(host); ok {
+		return explainData{Rule: r.Text, Name: "Tailscale", Note: i18n.T("走内置 Tailscale：tailnet 的地址和 MagicDNS 名字在所有模式下都走它。", "Goes by the built-in Tailscale: the tailnet's addresses and MagicDNS names go by it in every mode.")}
+	}
 	all := x.routes()
 	id, rule, _, sure := routes.Explain(host, routes.Active(all, s.Rules), all)
 	if !sure {

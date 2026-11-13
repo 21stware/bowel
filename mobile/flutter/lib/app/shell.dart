@@ -90,6 +90,9 @@ class Shell {
   /// Android's VPN page, where always-on lives.
   Future<void> openVPNSettings() => _channel.invokeMethod('openVPNSettings');
 
+  /// An https page in the browser, such as Tailscale's login.
+  Future<void> openURL(String url) => _channel.invokeMethod('openURL', {'url': url});
+
   /// The apps that can be left out of the VPN, on Android.
   Future<List<({String id, String name})>> listApps() async {
     final list = await _channel.invokeMethod<List>('listApps') ?? const [];

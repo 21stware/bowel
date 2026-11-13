@@ -891,4 +891,8 @@ var hantTable = map[string]string{
 	"bowel 已经设置了各网络服务的 DNS，但系统仍在用 %s（可能来自 VPN 或描述文件）。":                           "bowel 已經設定了各網路服務的 DNS，但系統仍在用 %s（可能來自 VPN 或描述檔）。",
 	"接管系统 DNS": "接管系統 DNS",
 	"TUN 开着时把各网络服务的 DNS 设为 223.5.5.5 等公网地址，让查询进 TUN；关闭 TUN 或退出时还原": "TUN 開著時把各網路服務的 DNS 設為 223.5.5.5 等公網位址，讓查詢進 TUN；關閉 TUN 或結束時還原",
+	"设备名只能用字母、数字和连字符":      "裝置名稱只能用字母、數字和連字號",
+	"auth key 以 tskey- 开头": "auth key 以 tskey- 開頭",
+	"走内置 Tailscale：tailnet 的地址和 MagicDNS 名字在所有模式下都走它。": "走內建 Tailscale：tailnet 的位址和 MagicDNS 名稱在所有模式下都走它。",
+	"先开启 VPN": "先開啟 VPN",
 }
