@@ -13,7 +13,8 @@ import (
 )
 
 // Servers maps a provider's node names, as the provider's content has
-// them, to their servers' hosts. Nodes it can't read are absent.
+// them, to their servers' hosts. Nodes it can't read are absent, and so
+// are the entries that only carry information (IsInfo).
 func (s *Store) Servers(id string) map[string]string {
 	b, err := os.ReadFile(s.Path(id))
 	if err != nil {
@@ -23,7 +24,9 @@ func (s *Store) Servers(id string) map[string]string {
 }
 
 // Names are the names of provider id's nodes as its file has them, those
-// without a server of their own (direct, WireGuard's peers) too.
+// without a server of their own (direct, WireGuard's peers) too, but not
+// the entries that only carry information (IsInfo), which the core leaves
+// out as well.
 func (s *Store) Names(id string) []string {
 	b, err := os.ReadFile(s.Path(id))
 	if err != nil {
@@ -41,7 +44,7 @@ func parseNames(data []byte) []string {
 	var out []string
 	if yaml.Unmarshal(data, &doc) == nil && len(doc.Proxies) > 0 {
 		for _, p := range doc.Proxies {
-			if p.Name != "" {
+			if p.Name != "" && !IsInfo(p.Name) {
 				out = append(out, p.Name)
 			}
 		}
@@ -65,7 +68,7 @@ func parseServers(data []byte) map[string]string {
 	out := map[string]string{}
 	if yaml.Unmarshal(data, &doc) == nil && len(doc.Proxies) > 0 {
 		for _, p := range doc.Proxies {
-			if p.Server != "" {
+			if p.Server != "" && !IsInfo(p.Name) {
 				out[p.Name] = p.Server
 			}
 		}
@@ -78,7 +81,7 @@ func parseServers(data []byte) map[string]string {
 		}
 	}
 	for _, line := range strings.Split(text, "\n") {
-		if name, host, ok := parseLink(strings.TrimSpace(line)); ok {
+		if name, host, ok := parseLink(strings.TrimSpace(line)); ok && !IsInfo(name) {
 			out[name] = host
 		}
 	}
