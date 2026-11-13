@@ -44,9 +44,14 @@ func (a *App) setupTray() {
 	a.tray = tray
 	a.mu.Unlock()
 	if runtime.GOOS == "linux" {
-		// AppIndicator shows menus only and tells of no clicks: the menu
-		// stays set, and refreshTray keeps it current.
+		// AppIndicator shows the menu itself: it stays set, and
+		// refreshTray keeps it current. A left click is the icon's
+		// activation, which opens the window, as there is no panel here;
+		// without a listener the host gets UnknownMethod (#112). GNOME's
+		// AppIndicator extension then opens the menu on a single click
+		// only after the double click time, and activates on a double one.
 		tray.SetMenu(a.trayMenu(a.snapshot()))
+		tray.OnClick(a.showWindow)
 	} else {
 		// No menu set, so that clicks reach OnClick; the menu is set for
 		// its popup only.

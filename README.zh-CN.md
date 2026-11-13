@@ -43,7 +43,7 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 <img src="site/shots/providers-zh.webp" width="880" alt="提供商">
 
 ### 菜单栏
-支持在菜单栏（Windows 和 Linux 上是系统托盘）开关接管状态、切换运行模式和「其他流量」的出口节点。
+支持在菜单栏（Windows 和 Linux 上是系统托盘）开关接管状态、切换运行模式和「其他流量」的出口节点。Omarchy 上要在顶栏的托盘里固定（pin）bowel 的图标，否则它会折叠在托盘的抽屉里。
 
 <img src="site/shots/panel-zh.webp" width="300" alt="菜单栏面板">
 
