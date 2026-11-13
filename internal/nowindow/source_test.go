@@ -16,8 +16,14 @@ import (
 // allowed are the functions that may start a program with os/exec itself
 // in a file that builds for Windows, as "path/from/the/module/root.go:
 // function", each with the reason. A program that has to show its console
-// window belongs here; so does nothing else.
-var allowed = map[string]string{}
+// window belongs here; so does a GUI program, which opens no console to
+// hide but does read the hide flag as an order to open its window hidden.
+var allowed = map[string]string{
+	// explorer.exe is a GUI program: no console would flash anyway, but the
+	// hide flag makes it open its window invisible, and the folder never
+	// shows.
+	"reveal_windows.go: revealFile": "explorer.exe is a GUI program: no console would flash, but the hide flag makes its window open hidden",
+}
 
 // starters are the ways os/exec makes a command.
 var starters = map[string]bool{"Command": true, "CommandContext": true, "Cmd": true}
