@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 func setProcAttr(cmd *exec.Cmd) {
@@ -16,20 +17,44 @@ func setProcAttr(cmd *exec.Cmd) {
 
 func interrupt(cmd *exec.Cmd) { _ = cmd.Process.Signal(syscall.SIGTERM) }
 
-// killStale ends a core a previous run of the app left behind (after a
-// crash), when the pid file still names a mihomo process.
-func killStale(pidFile string) {
+// liveCore is the pid the pid file names while that is a running mihomo,
+// else 0.
+func liveCore(pidFile string) int {
 	b, err := os.ReadFile(pidFile)
 	if err != nil {
-		return
+		return 0
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
 	if err != nil || pid <= 1 {
-		return
+		return 0
 	}
 	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "comm=").Output()
 	if err != nil || !strings.Contains(string(out), "mihomo") {
-		return
+		return 0
 	}
-	_ = syscall.Kill(pid, syscall.SIGTERM)
+	return pid
+}
+
+// adopted is a core another run of the app started: not a child, so it is
+// known by its pid alone.
+type adopted struct{ pid int }
+
+func (a adopted) Pid() int { return a.pid }
+
+// Wait returns once the process is gone. Asking is all there is for a
+// process that is not a child.
+func (a adopted) Wait() error {
+	for alive(a.pid) {
+		time.Sleep(200 * time.Millisecond)
+	}
+	return nil
+}
+
+func (a adopted) Stop() { _ = syscall.Kill(a.pid, syscall.SIGTERM) }
+func (a adopted) kill() { _ = syscall.Kill(a.pid, syscall.SIGKILL) }
+
+// alive: the process exists. One this user may not signal exists too.
+func alive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || err == syscall.EPERM
 }

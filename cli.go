@@ -29,6 +29,13 @@ func runCLI(args []string) int {
 		return 1
 	}
 	i18n.Set(cliLanguage(data))
+	if len(args) == 1 && args[0] == guardCommand { // not a command of the user's: app_handover.go
+		if err := runHandoverGuard(); err != nil {
+			fmt.Fprintln(os.Stderr, "bowel:", err)
+			return 1
+		}
+		return 0
+	}
 	return cli.Run(cli.Env{
 		Args: args, Stdout: os.Stdout, Stderr: os.Stderr, TTY: cli.IsTerminal(os.Stdout),
 		Getenv: os.Getenv, Socket: cliSocket(data), Version: cliVersion(),

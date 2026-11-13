@@ -99,7 +99,8 @@ func (a *App) isQuitting() bool {
 }
 
 // shutdown puts back what bowel changed on the system and ends the core,
-// in at most quitLimit. It runs once, however often it is called. What it
+// in at most quitLimit; a restart for an update leaves both for the new
+// version instead (handOver). It runs once, however often it is called. What it
 // could not finish is left for the next launch: the copy of the system
 // proxy stays on disk, and a core still there is killed before a new one
 // starts.
@@ -110,6 +111,11 @@ func (a *App) shutdown() {
 		a.mu.Unlock()
 		stopMCP()
 		stopCLI()
+		// A restart for an update leaves the core, the system proxy and the
+		// gateway as they are, for the new version to take over.
+		if a.handingOver.Load() && a.handOver() {
+			return
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), quitLimit)
 		defer cancel()
 		// Side by side, so that the slow ones do not add up. Any order is

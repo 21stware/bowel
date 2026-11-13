@@ -60,6 +60,21 @@ func Spawn(bin string) (*Task, error) {
 	return nil, errors.New(i18n.T("计划任务没有把内核启动起来", "The scheduled task didn't start the core"))
 }
 
+// Attach is the running core pid as the task's instance, for a core that
+// another run of the app started through the task; nil when bin is not the
+// installed copy, or the app may end the process itself, which it may not
+// do to the elevated one.
+func Attach(bin string, pid int) *Task {
+	if !Installed(bin) {
+		return nil
+	}
+	if h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(pid)); err == nil {
+		windows.CloseHandle(h)
+		return nil
+	}
+	return &Task{name: taskName(), exe: filepath.Base(bin), pid: pid, done: make(chan struct{})}
+}
+
 func (t *Task) Pid() int { return t.pid }
 
 // Wait returns once the core's process is gone. An elevated process's
