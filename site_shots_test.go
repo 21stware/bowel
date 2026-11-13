@@ -13,7 +13,7 @@ import (
 )
 
 // TestSiteShots renders the screenshots the README and the website show, at
-// 2× for Retina screens, in Chinese and English, when BOWEL_SITE_SHOTS names
+// 2× for Retina screens, in each of the interface's languages, when BOWEL_SITE_SHOTS names
 // a directory:
 //
 //	BOWEL_SITE_SHOTS=site/shots CGO_ENABLED=0 go test -run SiteShots .
@@ -50,7 +50,7 @@ func TestSiteShots(t *testing.T) {
 	defer i18n.Set("zh")
 	defer func(f func() string) { mcpCommand = f }(mcpCommand)
 	mcpCommand = func() string { return "/Applications/bowel.app/Contents/MacOS/bowel" }
-	for _, lang := range []string{"zh", "en"} {
+	for _, lang := range i18n.Languages {
 		i18n.Set(lang)
 		for _, dark := range []bool{false, true} {
 			sfx := "-" + lang
