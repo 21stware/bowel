@@ -313,6 +313,17 @@ func TsnetOverlay(t Tsnet) Overlay {
 	return b.finish()
 }
 
+// InTailnet says whether host, a name or an address, is one only a
+// tailnet reaches: Tailscale's ranges and MagicDNS's domains.
+func InTailnet(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	if a, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil {
+		a = a.Unmap()
+		return slices.ContainsFunc(meshCIDRs, func(c string) bool { return netip.MustParsePrefix(c).Contains(a) })
+	}
+	return slices.ContainsFunc(tailnetDomains, func(d string) bool { return host == d || strings.HasSuffix(host, "."+d) })
+}
+
 // tailnetDomains are where MagicDNS names live, whatever the tailnet.
 var tailnetDomains = []string{"ts.net", "beta.tailscale.net"}
 

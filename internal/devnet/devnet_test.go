@@ -484,3 +484,17 @@ func TestTsnetOverlay(t *testing.T) {
 		t.Errorf("keeps something from the core: %+v", o)
 	}
 }
+
+func TestInTailnet(t *testing.T) {
+	for host, want := range map[string]bool{
+		"100.64.0.1": true, "100.127.255.254": true, "100.128.0.1": false, "8.8.8.8": false,
+		"fd7a:115c:a1e0::1": true, "[fd7a:115c:a1e0:ab12::1]": true, "fd7a:115c:a1e1::1": false,
+		"::ffff:100.100.1.2": true,
+		"box.tail1234.ts.net": true, "BOX.TAIL1234.TS.NET.": true, "ts.net": true, "x.beta.tailscale.net": true,
+		"nots.net": false, "example.com": false, "": false,
+	} {
+		if got := InTailnet(host); got != want {
+			t.Errorf("%q: %v", host, got)
+		}
+	}
+}
