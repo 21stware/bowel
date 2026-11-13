@@ -1,11 +1,16 @@
 package main
 
 // Updating bowel itself. A running program cannot swap its own code, so an
-// update is a new version installed beside this one and a restart into it:
-// mygo.Updater downloads it, checks its signature and puts it in place, and
-// the restart goes through the ordinary quit, which puts the system proxy
-// and the gateway back and ends the core. Should the new version not come
-// up, the Mac is left with its own network, not a proxy that is gone.
+// update is a new version installed beside this one and a restart into it.
+// They are two steps, as only the restart drops the network: mygo.Updater
+// downloads the update, checks its signature and puts it in place while
+// this version runs on, and the restart waits for the user, or for the next
+// time bowel quits and opens. On macOS the new bundle replaces this one once
+// the app has exited, however it exits; on Linux and Windows the files are
+// replaced at once, and the next launch is the new version. The restart
+// goes through the ordinary quit, which puts the system proxy and the
+// gateway back and ends the core. Should the new version not come up, the
+// Mac is left with its own network, not a proxy that is gone.
 
 import (
 	"context"
@@ -23,11 +28,12 @@ import (
 const (
 	updateAvailable   = "available"
 	updateDownloading = "downloading"
+	updateReady       = "ready" // installed, waiting for a restart
 	updateRestarting  = "restarting"
 	updateFailed      = "failed"
 
-	// updateMarker says that a restart into a new version was asked for, so
-	// that the next launch can tell whether it happened.
+	// updateMarker says that a new version was installed, so that the next
+	// launch can tell whether it runs it.
 	updateMarker = "update-restart.json"
 )
 
@@ -40,9 +46,12 @@ var (
 	updateSettle = 15 * time.Second
 )
 
-// foundUpdate is a newer version that can be installed.
+// foundUpdate is a newer version that can be installed, with its section of
+// CHANGELOG.md (Markdown), which the release's manifest carries.
 type foundUpdate struct {
 	Version string
+	Notes   string
+	Date    time.Time
 	install func(ctx context.Context, progress func(done, total int64)) error
 }
 
@@ -59,7 +68,7 @@ var osUpdate = struct {
 		if err != nil || up == nil {
 			return nil, err
 		}
-		return &foundUpdate{Version: up.Version, install: up.Install}, nil
+		return &foundUpdate{Version: up.Version, Notes: up.Notes, Date: up.Date, install: up.Install}, nil
 	},
 	relaunch: func() { mygo.App.Relaunch() },
 }
@@ -95,7 +104,8 @@ func (a *App) updateView() *UpdateView {
 	if u.status == "" || u.found == nil {
 		return nil
 	}
-	return &UpdateView{Status: u.status, Version: u.found.Version, Percent: u.percent, Error: u.errText}
+	f := u.found
+	return &UpdateView{Status: u.status, Version: f.Version, Notes: f.Notes, Date: f.Date, Percent: u.percent, Error: u.errText}
 }
 
 // updateLoop looks for new versions for as long as the app runs. Builds
@@ -120,7 +130,8 @@ func (a *App) updateLoop() {
 }
 
 // checkUpdate asks whether there is a newer version. It leaves an update
-// under way alone, and keeps a failure on show until a newer version comes.
+// under way or installed alone, and keeps a failure on show until a newer
+// version comes.
 func (a *App) checkUpdate() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -131,7 +142,7 @@ func (a *App) checkUpdate() error {
 	u := &a.upd
 	u.mu.Lock()
 	switch {
-	case u.status == updateDownloading || u.status == updateRestarting:
+	case u.status == updateDownloading || u.status == updateReady || u.status == updateRestarting:
 	case up == nil:
 		u.found, u.status, u.errText = nil, "", ""
 	case u.status == updateFailed && u.found != nil && u.found.Version == up.Version:
@@ -144,9 +155,9 @@ func (a *App) checkUpdate() error {
 	return nil
 }
 
-// startUpdate downloads the update and restarts into it: the click on 升级
-// asks for both. Anything but an update waiting to start is ignored, so
-// that a second click does nothing.
+// startUpdate downloads and installs the update, and leaves the restart to
+// the user (restartUpdate). Anything but an update waiting to start is
+// ignored, so that a second click does nothing.
 func (a *App) startUpdate() {
 	if a.isQuitting() {
 		return
@@ -168,10 +179,16 @@ func (a *App) startUpdate() {
 		defer close(done)
 		defer cancel()
 		err := found.install(ctx, a.updateProgress)
+		if err == nil {
+			// The next launch runs the new version, whenever it comes.
+			if err := a.writeUpdateMarker(updateRestart{From: mygo.App.Version(), To: found.Version}); err != nil {
+				log.Println("update:", err) // only the message after the restart is lost
+			}
+		}
 		u.mu.Lock()
 		switch {
 		case err == nil:
-			u.status = updateRestarting
+			u.status = updateReady
 		case errors.Is(err, context.Canceled) || ctx.Err() != nil:
 			u.status, u.percent = updateAvailable, 0
 		default:
@@ -180,10 +197,26 @@ func (a *App) startUpdate() {
 		}
 		u.mu.Unlock()
 		u.changed()
-		if err == nil {
-			a.restartForUpdate(ctx, found.Version)
-		}
 	}()
+}
+
+// restartUpdate restarts into the version installed: the click on 立即重启.
+// Anything but an installed update is ignored, so that a second click does
+// nothing.
+func (a *App) restartUpdate() {
+	if a.isQuitting() {
+		return
+	}
+	u := &a.upd
+	u.mu.Lock()
+	if u.found == nil || u.status != updateReady {
+		u.mu.Unlock()
+		return
+	}
+	u.status = updateRestarting
+	u.mu.Unlock()
+	u.changed()
+	a.restartForUpdate(context.Background())
 }
 
 // updateProgress keeps the percentage. Whole percents only, as each one
@@ -214,17 +247,14 @@ func (a *App) cancelUpdate() {
 	}
 }
 
-// restartForUpdate restarts into the version just installed, once what is
-// being changed has been saved, and leaves word for the next launch.
-func (a *App) restartForUpdate(ctx context.Context, version string) {
+// restartForUpdate restarts into the version installed, once what is being
+// changed has been saved.
+func (a *App) restartForUpdate(ctx context.Context) {
 	wait, cancel := context.WithTimeout(ctx, updateSettle)
 	defer cancel()
 	a.settle(wait)
 	if a.isQuitting() {
 		return // the user quit first; the new version runs at the next launch
-	}
-	if err := a.writeUpdateMarker(updateRestart{From: mygo.App.Version(), To: version}); err != nil {
-		log.Println("update:", err) // only the message after the restart is lost
 	}
 	osUpdate.relaunch()
 }

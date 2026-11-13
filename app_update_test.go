@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -75,7 +76,9 @@ func TestCheckLeavesDownloadAlone(t *testing.T) {
 	}
 }
 
-func TestUpdateInstallsThenRelaunches(t *testing.T) {
+// TestUpdateInstallsThenWaits: the download and install leave the network
+// alone, and the restart that drops it waits for the user to ask.
+func TestUpdateInstallsThenWaits(t *testing.T) {
 	relaunched := fakeUpdates(t)
 	a := updateApp(t)
 	offer(a, func(_ context.Context, progress func(int64, int64)) error {
@@ -90,14 +93,86 @@ func TestUpdateInstallsThenRelaunches(t *testing.T) {
 	waitDone(t, a)
 	select {
 	case <-relaunched:
-	default:
+		t.Fatal("relaunched before the user asked")
+	case <-time.After(50 * time.Millisecond):
+	}
+	if v := a.updateView(); v.Status != updateReady {
+		t.Fatalf("view = %+v", v)
+	}
+	// Written now: a quit and a later launch run the new version too.
+	if !exists(filepath.Join(a.dataDir, updateMarker)) {
+		t.Error("no word for the next launch")
+	}
+	a.startUpdate() // installed: nothing to start again
+	a.restartUpdate()
+	select {
+	case <-relaunched:
+	case <-time.After(5 * time.Second):
 		t.Fatal("did not relaunch")
 	}
 	if v := a.updateView(); v.Status != updateRestarting {
 		t.Fatalf("view = %+v", v)
 	}
-	if !exists(filepath.Join(a.dataDir, updateMarker)) {
-		t.Error("no word for the next launch")
+	a.restartUpdate() // a second click restarts nothing
+	select {
+	case <-relaunched:
+		t.Fatal("relaunched twice")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// TestRestartOnlyOnceReady: 立即重启 does nothing before the update is in
+// place, or once the app is quitting.
+func TestRestartOnlyOnceReady(t *testing.T) {
+	relaunched := fakeUpdates(t)
+	a := updateApp(t)
+	offer(a, nil)
+	a.restartUpdate()
+	a.upd.status = updateReady
+	a.quitting = true
+	a.restartUpdate()
+	select {
+	case <-relaunched:
+		t.Fatal("relaunched")
+	case <-time.After(50 * time.Millisecond):
+	}
+	if v := a.updateView(); v.Status != updateReady {
+		t.Fatalf("view = %+v", v)
+	}
+}
+
+// TestCheckLeavesReadyAlone: once installed, a periodic check neither takes
+// the update away nor offers it again (macOS still runs the old bundle and
+// finds the same version).
+func TestCheckLeavesReadyAlone(t *testing.T) {
+	fakeUpdates(t)
+	a := updateApp(t)
+	a.upd.found, a.upd.status = &foundUpdate{Version: "9.9.9"}, updateReady
+	for _, found := range []*foundUpdate{nil, {Version: "9.9.9"}, {Version: "10.0.0"}} {
+		osUpdate.check = func(context.Context) (*foundUpdate, error) { return found, nil }
+		if err := a.checkUpdate(); err != nil {
+			t.Fatal(err)
+		}
+		if v := a.updateView(); v == nil || v.Status != updateReady || v.Version != "9.9.9" {
+			t.Fatalf("after %+v: view = %+v", found, v)
+		}
+	}
+}
+
+// TestCheckKeepsNotes: what the new version changes can be read before it
+// is installed.
+func TestCheckKeepsNotes(t *testing.T) {
+	fakeUpdates(t)
+	a := updateApp(t)
+	date := time.Date(2026, 11, 14, 8, 0, 0, 0, time.UTC)
+	osUpdate.check = func(context.Context) (*foundUpdate, error) {
+		return &foundUpdate{Version: "9.9.9", Notes: "- one\n- two", Date: date}, nil
+	}
+	if err := a.checkUpdate(); err != nil {
+		t.Fatal(err)
+	}
+	if v := a.updateView(); v == nil || v.Notes != "- one\n- two" || !v.Date.Equal(date) {
+		t.Fatalf("view = %+v", v)
 	}
 }
 
@@ -148,7 +223,7 @@ func TestRestartWaitsForChanges(t *testing.T) {
 	relaunched := fakeUpdates(t)
 	a := updateApp(t)
 	a.setMu.Lock()
-	go a.restartForUpdate(context.Background(), "9.9.9")
+	go a.restartForUpdate(context.Background())
 	select {
 	case <-relaunched:
 		t.Fatal("restarted during a change")
@@ -168,7 +243,7 @@ func TestRestartNotHeldForever(t *testing.T) {
 	updateSettle = 50 * time.Millisecond
 	a := updateApp(t)
 	a.pending["stuck"] = true
-	a.restartForUpdate(context.Background(), "9.9.9")
+	a.restartForUpdate(context.Background())
 	select {
 	case <-relaunched:
 	default:
@@ -180,7 +255,7 @@ func TestNoRestartOnceQuitting(t *testing.T) {
 	relaunched := fakeUpdates(t)
 	a := updateApp(t)
 	a.quitting = true
-	a.restartForUpdate(context.Background(), "9.9.9")
+	a.restartForUpdate(context.Background())
 	select {
 	case <-relaunched:
 		t.Fatal("relaunched while quitting")
@@ -299,6 +374,17 @@ intro
 
 - one
 `
+
+func TestNotesItems(t *testing.T) {
+	got := notesItems("- one\n\n- two `x`\n### Fixed\n  - three\nplain line\n")
+	want := []string{"one", "two `x`", "three", "plain line"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("%q", got)
+	}
+	if got := notesItems("  \n"); len(got) != 0 {
+		t.Fatalf("blank: %q", got)
+	}
+}
 
 func TestParseChangelog(t *testing.T) {
 	all := parseChangelog(testChangelog)

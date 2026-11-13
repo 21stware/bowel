@@ -107,9 +107,14 @@ type JustUpdated struct {
 
 // UpdateView is a new version of bowel.
 type UpdateView struct {
-	// Status: available, downloading, restarting or failed.
+	// Status: available, downloading, ready (installed, waiting for a
+	// restart), restarting or failed.
 	Status  string `json:"status"`
 	Version string `json:"version"`
+	// Notes are the version's section of CHANGELOG.md (Markdown), and Date
+	// when it was built: "" and zero when the release has none.
+	Notes string    `json:"notes,omitempty"`
+	Date  time.Time `json:"date,omitzero"`
 	// Percent of the download; at 100 it is being put in place.
 	Percent int    `json:"percent,omitempty"`
 	Error   string `json:"error,omitempty"`
