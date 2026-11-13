@@ -30,8 +30,13 @@ type Policy struct {
 	Mode      string   `json:"mode,omitempty"`
 	Regions   []string `json:"regions,omitempty"`   // ModeAuto: country codes; none is all
 	Providers []string `json:"providers,omitempty"` // ModeAuto: provider ids; none is all
-	Order     []string `json:"order,omitempty"`     // ModeOrder: node names, first preferred
-	Fixed     string   `json:"fixed,omitempty"`     // ModeFixed: a node name
+	// Nodes are the nodes picked by hand for ModeAuto, by their full names,
+	// so that a pick outlives an update of its subscription as long as the
+	// node keeps its name; none is every node Regions and Providers allow.
+	// A range is all three at once.
+	Nodes []string `json:"nodes,omitempty"`
+	Order []string `json:"order,omitempty"` // ModeOrder: node names, first preferred
+	Fixed string   `json:"fixed,omitempty"` // ModeFixed: a node name
 	// Direct sends the group's traffic out without a node; on the default
 	// route that is what no rule matched. The strategy stays, for when
 	// this is turned off, and the default route's for global mode too.
@@ -40,10 +45,10 @@ type Policy struct {
 }
 
 // Scoped says whether the automatic group picks from less than every node.
-func (p Policy) Scoped() bool { return len(p.Regions) > 0 || len(p.Providers) > 0 }
+func (p Policy) Scoped() bool { return len(p.Regions) > 0 || len(p.Providers) > 0 || len(p.Nodes) > 0 }
 
 func (p Policy) clone() Policy {
-	p.Regions, p.Providers, p.Order = slices.Clone(p.Regions), slices.Clone(p.Providers), slices.Clone(p.Order)
+	p.Regions, p.Providers, p.Nodes, p.Order = slices.Clone(p.Regions), slices.Clone(p.Providers), slices.Clone(p.Nodes), slices.Clone(p.Order)
 	return p
 }
 

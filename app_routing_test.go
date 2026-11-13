@@ -358,3 +358,73 @@ func TestGroupDirectInTheApp(t *testing.T) {
 		t.Errorf("back on a node, ai is on %q", now)
 	}
 }
+
+// TestPickedNodesOnCore: nodes picked by hand are 自动最快's range, across
+// regions, narrowed further by a region or source, kept by name, and a
+// range of picks that are all gone is red without widening (#129).
+func TestPickedNodesOnCore(t *testing.T) {
+	a, n := routingApp(t, nil)
+	hk, jp, us := n["HK"].Name, n["JP"].Name, n["US"].Name
+	ai := routeOf(t, a, "ai")
+	sorted := func(s ...string) []string { slices.Sort(s); return s }
+
+	changeRouting(t, a, func(p *routes.Plan) { p.ChangePolicy("ai", func(q *routes.Policy) { q.Nodes = []string{hk, us} }) })
+	if got := coreProxies(t, a)[routes.Auto(ai)].All; !slices.Equal(got, sorted(hk, us)) {
+		t.Errorf("picked = %q", got)
+	}
+	if r := routeIn(a.snapshot(), "ai"); r.Broken != "" || r.Node == jp {
+		t.Errorf("picked: %+v", r)
+	}
+	if w := scopeWord(a.settings.Get().Routing.Policy("ai"), func(id string) string { return id }); !strings.Contains(w, "2") {
+		t.Errorf("in words: %q", w)
+	}
+
+	// A region narrows the picks; it doesn't add to them.
+	changeRouting(t, a, func(p *routes.Plan) {
+		p.ChangePolicy("ai", func(q *routes.Policy) { q.Regions = []string{"US", "JP"} })
+	})
+	if got := coreProxies(t, a)[routes.Auto(ai)].All; !slices.Equal(got, []string{us}) {
+		t.Errorf("picked in US, JP = %q", got)
+	}
+
+	// Picks are names: one the subscription no longer has is skipped, and
+	// when none is left the group is red rather than wider.
+	changeRouting(t, a, func(p *routes.Plan) {
+		p.ChangePolicy("ai", func(q *routes.Policy) { q.Regions, q.Nodes = nil, []string{"gone‹x", jp} })
+	})
+	if got := coreProxies(t, a)[routes.Auto(ai)].All; !slices.Equal(got, []string{jp}) {
+		t.Errorf("with one gone = %q", got)
+	}
+	changeRouting(t, a, func(p *routes.Plan) { p.ChangePolicy("ai", func(q *routes.Policy) { q.Nodes = []string{"gone‹x"} }) })
+	if got := coreProxies(t, a)[routes.Auto(ai)].All; !slices.Equal(got, []string{"REJECT"}) {
+		t.Errorf("all gone = %q", got)
+	}
+	if r := routeIn(a.snapshot(), "ai"); r.Broken != "scope" {
+		t.Errorf("all gone: %+v", r)
+	}
+
+	// 全部 again.
+	changeRouting(t, a, func(p *routes.Plan) { p.ChangePolicy("ai", func(q *routes.Policy) { q.Nodes = nil }) })
+	if got := coreProxies(t, a)[routes.Auto(ai)].All; len(got) != 3 {
+		t.Errorf("all = %q", got)
+	}
+}
+
+func TestInScopePicks(t *testing.T) {
+	q := routes.Policy{Nodes: []string{"a‹p", "b‹q"}}
+	for _, c := range []struct {
+		name, provider, country string
+		want                    bool
+	}{{"a‹p", "p", "HK", true}, {"b‹q", "q", "", true}, {"c‹p", "p", "HK", false}} {
+		if got := inScope(q, c.name, c.provider, c.country); got != c.want {
+			t.Errorf("%s: %v", c.name, got)
+		}
+	}
+	q.Providers = []string{"q"}
+	if inScope(q, "a‹p", "p", "HK") || !inScope(q, "b‹q", "q", "") {
+		t.Error("a source narrows the picks")
+	}
+	if !q.Scoped() || (routes.Policy{}).Scoped() || withoutPicks(q).Nodes != nil {
+		t.Error("Scoped / withoutPicks")
+	}
+}

@@ -87,9 +87,10 @@ func (x *bridge) fileNodes() []string {
 	return out
 }
 
-func inScope(q routes.Policy, provider, country string) bool {
+func inScope(q routes.Policy, name, provider, country string) bool {
 	return (len(q.Providers) == 0 || slices.Contains(q.Providers, provider)) &&
-		(len(q.Regions) == 0 || slices.Contains(q.Regions, country))
+		(len(q.Regions) == 0 || slices.Contains(q.Regions, country)) &&
+		(len(q.Nodes) == 0 || slices.Contains(q.Nodes, name))
 }
 
 // nodeLists are the node lists the config needs for the groups' strategies.
@@ -104,7 +105,7 @@ func (x *bridge) nodeLists(all []routes.Route) (scopes, orders map[string][]stri
 		if q.Scoped() {
 			list := []string{}
 			for _, n := range names {
-				if inScope(q, providerOf(n), placeOf(n).Country) {
+				if inScope(q, n, providerOf(n), placeOf(n).Country) {
 					list = append(list, n)
 				}
 			}
