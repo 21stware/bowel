@@ -43,6 +43,9 @@ type Env struct {
 	// Local are the commands that run in this process, by name: the main
 	// package's daemon, mcp and devtools.
 	Local map[string]func(args []string) error
+	// Password asks for a password at the terminal, unechoed; nil is the
+	// terminal's own, where there is one.
+	Password func(prompt string) (string, error)
 	// Context ends the commands that go on (logs -f, conns --watch); Poll
 	// is how often they ask. Both have defaults; tests set them.
 	Context context.Context

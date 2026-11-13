@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -33,6 +32,7 @@ import (
 	"github.com/oboo/moho/internal/devnet"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/mcp"
+	"github.com/oboo/moho/internal/nowindow"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
 	"github.com/oboo/moho/internal/sysproxy"
@@ -99,7 +99,7 @@ func startOwnApp() error {
 	if !strings.HasSuffix(bundle, ".app") {
 		return errors.New("not inside an .app; start bowel first")
 	}
-	return exec.Command("open", "-g", bundle).Run()
+	return nowindow.Command("open", "-g", bundle).Run()
 }
 
 // ---- Approval ----
@@ -399,6 +399,15 @@ func (a *App) findNode(s string) (string, error) {
 
 // ---- Views for agents ----
 
+// mcpConn is a connection with its route and rule as the window's list
+// words them: route alone is an id, which under an imported config's
+// routing is g1, g2 and so on.
+type mcpConn struct {
+	Conn
+	RouteName string `json:"routeName,omitempty"`
+	RuleName  string `json:"ruleName,omitempty"`
+}
+
 type mcpRoute struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -583,7 +592,7 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "list_routes", Title: "Routes and nodes", ReadOnly: true,
-				Description: "The routes (kinds of traffic: default, ai, media, dev, direct) with the node each uses, and every node with its last delay and location. Every node can serve every proxied route. When a provider's own config routes the traffic, `imported` has its groups, the routes are those groups that rules point at, and only select groups can change.",
+				Description: "The routes (kinds of traffic: default, ai, media, dev, direct) with the node each uses, and every node with its last delay and location. Every node can serve every proxied route. When a provider's own config routes the traffic, `imported` has its groups, the routes are those groups that rules point at, and only select groups can change. Its unusedSettings are the parts of that config that act on traffic and are not used (dns, hosts, tun, listeners, ports and the like): bowel's own settings do those.",
 				Run: func(ctx context.Context, s *mcp.Session, _ json.RawMessage) (any, error) {
 					snap := a.snapshot()
 					out := map[string]any{"routes": a.mcpRoutes(snap), "nodes": mcpNodes(snap, routes.Default)}
@@ -649,7 +658,7 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "list_connections", Title: "Connections", ReadOnly: true,
-				Description: "Recent connections, newest first: app, host, route, node, rule and traffic. Filter by a part of the host or app.",
+				Description: "Recent connections, newest first: app, host, route (its id and routeName), node, rule (ruleName as the window words it) and traffic. Filter by a part of the host or app.",
 				Input: obj(map[string]any{
 					"filter": str("Only connections whose host or app contains this."),
 					"status": str("Only these: active, closed, failed or blocked (refused by a rule).", "active", "closed", "failed", "blocked"),
@@ -669,7 +678,8 @@ func (a *App) mcpServer() *mcp.Server {
 					all := a.connections()
 					sort.SliceStable(all, func(i, j int) bool { return all[i].Start.After(all[j].Start) })
 					f := strings.ToLower(p.Filter)
-					out := []Conn{}
+					services := a.settings.Get().Routing.Services
+					out := []mcpConn{}
 					for _, c := range all {
 						if p.Status != "" && c.Status != p.Status {
 							continue
@@ -677,7 +687,11 @@ func (a *App) mcpServer() *mcp.Server {
 						if f != "" && !strings.Contains(strings.ToLower(c.Host), f) && !strings.Contains(strings.ToLower(c.App), f) && !strings.Contains(c.IP, f) {
 							continue
 						}
-						out = append(out, c)
+						mc := mcpConn{Conn: c, RuleName: ruleWord(c, services)}
+						if c.Route != "" {
+							mc.RouteName = routes.Title(a.route(c.Route))
+						}
+						out = append(out, mc)
 						if len(out) == p.Limit {
 							break
 						}
@@ -782,7 +796,7 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "set_takeover", Title: "Set the takeover", Destructive: true,
-				Description: "Turns bowel's takeover of this Mac's traffic on or off, and chooses its entries: the system proxy and TUN (all traffic; the first time macOS asks the user for an administrator's password). Give only what should change.",
+				Description: "Turns bowel's takeover of this Mac's traffic on or off, and chooses its entries: the system proxy and TUN (all traffic; the first time macOS asks the user for an administrator's password). Give only what should change. Asking for TUN on while its status is error tries its core again.",
 				Input: obj(map[string]any{
 					"enabled":     map[string]any{"type": "boolean", "description": "Take over traffic at all (false pauses it, keeping the entries)."},
 					"systemProxy": map[string]any{"type": "boolean", "description": "Use the system proxy."},
@@ -805,8 +819,15 @@ func (a *App) mcpServer() *mcp.Server {
 					if p.SystemProxy != nil {
 						note("systemProxy", st.SystemProxy, *p.SystemProxy)
 					}
+					// TUN wanted and not had (its core did not start), or on
+					// without the rule that points the system's DNS at it:
+					// asking for it again is asking to try again.
+					retry := p.Tun != nil && *p.Tun && st.Tun && a.tunFailed()
 					if p.Tun != nil {
 						note("tun", st.Tun, *p.Tun)
+					}
+					if retry {
+						lines = append(lines, "tun: retry")
 					}
 					if p.Enabled != nil {
 						note("enabled", a.takeoverOn(st), *p.Enabled)
@@ -820,7 +841,7 @@ func (a *App) mcpServer() *mcp.Server {
 								return err
 							}
 						}
-						if p.Tun != nil && *p.Tun != st.Tun {
+						if p.Tun != nil && (*p.Tun != st.Tun || retry) {
 							if err := a.setTun(*p.Tun); err != nil {
 								return err
 							}
@@ -901,11 +922,11 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "add_rule", Title: "Add a rule",
-				Description: "Sends traffic to a route with a rule of the user's, which wins over the built-in ones. It replaces a rule for the same traffic. Open connections it now sends elsewhere are closed, so the change shows at once. kind: suffix (the domain and its subdomains; the default for names), domain (that name only), keyword (names containing it), ip (an address or CIDR; the default for addresses).",
+				Description: "Sends traffic to a route with a rule of the user's, which wins over the built-in ones. It replaces a rule for the same traffic. Open connections it now sends elsewhere are closed, so the change shows at once. kind: suffix (the domain and its subdomains; the default for names), domain (that name only), keyword (names containing it), ip (an address or CIDR; the default for addresses), app (everything a program on this computer connects to, by its process name as list_connections shows it, e.g. Telegram.exe, or on macOS the bundle, e.g. Telegram.app; a path is taken too; never guessed, comes before every other rule; not for devices using this computer as a gateway, and not on Android or iOS).",
 				Input: obj(map[string]any{
-					"target": str("A domain, *.domain, URL, keyword or IP/CIDR."),
+					"target": str("A domain, *.domain, URL, keyword or IP/CIDR; with kind app, a program's name or path."),
 					"route":  routeArg,
-					"kind":   str("The kind of rule; guessed when left out.", routes.Kinds...),
+					"kind":   str("The kind of rule; guessed between the domain and IP kinds when left out.", routes.AllKinds()...),
 				}, "target", "route"),
 				Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
 					var p struct{ Target, Route, Kind string }
@@ -921,6 +942,9 @@ func (a *App) mcpServer() *mcp.Server {
 					}
 					r, err := parseTarget(p.Kind, p.Target, rt.ID)
 					if err != nil {
+						return nil, err
+					}
+					if err := appRuleWorks(r); err != nil {
 						return nil, err
 					}
 					diff, err := a.changeSettings(ctx, s, words{"添加规则", "Add a rule"}, func(st *settings.Settings) error {
@@ -941,7 +965,7 @@ func (a *App) mcpServer() *mcp.Server {
 				Description: "Takes out the user's rule for some traffic, as list_rules shows it (kind and value, or the target as add_rule took it).",
 				Input: obj(map[string]any{
 					"target": str("The rule's value, or what was given to add_rule."),
-					"kind":   str("The rule's kind; guessed when left out.", routes.Kinds...),
+					"kind":   str("The rule's kind; guessed when left out.", routes.AllKinds()...),
 				}, "target"),
 				Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
 					var p struct{ Target, Kind string }
@@ -1064,7 +1088,7 @@ func (a *App) mcpServer() *mcp.Server {
 func (a *App) ruleFor(kind, target string) (routes.UserRule, error) {
 	rules := a.settings.Get().Rules
 	for _, r := range rules {
-		if r.Value == strings.TrimSpace(strings.ToLower(target)) && (kind == "" || kind == r.Kind) {
+		if strings.EqualFold(r.Value, strings.TrimSpace(target)) && (kind == "" || kind == r.Kind) {
 			return r, nil
 		}
 	}

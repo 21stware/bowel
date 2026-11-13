@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -266,4 +267,22 @@ func routeIn(s Snapshot, id string) RouteView {
 		}
 	}
 	return RouteView{}
+}
+
+func TestApplyNote(t *testing.T) {
+	t0 := time.Unix(0, 0)
+	at := func(ms int) time.Time { return t0.Add(time.Duration(ms) * time.Millisecond) }
+	for _, c := range []struct {
+		err  error
+		t    core.ApplyTiming
+		want string
+	}{
+		{nil, core.ApplyTiming{Reload: 4 * time.Millisecond}, "bowel: config applied in 12ms (build 1ms, check by the running core, reload 4ms, after 5ms)"},
+		{nil, core.ApplyTiming{Check: 83 * time.Millisecond, Start: 150 * time.Millisecond}, "bowel: config applied in 12ms (build 1ms, check 83ms, core start 150ms, after 5ms)"},
+		{errors.New("x"), core.ApplyTiming{Check: 83 * time.Millisecond, Reload: time.Millisecond}, "bowel: config not applied in 12ms (build 1ms, check 83ms, reload 1ms)"},
+	} {
+		if got := applyNote(c.err, at(0), at(7), at(12), time.Millisecond, c.t); got != c.want {
+			t.Errorf("got  %q\nwant %q", got, c.want)
+		}
+	}
 }

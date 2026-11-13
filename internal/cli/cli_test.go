@@ -187,7 +187,7 @@ func TestHelp(t *testing.T) {
 		}
 	}
 	_, out, _ = run(t, Env{}, "rules", "add", "--help")
-	for _, want := range []string{"Send a domain or IP to a route", "bowel rules add <target> <route> [options]", "--kind suffix|domain|keyword|ip", "bowel rules add openai.com ai"} {
+	for _, want := range []string{"Send a domain, an IP or an app to a route", "bowel rules add <target> <route> [options]", "--kind suffix|domain|keyword|ip", "bowel rules add openai.com ai"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rules add help lacks %q:\n%s", want, out)
 		}
@@ -233,6 +233,72 @@ var statusJSON = map[string]any{
 	},
 	"activeConnections": 3,
 	"traffic":           map[string]any{"downBps": 2048, "upBps": 10, "todayDown": 5 << 30, "todayUp": 1 << 20},
+}
+
+// TestConnsNames: a connection's route goes by its name and its rule is
+// shown; from a bowel that gives no names, by the route's id and the rule
+// and payload as they are.
+func TestConnsNames(t *testing.T) {
+	at := time.Unix(1700000000, 0)
+	socket, _ := fake(t, map[string]func(map[string]any) (any, error){
+		"list_connections": func(map[string]any) (any, error) {
+			return map[string]any{"total": 3, "connections": []any{
+				map[string]any{"id": "c1", "app": "chrome", "host": "www.netflix.com", "port": 443, "route": "g1", "routeName": "🎞Netflix",
+					"rule": "RuleSet", "payload": "netflix", "ruleName": "RuleSet(netflix)", "node": "Mullvad-HK-HKG", "status": "active", "start": at},
+				map[string]any{"id": "c2", "app": "curl", "host": "old.example", "port": 80, "route": "g2", "rule": "DomainSuffix", "payload": "example",
+					"status": "closed", "start": at},
+				map[string]any{"id": "c3", "app": "ssh", "ip": "10.0.0.2", "port": 22, "status": "closed", "start": at},
+			}}, nil
+		},
+	})
+	_, out, _ := run(t, Env{Socket: socket}, "conns")
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("conns:\n%s", out)
+	}
+	for i, want := range [][]string{
+		{"Rule", "Route", "Node"},
+		{"RuleSet(netflix)", "🎞Netflix", "Mullvad-HK-HKG"},
+		{"DomainSuffix(example)", "g2"},
+		{"10.0.0.2:22", "—"},
+	} {
+		for _, w := range want {
+			if !strings.Contains(lines[i], w) {
+				t.Errorf("line %d lacks %q:\n%s", i, w, out)
+			}
+		}
+	}
+	if strings.Contains(lines[1], " g1 ") {
+		t.Errorf("the route's id where its name is known:\n%s", out)
+	}
+	col := func(line, word string) int { return dispWidth(line[:strings.Index(line, word)]) }
+	if a, b := col(lines[0], "Route"), col(lines[1], "🎞Netflix"); a != b {
+		t.Errorf("the route column is at %d and %d:\n%s", a, b, out)
+	}
+}
+
+// TestRoutesOfImportedConfig: under an imported config's routing its groups
+// are listed below the routes, and what of its settings is not used is said.
+func TestRoutesOfImportedConfig(t *testing.T) {
+	imported := map[string]any{"provider": "Full config", "groups": []any{
+		map[string]any{"name": "🎞Netflix", "kind": "select", "now": "HK", "selectable": true},
+	}, "unusedSettings": []any{"dns", "hosts", "listeners"}}
+	socket, _ := fake(t, map[string]func(map[string]any) (any, error){
+		"list_routes": func(map[string]any) (any, error) {
+			return map[string]any{"routes": []any{map[string]any{"id": "g1", "name": "🎞Netflix", "node": "HK"}}, "imported": imported}, nil
+		},
+	})
+	_, out, _ := run(t, Env{Socket: socket}, "routes")
+	for _, want := range []string{"Using Full config's own groups:", "🎞Netflix", "selectable",
+		"Not used from this config: dns, hosts, listeners. DNS, TUN and local ports follow bowel's own settings."} {
+		if !strings.Contains(out, want) {
+			t.Errorf("routes lack %q:\n%s", want, out)
+		}
+	}
+	imported["unusedSettings"] = []any{}
+	if _, out, _ = run(t, Env{Socket: socket}, "routes"); strings.Contains(out, "Not used") {
+		t.Errorf("nothing unused, but:\n%s", out)
+	}
 }
 
 // TestRender: a table lines up whatever its text is, colors only on a

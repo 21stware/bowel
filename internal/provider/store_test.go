@@ -3,10 +3,13 @@ package provider
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -138,5 +141,116 @@ func TestShare(t *testing.T) {
 	f, _ := s.Add(context.Background(), http.DefaultClient, "proxies:\n  - {name: a, type: direct}")
 	if _, err := s.Share(f.ID); err == nil {
 		t.Error("a file has nothing to share")
+	}
+}
+
+func TestReloadLocalFile(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(filepath.Join(dir, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(dir, "nodes.yaml")
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	content := func(id string) string {
+		t.Helper()
+		b, err := s.Content(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	write(src, "proxies:\n  - {name: A, type: direct}\n")
+	p, err := s.AddFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const two = "proxies:\n  - {name: A, type: direct}\n  - {name: B, type: direct}\n"
+	write(src, two)
+	if p, err = s.Reload(p.ID, ""); err != nil || content(p.ID) != two || p.Error != "" {
+		t.Fatalf("reload: %v, %+v", err, p)
+	}
+
+	write(src, "<html>not nodes</html>")
+	if p, err = s.Reload(p.ID, ""); err == nil || p.Error == "" || content(p.ID) != two {
+		t.Errorf("bad content: %v, %+v", err, p)
+	}
+	write(src, "proxies:\n  - {name: C, type: direct}\n")
+	s.Vet = func(string, []byte) error { return errors.New("no") }
+	if _, err = s.Reload(p.ID, ""); err == nil || content(p.ID) != two {
+		t.Errorf("vetoed: %v", err)
+	}
+	s.Vet = nil
+
+	// Another file, chosen again: it is the one remembered from then on.
+	other := filepath.Join(dir, "other.yaml")
+	write(other, "proxies:\n  - {name: D, type: direct}\n")
+	if p, err = s.Reload(p.ID, other); err != nil || p.Source != other || !strings.Contains(content(p.ID), "name: D") {
+		t.Errorf("another file: %v, %+v", err, p)
+	}
+
+	// Without a file to go back to there is nothing to read.
+	if _, err := s.update(p.ID, func(p *Provider) { p.Source = "" }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Reload(p.ID, ""); err == nil {
+		t.Error("read a file nobody named")
+	}
+	link, err := s.Add(context.Background(), nil, "trojan://x@h:1#n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Reload(link.ID, src); err != nil || strings.Contains(content(link.ID), "proxies") {
+		t.Errorf("links were replaced: %v", err)
+	}
+}
+
+// A config with nothing to give nodes is refused in so many words (issue
+// #101: a template added with its subscriptions still commented out); one
+// whose nodes are its own subscriptions' is a config, but not a node file.
+func TestConfigWithoutNodes(t *testing.T) {
+	template, err := os.ReadFile(filepath.Join("..", "..", "testdata", "issue101.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{string(template), "proxies:\n", "proxies: []\nproxy-groups:\n  - {name: G, type: select, proxies: [DIRECT]}\n", "proxy-groups:\n  - {name: G, type: select, include-all: true}\nrules: [\"MATCH,G\"]\n"} {
+		if err := looksLikeNodes([]byte(bad)); err == nil || !strings.Contains(err.Error(), "一个节点都没有") {
+			t.Errorf("%.40q: %v", bad, err)
+		}
+	}
+	filled := strings.Replace(string(template), "# Primary:", "Primary:", 1)
+	if err := looksLikeNodes([]byte(filled)); err != nil {
+		t.Errorf("with a subscription: %v", err)
+	}
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Add(context.Background(), nil, string(template)); err == nil || !strings.Contains(err.Error(), "一个节点都没有") {
+		t.Errorf("pasted: %v", err)
+	}
+	if len(s.List()) != 0 {
+		t.Error("it was kept")
+	}
+	p, err := s.Add(context.Background(), nil, filled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.OwnNodes(p.ID) {
+		t.Error("a config with subscriptions only is said to have nodes of its own")
+	}
+	for _, own := range []string{"proxies:\n  - {name: a, type: direct}\n", "vmess://abc"} {
+		q, err := s.Add(context.Background(), nil, own)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !s.OwnNodes(q.ID) {
+			t.Errorf("%q is said to have no nodes", own)
+		}
 	}
 }

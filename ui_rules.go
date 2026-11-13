@@ -91,6 +91,8 @@ func (u *UI) routeExit(rv RouteView) string {
 // actRouteBtn is 让它走…: a menu of the routes. The first choice covers
 // the site (api.openai.com → openai.com and what is under it); the
 // submenu, the one name. A connection with no name gets a rule for its IP.
+// Where the core knows who connects (routes.AppRules), a second submenu
+// sends everything of the connection's application.
 func (u *UI) actRouteBtn(c *ui.Context, p *pal, cn Conn) {
 	mine, hasMine := u.ruleOf(cn)
 	btn(c.Key("route"), p, i18n.T("让它走…", "Send via…")).PopoverMenuButton(func(m *ui.Menu) {
@@ -126,6 +128,13 @@ func (u *UI) actRouteBtn(c *ui.Context, p *pal, cn Conn) {
 			only := routes.UserRule{Kind: routes.KindDomain, Value: strings.ToLower(cn.Host)}
 			m.Submenu(fmt.Sprintf(i18n.T("只让 %s 走…", "Only %s via…"), cn.Host), func(m *ui.Menu) { items(m, only) })
 		}
+		if app, err := routes.ParseRule(routes.KindApp, cn.Process, ""); err == nil && routes.AppRules {
+			m.Separator()
+			m.Submenu(fmt.Sprintf(i18n.T("让 %s 的所有连接走…", "Everything from %s via…"), app.Value), func(m *ui.Menu) { items(m, app) })
+			if u.tick.AppsUnknown { // the name may be bowel's own lookup's
+				m.Item(appsUnknownNote()).Disabled(true)
+			}
+		}
 		if hasMine {
 			m.Separator()
 			if m.Item(i18n.T("删除这条规则", "Remove this rule")).Subtitle(mine.Describe() + " → " + u.routeName(mine.Route)).Danger().Chosen() {
@@ -137,6 +146,11 @@ func (u *UI) actRouteBtn(c *ui.Context, p *pal, cn Conn) {
 			u.openRules(cmp.Or(cn.Route, routes.Default))
 		}
 	})
+}
+
+// appsUnknownNote says what Tick.AppsUnknown means for the user.
+func appsUnknownNote() string {
+	return i18n.T("内核现在认不出这台电脑上的连接来自哪个应用，按应用的规则不会生效。", "The core can't tell which app on this computer opened a connection, so rules for apps won't match for now.")
 }
 
 // openRules opens 路由组 at the service holding r's traffic, or the group's

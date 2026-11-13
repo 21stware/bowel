@@ -11,6 +11,7 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 <p align="center">
   <a href="https://github.com/21stware/bowel/releases/latest"><b>下载</b></a> ·
   <a href="https://bowel.dev/">官网</a> ·
+  <a href="https://t.me/+BI3KVgBn7SE3YjVh">Telegram 群</a> ·
   <a href="README.md">English</a>
 </p>
 
@@ -43,12 +44,12 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 <img src="site/shots/providers-zh.webp" width="880" alt="提供商">
 
 ### 菜单栏
-支持在菜单栏（Windows 和 Linux 上是系统托盘）开关接管状态、切换运行模式和「其他流量」的出口节点。
+支持在菜单栏（Windows 和 Linux 上是系统托盘）开关接管状态、切换运行模式和「其他流量」的出口节点。Omarchy 上要在顶栏的托盘里固定（pin）bowel 的图标，否则它会折叠在托盘的抽屉里。
 
 <img src="site/shots/panel-zh.webp" width="300" alt="菜单栏面板">
 
 ### 主题皮肤
-六种皮肤，换的是整个界面的样子。
+十三种皮肤，换的是整个界面的样子。
 
 <table>
   <tr>
@@ -61,10 +62,23 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
     <td><img src="site/shots/skin-sakura-zh.webp" alt="樱"><br><sub>樱</sub></td>
     <td><img src="site/shots/skin-paper-zh.webp" alt="纸墨"><br><sub>纸墨（默认）</sub></td>
   </tr>
+  <tr>
+    <td><img src="site/shots/skin-shanshui-zh.webp" alt="山水"><br><sub>山水</sub></td>
+    <td><img src="site/shots/skin-celadon-zh.webp" alt="青瓷"><br><sub>青瓷</sub></td>
+    <td><img src="site/shots/skin-dunhuang-zh.webp" alt="敦煌"><br><sub>敦煌</sub></td>
+  </tr>
+  <tr>
+    <td><img src="site/shots/skin-dusk-zh.webp" alt="暮色"><br><sub>暮色</sub></td>
+    <td><img src="site/shots/skin-aurora-zh.webp" alt="极光"><br><sub>极光</sub></td>
+    <td><img src="site/shots/skin-obsidian-zh.webp" alt="黑曜"><br><sub>黑曜</sub></td>
+  </tr>
+  <tr>
+    <td><img src="site/shots/skin-riso-zh.webp" alt="孔版"><br><sub>孔版</sub></td>
+  </tr>
 </table>
 
 ### 其他
-- **自定义规则**：支持按域名、关键词或 IP 段添加分流规则并测试匹配结果。
+- **自定义规则**：支持按域名、关键词或 IP 段添加分流规则并测试匹配结果；macOS、Windows 和 Linux 上还可以按应用分流。
 - **出口位置实测**：通过 Cloudflare 请求实测节点真实的出口所在地。
 - **网关模式**（macOS、Linux）：支持作为局域网网关为电视、游戏机和手机提供代理服务。
 - **TUN**（macOS、Windows、Linux）：接管不遵循系统代理设置的应用程序流量。
@@ -108,7 +122,7 @@ curl -fsSL https://21stware.github.io/packages/install.sh | sh
 
 - **macOS**：把 bowel 拖进「应用程序」。安装包用 Developer ID 签名，并经过 Apple 公证。
 - **Windows**：运行安装程序。安装包没有代码签名，运行前 Windows 可能会弹出提示。
-- **Linux**：安装 `.deb` 或 `.rpm`，或解压压缩包后运行 `install.sh`，它会把 bowel 安装到当前用户的 `~/.local`。
+- **Linux**：安装 `.deb` 或 `.rpm`。要安装到当前用户的 `~/.local`，从同一个 Release 下载 `install.sh` 和 `.tar.gz`，不用解压，运行 `sh install.sh bowel-<版本>-linux-<架构>.tar.gz`。这个脚本与上面添加软件源的脚本不同。
 - **Android**：安装 APK，如有提示请允许浏览器安装应用。首次连接时系统会请求 VPN 权限。
 - **iOS**：暂未发布。
 
@@ -126,7 +140,7 @@ curl -fsSL https://21stware.github.io/packages/install.sh | sh
 | MCP 服务器 | 支持 | 支持 | 支持 | 不支持 |
 | 命令行和 `bowel daemon` | 支持 | 支持 | 支持 | 不支持 |
 
-第一次开启 TUN 时需要管理员授权一次：macOS 是系统自己的对话框，Windows 是用户账户控制（UAC），Linux 通过 polkit（`pkexec`）。Linux 上的系统代理是 GNOME 的（Cinnamon、MATE、Budgie 等桌面共用它）或 KDE 的；其他桌面请使用 TUN，或让应用自行连接混合端口，默认是 7899。各系统具体有什么、缺什么，见 [docs/platform-parity.md](docs/platform-parity.md)。Android 版可以选择不经过 VPN 的应用。
+第一次开启 TUN 时需要管理员授权一次：macOS 是系统自己的对话框，Windows 是用户账户控制（UAC），Linux 通过 polkit（`pkexec`）。在使用 systemd-resolved 的 Linux 上，这次授权还会留下一条 polkit 规则，允许当前用户把解析器指向 TUN 网卡（内核每次启动 TUN 都要这么做）；没有这条规则时（polkit 早于 0.106，不读取这类规则），每次启动 TUN 桌面都会连问三次密码。Linux 上的系统代理是 GNOME 的（Cinnamon、MATE、Budgie 等桌面共用它）或 KDE 的；其他桌面请使用 TUN，或让应用自行连接混合端口，默认是 7899。各系统具体有什么、缺什么，见 [docs/platform-parity.md](docs/platform-parity.md)。Android 版可以选择不经过 VPN 的应用。
 
 ## 命令行
 
@@ -150,6 +164,8 @@ bowel tui                         # 全屏界面
 
 `bowel tui` 是同一套功能的全屏界面：概览、连接、日志、规则、Provider 和设置六个页面，实时刷新。概览页有一组开关（接管、系统代理、TUN、网关模式、允许局域网）和路由列表：在开关上按回车或空格切换，在路由上按回车选节点（`t` 测速），`m` 切换模式，`a` 添加订阅。设置页可以修改任意一项设置。`/` 过滤连接，`?` 查看全部按键。会改变网络的操作先问 y/n。通过 SSH 也能用：`ssh server -t bowel tui`。
 
+**每个路由组一个端口。** 想让本机的两个程序用不同的出口访问同一个网站，可以给它们各配一个代理端口：`bowel settings set extraPorts '[{"port":7901,"route":"ai"},{"port":7902,"route":"media"}]'` 会在 `127.0.0.1` 上再开几个混合端口，每个端口的流量固定走对应的路由组（用 `bowel routes` 里的 ID），不看规则，也不受全局、直连模式影响。正在使用导入配置自带的路由时，`route` 改写这份配置里路由组的名称（`bowel routes` 在路由下方列出）；指向的路由组不存在时，端口不会打开。同一个名字可以既是 bowel 的路由 ID，又是这份配置里的一个路由组：这样的条目在两种路由下端口都会打开，流量走当前路由里叫这个名字的那个路由组。这些端口不对局域网开放，不会写进导出的配置，界面里也没有对应的设置；设成 `'[]'` 即关闭。
+
 每个命令都有 `--help` 和例子。读取类命令支持 `--json`，`logs -f` 和 `conns --watch` 加上它后每行输出一个 JSON 对象。输出不是终端或设置了 `NO_COLOR` 时，不显示颜色和进度动画。退出码：0 成功，1 执行失败（例如 bowel 没在运行），2 命令写错了。`bowel completion bash|zsh|fish|powershell` 输出补全脚本。
 
 **无窗口运行。** `bowel daemon` 不开窗口、菜单栏图标和 Dock 图标，只运行内核、监控和命令行通道。它在前台运行，收到 SIGINT、SIGTERM 或 `bowel stop` 后退出，并像应用退出时一样恢复系统代理，适合交给 systemd、launchd 或服务包装器托管。用 `BOWEL_DATA_DIR`（或 `--data-dir`）可以给它单独的数据目录。daemon 不会自动升级。daemon 运行时再打开应用不会有反应，需要先停掉 daemon。
@@ -171,6 +187,8 @@ Restart=on-failure
 ```bash
 ./scripts/fetch-core.sh     # 下载 mihomo 内核和 GeoSite/GeoIP 数据到 resources/
 go tool mygo dev            # 运行，改代码自动重建
+go tool mygo dev -sign -    # 同上，用临时签名：在 macOS 上试按应用的规则要用这个
+                            # （临时签名每次构建都会变，macOS 会重新询问辅助功能、屏幕录制等权限）
 go tool mygo build          # 打包 bowel.app 和 .dmg（已签名，未公证）
 ./scripts/release.sh        # 打包、公证并装订，发版用这个
 CGO_ENABLED=0 go test ./... # 包含会启动真实内核的测试

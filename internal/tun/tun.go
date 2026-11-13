@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/oboo/moho/internal/i18n"
 )
@@ -31,11 +32,35 @@ func (canceled) Error() string {
 	return i18n.T("用户取消了授权", "The authorization was canceled")
 }
 
+// ErrGone is in what Spawn returns when the mark of an installation is
+// there and what it stands for is not: on Windows, the scheduled task was
+// deleted, or the task started nothing and the installation is an older
+// version's, with no second task to try. Installed cannot tell (it asks the Task Scheduler nothing), so
+// whoever sees this takes the installation as not made.
+var ErrGone error = gone{}
+
+type gone struct{}
+
+func (gone) Error() string {
+	return i18n.T("运行内核的计划任务不在了，重新开启 TUN 会再授权一次", "The scheduled task that runs the core is gone; turning TUN on again asks for the authorization once more")
+}
+
 // CoreDir is the directory the core runs in (its -d; the config is
 // config.yaml inside). Windows writes both into the task that runs the
 // core, and a task with other arguments does not count as installed; the
-// other systems do not read it. Set once, before anything else is called.
+// other systems do not read it. The task's core gets no environment from
+// the app, so every file its config names has to be inside this directory:
+// mihomo reads nothing outside it without a SAFE_PATHS variable. Set once, before anything else is called.
 var CoreDir string
+
+// device is the TUN device's name in the settings, "" for the core's own
+// choice.
+var device atomic.Value
+
+// SetDevice tells the package what the settings call the TUN device. Linux
+// names it in the polkit rule an installation leaves; the other systems
+// do not read it.
+func SetDevice(name string) { device.Store(name) }
 
 // Step is one shell command run as root (on Windows, elevated): its parts
 // alternate between literal text and paths, which the shell sees as one

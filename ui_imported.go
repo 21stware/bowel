@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 
@@ -49,34 +50,69 @@ func (u *UI) provRouting(c *ui.Context, p *pal, pv ProviderView) {
 	r := pv.Routing
 	if r.Problem != "" {
 		ui.Text(c, i18n.T("带路由组，但不能使用：", "Has route groups that can't be used: ")+r.Problem).FontSize(11.5).TextColor(p.mute).MaxLines(2)
+		if name := r.NeedsFile; name != "" && pv.Enabled {
+			// The one problem a file settles: it is added under the name
+			// the config has for it.
+			ui.Row(c).Children(func() {
+				link(c.Key("needs-file"), p, i18n.T("选择文件…", "Choose file…"), func() {
+					if u.app != nil && !u.pending("add") {
+						u.do(func() error { return u.app.addProviderFileAs(bg(), name) })
+					}
+				})
+			})
+		}
 		return
 	}
 	if r.Groups == 0 || !pv.Enabled {
 		return
 	}
 	id := pv.ID
-	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-		if r.InUse {
+	if r.Remote > 0 && !r.InUse {
+		// Otherwise a config whose nodes are all its subscriptions' looks
+		// like one that brought none.
+		ui.Text(c, fmt.Sprintf(i18n.T("这份配置自带 %d 个订阅，里面的节点在使用之后才由内核下载", "This config brings %d subscriptions of its own; the core downloads their nodes once it is in use"), r.Remote)).FontSize(11.5).TextColor(p.mute).MaxLines(2)
+	}
+	pr := &u.prov
+	if r.InUse {
+		if pr.offer == id {
+			pr.offer = ""
+		}
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, fmt.Sprintf(i18n.T("正在使用它的 %d 个路由组", "Using its %d route groups"), r.Groups)).FontSize(11.5).FontWeight(600).TextColor(p.ink).NoWrap()
 			link(c.Key("routing"), p, i18n.T("改回 bowel 路由", "Back to bowel's routing"), func() { u.useRouting("") })
-			return
-		}
-		ui.Text(c, fmt.Sprintf(i18n.T("这份配置带 %d 个路由组、%d 条规则", "This config has %d route groups and %d rules"), r.Groups, r.Rules)).FontSize(11.5).TextColor(p.mute).NoWrap()
-		pr := &u.prov
-		asking := pr.confirm == "use:"+id
-		rules, sets := len(u.shownSettings().Rules), len(u.snap.RuleSets)
-		label := i18n.T("使用它们", "Use them")
+		})
+		return
+	}
+	asking := pr.confirm == "use:"+id
+	rules, sets := len(u.shownSettings().Rules), len(u.snap.RuleSets)
+	use := func(label string) {
 		if asking {
 			label = fmt.Sprintf(i18n.T("确认使用（暂停 %d 条规则、%d 个规则集）", "Confirm (pauses %d rules and %d rule sets)"), rules, sets)
 		}
-		link(c.Key("routing"), p, label, func() {
+		btn(c.Key("routing"), p, label).OnClick(func() {
 			if !asking && rules+sets > 0 {
 				pr.confirm, pr.confAt = "use:"+id, c.Now()
 				return
 			}
-			pr.confirm = ""
+			pr.confirm, pr.offer = "", ""
 			u.useRouting(id)
 		})
+	}
+	if pr.offer == id {
+		// Just added: the question is put once, in words that say what
+		// either answer does. Left unanswered, nothing changes.
+		ui.Column(c.Key("offer")).Gap(6).Margin(4, 0, 0, 0).Children(func() {
+			ui.Text(c, fmt.Sprintf(i18n.T("这份配置自带 %d 个路由组、%d 条规则。要按它的路由分流，还是只用它的节点？", "This config has %d route groups and %d rules of its own. Route by them, or only use its nodes?"), r.Groups, r.Rules)).FontSize(12).TextColor(p.ink).MaxLines(2)
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				use(i18n.T("按它的路由分流", "Route by this config"))
+				btn(c.Key("nodes-only"), p, i18n.T("只用节点", "Nodes only")).OnClick(func() { pr.offer = "" })
+			})
+		})
+		return
+	}
+	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, fmt.Sprintf(i18n.T("这份配置带 %d 个路由组、%d 条规则", "This config has %d route groups and %d rules"), r.Groups, r.Rules)).FontSize(11.5).TextColor(p.mute).NoWrap()
+		use(i18n.T("使用它们", "Use them"))
 	})
 }
 
@@ -117,7 +153,18 @@ func (u *UI) importedPage(c *ui.Context, p *pal) {
 		if im.PausedRules+im.PausedSets > 0 {
 			note = fmt.Sprintf(i18n.T("你的 %d 条规则和 %d 个规则集已暂停，改回 bowel 路由后恢复。", "Your %d rules and %d rule sets are paused until you go back to bowel's routing. "), im.PausedRules, im.PausedSets) + note
 		}
-		ui.Text(c, note).FontSize(12).TextColor(p.mute).Padding(0, 26, 12, 26)
+		if len(im.Unused) > 0 {
+			ui.Text(c, note).FontSize(12).TextColor(p.mute).Padding(0, 26, 4, 26)
+			// Someone who wrote them expects them to work.
+			note = fmt.Sprintf(i18n.T("这份配置里的 %s 不会生效：DNS、TUN 和本机端口用的是 bowel 自己的设置。", "Not used from this config: %s. DNS, TUN and local ports follow bowel's own settings."), strings.Join(im.Unused, i18n.T("、", ", ")))
+		}
+		if len(im.DNSFill) == 0 {
+			st.fillDNS = false
+			ui.Text(c, note).FontSize(12).TextColor(p.mute).Padding(0, 26, 12, 26)
+		} else {
+			ui.Text(c, note).FontSize(12).TextColor(p.mute).Padding(0, 26, 4, 26)
+			u.importedDNSFill(c, p, im)
+		}
 		ui.Row(c).Grow(1).Basis(0).MinHeight(0).Padding(0, 26, 18, 26).Gap(18).AlignItems(ui.Stretch).Children(func() {
 			ui.Scroll(c.Key("list")).Width(244).Shrink(0).Gap(2).Children(func() {
 				for i, g := range im.Groups {
@@ -128,6 +175,51 @@ func (u *UI) importedPage(c *ui.Context, p *pal) {
 				g := im.Groups[at]
 				ui.Scroll(c.Key("main:"+g.Name)).Grow(1).Basis(0).MinWidth(0).Padding(0, 12, 0, 0).Children(func() { u.importedGroupDetail(c, p, g) })
 			}
+		})
+	})
+}
+
+// importedDNSFill offers to copy the config's DNS servers, policy, fake-ip
+// filter and hosts into the settings: once, on request, and after saying
+// what it replaces. They are settings from then on. The config's DNS is
+// never followed as it changes: how names resolve goes with how traffic is
+// taken over, and an update must not change it unseen.
+func (u *UI) importedDNSFill(c *ui.Context, p *pal, im *ImportedView) {
+	st := &u.routes
+	sep := i18n.T("、", ", ")
+	ui.Column(c.Key("dns-fill")).Gap(4).Padding(0, 26, 12, 26).Children(func() {
+		if !st.fillDNS {
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, i18n.T("其中的 DNS 服务器、域名策略和 hosts 可以一次性填进 bowel 的设置。", "Its DNS servers, nameserver policy and hosts can be copied into bowel's settings, once.")).FontSize(12).TextColor(p.mute)
+				link(c.Key("fill"), p, i18n.T("把其中的 DNS 填入设置…", "Copy its DNS into settings…"), func() { st.fillDNS = true })
+			})
+			return
+		}
+		ui.Text(c, fmt.Sprintf(i18n.T("将用这份配置的 %s 替换「设置 › DNS」里对应的几项，其余不动；DNS 模式、监听和劫持仍按 bowel 的。之后订阅更新不会再改它们。", "The config's %s will replace the same entries in Settings › DNS; nothing else changes, and the DNS mode, listener and hijack stay bowel's. Later updates of the config won't change them."), strings.Join(im.DNSFill, sep))).FontSize(12).TextColor(p.ink)
+		if n := len(im.DNSSkipped); n > 0 {
+			shown := im.DNSSkipped
+			more := ""
+			if n > 4 {
+				shown, more = shown[:4], i18n.T(" 等", " and more")
+			}
+			ui.Text(c, fmt.Sprintf(i18n.T("有 %d 项填不进去，会跳过：%s", "%d entries can't be held and are skipped: %s"), n, strings.Join(shown, sep)+more)).FontSize(12).TextColor(p.mute).MaxLines(2)
+		}
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			btn(c.Key("fill-ok"), p, i18n.T("确认填入", "Copy them")).OnClick(func() {
+				st.fillDNS = false
+				if u.app == nil {
+					return
+				}
+				go func() {
+					took, err := u.app.fillImportedDNS()
+					if err != nil {
+						u.toast(err.Error())
+						return
+					}
+					u.toast(fmt.Sprintf(i18n.T("已填入 %s，可以在「设置 › DNS」里修改", "Copied %s; change them in Settings › DNS"), strings.Join(took, i18n.T("、", ", "))))
+				}()
+			})
+			link(c.Key("fill-no"), p, i18n.T("取消", "Cancel"), func() { st.fillDNS = false })
 		})
 	})
 }

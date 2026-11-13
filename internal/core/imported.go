@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -17,7 +18,9 @@ import (
 // Imported is the routing a complete Clash config brings with it: its nodes,
 // groups and rules, and what those depend on. Everything else in such a
 // config (ports, DNS, TUN, listeners, a controller, scripts) is Moho's to
-// decide or none of the source's business, and is never read.
+// decide or none of the source's business, and is never used. Of that only
+// the DNS lists are read at all (DNSFill), to be copied into the settings
+// if the user asks.
 //
 // The nodes keep the names the source gave them and go at the top level of
 // the runtime config. A group's `proxies:` can only name top-level proxies,
@@ -31,6 +34,54 @@ type Imported struct {
 	SubRules       map[string][]string       `yaml:"sub-rules"`
 	RuleProviders  map[string]map[string]any `yaml:"rule-providers"`
 	ProxyProviders map[string]map[string]any `yaml:"proxy-providers"`
+	// Unused are the parts of the config, of unusedKeys, that it has and
+	// that are not used: someone who wrote them expects them to work.
+	Unused []string `yaml:"-"`
+	// DNS is what the config says of DNS that the settings have a place
+	// for. It is not used either; it is there to be copied over when asked.
+	DNS DNSFill `yaml:"-"`
+}
+
+// unusedKeys are the settings of a config that act on traffic, and that
+// bowel has its own of instead: how names resolve, what listens, how
+// traffic is taken in. In the order they are named in. The rest of what a
+// config has beside its routing (its log level, a dashboard, a secret)
+// changes nothing anyone would miss.
+var unusedKeys = []string{"dns", "hosts", "sniffer", "tun", "listeners", "tunnels", "mixed-port", "port", "socks-port", "redir-port", "tproxy-port"}
+
+// unused are the unusedKeys data has at its top level, switched on.
+func unused(data []byte) []string {
+	var top map[string]yaml.Node
+	if yaml.Unmarshal(data, &top) != nil {
+		return nil
+	}
+	var out []string
+	for _, k := range unusedKeys {
+		if v, ok := top[k]; ok && !switchedOff(k, &v) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// switchedOff says whether a setting is there only to be off: empty, port
+// 0, or dns, tun and sniffer without `enable: true`, as the core reads them.
+func switchedOff(key string, n *yaml.Node) bool {
+	switch n.Kind {
+	case yaml.MappingNode:
+		if key == "dns" || key == "tun" || key == "sniffer" {
+			var m struct {
+				Enable bool `yaml:"enable"`
+			}
+			return n.Decode(&m) != nil || !m.Enable
+		}
+		return len(n.Content) == 0
+	case yaml.SequenceNode:
+		return len(n.Content) == 0
+	case yaml.ScalarNode:
+		return n.Tag == "!!null" || n.Value == "0" || n.Value == "false"
+	}
+	return false
 }
 
 // builtinTargets exist in every core without being defined.
@@ -39,14 +90,20 @@ var builtinTargets = []string{"DIRECT", "REJECT", "REJECT-DROP", "PASS", "PASS-R
 // ParseImported reads the routing out of a provider's content. It gives nil
 // and no error when the content has no groups (a list of nodes), and an
 // error saying what is wrong when it has groups Moho cannot use.
-func ParseImported(data []byte) (*Imported, error) {
+//
+// local stands in for the files the config's `type: file` proxy-providers
+// name: it gives the files Moho itself keeps under a provider's name, and
+// the path the config wrote is never read. A nil local has no such files.
+func ParseImported(data []byte, local func(name string) []string) (*Imported, error) {
 	var im Imported
 	if err := yaml.Unmarshal(data, &im); err != nil || len(im.Groups) == 0 {
 		return nil, nil // base64, node links, or nothing of the kind
 	}
-	if err := im.check(); err != nil {
+	if err := im.check(local); err != nil {
 		return nil, err
 	}
+	im.Unused = unused(data)
+	im.DNS = importedDNS(data)
 	return &im, nil
 }
 
@@ -82,7 +139,7 @@ func on(m map[string]any, key string) bool {
 // check keeps only what the routing depends on and refuses what could not
 // work, each with a reason a person can act on: the core would say much the
 // same, but later and in its own words.
-func (im *Imported) check() error {
+func (im *Imported) check(local func(name string) []string) error {
 	if len(im.Rules) == 0 {
 		return errors.New(i18n.T("这份配置有路由组，但没有规则", "This config has route groups but no rules"))
 	}
@@ -167,20 +224,31 @@ func (im *Imported) check() error {
 	}
 
 	var err error
-	if im.RuleProviders, err = usableProviders(im.RuleProviders, usedSets, known); err != nil {
+	if im.RuleProviders, err = usableProviders(im.RuleProviders, usedSets, known, nil); err != nil {
 		return err
 	}
-	im.ProxyProviders, err = usableProviders(im.ProxyProviders, usedProviders, known)
+	im.ProxyProviders, err = usableProviders(im.ProxyProviders, usedProviders, known, local)
 	return err
+}
+
+// MissingFile is why a config can't be used yet: its proxy-provider Name is
+// a local file, and Moho keeps no local file under that name.
+type MissingFile struct{ Name string }
+
+func (e *MissingFile) Error() string {
+	return fmt.Sprintf(i18n.T("「%[1]s」指向本地文件：添加一个名为「%[1]s」的本地文件 Provider 后就能使用", "%[1]s points at a local file: add a local file Provider named %[1]s to use it"), e.Name)
 }
 
 // usableProviders are the used ones of providers, as the core may read
 // them. A remote one is the core's to download, to a place of its own
 // choosing rather than one the source names. A local file can't come along:
-// its path means something only on the machine the config was written on.
-func usableProviders(all map[string]map[string]any, used map[string]bool, known map[string]bool) (map[string]map[string]any, error) {
+// its path means something only on the machine the config was written on,
+// and is never read. In its place goes the one file local has under the
+// provider's name, if local is given: a file the user put there.
+func usableProviders(all map[string]map[string]any, used map[string]bool, known map[string]bool, local func(name string) []string) (map[string]map[string]any, error) {
 	out := map[string]map[string]any{}
-	for name, p := range all {
+	for _, name := range slices.Sorted(maps.Keys(all)) { // the same refusal each time
+		p := all[name]
 		if !used[name] {
 			continue
 		}
@@ -191,6 +259,18 @@ func usableProviders(all map[string]map[string]any, used map[string]bool, known 
 			delete(q, "path-in-bundle")
 		case "inline":
 		case "file":
+			if local != nil {
+				paths := local(name)
+				if len(paths) == 0 {
+					return nil, &MissingFile{Name: name}
+				}
+				if len(paths) > 1 {
+					return nil, fmt.Errorf(i18n.T("有多个名为「%s」的本地文件 Provider，只能留一个", "More than one local file Provider is named %s; keep one"), name)
+				}
+				delete(q, "path-in-bundle")
+				q["path"] = paths[0]
+				break
+			}
 			return nil, fmt.Errorf(i18n.T("「%s」指向本地文件，这台机器上读不到，请改成链接或内联内容", "%s points at a local file, which can't be read here. Use a link or inline content"), name)
 		default:
 			return nil, fmt.Errorf(i18n.T("「%s」的类型 %s 不受支持", "%s has a type that isn't supported: %s"), name, kind)
@@ -313,6 +393,21 @@ func GroupKind(g map[string]any) string { return strings.ToLower(fmt.Sprint(g["t
 // ProviderNames are the source's own node providers that are in use.
 func (im *Imported) ProviderNames() []string {
 	return slices.Sorted(maps.Keys(im.ProxyProviders))
+}
+
+// RemoteHosts are the hosts the named providers of the source, of nodes or
+// of rules, are downloaded from, each once.
+func (im *Imported) RemoteHosts(names []string) []string {
+	var out []string
+	for _, n := range names {
+		for _, all := range []map[string]map[string]any{im.ProxyProviders, im.RuleProviders} {
+			s, _ := all[n]["url"].(string)
+			if u, err := url.Parse(s); err == nil && u.Host != "" && !slices.Contains(out, u.Host) {
+				out = append(out, u.Host)
+			}
+		}
+	}
+	return out
 }
 
 // runtimeGroups are the groups as they go to the core. `include-all` and its

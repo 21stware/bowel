@@ -11,6 +11,7 @@ package main
 
 import (
 	"fmt"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -622,6 +623,24 @@ func (u *UI) generalSection(c *ui.Context, p *pal, s settings.Settings) {
 	})
 	u.optSwitch(c, p, "hidden", i18n.T("静默启动", "Start hidden"), i18n.T("开机启动时只留在菜单栏，不打开窗口", "When opened at login, stay in the menu bar without a window"), s.StartHidden,
 		func(s *settings.Settings, on bool) { s.StartHidden = on })
+	title, desc := traySpeedLabel(runtime.GOOS)
+	u.optSwitch(c, p, "trayspeed", title, desc, s.TraySpeed,
+		func(s *settings.Settings, on bool) { s.TraySpeed = on })
+}
+
+// traySpeedLabel names the option that puts the rates by the menu bar icon,
+// as the system goos shows them (trayText).
+func traySpeedLabel(goos string) (title, desc string) {
+	switch goos {
+	case "windows":
+		return i18n.T("在托盘图标上显示网速", "Show network speed on the tray icon"),
+			i18n.T("接管时，鼠标停在托盘图标上会显示实时的下载和上传速度", "While taken over, hovering the tray icon shows the live download and upload rates")
+	case "linux":
+		return i18n.T("在托盘图标旁显示网速", "Show network speed beside the tray icon"),
+			i18n.T("接管时，实时的下载和上传速度显示在图标旁边；有些桌面的面板不显示这段文字", "While taken over, the live download and upload rates stand beside the icon; some desktops’ panels don’t show this text")
+	}
+	return i18n.T("在菜单栏显示网速", "Show network speed in the menu bar"),
+		i18n.T("接管时，实时的下载和上传速度显示在图标旁边", "While taken over, the live download and upload rates stand beside the icon")
 }
 
 // skinCard is one skin to pick: a small board in its own colors, faces,
@@ -887,6 +906,11 @@ func (u *UI) dnsSection(c *ui.Context, p *pal, s settings.Settings) {
 			u.setOpt(func(s *settings.Settings) { s.ProxyNameservers = v })
 		})
 	})
+	optWide(c, p, i18n.T("直连域名服务器", "Servers for direct connections"), i18n.T("解析走直连的域名；留空用上游服务器，写 system 用系统的 DNS", "Resolve names that connect directly; empty uses the upstream servers, system the system's DNS"), func() {
+		u.optList(c, p, "directns", i18n.T("直连域名服务器", "Servers for direct connections"), s.DirectNameservers, func(v []string) {
+			u.setOpt(func(s *settings.Settings) { s.DirectNameservers = v })
+		})
+	})
 	optWide(c, p, i18n.T("域名策略", "Nameserver policy"), i18n.T("域名=服务器，如 geosite:cn=223.5.5.5；同一域名可写多条", "domain=server, as geosite:cn=223.5.5.5; a domain may repeat"), func() {
 		u.optList(c, p, "policy", i18n.T("域名策略", "Nameserver policy"), s.NameserverPolicy, func(v []string) {
 			u.setOpt(func(s *settings.Settings) { s.NameserverPolicy = v })
@@ -969,6 +993,10 @@ func (u *UI) tunSection(c *ui.Context, p *pal, s settings.Settings) {
 			u.setOpt(func(s *settings.Settings) { s.TunMTU = v })
 		})
 	})
+	if osDNS.supported {
+		u.optSwitch(c, p, "sysdns", i18n.T("接管系统 DNS", "Take over system DNS"), i18n.T("TUN 开着时把各网络服务的 DNS 设为 223.5.5.5 等公网地址，让查询进 TUN；关闭 TUN 或退出时还原", "While TUN is on, set every network service's DNS to public addresses such as 223.5.5.5, so that queries enter TUN; put back when TUN goes off or bowel quits"), !s.TunKeepDNS,
+			func(s *settings.Settings, on bool) { s.TunKeepDNS = !on })
+	}
 	optWide(c, p, i18n.T("DNS 劫持", "DNS hijack"), i18n.T("发到这些地址的 DNS 查询交给 mihomo，如 any:53", "DNS queries to these addresses go to mihomo, as any:53"), func() {
 		u.optList(c, p, "hijack", i18n.T("DNS 劫持", "DNS hijack"), s.DNSHijack, func(v []string) {
 			u.setOpt(func(s *settings.Settings) { s.DNSHijack = v })
@@ -1065,7 +1093,7 @@ func (u *UI) aboutSection(c *ui.Context, p *pal, _ settings.Settings) {
 	}
 	u.updateRow(c, p)
 	optRow(c, p, i18n.T("运行配置", "Running config"), i18n.T("bowel 生成、mihomo 正在用的配置文件", "The config file bowel writes and mihomo runs on"), func() {
-		btn(c.Key("reveal"), p, i18n.T("在 Finder 中显示", "Show in Finder")).OnClick(func() {
+		btn(c.Key("reveal"), p, revealLabel()).OnClick(func() {
 			if u.app != nil {
 				go func() {
 					if err := u.app.revealConfig(); err != nil {
@@ -1080,6 +1108,7 @@ func (u *UI) aboutSection(c *ui.Context, p *pal, _ settings.Settings) {
 			u.setOpt((*settings.Settings).ResetCore)
 		})
 	})
+	u.backupRows(c, p)
 }
 
 // ---- Parts ----

@@ -11,6 +11,7 @@ bowel is a <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> client for m
 <p align="center">
   <a href="https://github.com/21stware/bowel/releases/latest"><b>Download</b></a> ·
   <a href="https://bowel.dev/en/">Website</a> ·
+  <a href="https://t.me/+BI3KVgBn7SE3YjVh">Telegram</a> ·
   <a href="README.zh-CN.md">简体中文</a>
 </p>
 
@@ -43,12 +44,12 @@ Import subscription links, node URLs, YAML configs, or QR codes, with data usage
 <img src="site/shots/providers-en.webp" width="880" alt="Providers">
 
 ### Menu bar
-Toggle system proxy takeover, switch proxy modes, and pick the node for traffic no rule matches from the menu bar, or from the system tray on Windows and Linux.
+Toggle system proxy takeover, switch proxy modes, and pick the node for traffic no rule matches from the menu bar, or from the system tray on Windows and Linux. On Omarchy, pin bowel's icon in the bar's tray, or it stays folded in the tray's drawer.
 
 <img src="site/shots/panel-en.webp" width="300" alt="Menu bar panel">
 
 ### Skins
-Six skins that change the look of the whole interface.
+Thirteen skins that change the look of the whole interface.
 
 <table>
   <tr>
@@ -61,10 +62,23 @@ Six skins that change the look of the whole interface.
     <td><img src="site/shots/skin-sakura-en.webp" alt="Sakura"><br><sub>Sakura</sub></td>
     <td><img src="site/shots/skin-paper-en.webp" alt="Paper"><br><sub>Paper (default)</sub></td>
   </tr>
+  <tr>
+    <td><img src="site/shots/skin-shanshui-en.webp" alt="Shanshui"><br><sub>Shanshui</sub></td>
+    <td><img src="site/shots/skin-celadon-en.webp" alt="Celadon"><br><sub>Celadon</sub></td>
+    <td><img src="site/shots/skin-dunhuang-en.webp" alt="Dunhuang"><br><sub>Dunhuang</sub></td>
+  </tr>
+  <tr>
+    <td><img src="site/shots/skin-dusk-en.webp" alt="Dusk"><br><sub>Dusk</sub></td>
+    <td><img src="site/shots/skin-aurora-en.webp" alt="Aurora"><br><sub>Aurora</sub></td>
+    <td><img src="site/shots/skin-obsidian-en.webp" alt="Obsidian"><br><sub>Obsidian</sub></td>
+  </tr>
+  <tr>
+    <td><img src="site/shots/skin-riso-en.webp" alt="Riso"><br><sub>Riso</sub></td>
+  </tr>
 </table>
 
 ### Other
-- **Custom rules**: Route specific domains, keywords, or IP ranges, and test where addresses go.
+- **Custom rules**: Route specific domains, keywords, or IP ranges, and test where addresses go; on macOS, Windows and Linux, route by application too.
 - **Measured exit locations**: Verify true exit locations through Cloudflare trace.
 - **Gateway mode** (macOS, Linux): Turn this computer into a LAN gateway for devices like TVs and consoles.
 - **TUN** (macOS, Windows, Linux): Intercept traffic from applications that ignore system proxy settings.
@@ -108,7 +122,7 @@ Or download the file for your platform from [Releases](https://github.com/21stwa
 
 - **macOS**: Drag bowel into Applications. The app is signed with a Developer ID and notarized by Apple.
 - **Windows**: Run the installer. It isn't code-signed, so Windows may warn you before it runs.
-- **Linux**: Install the `.deb` or `.rpm`, or unpack the archive and run `install.sh`, which installs bowel for your user in `~/.local`.
+- **Linux**: Install the `.deb` or `.rpm`. For a user install in `~/.local`, download `install.sh` and the `.tar.gz` from the same release, then run `sh install.sh bowel-<version>-linux-<arch>.tar.gz` without unpacking the archive. This is separate from the package-repository script above.
 - **Android**: Install the APK, allowing your browser to install apps if asked. Android asks for VPN permission the first time you connect.
 - **iOS**: Not released yet.
 
@@ -126,7 +140,7 @@ Some features depend on the platform:
 | MCP server | Yes | Yes | Yes | No |
 | Command line and `bowel daemon` | Yes | Yes | Yes | No |
 
-TUN asks for an administrator once, the first time you turn it on: macOS in its own dialog, Windows in a User Account Control prompt, Linux through polkit (`pkexec`). On Linux the system proxy is GNOME's, which Cinnamon, MATE, Budgie and others share, or KDE's; on another desktop use TUN, or point your applications at the mixed port, 7899 by default. What each system has and lacks is listed in [docs/platform-parity.md](docs/platform-parity.md). On Android, you can choose apps that stay outside the VPN.
+TUN asks for an administrator once, the first time you turn it on: macOS in its own dialog, Windows in a User Account Control prompt, Linux through polkit (`pkexec`). On Linux with systemd-resolved, that authorization also leaves a polkit rule letting your user point the resolver at the TUN device, which the core does every time TUN starts; without it (polkit older than 0.106, which reads no such rules) the desktop asks for a password three times at each start. On Linux the system proxy is GNOME's, which Cinnamon, MATE, Budgie and others share, or KDE's; on another desktop use TUN, or point your applications at the mixed port, 7899 by default. What each system has and lacks is listed in [docs/platform-parity.md](docs/platform-parity.md). On Android, you can choose apps that stay outside the VPN.
 
 ## Command line
 
@@ -150,6 +164,8 @@ bowel tui                         # all of it on a full screen
 
 `bowel tui` is the same on a whole terminal: pages for the overview, connections, logs, rules, Providers and settings, kept current. The overview has the switches (takeover, system proxy, TUN, gateway mode, allow LAN) and the routes: Enter or Space turns a switch, Enter on a route chooses its node (`t` tests the delays), `m` switches the mode and `a` adds a subscription. The settings page changes any setting by key. `/` filters connections and `?` lists the keys. A change asks y/n first. It works over SSH: `ssh server -t bowel tui`.
 
+**A port per route group.** Two programs on this computer can reach the same site by different exits when each is given a proxy port of its own: `bowel settings set extraPorts '[{"port":7901,"route":"ai"},{"port":7902,"route":"media"}]'` opens mixed ports on `127.0.0.1` whose traffic all goes to that route group (the IDs `bowel routes` lists), whatever the rules and the mode say. While an imported config's own routing is in use, `route` is the name of one of that config's groups instead, which `bowel routes` lists below the routes; a port whose group is not there stays closed. One name can be both a bowel route ID and a group of the config: such an entry is open under either routing, and its traffic goes to whichever group has that name there. They are never open to the LAN, are not part of an exported configuration, and have no place in the window; `'[]'` closes them.
+
 Every command has `--help` with examples. Reading commands take `--json`, and `logs -f` and `conns --watch` print one JSON object per line with it. Colors and progress go away when the output is not a terminal or `NO_COLOR` is set. Exit codes are 0 for done, 1 when it failed (for example bowel isn't running) and 2 for a wrong command line. `bowel completion bash|zsh|fish|powershell` prints a completion script.
 
 **Without a window.** `bowel daemon` runs bowel with no window, menu bar icon or Dock icon: the core, the monitors and the command line's socket only. It stays in the foreground and stops on SIGINT, SIGTERM or `bowel stop`, putting the system proxy back as the app does, so systemd, launchd or a service wrapper can keep it. `BOWEL_DATA_DIR` (or `--data-dir`) gives it a data folder of its own. The daemon does not update itself. Opening the app while the daemon runs does nothing: stop the daemon first.
@@ -171,6 +187,9 @@ Needs Go 1.27.3+ (`GOTOOLCHAIN=auto` fetches it). No Node or Bun.
 ```bash
 ./scripts/fetch-core.sh     # mihomo + GeoSite/GeoIP data into resources/
 go tool mygo dev            # the app, rebuilt on every change
+go tool mygo dev -sign -    # the same, signed ad hoc: needed to try rules for apps on macOS
+                            # (the signature changes every build, so macOS asks again for
+                            # Accessibility, Screen Recording and the like)
 go tool mygo build          # bowel.app and a .dmg, signed but not notarized
 ./scripts/release.sh        # build, notarize and staple: use this for releases
 CGO_ENABLED=0 go test ./... # includes tests that start the real core

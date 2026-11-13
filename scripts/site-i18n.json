@@ -3,9 +3,9 @@
     "zh-Hant": "bowel：macOS、Windows、Linux、Android 上的 mihomo（Clash Meta）用戶端",
     "ja": "bowel：macOS・Windows・Linux・Android 向けの mihomo（Clash Meta）クライアント"
   },
-  "bowel 是免费的 mihomo（Clash Meta）代理客户端，支持 macOS、Windows、Linux 和 Android：导入订阅，管理节点、路由和规则，查看每条连接，六种皮肤可选。": {
-    "zh-Hant": "bowel 是免費的 mihomo（Clash Meta）代理用戶端，支援 macOS、Windows、Linux 和 Android：匯入訂閱，管理節點、路由和規則，查看每條連線，六種外觀主題可選。",
-    "ja": "bowel は macOS、Windows、Linux、Android で使える無料の mihomo（Clash Meta）プロキシクライアントです。サブスクリプションを読み込み、ノード、ルート、ルールを管理し、すべての接続を確認できます。スキンは 6 種類から選べます。"
+  "bowel 是免费的 mihomo（Clash Meta）代理客户端，支持 macOS、Windows、Linux 和 Android：导入订阅，管理节点、路由和规则，查看每条连接，十三种皮肤可选。": {
+    "zh-Hant": "bowel 是免費的 mihomo（Clash Meta）代理用戶端，支援 macOS、Windows、Linux 和 Android：匯入訂閱，管理節點、路由和規則，查看每條連線，十三種外觀主題可選。",
+    "ja": "bowel は macOS、Windows、Linux、Android で使える無料の mihomo（Clash Meta）プロキシクライアントです。サブスクリプションを読み込み、ノード、ルート、ルールを管理し、すべての接続を確認できます。スキンは 13 種類から選べます。"
   },
   "皮肤": {
     "zh-Hant": "外觀主題",
@@ -27,9 +27,9 @@
     "zh-Hant": "連接兩端世界",
     "ja": "ふたつの世界を<wbr>つなぐ"
   },
-  "管理节点、路由和规则，查看每条连接，还有六种皮肤可选。": {
-    "zh-Hant": "管理節點、路由和規則，查看每條連線，還有六種外觀主題可選。",
-    "ja": "ノード、ルート、ルールを管理し、すべての接続を確認できます。スキンは 6 種類から選べます。"
+  "管理节点、路由和规则，查看每条连接，还有十三种皮肤可选。": {
+    "zh-Hant": "管理節點、路由和規則，查看每條連線，還有十三種外觀主題可選。",
+    "ja": "ノード、ルート、ルールを管理し、すべての接続を確認できます。スキンは 13 種類から選べます。"
   },
   "下载 macOS 版": {
     "zh-Hant": "下載 macOS 版",
@@ -71,9 +71,9 @@
     "zh-Hant": "或下載安裝檔",
     "ja": "またはパッケージをダウンロード"
   },
-  "这条命令会添加已签名的软件源，之后由 <code>apt</code> 或 <code>dnf</code> 更新 bowel。压缩包里的 <code>install.sh</code> 会把 bowel 安装到当前用户的 <code>~/.local</code>。": {
-    "zh-Hant": "這條指令會加入已簽署的軟體庫，之後由 <code>apt</code> 或 <code>dnf</code> 更新 bowel。壓縮檔裡的 <code>install.sh</code> 會把 bowel 安裝到目前使用者的 <code>~/.local</code>。",
-    "ja": "このコマンドは署名済みのリポジトリを追加し、以後は <code>apt</code> または <code>dnf</code> が bowel を更新します。アーカイブに入っている <code>install.sh</code> は、bowel を現在のユーザーの <code>~/.local</code> にインストールします。"
+  "上面的命令添加已签名的软件源，由 <code>apt</code> 或 <code>dnf</code> 更新 bowel。要安装到当前用户的 <code>~/.local</code>，从同一个 Release 下载单独的 <code>install.sh</code> 和 <code>.tar.gz</code>，不用解压，运行 <code>sh install.sh bowel-&lt;版本&gt;-linux-&lt;架构&gt;.tar.gz</code>。": {
+    "zh-Hant": "上面的指令會加入已簽署的軟體庫，由 <code>apt</code> 或 <code>dnf</code> 更新 bowel。要安裝到目前使用者的 <code>~/.local</code>，請從同一個 Release 下載單獨的 <code>install.sh</code> 和 <code>.tar.gz</code>，不用解壓縮，執行 <code>sh install.sh bowel-&lt;版本&gt;-linux-&lt;架構&gt;.tar.gz</code>。",
+    "ja": "上のコマンドは署名済みのリポジトリを追加し、以後は <code>apt</code> または <code>dnf</code> が bowel を更新します。現在のユーザーの <code>~/.local</code> にインストールするには、同じリリースから <code>install.sh</code> と <code>.tar.gz</code> を別々にダウンロードし、展開せずに <code>sh install.sh bowel-&lt;バージョン&gt;-linux-&lt;アーキテクチャ&gt;.tar.gz</code> を実行します。"
   },
   "下载 APK": {
     "zh-Hant": "下載 APK",
@@ -91,9 +91,9 @@
     "zh-Hant": "macOS、Windows、Linux 和 Android · 免費 · 截圖來自 macOS 版",
     "ja": "macOS・Windows・Linux・Android · 無料 · スクリーンショットは macOS 版"
   },
-  "六种皮肤": {
-    "zh-Hant": "六種外觀主題",
-    "ja": "6 種類のスキン"
+  "十三种皮肤": {
+    "zh-Hant": "十三種外觀主題",
+    "ja": "13 種類のスキン"
   },
   "配色、字体、圆角和质感一起变，底层功能完全一样。": {
     "zh-Hant": "配色、字體、圓角和質感一起變，底層功能完全一樣。",
@@ -123,6 +123,34 @@
     "zh-Hant": "櫻",
     "ja": "桜"
   },
+  "山水": {
+    "zh-Hant": "山水",
+    "ja": "山水"
+  },
+  "青瓷": {
+    "zh-Hant": "青瓷",
+    "ja": "青磁"
+  },
+  "敦煌": {
+    "zh-Hant": "敦煌",
+    "ja": "敦煌"
+  },
+  "暮色": {
+    "zh-Hant": "暮色",
+    "ja": "夕暮れ"
+  },
+  "极光": {
+    "zh-Hant": "極光",
+    "ja": "オーロラ"
+  },
+  "黑曜": {
+    "zh-Hant": "黑曜",
+    "ja": "黒曜石"
+  },
+  "孔版": {
+    "zh-Hant": "孔版",
+    "ja": "リソグラフ"
+  },
   "暖白纸面与墨色，克制安详": {
     "zh-Hant": "暖白紙面與墨色，克制安詳",
     "ja": "温かみのある白い紙に墨の色。控えめで落ち着いています"
@@ -146,6 +174,34 @@
   "樱花粉调、圆润边角与轻柔飘落的花瓣": {
     "zh-Hant": "櫻花粉色調、圓潤邊角與輕柔飄落的花瓣",
     "ja": "桜のピンクに、丸い角と静かに舞う花びら"
+  },
+  "宣纸底色、衬线标题与朱印红，远山隐在雾里": {
+    "zh-Hant": "宣紙底色、襯線標題與朱印紅，遠山隱在霧裡",
+    "ja": "画仙紙の地色にセリフ体の見出しと朱の印。遠い山々が霧にかすみます"
+  },
+  "粉青釉色、衬线标题与细细的开片": {
+    "zh-Hant": "粉青釉色、襯線標題與細細的開片",
+    "ja": "淡い青磁の釉色、セリフ体の見出しと細かな貫入"
+  },
+  "壁画的土黄、石青、石绿与朱砂": {
+    "zh-Hant": "壁畫的土黃、石青、石綠與硃砂",
+    "ja": "壁画の黄土、群青、緑青と辰砂"
+  },
+  "靛蓝的天沉向一线暖光": {
+    "zh-Hant": "靛藍的天沉向一線暖光",
+    "ja": "藍色の空が一筋の暖かい光へ沈んでいく"
+  },
+  "极夜深蓝上垂下的绿与紫，还有几点星": {
+    "zh-Hant": "極夜深藍上垂下的綠與紫，還有幾點星",
+    "ja": "極夜の深い青に垂れる緑と紫、そしていくつかの星"
+  },
+  "纯黑、细线与一点余烬的橙": {
+    "zh-Hant": "純黑、細線與一點餘燼的橙",
+    "ja": "漆黒、細い線と残り火のオレンジ"
+  },
+  "孔版印刷：蓝墨、荧光粉与网点": {
+    "zh-Hant": "孔版印刷：藍墨、螢光粉與網點",
+    "ja": "孔版印刷：青インク、蛍光ピンクと網点"
   },
   "路由": {
     "zh-Hant": "路由",

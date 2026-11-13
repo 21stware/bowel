@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/oboo/moho/internal/netif"
+	"github.com/oboo/moho/internal/nowindow"
 )
 
 // Env is what this machine's networks look like now.
@@ -22,6 +23,15 @@ type Env struct {
 	Tailscale Tailscale  `json:"tailscale"`
 	VPNs      []Tunnel   `json:"vpns,omitempty"`
 	Resolvers []Resolver `json:"resolvers,omitempty"`
+	// DefaultDNS are the servers the system asks about every name no
+	// resolver of its own claims: on macOS the primary service's, on Linux
+	// without systemd-resolved those of /etc/resolv.conf. Under TUN the
+	// core only answers in their place if they route into the TUN device.
+	DefaultDNS []string `json:"defaultDns,omitempty"`
+	// LocalDNS are the network's own servers while bowel has the system's
+	// set to its placeholder (sysdns): the app fills it in, for the names
+	// that are the system's to resolve.
+	LocalDNS []string `json:"localDns,omitempty"`
 	// DefaultTunnels are the tunnels that hold the default route, Tailscale
 	// aside: a proxy's TUN, this one's included while it is on.
 	DefaultTunnels []string `json:"defaultTunnels,omitempty"`
@@ -91,8 +101,8 @@ func (d *Detector) Detect(ctx context.Context) Env {
 	if d.at.IsZero() || tunnel != d.tunnel || time.Since(d.at) > tailscaleEvery {
 		d.ts, d.tunnel, d.at = detectTailscale(ctx), tunnel, time.Now()
 	}
-	routes, resolvers := osDetect(ctx)
-	e := Env{Tailscale: d.ts, Resolvers: resolvers}
+	routes, resolvers, defaultDNS := osDetect(ctx)
+	e := Env{Tailscale: d.ts, Resolvers: resolvers, DefaultDNS: defaultDNS}
 	if e.Tailscale.Iface == "" {
 		e.Tailscale = tailscaleByInterface(e.Tailscale, tunnel, resolvers)
 	}
@@ -122,7 +132,7 @@ func detectTailscale(ctx context.Context) Tailscale {
 			continue
 		}
 		c, cancel := context.WithTimeout(ctx, 3*time.Second)
-		out, err := exec.CommandContext(c, path, "status", "--json").Output()
+		out, err := nowindow.CommandContext(c, path, "status", "--json").Output()
 		cancel()
 		if err != nil && len(out) == 0 {
 			return Tailscale{Installed: true}
@@ -658,6 +668,50 @@ func parseResolvers(text string, own func(server string) bool) []Resolver {
 	}
 	flush()
 	return dedupeResolvers(out)
+}
+
+// parseDefaultDNS reads the servers of `scutil --dns`'s first resolver that
+// is for no domain of its own: the one every other name goes to.
+func parseDefaultDNS(text string) []string {
+	var servers []string
+	in, skip := false, false
+	sc := bufio.NewScanner(strings.NewReader(text))
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		switch {
+		case strings.HasPrefix(line, "resolver #"), strings.HasPrefix(line, "DNS configuration (for scoped"):
+			if in && !skip && len(servers) > 0 {
+				return servers
+			}
+			if !strings.HasPrefix(line, "resolver #") {
+				return nil
+			}
+			in, skip, servers = true, false, nil
+		case !in:
+		case strings.HasPrefix(line, "domain"), strings.HasPrefix(line, "options") && strings.Contains(line, "mdns"):
+			skip = true
+		default:
+			if m := scutilServer.FindStringSubmatch(line); m != nil {
+				servers = append(servers, m[1])
+			}
+		}
+	}
+	if in && !skip {
+		return servers
+	}
+	return nil
+}
+
+// parseResolvConf reads the nameservers of a resolv.conf.
+func parseResolvConf(text string) []string {
+	var servers []string
+	for _, line := range strings.Split(text, "\n") {
+		if f := strings.Fields(line); len(f) >= 2 && f[0] == "nameserver" {
+			servers = append(servers, f[1])
+		}
+	}
+	return servers
 }
 
 func dedupeResolvers(rs []Resolver) []Resolver {

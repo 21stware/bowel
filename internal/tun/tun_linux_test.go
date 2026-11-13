@@ -1,8 +1,10 @@
 package tun
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -131,6 +133,19 @@ func TestAdminError(t *testing.T) {
 	if err := adminError(1, "chown: no", e); !strings.Contains(err.Error(), "chown: no") {
 		t.Errorf("1: %v", err)
 	}
+	// No agent to ask the user (SSH, a minimal desktop): said as that, with
+	// pkexec's own line and not its whole text.
+	for _, msg := range []string{
+		"Error executing command as another user: No authentication agent found.",
+		"Error creating textual authentication agent: Error opening current controlling terminal for the process (`/dev/tty'): No such device or address\nmore",
+	} {
+		err := adminError(127, msg, e)
+		first, _, _ := strings.Cut(msg, "\n")
+		if err == ErrCanceled || !strings.Contains(err.Error(), first) || strings.Contains(err.Error(), "more") ||
+			err.Error() == adminError(127, "Not authorized", e).Error() || !strings.Contains(err.Error(), "polkit") {
+			t.Errorf("no agent: %v", err)
+		}
+	}
 }
 
 // TestInstallStepKeepsCurrentCopy: until the authorization, the copy TUN
@@ -186,5 +201,359 @@ func TestInstalledReal(t *testing.T) {
 	}
 	if os.Geteuid() != 0 && Installed(filepath.Join(dir, "user")) {
 		t.Error("the user's copy counts as installed")
+	}
+}
+
+// ruleMachine makes the machine one the rule is for: a user, setcap and
+// resolvectl there, polkit reading rules from a directory of the test's.
+func ruleMachine(t *testing.T) (rules string) {
+	t.Helper()
+	rules = t.TempDir()
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "setcap"), nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sd, si, su, sl, st := rulesDir, ruleUID, ruleUser, ruleLook, toolDirs
+	t.Cleanup(func() {
+		rulesDir, ruleUID, ruleUser, ruleLook, toolDirs = sd, si, su, sl, st
+		SetDevice("")
+	})
+	rulesDir, toolDirs = rules, []string{bin}
+	ruleUID = func() int { return 1000 }
+	ruleUser = func() string { return "reeza" }
+	ruleLook = func(string) (string, error) { return "/usr/bin/resolvectl", nil }
+	SetDevice("")
+	return rules
+}
+
+// The rule allows the four actions resolvectl asks for, to one user, and
+// only for the TUN device where polkit is told the link. Names are quoted
+// as JavaScript strings whatever is in them.
+func TestDNSRule(t *testing.T) {
+	r := dnsRule("reeza", "Meta")
+	for _, w := range []string{
+		`"org.freedesktop.resolve1.set-dns-servers"`, `"org.freedesktop.resolve1.set-domains"`,
+		`"org.freedesktop.resolve1.set-default-route"`, `"org.freedesktop.resolve1.revert"`,
+		`subject.user !== "reeza"`, `action.lookup("interface")`, `link && link !== "Meta"`, "polkit.Result.YES",
+	} {
+		if !strings.Contains(r, w) {
+			t.Errorf("rule lacks %s:\n%s", w, r)
+		}
+	}
+	if n := strings.Count(r, "org.freedesktop."); n != 4 {
+		t.Errorf("%d actions, want 4:\n%s", n, r)
+	}
+	odd := dnsRule(`a"b\c`+"\n", `d"; return polkit.Result.YES; //`)
+	if !strings.Contains(odd, `"a\"b\\c\n"`) || !strings.Contains(odd, `"d\"; return polkit.Result.YES; //"`) {
+		t.Errorf("names not quoted:\n%s", odd)
+	}
+}
+
+// The rule is for a machine where the core runs as a user and calls
+// resolvectl, and polkit reads rules.d: nowhere else is one written or
+// asked for.
+func TestRuleApplies(t *testing.T) {
+	ruleMachine(t)
+	if !ruleApplies() {
+		t.Fatal("a user with setcap, resolvectl and rules.d: the rule applies")
+	}
+	ruleUID = func() int { return 0 }
+	if ruleApplies() {
+		t.Error("root needs no rule")
+	}
+	ruleUID = func() int { return 1000 }
+	ruleLook = func(string) (string, error) { return "", exec.ErrNotFound }
+	if ruleApplies() {
+		t.Error("no resolvectl: the core calls nothing")
+	}
+	ruleLook = func(string) (string, error) { return "/usr/bin/resolvectl", nil }
+	saved := toolDirs
+	toolDirs = []string{t.TempDir()}
+	if ruleApplies() {
+		t.Error("no setcap: the copy is setuid, and root is not asked")
+	}
+	toolDirs = saved
+	rulesDir = filepath.Join(rulesDir, "none")
+	if ruleApplies() {
+		t.Error("no rules.d (polkit 0.105): nothing reads the rule")
+	}
+}
+
+// An installation lacks the rule until its mark says the same as the rule
+// that would be written now (the device's name is part of it) and the
+// rule is there to be read, saying the same.
+func TestNeedsRule(t *testing.T) {
+	rules := ruleMachine(t)
+	dst := filepath.Join(t.TempDir(), "mihomo")
+	rule := filepath.Join(rules, "49-bowel-tun-1000.rules")
+	want := dnsRule("reeza", "Meta")
+	write := func(path, text string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !NeedsRule(dst) {
+		t.Fatal("no mark: the rule is missing")
+	}
+	write(ruleMarkPath(dst), want)
+	if !NeedsRule(dst) {
+		t.Error("the mark without the rule (deleted by hand) went unnoticed")
+	}
+	write(rule, want)
+	if NeedsRule(dst) {
+		t.Error("the mark and the rule are what would be written: nothing to ask")
+	}
+	write(rule, want+"// edited\n")
+	if !NeedsRule(dst) {
+		t.Error("a rule changed by hand went unnoticed")
+	}
+	write(rule, want)
+	SetDevice("bowel0")
+	if !NeedsRule(dst) {
+		t.Error("another device than the rule names")
+	}
+	SetDevice("Meta")
+	if NeedsRule(dst) {
+		t.Error("the default device, named")
+	}
+
+	// polkit's directory closed to users: the mark is taken at its word.
+	if os.Geteuid() != 0 {
+		if err := os.Chmod(rules, 0); err != nil {
+			t.Fatal(err)
+		}
+		if NeedsRule(dst) {
+			t.Error("a rule that cannot be read is asked for again")
+		}
+		if err := os.Chmod(rules, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A rule polkit's directory refused is not asked for every time.
+	if err := os.Remove(rule); err != nil {
+		t.Fatal(err)
+	}
+	write(ruleMarkPath(dst), want+refusedNote)
+	if NeedsRule(dst) {
+		t.Error("a refused rule is asked for again")
+	}
+
+	ruleLook = func(string) (string, error) { return "", exec.ErrNotFound }
+	SetDevice("bowel0")
+	if NeedsRule(dst) {
+		t.Error("asked where no rule applies")
+	}
+}
+
+// Uninstall leaves neither the copy, the mark nor the rule, under one
+// authorisation; with no rule there it asks for none; and a canceled one
+// keeps the mark, which still says a rule is there.
+func TestUninstall(t *testing.T) {
+	rules := ruleMachine(t)
+	dir := filepath.Join(t.TempDir(), "a b")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dst, rule := filepath.Join(dir, "mihomo"), filepath.Join(rules, "49-bowel-tun-1000.rules")
+	other := filepath.Join(rules, "49-bowel-tun-1001.rules")
+	mark := ruleMarkPath(dst)
+	want := dnsRule("reeza", "Meta")
+	put := func(paths ...string) {
+		t.Helper()
+		for _, p := range paths {
+			if err := os.WriteFile(p, []byte(want), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	gone := func(p string) bool {
+		_, err := os.Lstat(p)
+		return errors.Is(err, fs.ErrNotExist)
+	}
+	var asked []string
+	var refuse error
+	saved := adminRun
+	t.Cleanup(func() { adminRun = saved })
+	adminRun = func(_ string, steps []Step) error {
+		sh := script(steps)
+		asked = append(asked, sh)
+		if refuse != nil {
+			return refuse
+		}
+		return exec.Command("/bin/sh", "-c", sh).Run()
+	}
+
+	put(dst, mark, rule, other)
+	if err := Uninstall(dst); err != nil {
+		t.Fatal(err)
+	}
+	if !gone(dst) || !gone(mark) || !gone(rule) {
+		t.Errorf("left behind: copy %v, mark %v, rule %v", !gone(dst), !gone(mark), !gone(rule))
+	}
+	if gone(other) {
+		t.Error("another user's rule was removed")
+	}
+	if len(asked) != 1 || !strings.Contains(asked[0], " -f "+shellQuote(rule)) || strings.Contains(asked[0], shellQuote(dst)) {
+		t.Errorf("authorisations: %q", asked)
+	}
+
+	// No rule: nothing is asked, as before there was one. A refused
+	// rule's mark goes the same way.
+	asked = nil
+	put(dst)
+	if err := os.WriteFile(mark, []byte(want+refusedNote), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Uninstall(dst); err != nil || len(asked) != 0 || !gone(dst) || !gone(mark) {
+		t.Errorf("no rule: %v, asked %q, copy gone %v, mark gone %v", err, asked, gone(dst), gone(mark))
+	}
+	if err := Uninstall(dst); err != nil || len(asked) != 0 {
+		t.Errorf("nothing installed: %v, asked %q", err, asked)
+	}
+
+	// Canceled: the rule is still there, and so is the mark.
+	put(dst, mark, rule)
+	refuse = ErrCanceled
+	if err := Uninstall(dst); !errors.Is(err, ErrCanceled) {
+		t.Fatalf("canceled: %v", err)
+	}
+	if gone(mark) || gone(rule) {
+		t.Error("a canceled removal dropped the mark or the rule")
+	}
+	refuse = nil
+
+	// polkit's directory closed to users: the mark says a rule is there.
+	if os.Geteuid() != 0 {
+		asked = nil
+		put(dst)
+		if err := os.Chmod(rules, 0); err != nil {
+			t.Fatal(err)
+		}
+		err := Uninstall(dst)
+		if cerr := os.Chmod(rules, 0o755); cerr != nil {
+			t.Fatal(cerr)
+		}
+		// The stand-in for root cannot enter the directory either.
+		if len(asked) != 1 || !strings.Contains(asked[0], shellQuote(rule)) {
+			t.Errorf("closed directory: %v, asked %q", err, asked)
+		}
+	}
+}
+
+// The rule rides in the installation's own step, after the copy has its
+// name, under the same pkexec; its failure does not fail the installation,
+// and the mark is left either way. Run for real with stand-ins for the
+// root commands.
+func TestInstallStepWithRule(t *testing.T) {
+	rules := ruleMachine(t)
+	dir := filepath.Join(t.TempDir(), "a b")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tmp, dst := filepath.Join(dir, ".mihomo-1"), filepath.Join(dir, "mihomo")
+	st, err := installStep(tmp, dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := script([]Step{st, {"/bin/true ", "/x"}})
+	rule := filepath.Join(rules, "49-bowel-tun-1000.rules")
+	if i, j, k := strings.Index(got, shellQuote(dst)), strings.Index(got, shellQuote(rule)), strings.Index(got, shellQuote(ruleMarkPath(dst))); !(0 < i && i < j && j < k) {
+		t.Errorf("order:\n%s", got)
+	}
+	if !strings.Contains(got, " -m 0644 -o root -g root ") || !strings.HasSuffix(got, "; } && /bin/true '/x'") {
+		t.Errorf("script:\n%s", got)
+	}
+	if out, err := exec.Command("/bin/sh", "-n", "-c", got).CombinedOutput(); err != nil {
+		t.Errorf("sh -n: %v: %s", err, out)
+	}
+	staged, _ := filepath.Glob(filepath.Join(dir, ".mihomo-rule-*"))
+	if len(staged) != 1 {
+		t.Fatalf("staged rule: %v", staged)
+	}
+	if b, _ := os.ReadFile(staged[0]); string(b) != dnsRule("reeza", "Meta") {
+		t.Errorf("staged rule:\n%s", b)
+	}
+
+	// The rule's own commands, with cp for install: the rule lands and
+	// the mark is the same text.
+	run := func(st Step) error {
+		sh := "true" + script([]Step{st})
+		sh = strings.ReplaceAll(sh, tool("install")+" -m 0644 -o root -g root ", "cp ")
+		return exec.Command("/bin/sh", "-c", sh).Run()
+	}
+	refused, _ := filepath.Glob(filepath.Join(dir, ".mihomo-norule-*"))
+	if len(refused) != 1 {
+		t.Fatalf("staged refusal: %v", refused)
+	}
+	if err := run(ruleStepWith(staged[0], refused[0], rule, ruleMarkPath(dst))); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, ".mihomo-*rule-*")); len(left) != 0 {
+		t.Errorf("staged files left: %v", left)
+	}
+	a, _ := os.ReadFile(rule)
+	b, _ := os.ReadFile(ruleMarkPath(dst))
+	if string(a) != dnsRule("reeza", "Meta") || string(b) != string(a) || NeedsRule(dst) {
+		t.Errorf("rule %q, mark %q, needs %v", a, b, NeedsRule(dst))
+	}
+	// A directory that refuses the rule: the mark is left all the same.
+	SetDevice("bowel0")
+	st2, err := ruleStep(tmp, dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st2[3] = filepath.Join(rules, "none", "x.rules")
+	if err := run(st2); err != nil {
+		t.Fatalf("a refused rule failed the step: %v", err)
+	}
+	if b, _ := os.ReadFile(ruleMarkPath(dst)); string(b) != dnsRule("reeza", "bowel0")+refusedNote || NeedsRule(dst) {
+		t.Errorf("a refused rule: mark %q, needs %v", b, NeedsRule(dst))
+	}
+
+	// Where no rule applies the step is the installation's alone.
+	ruleLook = func(string) (string, error) { return "", exec.ErrNotFound }
+	plain, err := installStep(tmp, dst)
+	if err != nil || plain[len(plain)-1] != dst {
+		t.Errorf("step = %q, %v", plain, err)
+	}
+}
+
+// What resolved says of the TUN device: servers, none, or nothing that
+// can be read as either.
+func TestLinkDNS(t *testing.T) {
+	for _, c := range []struct {
+		out            string
+		pointed, known bool
+	}{
+		{"Link 7 (Meta): 198.18.0.2\n", true, true},
+		{"Link 7 (Meta): 198.18.0.2 fdfe:dcba:9876::2\n", true, true},
+		{"Link 7 (Meta):\n", false, true},
+		{"Link 7 (Meta): \n", false, true},
+		{"Link 7 (Meta):\n          198.18.0.2\n", true, true},
+		{"Link 2 (enp3s0): 192.168.1.1\n", false, false}, // another link
+		{"Link 7 (Meta):\nLink 8 (x): 1.1.1.1\n", false, false},
+		{"Global: 1.1.1.1\n", false, false},
+		{"", false, false},
+	} {
+		if p, k := parseLinkDNS(c.out, "Meta"); p != c.pointed || k != c.known {
+			t.Errorf("%q: pointed %v, known %v", c.out, p, k)
+		}
+	}
+	saved := linkDNSRun
+	defer func() { linkDNSRun = saved; SetDevice("") }()
+	asked := ""
+	linkDNSRun = func(_ context.Context, dev string) (string, error) {
+		asked = dev
+		return "Link 9 (" + dev + "):\n", nil
+	}
+	SetDevice("bowel0")
+	if p, k := LinkDNS(context.Background()); p || !k || asked != "bowel0" {
+		t.Errorf("pointed %v, known %v, asked %q", p, k, asked)
+	}
+	linkDNSRun = func(context.Context, string) (string, error) { return "", errors.New("Failed to resolve interface") }
+	if p, k := LinkDNS(context.Background()); p || k {
+		t.Errorf("no device: pointed %v, known %v", p, k)
 	}
 }

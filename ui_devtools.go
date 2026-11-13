@@ -157,16 +157,16 @@ func (u *UI) toolsSection(c *ui.Context, p *pal) {
 	if len(miss) > 0 {
 		line, col = fmt.Sprintf(i18n.T("%d 个开发工具未接入流量", "%d developer tools aren't on the proxy"), len(miss)), p.warn
 	}
-	label := i18n.T("查看 ▾", "Show ▾")
+	label := i18n.T("查看", "Show")
 	if h.toolsList {
-		label = i18n.T("收起 ▴", "Hide ▴")
+		label = i18n.T("收起", "Hide")
 	}
 	section(c, p, i18n.T("开发工具", "Developer tools"), "", func() {
 		ui.Text(c, line).FontSize(13).FontWeight(600).TextColor(col)
 	}, func() {
 		ui.Row(c).Gap(8).Children(func() {
 			u.toolsUndoAll(c, p)
-			btn(c.Key("tools-toggle"), p, label).OnClick(func() { h.toolsList = !h.toolsList })
+			btnChevron(c.Key("tools-toggle"), p, label, h.toolsList).OnClick(func() { h.toolsList = !h.toolsList })
 		})
 	})
 	if !h.toolsList {

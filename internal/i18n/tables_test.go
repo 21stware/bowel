@@ -15,12 +15,15 @@ import (
 )
 
 // notShown are Chinese literals that are names, not words for people:
-// they stay Chinese in every language.
-var notShown = []string{"·自动"}
+// they stay Chinese in every language. The last three are Windows' own
+// words for an unspecified error, which internal/tun looks for in what
+// schtasks printed.
+var notShown = []string{"·自动", "未指定的错误", "未指定的錯誤", "エラーを特定できません"}
 
 // skipFiles hold Chinese that is data or is translated elsewhere
-// (geo.Display has its own tables).
-var skipFiles = []string{"internal/geo/data.go", "internal/geo/names.go", "internal/i18n/"}
+// (geo.Display has its own tables); provider/info.go has the words
+// subscriptions use, which are matched, not shown.
+var skipFiles = []string{"internal/geo/data.go", "internal/geo/names.go", "internal/i18n/", "internal/provider/info.go"}
 
 // TestTablesCoverSource: every Chinese string literal in the program has
 // Japanese and Traditional Chinese.

@@ -324,6 +324,35 @@ select.sel { border: 1px solid var(--hair); background: var(--card); border-radi
 .dv-modal .it b { display: block; }
 .dv-modal .it span { color: var(--mute); }
 .dv-modal .acts { display: flex; gap: 8px; margin-top: 4px; }
+/* download source, inside a service */
+.src-r { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 18px; padding: 13px 0; border-bottom: 1px solid var(--hair-2); }
+.src-r .opt-t { padding-top: 4px; }
+.src-b { display: grid; gap: 9px; justify-items: start; font-size: 12px; }
+.src-b .opt-d { font-size: 12px; line-height: 1.6; }
+.src-b .opt-d b { color: var(--ink); font-weight: 600; }
+.src-b .opt-d .lk { margin-left: 8px; }
+.src-b code { font: 11.5px var(--mono); }
+.src-b .dv-ask { width: 100%; }
+.pks { display: grid; width: 100%; }
+.pk { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 0; border-top: 1px solid var(--hair-2); color: var(--ink-2); text-align: left; }
+.pk > i { width: 9px; height: 9px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--faint); }
+.pk.on { color: var(--ink); font-weight: 600; } .pk.on > i { box-shadow: inset 0 0 0 3px var(--ink); }
+button.pk:hover code { text-decoration: underline; text-underline-offset: 3px; }
+.pk input { border: 0; background: none; outline: none; grid-column: 2 / -1; font: 11.5px var(--mono); padding: 0; }
+/* a command's trace reads left to right: a node per step, joined by the path taken */
+.steps { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); padding: 6px 0 2px 102px; }
+.step { display: grid; gap: 8px; align-content: start; }
+.step .k { font-size: 11px; color: var(--mute); }
+.step .ln { display: flex; align-items: center; height: 11px; }
+.step .ln i { width: 11px; height: 11px; border-radius: 50%; background: var(--good); flex: none; }
+.step .ln::after { content: ""; flex: 1; height: 0; border-top: 1.5px solid var(--good); opacity: .45; }
+.step .v { font-size: 12.5px; font-weight: 600; padding-right: 16px; }
+.step.bad .ln i { background: var(--signal); box-shadow: 0 0 0 4px color-mix(in srgb, var(--signal) 18%, transparent); }
+.step.bad .v { color: var(--signal); }
+.step.bad .ln::after, .step.skip .ln::after { border-top: 1.5px dashed var(--faint); opacity: 1; }
+.step.skip .ln i { background: none; box-shadow: inset 0 0 0 1.5px var(--faint); }
+.step.skip .v, .step.skip .k { color: var(--faint); }
+.step.last .ln::after { display: none; }
 .dv-none { padding: 10px 4px 0; border-top: 1px solid var(--hair-2); font-size: 12px; color: var(--mute); line-height: 1.5; }
 .pnodes { background: var(--paper-2); padding: 0 18px 12px 18px; border-bottom: 1px solid var(--hair); }
 .pn-row { display: grid; grid-template-columns: 22px 1.4fr 1.2fr 110px 1fr 60px; gap: 12px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--hair-2); font-size: 12px; }
@@ -1169,12 +1198,12 @@ const VIEWS = {
     return {
       normal: `<div class="pad"><span class="hint">展开</span><div class="kicker" data-m="k-mode">模式</div>
         <div class="words">${words.map(([id, l]) => `<button class="word ${S.mode === id ? "on" : ""} ${busy("mode:" + id) ? "shimmer" : ""}" data-mode="${id}">${l}${S.mode === id ? '<span class="ul" data-m="mode-ul" data-mbox></span>' : ""}</button>`).join("")}</div>
-        <p class="note">${desc}</p>${devMissing().length ? `<button class="dv-card" data-dv-card>${devMissing().length} 个开发工具未接入流量 ›</button>` : ""}</div>`,
+        <p class="note">${desc}</p>${devMissing().length ? `<button class="dv-card" data-dv-card>${devMissing().length} 个开发工具未接入流量 ›</button>` : srcList().some(mirrorDown) ? `<button class="dv-card" data-goto="${srcList().find(mirrorDown).group}|${srcList().find(mirrorDown).id}">${MIRRORS[srcList().find(mirrorDown).id].tool} 的镜像连不上 ›</button>` : ""}</div>`,
       compact: (v) => cmp(v, "mode", "模式", words.find((w) => w[0] === S.mode)[1], { sub: { rule: `${ROUTES.reduce((a, r) => a + r.nrules, 0)} 条规则 · ${ROUTES.length} 个路由组`, global: "所有流量走默认出口", direct: "不经过任何节点" }[S.mode] }),
       detail: `<div class="det">${detHead("模式", "模式与开发工具", "", "k-mode")}<div class="det-b">
         ${[["rule", "规则", "按规则把流量分到不同路由。日常就用这个。"], ["global", "全局", "所有流量都走「默认」路由的出口，规则暂停。临时需要时用。"], ["direct", "直连", "所有流量直接连接，不经过任何节点。排查网络问题时用。"]].map(([id, l, d]) => `
           <div class="dsec"><h4>${l}<small>${S.mode === id ? "当前" : ""}</small></h4><div class="muted" style="font-size:12.5px">${d}</div><button class="btn" data-mode="${id}">${busy("mode:" + id) ? '<span class="shimmer">切换中…</span>' : S.mode === id ? "✓ 使用中" : "切换"}</button></div>`).join("")}
-        ${devSection()}</div></div>`,
+        ${devSection()}${srcSection()}</div></div>`,
     };
   },
 
@@ -1629,7 +1658,86 @@ const DEV_SAMPLE = {
   ssh: { st: "on", src: "bowel", at: "5 天前", port: 7899, why: "bowel 运行时走代理，不在时直连" },
 };
 const DEV_WORD = { on: "走 bowel", off: "不走", other: "走别的代理", stale: "地址过期", unknown: "未知" };
+// ==================================================================
+// Download sources. A package registry is already a service of a route
+// group (npm, PyPI, Go, Rust, Homebrew), so the route it takes is the group
+// it is in, and 直连 is moving it to 直连. The one thing a service cannot
+// say is "use a mirror instead": that is written into the tool's own
+// config, the way 开发工具 writes a proxy. s.mirror = { host, ms, own }.
+// ==================================================================
+const MIRRORS = {
+  npm: { tool: "npm", file: "~/.npmrc", list: [["registry.npmmirror.com", 38], ["mirrors.cloud.tencent.com/npm", 46], ["repo.huaweicloud.com/repository/npm", 61]], line: (h) => [`registry=https://${h}/`] },
+  pypi: { tool: "pip", file: "~/.config/pip/pip.conf", list: [["pypi.tuna.tsinghua.edu.cn/simple", 31], ["mirrors.aliyun.com/pypi/simple", 37], ["mirrors.ustc.edu.cn/pypi/simple", 44]], line: (h) => ["[global]", `index-url = https://${h}`] },
+  golang: { tool: "Go", file: "go env（GOPROXY）", list: [["goproxy.cn", 44], ["goproxy.io", 58], ["mirrors.aliyun.com/goproxy", 63]], line: (h) => [`GOPROXY=https://${h},direct`] },
+  rust: { tool: "Cargo", file: "~/.cargo/config.toml", list: [["rsproxy.cn", 41], ["mirrors.ustc.edu.cn/crates.io-index", 52], ["mirrors.tuna.tsinghua.edu.cn/crates.io-index", 55]], line: (h) => ["[source.crates-io]", 'replace-with = "mirror"', "[source.mirror]", `registry = "sparse+https://${h}/"`] },
+  brew: { tool: "Homebrew", file: "~/.zshenv", list: [["mirrors.ustc.edu.cn/homebrew-bottles", 29], ["mirrors.tuna.tsinghua.edu.cn/homebrew-bottles", 33], ["mirrors.aliyun.com/homebrew/homebrew-bottles", 48]], line: (h) => [`export HOMEBREW_BOTTLE_DOMAIN=https://${h}`] },
+};
+S.src = { more: null, ask: null };
+const srcList = () => SERVICES.filter((s) => MIRRORS[s.id]);
+const mirrorOf = (id, i, extra) => { const [host, ms] = MIRRORS[id].list[i]; return { host, ms, ...extra }; };
+const mirrorDown = (s) => s.mirror && !(s.mirror.ms > 0);
+// The official source follows the group the service is in.
+const officialMs = (s) => { const r = route(s.off ? "default" : s.group); if (r.direct || r.broken) return 0; const m = node(r.node).ms; return m > 0 ? m + 24 : 0; };
+const msSpan = (v) => `<span class="num" style="color:${v > 0 ? "var(--mute)" : "var(--signal)"}">${v > 0 ? v + " ms" : "超时"}</span>`;
+function srcReset() {
+  srcList().forEach((s) => { s.mirror = null; });
+  svc("npm").mirror = mirrorOf("npm", 0, { at: "3 天前" });
+  svc("pypi").mirror = mirrorOf("pypi", 0, { own: true });
+  if (S.devView === "sample") svc("brew").mirror = { ...mirrorOf("brew", 0, { at: "2 周前" }), ms: 0 };
+  S.src = { more: null, ask: null };
+}
+// Inside a service's editor: 官方源 or 镜像, then (only when asked) which
+// mirror, then what will be written before anything is.
+function srcBlock(s) {
+  const M = MIRRORS[s.id]; if (!M) return "";
+  const r = route(s.group), m = s.mirror, X = S.src, more = X.more === s.id, ask = X.ask && X.ask.sid === s.id ? X.ask : null;
+  let body;
+  if (busy("src:" + s.id)) body = `<span class="shimmer">正在写入并实测…</span>`;
+  else if (m && m.own) body = `<div class="opt-d">${M.tool} 现在用的是你自己配在 <code>${esc(M.file)}</code> 里的 <code>${esc(m.host)}</code>，bowel 不改它。</div>`;
+  else {
+    const best = M.list.reduce((a, b) => (b[1] < a[1] ? b : a));
+    const say = m ? `${mirrorDown(s) ? `<span class="nope">${esc(m.host)} 连不上。</span>` : `用 <b>${esc(m.host)}</b>，不经过节点，bowel 不运行也能用。`}<button class="lk" data-src-more="${s.id}">换一个 ${more ? "▴" : "▾"}</button>`
+      : `跟着「${esc(r.name)}」走，现在的出口是 ${r.direct ? "直接连接" : exitPlain(r)}。`;
+    const list = !more ? "" : `<div class="pks">${M.list.map(([h, v], i) => `<button class="pk ${m && m.host === h ? "on" : ""}" data-src-pick="${s.id}|${i}"><i></i><code>${esc(h)}</code>${msSpan(v)}</button>`).join("")}
+        <label class="pk"><i style="visibility:hidden"></i><input id="src-custom" data-sid="${s.id}" spellcheck="false" placeholder="自己的镜像地址，回车后实测" /></label></div>`;
+    const lines = ask && (ask.undo ? [`- ${DEV_OPEN}`, ...M.line(m.host).map((l) => "- " + l), `- ${DEV_CLOSE}`] : [`+ ${DEV_OPEN}`, ...M.line(M.list[ask.i][0]).map((l) => "+ " + l), `+ ${DEV_CLOSE}`]);
+    const box = !ask ? "" : `<div class="dv-ask" style="margin-left:0">
+        <div class="t">${ask.undo ? `从 ${esc(M.file)} 删掉 bowel 写的那一段` : `将写入 ${esc(M.file)}`}<small>只影响 ${M.tool}，下一次下载生效。${ask.undo ? "" : "撤销时整段删除。"}</small></div>
+        ${diffHTML(lines)}
+        <div class="acts"><button class="pill sm" data-src-do>${ask.undo ? "换回官方源" : "写入"}</button><button class="btn" data-src-cancel>取消</button></div></div>`;
+    body = `<div class="seg"><button class="${m ? "" : "on"}" data-src-official="${s.id}">官方源　${msSpan(officialMs(s))}</button><button class="${m ? "on" : ""}" data-src-more="${s.id}">镜像　${msSpan(m ? m.ms : best[1])}</button></div>
+      <div class="opt-d">${say}</div>${list}${box}`;
+  }
+  return `<div class="src-r"><div class="opt-t">${M.tool} 从哪里下载</div><div class="src-b">${body}</div></div>`;
+}
+// The section of the expanded 模式 cell: one sentence, and the way to its home.
+function srcSection() {
+  const L = srcList(), bad = L.find(mirrorDown), nm = L.filter((s) => s.mirror).length, to = bad || L[0];
+  return `<div class="dsec dv-sum" data-goto="${to.group}|${to.id}"><h4>依赖源<small>npm、pip、Go 从哪里下载</small></h4>
+      <div><span class="line ${bad ? "bad" : ""}">${bad ? `${MIRRORS[bad.id].tool} 的镜像连不上` : `${L.length} 个源都通`}</span>
+        <span class="names">${nm} 个走镜像，${L.length - nm} 个走官方源，跟着它所在的路由组</span></div>
+      <span class="btn">在路由组里改 →</span></div>`;
+}
+// A command instead of an address: which tool sends it, where it downloads
+// from, which rule and group that hits, and the exit. Left to right.
+const CMDS = { npm: ["shell", "npm"], pnpm: ["shell", "npm"], yarn: ["shell", "npm"], npx: ["shell", "npm"], pip: ["langs", "pypi"], uv: ["langs", "pypi"], go: ["langs", "golang"], cargo: ["shell", "rust"], brew: ["langs", "brew"], docker: ["dockerd", "docker"], git: ["https", "github"] };
+function cmdTrace(q) {
+  const w = q.trim().split(/\s+/)[0].toLowerCase(), c = CMDS[w]; if (!c) return null;
+  const t = devItem(c[0]), s = svc(c[1]), m = s.mirror, r = route(s.off ? "default" : s.group), steps = [];
+  if (m) {
+    steps.push([m.ms > 0 ? "ok" : "bad", "下载源", `镜像 ${m.host}`], ["ok", "出口", "直接连接"]);
+  } else {
+    steps.push([t.st === "on" ? "ok" : "bad", "工具", `${t.name} · ${DEV_WORD[t.st]}`], ["ok", "规则", `${r.name} / ${s.name}`], [r.direct || !r.broken ? "ok" : "bad", "出口", r.direct ? "直接连接" : `${exitPlain(r)} · ${msWord(r)}`]);
+  }
+  const at = steps.findIndex((x) => x[0] === "bad");
+  steps.forEach((x, i) => { if (at >= 0 && i > at) x[0] = "skip"; });
+  const why = at < 0 ? "" : m ? `${m.host} 连不上` : steps[at][1] === "工具" ? `${t.name}没有接入流量` : `「${r.name}」现在没有可用的出口`;
+  const fix = at < 0 ? "" : m ? `<button class="lk" data-goto="${s.group}|${s.id}">换一个镜像</button>` : steps[at][1] === "工具" ? `<button class="lk" data-dv-card>去接入</button>` : `<button class="lk" data-goto="${r.id}|">查看</button>`;
+  return { steps, at, why, fix };
+}
+
 function devReset() {
+  srcReset();
   const sample = S.devView === "sample";
   S.dev.items = DEVTOOLS.map((b) => {
     const o = sample ? DEV_SAMPLE[b.id] : null;
@@ -1856,7 +1964,10 @@ function testerHTML() {
     const exit = r.direct ? "直接连接" : exitPlain(r);
     out = `<span class="sw" style="background:var(${r.color})"></span><b>${esc(r.name)}</b>${x ? `<span class="s">/</span>${esc(x.s.name)}<span class="s">/</span><code style="font-family:ui-monospace,monospace;font-size:12px">${esc(ruleText(x.u))}</code>` : `<span class="s">· 没有命中规则</span>`}<span class="s">→</span><span class="to">${exit}</span>${x ? `<button class="lk" data-goto="${x.s.group}|${x.s.id}">查看</button>` : ""}`;
   }
-  return `<div class="addbar rg-test"><div class="row"><span class="opt-t">测试一个地址</span><input class="rule-in" id="addr-test" spellcheck="false" placeholder="api.anthropic.com" value="${esc(S.set.test)}" /><div class="tpath">${out}</div></div></div>`;
+  const tr = q ? cmdTrace(q) : null;
+  if (tr) out = tr.at < 0 ? `<b>全程通</b>` : `<b class="nope">断在第 ${tr.at + 1} 步</b><span class="s">·</span><span class="to">${esc(tr.why)}</span>${tr.fix}`;
+  return `<div class="addbar rg-test"><div class="row"><span class="opt-t">测试地址或命令</span><input class="rule-in" id="addr-test" spellcheck="false" placeholder="api.anthropic.com 或 npm install" value="${esc(S.set.test)}" /><div class="tpath">${out}</div></div>
+    ${tr ? `<div class="steps">${tr.steps.map(([st, k, v], i) => `<div class="step ${st} ${i === tr.steps.length - 1 ? "last" : ""}"><span class="k">${k}</span><span class="ln"><i></i></span><span class="v">${v}</span></div>`).join("")}</div>` : ""}</div>`;
 }
 // ---- Rule sets ----
 // One thing to learn: a service whose rules come from a link or a file. It
@@ -1931,6 +2042,7 @@ function svcEditor(s) {
   return `<div class="ged">
     ${s.builtin || s.mine ? "" : `<div class="opt-r"><div class="l"><div class="opt-t">名字</div></div><div><input class="g-in ${S.set.serr ? "bad" : ""}" id="s-name" spellcheck="false" value="${esc(S.set.sdraft ?? s.name)}" />${S.set.serr ? `<div class="g-err">${S.set.serr}</div>` : ""}</div></div>`}
     ${s.mine ? `<div class="opt-d" style="padding-top:10px">在「日志」里点「让它走…」加的规则放在这里。</div>` : ""}
+    ${srcBlock(s)}
     <div class="rl">${rows || `<div class="opt-d" style="padding:8px 0">还没有规则，在下面加一条。</div>`}</div>
     <div class="adder"><input class="g-in rule-in" id="rule-text" spellcheck="false" placeholder="*.netflix.com、openai.com 或 10.0.0.0/8" value="${esc(S.set.text)}" />
       <select class="msel" id="rule-kind">${[["", "自动识别"], ["suffix", "域名及子域名"], ["domain", "仅此域名"], ["keyword", "关键词"], ["ip", "IP 段"]].map(([v, l]) => `<option value="${v}" ${S.set.kind === v ? "selected" : ""}>${l}</option>`).join("")}</select>
@@ -1945,7 +2057,7 @@ function svcEditor(s) {
 }
 function svcRow(s) {
   const open = S.set.svc === s.id, live = s.rules.filter((u) => !u.off);
-  const sub = s.ruleset ? (s.off ? "已停用，这些规则不再生效" : s.ruleset.failed ? `<span class="nope">更新失败，继续使用上次的规则</span>` : `${s.ruleset.count - s.ruleset.skipped} 条规则 · ${s.ruleset.updated}更新 · ${esc(rsWhere(s.ruleset.source))}`) : s.off ? "已停用，流量回到默认路由组" : live.length ? `${live.length} 条规则 · ${live.slice(0, 2).map((u) => esc(ruleText(u))).join("、")}${live.length > 2 ? " 等" : ""}` : "还没有规则";
+  const sub = s.ruleset ? (s.off ? "已停用，这些规则不再生效" : s.ruleset.failed ? `<span class="nope">更新失败，继续使用上次的规则</span>` : `${s.ruleset.count - s.ruleset.skipped} 条规则 · ${s.ruleset.updated}更新 · ${esc(rsWhere(s.ruleset.source))}`) : s.off ? "已停用，流量回到默认路由组" : mirrorDown(s) ? `<span class="nope">镜像 ${esc(s.mirror.host)} 连不上</span>` : s.mirror ? `${MIRRORS[s.id].tool} 走镜像 ${esc(s.mirror.host)} · ${live.length} 条规则管其余访问` : live.length ? `${live.length} 条规则 · ${live.slice(0, 2).map((u) => esc(ruleText(u))).join("、")}${live.length > 2 ? " 等" : ""}` : "还没有规则";
   return `<div><button class="shead ${s.off ? "off" : ""}" data-s-open="${s.id}"><span class="t"><b>${esc(s.name)}</b><small>${sub}</small></span>
       <span class="tagw">${s.mine ? "" : s.builtin ? "内置" : s.ruleset ? "规则集" : "自定义"}</span><span class="muted">${open ? "▴" : "▾"}</span></button>${open ? svcEditor(s) : ""}</div>`;
 }
@@ -2260,7 +2372,7 @@ function setMode(m) {
 // ==================================================================
 // Events
 // ==================================================================
-const ACTIONS = "[data-rs-open],[data-rs-x],[data-rs-file],[data-rs-add],[data-rs-upd],[data-dv-quit],[data-dv-card],[data-dv-list],[data-dv-open],[data-dv-ask],[data-dv-do],[data-dv-cancel],[data-dv-test],[data-dv-recheck],[data-dv-undoall],[data-set],[data-page],[data-mode],[data-entry],[data-expand],[data-collapse],[data-pick],[data-region],[data-test],[data-lan],[data-fix],[data-acttab],[data-astatus],[data-aroute],[data-sort],[data-kill],[data-conn],[data-pause],[data-closeall],[data-lv],[data-upd],[data-updall],[data-provoff],[data-add],[data-goapp],[data-prov],[data-sub-open],[data-sub-back],[data-strat],[data-scope],[data-o-add],[data-o-up],[data-o-del],[data-settings],[data-unbreak],[data-notice-x],[data-sim],[data-sw-close],[data-sw-sec],[data-g-route],[data-rg-new],[data-rg-open],[data-go-rg],[data-pol],[data-rg-del],[data-rg-del-x],[data-goto],[data-s-new],[data-s-open],[data-s-split],[data-s-off],[data-s-reset],[data-s-del],[data-r-off],[data-r-del],[data-r-add],[data-cf-move],[data-cf-x]";
+const ACTIONS = "[data-src-more],[data-src-pick],[data-src-official],[data-src-do],[data-src-cancel],[data-rs-open],[data-rs-x],[data-rs-file],[data-rs-add],[data-rs-upd],[data-dv-quit],[data-dv-card],[data-dv-list],[data-dv-open],[data-dv-ask],[data-dv-do],[data-dv-cancel],[data-dv-test],[data-dv-recheck],[data-dv-undoall],[data-set],[data-page],[data-mode],[data-entry],[data-expand],[data-collapse],[data-pick],[data-region],[data-test],[data-lan],[data-fix],[data-acttab],[data-astatus],[data-aroute],[data-sort],[data-kill],[data-conn],[data-pause],[data-closeall],[data-lv],[data-upd],[data-updall],[data-provoff],[data-add],[data-goapp],[data-prov],[data-sub-open],[data-sub-back],[data-strat],[data-scope],[data-o-add],[data-o-up],[data-o-del],[data-settings],[data-unbreak],[data-notice-x],[data-sim],[data-sw-close],[data-sw-sec],[data-g-route],[data-rg-new],[data-rg-open],[data-go-rg],[data-pol],[data-rg-del],[data-rg-del-x],[data-goto],[data-s-new],[data-s-open],[data-s-split],[data-s-off],[data-s-reset],[data-s-del],[data-r-off],[data-r-del],[data-r-add],[data-cf-move],[data-cf-x]";
 document.addEventListener("click", (e) => {
   const t = e.target.closest(ACTIONS);
   if (!t) {
@@ -2326,6 +2438,11 @@ document.addEventListener("click", (e) => {
     return morph(render);
   }
   if (d.rgOpen) { openGroup(d.rgOpen); return render(); }
+  if (d.srcMore) { S.src = { more: S.src.more === d.srcMore ? null : d.srcMore, ask: null }; return render(); }
+  if (d.srcPick) { const [sid, i] = d.srcPick.split("|"); const cur = svc(sid).mirror; if (cur && cur.host === MIRRORS[sid].list[+i][0]) return; S.src.ask = { sid, i: +i }; return render(); }
+  if (d.srcOfficial) { if (!svc(d.srcOfficial).mirror) return; S.src = { more: null, ask: { sid: d.srcOfficial, undo: true } }; return render(); }
+  if (d.srcCancel !== undefined) { S.src.ask = null; return render(); }
+  if (d.srcDo !== undefined) { const a = S.src.ask, x = svc(a.sid); S.src = { more: null, ask: null }; return apply("src:" + a.sid, 1000, () => { x.mirror = a.undo ? null : mirrorOf(a.sid, a.i, { at: "刚刚" }); }); }
   if (d.goto) { const [gid, sid] = d.goto.split("|"); S.page = "routes"; S.x = null; S.sub = null; openGroup(gid, sid); S.set.reveal = true; return render(); }
   if (d.rgDelX !== undefined) { S.set.armed = null; return render(); }
   if (d.rgDel) {
@@ -2443,6 +2560,11 @@ document.addEventListener("change", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && e.target.id === "rule-text" && !e.isComposing) addRule(S.set.svc);
+  if (e.key === "Enter" && e.target.id === "src-custom" && !e.isComposing && e.target.value.trim()) {
+    const sid = e.target.dataset.sid, L = MIRRORS[sid].list;
+    L.push([e.target.value.trim().replace(/^https?:\/\//, "").replace(/\/$/, ""), 40 + Math.round(Math.random() * 40)]);
+    S.src.ask = { sid, i: L.length - 1 }; render();
+  }
   if (e.key === "Escape") { if (S.set.open) { S.set.open = false; render(); } else collapse(); }
   if (e.key === "," && e.metaKey) { e.preventDefault(); S.set.open = true; render(); }
 });

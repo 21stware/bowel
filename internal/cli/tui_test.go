@@ -67,7 +67,8 @@ func screen(t *testing.T) (*tui, *[]string) {
 		"select_node": func(map[string]any) (any, error) { return "ok", nil },
 		"list_connections": func(map[string]any) (any, error) {
 			return map[string]any{"total": 1, "connections": []any{map[string]any{"id": "c1", "app": "curl", "host": "example.com", "port": 443,
-				"route": "default", "node": "香港 01", "status": "active", "start": time.Unix(1700000000, 0)}}}, nil
+				"route": "g1", "routeName": "🎞Netflix", "rule": "RuleSet", "payload": "netflix", "ruleName": "RuleSet(Netflix)",
+				"node": "香港 01", "status": "active", "start": time.Unix(1700000000, 0)}}}, nil
 		},
 		"tail_logs": func(a map[string]any) (any, error) {
 			if a["after"].(float64) > 0 {
@@ -132,7 +133,8 @@ func TestTUIPages(t *testing.T) {
 		}
 	}
 	keys(ui, "2")
-	if s := text(ui); !strings.Contains(s, "curl") || !strings.Contains(s, "example.com:443") || !strings.Contains(s, "[/] Filter") {
+	if s := text(ui); !strings.Contains(s, "curl") || !strings.Contains(s, "example.com:443") || !strings.Contains(s, "[/] Filter") ||
+		!strings.Contains(s, "RuleSet(Netflix)") || !strings.Contains(s, "🎞Netflix") || strings.Contains(s, "g1") {
 		t.Errorf("connections:\n%s", s)
 	}
 	keys(ui, "\t")
@@ -275,12 +277,12 @@ func TestTUIChanges(t *testing.T) {
 	if ui.input == nil {
 		t.Fatal("a did not open the line")
 	}
-	keys(ui, "q x.com aix\x7f\r") // q is a letter here, not quit; three words are no rule
+	keys(ui, "q x.com ai zx\x7f\r") // q is a letter here, not quit; four words are no rule
 	if ui.quit {
 		t.Errorf("q quit while typing")
 	}
 	if called("add_rule") {
-		t.Errorf("three words went through as a rule: %v", *calls)
+		t.Errorf("four words went through as a rule: %v", *calls)
 	}
 	if !strings.Contains(text(ui), "Write it as: target route") {
 		t.Errorf("no hint for a bad rule:\n%s", text(ui))
@@ -288,6 +290,10 @@ func TestTUIChanges(t *testing.T) {
 	keys(ui, "aopenai.com ai\r")
 	if !called(`add_rule {"route":"ai","target":"openai.com"}`) {
 		t.Errorf("add_rule: %v", *calls)
+	}
+	keys(ui, "aTelegram.exe ai app\r") // a third word is the kind
+	if !called(`add_rule {"kind":"app","route":"ai","target":"Telegram.exe"}`) {
+		t.Errorf("add_rule for an app: %v", *calls)
 	}
 	keys(ui, "d")
 	if ui.confirm == nil || !strings.Contains(text(ui), "Remove the rule for example.org?") {

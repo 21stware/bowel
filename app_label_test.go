@@ -47,3 +47,35 @@ func TestNodeLabelFollowsLinkProvider(t *testing.T) {
 		t.Errorf("DIRECT = %q", got)
 	}
 }
+
+// A node's label has none of the characters a provider hid in its name;
+// the name the core goes by keeps them, and its provider is still found.
+func TestNodeLabelWithoutHiddenCharacters(t *testing.T) {
+	ps, err := provider.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, err := ps.Add(context.Background(), nil, "trojan://pw@hk.example.com:443#x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ps.Rename(one.ID, "My\u200b Node"); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{providers: ps}
+	hk := "🇭🇰 H\u200bK\u200bG\ufeff 01" + core.NodeSep + "sub"
+	a.provNodes = map[string][]string{"sub": {hk, "JP" + core.NodeSep + "sub"}, one.ID: {"x" + core.NodeSep + one.ID}}
+
+	if got := a.display(hk); got != "HKG 01" {
+		t.Errorf("label = %q, want HKG 01", got)
+	}
+	if got := providerOf(hk); got != "sub" {
+		t.Errorf("providerOf = %q, want sub", got)
+	}
+	if got := display(hk); got != "🇭🇰 H\u200bK\u200bG\ufeff 01" {
+		t.Errorf("the name in the provider's file = %q, want it whole", got)
+	}
+	if got := a.display("x" + core.NodeSep + one.ID); got != "My Node" {
+		t.Errorf("a link provider's only node = %q, want My Node", got)
+	}
+}

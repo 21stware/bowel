@@ -112,6 +112,38 @@ func TestSetupSecondStep(t *testing.T) {
 	}
 }
 
+// A complete config added in the first run is asked about there: its routing
+// would otherwise go unmentioned until someone read its row.
+func TestSetupAsksAboutAConfigsRouting(t *testing.T) {
+	u := setupFixture()
+	full := fixture()
+	tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})
+	tt.Advance(2 * time.Second)
+	u.snap.Providers, u.snap.Nodes = full.Providers[:1], full.Nodes
+	tt.Frame()
+	tt.Advance(2 * time.Second)
+	if tt.HasText("按它的路由分流") || tt.HasText("使用它们") {
+		t.Errorf("a list of nodes is asked about: %q", tt.Texts())
+	}
+	u.snap.Providers[0].Routing = ProviderRouting{Groups: 2, Rules: 5}
+	u.provAdded(u.snap.Providers[0])
+	tt.Frame()
+	tt.Advance(2 * time.Second)
+	shot(t, tt, "setup-ready-routing")
+	for _, s := range []string{"要按它的路由分流，还是只用它的节点？", "按它的路由分流", "只用节点", "系统代理", "TUN"} {
+		if !tt.HasText(s) {
+			t.Errorf("second step lacks %q: %q", s, tt.Texts())
+		}
+	}
+	u.snap.Providers[0].Routing.InUse = true
+	tt.Frame()
+	tt.Advance(time.Second)
+	shot(t, tt, "setup-ready-routing-used")
+	if !tt.HasText("正在使用它的 2 个路由组") || tt.HasText("只用节点") || !u.setup.on {
+		t.Errorf("in use: %q", tt.Texts())
+	}
+}
+
 func TestSetupSkip(t *testing.T) {
 	u := setupFixture()
 	u.page = "providers"

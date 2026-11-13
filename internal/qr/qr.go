@@ -12,7 +12,6 @@ import (
 	_ "image/png"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -25,6 +24,7 @@ import (
 	_ "golang.org/x/image/webp"
 
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/nowindow"
 )
 
 // msg is an error said in the interface's language when it is said, and
@@ -180,7 +180,7 @@ func convert(data []byte) (image.Image, error) {
 	if err := os.WriteFile(in, data, 0o600); err != nil {
 		return nil, err
 	}
-	if err := exec.Command("/usr/bin/sips", "-s", "format", "png", in, "--out", out).Run(); err != nil {
+	if err := nowindow.Command("/usr/bin/sips", "-s", "format", "png", in, "--out", out).Run(); err != nil {
 		return nil, err
 	}
 	b, err := os.ReadFile(out)

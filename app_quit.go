@@ -117,6 +117,7 @@ func (a *App) shutdown() {
 		runQuitSteps(ctx, []quitStep{
 			{"gateway", a.quitGateway},
 			{"system proxy", a.quitSystemProxy},
+			{"system dns", a.quitSystemDNS},
 			{"core", a.quitCore},
 			{"update", a.quitUpdate},
 		})

@@ -108,6 +108,12 @@ type Config struct {
 	AllowLan  bool   `json:"allow-lan"`
 	LogLevel  string `json:"log-level"`
 	IPv6      bool   `json:"ipv6"`
+	// Tun is the TUN listener as it is, not as the config asked for it:
+	// a device the core could not bring up reads as not enabled.
+	Tun struct {
+		Enable bool   `json:"enable"`
+		Device string `json:"device"`
+	} `json:"tun"`
 }
 
 func (c *Client) Config(ctx context.Context) (Config, error) {
@@ -307,6 +313,23 @@ func (c *Client) ProxyProviders(ctx context.Context) (map[string]ProxyProvider, 
 		Providers map[string]ProxyProvider `json:"providers"`
 	}
 	err := c.do(ctx, http.MethodGet, "/providers/proxies", nil, &v)
+	return v.Providers, err
+}
+
+// RuleProvider is one entry of GET /providers/rules. One the core has not
+// been able to download yet has no rules.
+type RuleProvider struct {
+	Name      string    `json:"name"`
+	Behavior  string    `json:"behavior"`
+	RuleCount int       `json:"ruleCount"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+func (c *Client) RuleProviders(ctx context.Context) (map[string]RuleProvider, error) {
+	var v struct {
+		Providers map[string]RuleProvider `json:"providers"`
+	}
+	err := c.do(ctx, http.MethodGet, "/providers/rules", nil, &v)
 	return v.Providers, err
 }
 

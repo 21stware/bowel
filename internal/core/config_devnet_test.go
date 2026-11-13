@@ -160,9 +160,14 @@ func TestDevNetworkTun(t *testing.T) {
 
 func TestDevNetworkOffLeavesConfigAlone(t *testing.T) {
 	cfg := build(t, devInput("rule", devnet.Overlay{}))
-	for _, k := range []string{"proxies", "hosts"} {
-		if _, ok := cfg[k]; ok {
-			t.Errorf("%s is there with nothing to add", k)
+	if _, ok := cfg["proxies"]; ok {
+		t.Errorf("proxies is there with nothing to add")
+	}
+	// The only hosts are the resolver's own servers.
+	hosts, _ := cfg["hosts"].(map[string]any)
+	for k := range hosts {
+		if _, ok := NameserverHosts[k]; !ok {
+			t.Errorf("hosts has %s with nothing to add", k)
 		}
 	}
 	// The resolver is the core's own, not the overlay's: it is there with
@@ -189,5 +194,26 @@ func TestDevOptionsValidate(t *testing.T) {
 	o.DevExtra, o.DevOffScenarios = nil, []string{"nope"}
 	if o.Validate() == nil {
 		t.Error("nope is no scenario")
+	}
+}
+
+// While bowel has the system's DNS servers set to its placeholder for TUN,
+// the names that are the system's to resolve go to the network's own
+// servers: "system" would be the placeholder (#117).
+func TestDevNetworkLocalDNS(t *testing.T) {
+	env := devEnv()
+	env.LocalDNS = []string{"192.168.50.1"}
+	in := devInput("rule", devnet.Compile(devnet.Options{}, env))
+	in.Tun = true
+	dns, _ := build(t, in)["dns"].(map[string]any)
+	policy, _ := dns["nameserver-policy"].(map[string]any)
+	if got := strs(policy["+.lan"]); !slices.Equal(got, []string{"192.168.50.1"}) {
+		t.Errorf("+.lan under TUN: %v", got)
+	}
+	in.Tun, in.DNS = false, true // the DNS switch alone: the system's servers are its own
+	dns, _ = build(t, in)["dns"].(map[string]any)
+	policy, _ = dns["nameserver-policy"].(map[string]any)
+	if got := strs(policy["+.lan"]); !slices.Equal(got, []string{"system"}) {
+		t.Errorf("+.lan without TUN: %v", got)
 	}
 }

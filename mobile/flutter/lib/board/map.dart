@@ -364,7 +364,8 @@ class _MapPainter extends CustomPainter {
       final lv = isLive(r);
       a.lat = _lerp(a.lat, lat, ease);
       a.lon = _lerp(a.lon, lon, ease);
-      a.width = _lerp(a.width, lv ? 1.2 + (share[r.id] ?? 0) * 6 : (on ? 1 : 0), slow);
+      // Thicker with traffic, but a hairline still: 1.2 to 3.5 pt on a phone.
+      a.width = _lerp(a.width, lv ? 1.2 + (share[r.id] ?? 0) * 2.3 : (on ? 1 : 0), slow);
       a.alpha = _lerp(a.alpha, lv ? .9 : (on ? .3 : 0), slow);
       a.grown = reduced ? (on ? 1 : 0) : (a.grown + dt() / 1.1 * (on ? 1 : -1)).clamp(0.0, 1.0);
       final fan = pl == null ? 0 : (sameExit[n.flag + n.city] = (sameExit[n.flag + n.city] ?? -1) + 1);

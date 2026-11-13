@@ -18,7 +18,7 @@ var (
 	onOffChoices = []string{"on", "off"}
 	modes        = []string{"rule", "global", "direct"}
 	levels       = []string{"debug", "info", "warning", "error"}
-	ruleKinds    = []string{"suffix", "domain", "keyword", "ip"}
+	ruleKinds    = []string{"suffix", "domain", "keyword", "ip", "app"}
 	shells       = []string{"bash", "zsh", "fish", "powershell"}
 )
 
@@ -84,9 +84,9 @@ func tree() *Command {
 			{Name: "rules", Aliases: []string{"rule"}, Default: "list", Short: words{"管理你自己的规则", "Manage your own rules"}, Sub: []*Command{
 				{Name: "list", Aliases: []string{"ls"}, Short: words{"列出你的规则，按生效顺序", "List your rules, in the order they apply"}, Examples: []string{"bowel rules list"}, Run: runRules},
 				{Name: "add", Args: i18n.T("<地址> <路由>", "<target> <route>"), Min: 2, Max: 2,
-					Short:    words{"让某个域名或 IP 走指定路由", "Send a domain or IP to a route"},
-					Flags:    []Flag{{Name: "kind", Kind: "string", Choices: ruleKinds, Help: words{"规则类型，不写时自动判断", "The kind of rule; guessed when left out"}}},
-					Examples: []string{"bowel rules add openai.com ai", "bowel rules add 10.0.0.0/8 direct", "bowel rules add example.com default --kind domain"}, Run: runRuleAdd},
+					Short:    words{"让某个域名、IP 或应用走指定路由", "Send a domain, an IP or an app to a route"},
+					Flags:    []Flag{{Name: "kind", Kind: "string", Choices: ruleKinds, Help: words{"规则类型，不写时在域名和 IP 之间自动判断；app 是按名字匹配这台电脑上的应用", "The kind of rule; guessed between domain and IP when left out. app matches an app on this computer by its name"}}},
+					Examples: []string{"bowel rules add openai.com ai", "bowel rules add 10.0.0.0/8 direct", "bowel rules add example.com default --kind domain", "bowel rules add Telegram.exe ai --kind app", "bowel rules add Telegram.app ai --kind app"}, Run: runRuleAdd},
 				{Name: "remove", Aliases: []string{"rm"}, Args: i18n.T("<地址>", "<target>"), Min: 1, Max: 1,
 					Short:    words{"删除一条规则", "Remove a rule"},
 					Flags:    []Flag{{Name: "kind", Kind: "string", Choices: ruleKinds, Help: words{"规则类型，不写时自动判断", "The kind of rule; guessed when left out"}}},
@@ -114,8 +114,9 @@ func tree() *Command {
 				{Name: "list", Aliases: []string{"ls"}, Short: words{"列出所有设置", "List every setting"}, Examples: []string{"bowel settings list"}, Run: runSettingsList},
 				{Name: "get", Args: "<key>", Min: 1, Max: 1, Short: words{"读取一项设置", "Read one setting"}, Examples: []string{"bowel settings get mixedPort"}, Run: runSettingsGet},
 				{Name: "set", Args: i18n.T("<key> <值>", "<key> <value>"), Min: 2, Max: 2, Short: words{"修改一项设置；列表写成 JSON", "Change one setting; write a list as JSON"},
-					Examples: []string{"bowel settings set logLevel debug", "bowel settings set allowLan true", `bowel settings set bypass '["localhost","*.lan"]'`, "bowel settings set mcpPolicy deny"}, Run: runSettingsSet},
+					Examples: []string{"bowel settings set logLevel debug", "bowel settings set allowLan true", `bowel settings set bypass '["localhost","*.lan"]'`, "bowel settings set mcpPolicy deny", `bowel settings set extraPorts '[{"port":7901,"route":"ai"}]'`}, Run: runSettingsSet},
 			}},
+			configCommand(),
 			{Name: "tun", Args: "<on|off>", Min: 1, Max: 1, Choices: onOffChoices, Short: words{"打开或关闭 TUN（接管全部流量）", "Turn TUN on or off (it takes all traffic)"},
 				Examples: []string{"bowel tun on", "bowel tun off"}, Run: runTun},
 			{Name: "gateway", Args: "<on|off>", Min: 1, Max: 1, Choices: onOffChoices, Short: words{"打开或关闭网关模式（让局域网其他设备经这台电脑上网）", "Turn gateway mode on or off (other devices on the LAN go out through this computer)"},
@@ -325,6 +326,11 @@ func (c *Ctx) takeoverNotes(tk takeover) {
 		cl := entryCell(e.e.Status, e.e.Detail)
 		c.warn(e.name + ": " + cl.text)
 	}
+	// An installation of TUN that stopped half way says where, whether or
+	// not TUN is wanted now: it is why turning it on asks again.
+	if tk.Tun.Status == "install" && tk.Tun.Detail != "" {
+		c.warn("TUN: " + tk.Tun.Detail)
+	}
 }
 
 func runTakeover(c *Ctx, on bool) error {
@@ -391,6 +397,7 @@ func runRoutes(c *Ctx) error {
 				Now        string `json:"now"`
 				Selectable bool   `json:"selectable"`
 			} `json:"groups"`
+			Unused []string `json:"unusedSettings"`
 		} `json:"imported"`
 	}
 	raw, err := c.get("list_routes", nil, &out)
@@ -426,6 +433,9 @@ func runRoutes(c *Ctx) error {
 			rows = append(rows, []cell{t(g.Name), t(g.Kind), t(g.Now), {sel, gray}})
 		}
 		c.table([]string{i18n.T("路由组", "Group"), i18n.T("类型", "Kind"), i18n.T("当前", "Now"), ""}, rows)
+		if len(im.Unused) > 0 {
+			fmt.Fprintln(c.out, c.paint(gray, fmt.Sprintf(i18n.T("这份配置里的 %s 不会生效：DNS、TUN 和本机端口用的是 bowel 自己的设置。", "Not used from this config: %s. DNS, TUN and local ports follow bowel's own settings."), strings.Join(im.Unused, i18n.T("、", ", ")))))
+		}
 	}
 	return nil
 }
@@ -774,6 +784,35 @@ type conn struct {
 	Start  time.Time `json:"start"`
 	Status string    `json:"status"`
 	Error  string    `json:"error"`
+	// The route's name and the rule as the window shows them; a bowel
+	// from before them has only route, rule and payload.
+	RouteName string `json:"routeName"`
+	RuleName  string `json:"ruleName"`
+	Rule      string `json:"rule"`
+	Payload   string `json:"payload"`
+}
+
+// routeText is the route's name, or its id from a bowel that gives none.
+func (cn conn) routeText() string {
+	switch {
+	case cn.RouteName != "":
+		return cn.RouteName
+	case cn.Route != "":
+		return cn.Route
+	}
+	return "—"
+}
+
+func (cn conn) ruleText() string {
+	switch {
+	case cn.RuleName != "":
+		return cn.RuleName
+	case cn.Payload != "":
+		return cn.Rule + "(" + cn.Payload + ")"
+	case cn.Rule != "":
+		return cn.Rule
+	}
+	return "—"
 }
 
 func connCells(cn conn) []cell {
@@ -797,7 +836,12 @@ func connCells(cn conn) []cell {
 	if nodeName == "" {
 		nodeName = "—"
 	}
-	return []cell{{clock(cn.Start), gray}, t(cn.App), t(host), t(cn.Route), t(nodeName), t("↓" + fmtBytes(cn.Down)), t("↑" + fmtBytes(cn.Up)), st}
+	return []cell{{clock(cn.Start), gray}, t(cn.App), t(host), {cn.ruleText(), gray}, t(cn.routeText()), t(nodeName), t("↓" + fmtBytes(cn.Down)), t("↑" + fmtBytes(cn.Up)), st}
+}
+
+// connHeads are the headings of connCells.
+func connHeads() []string {
+	return []string{i18n.T("时间", "Time"), i18n.T("应用", "App"), i18n.T("目标", "Host"), i18n.T("规则", "Rule"), i18n.T("路由", "Route"), i18n.T("节点", "Node"), i18n.T("下载", "Down"), i18n.T("上传", "Up"), i18n.T("状态", "State")}
 }
 
 func runConns(c *Ctx) error {
@@ -831,7 +875,7 @@ func runConns(c *Ctx) error {
 	for _, cn := range out.Connections {
 		rows = append(rows, connCells(cn))
 	}
-	c.table([]string{i18n.T("时间", "Time"), i18n.T("应用", "App"), i18n.T("目标", "Host"), i18n.T("路由", "Route"), i18n.T("节点", "Node"), i18n.T("下载", "Down"), i18n.T("上传", "Up"), i18n.T("状态", "State")}, rows)
+	c.table(connHeads(), rows)
 	if out.Total > len(out.Connections) {
 		fmt.Fprintln(c.out, c.paint(gray, fmt.Sprintf(i18n.T("共 %d 个，显示最近 %d 个。", "%d in all; the %d newest shown."), out.Total, len(out.Connections))))
 	}

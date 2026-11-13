@@ -436,3 +436,71 @@ func TestRetryWriteWaits(t *testing.T) {
 		}
 	})
 }
+
+// TestRefusedBypassIsReported: a takeover the OS let through only with a
+// shorter bypass list is on, says so on the home page, and shows in the
+// status and once in the log what was written and what was refused (#115).
+func TestRefusedBypassIsReported(t *testing.T) {
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	defer log.SetOutput(os.Stderr)
+	a := retakeApp(t)
+	osProxy.snapshot = func() (sysproxy.Saved, error) { return sysproxy.Saved{}, nil }
+	osProxy.enable = func(string, int, []string) error { return nil }
+	written := sysproxy.Written{
+		Bypass:  "localhost;127.*;<local>",
+		Dropped: []sysproxy.Dropped{{Entry: "::1", Why: "ipv6"}},
+		Refused: &sysproxy.Refused{Value: "ProxyOverride", Content: "localhost;*.corp;<local>", Error: writeRefused.Error(), Instead: "minimal"},
+	}
+	osProxy.written = func() sysproxy.Written { return written }
+	// The system proxy as the 2 s round would find it after the takeover.
+	ours := func() {
+		a.mu.Lock()
+		a.sys = sysproxy.Status{On: true, Host: "127.0.0.1", Port: a.settings.Get().MixedPort, Ours: true}
+		a.mu.Unlock()
+	}
+	for range 3 {
+		if err := a.retake(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := strings.Count(logged.String(), `refused ProxyOverride "localhost;*.corp;<local>"`); n != 1 {
+		t.Fatalf("logged %d times:\n%s", n, logged.String())
+	}
+	ours()
+	snap := a.snapshot()
+	tk := snap.Takeover
+	if tk.System.Status != "on" || !strings.Contains(tk.System.Detail, "ProxyOverride") {
+		t.Fatalf("system entry %+v", tk.System)
+	}
+	if tk.Written == nil || !reflect.DeepEqual(*tk.Written, written) {
+		t.Fatalf("written %+v", tk.Written)
+	}
+	// With nothing else to tell, the home page's news line tells it, and
+	// the light stays green: the takeover works.
+	state, is := a.judge(true, a.settings.Get(), core.Status{State: core.Running}, tk, Snapshot{Nodes: []NodeView{{}}}, nil)
+	if state != StateOK || is == nil || is.Level != "warn" || is.Text != tk.System.Detail {
+		t.Fatalf("state %s, issue %+v", state, is)
+	}
+	b, _ := json.Marshal(tk)
+	b = bytes.ReplaceAll(bytes.ReplaceAll(b, []byte(`\u003c`), []byte("<")), []byte(`\u003e`), []byte(">"))
+	for _, part := range []string{`"written":{"bypass":"localhost;127.*;<local>"`, `"refused":{"value":"ProxyOverride","content":"localhost;*.corp;<local>"`, `"instead":"minimal"`, `"dropped":[{"entry":"::1","why":"ipv6"}]`} {
+		if !strings.Contains(string(b), part) {
+			t.Errorf("status lacks %s in %s", part, b)
+		}
+	}
+
+	// Taken whole the next time: nothing to say, and nothing of it left.
+	written = sysproxy.Written{Bypass: "localhost;*.corp;<local>", Dropped: written.Dropped}
+	if err := a.retake(); err != nil {
+		t.Fatal(err)
+	}
+	ours()
+	snap = a.snapshot()
+	if snap.Takeover.System.Status != "on" || snap.Takeover.System.Detail != "" || snap.Takeover.Written.Refused != nil || strings.Count(logged.String(), "refused") != 1 {
+		t.Fatalf("after: %+v, %+v\n%s", snap.Takeover.System, snap.Takeover.Written, logged.String())
+	}
+	if _, is := a.judge(true, a.settings.Get(), core.Status{State: core.Running}, snap.Takeover, Snapshot{Nodes: []NodeView{{}}}, nil); is != nil {
+		t.Fatalf("issue stays: %+v", is)
+	}
+}

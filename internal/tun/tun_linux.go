@@ -25,7 +25,8 @@ import (
 //     routes, on kernels older than 5.7.
 //
 // Where setcap is not installed, the copy is made setuid root instead, as
-// on macOS. Either way it is three commands under one pkexec.
+// on macOS. Either way it is one pkexec, which also leaves the polkit
+// rule of dnsrule_linux.go where systemd-resolved is in use.
 const fileCaps = "cap_net_admin,cap_net_bind_service,cap_net_raw=ep"
 
 // Path is where the copy of the core that TUN runs on is kept: in the
@@ -83,18 +84,38 @@ func capsAllow(b []byte, c int) bool {
 	return permitted&(1<<(c%32)) != 0
 }
 
-// Uninstall removes dst, which the user can do in a directory of theirs.
-// A missing dst is not an error.
+// Uninstall removes dst, which the user can do in a directory of theirs,
+// and what the installation left besides: the polkit rule of
+// dnsrule_linux.go and its mark. The rule is root's, so where there is
+// one this asks for an authorization (one pkexec); the mark stays until
+// the rule is gone. A missing dst is not an error.
 func Uninstall(dst string) error {
+	mark := ruleMarkPath(dst)
+	var steps []Step
 	err := os.Remove(dst)
-	if err == nil || errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if !errors.Is(err, fs.ErrPermission) {
+	switch {
+	case err == nil || errors.Is(err, fs.ErrNotExist):
+	case errors.Is(err, fs.ErrPermission):
+		steps = append(steps, Step{tool("rm") + " -f ", dst, " ", mark})
+	default:
 		return err
 	}
-	return runAdmin(Prompt(), []Step{{tool("rm") + " -f ", dst}})
+	if ruleLeft(mark) {
+		steps = append(steps, Step{tool("rm") + " -f ", rulePath()})
+	}
+	if len(steps) > 0 {
+		if err := adminRun(Prompt(), steps); err != nil {
+			return err
+		}
+	}
+	if err := os.Remove(mark); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
 }
+
+// adminRun is runAdmin, which tests replace: they have no polkit.
+var adminRun = runAdmin
 
 // stageDir is where the copy waits for the authorisation: beside dst, so
 // that taking its name is a rename, which keeps the capabilities.
@@ -132,7 +153,12 @@ func tool(name string) string {
 }
 
 func installStep(tmp, dst string) (Step, error) {
-	return installStepWith(tool("setcap"), tmp, dst), nil
+	st := installStepWith(tool("setcap"), tmp, dst)
+	rule, err := ruleStep(tmp, dst)
+	if err != nil {
+		return nil, err
+	}
+	return append(st, rule...), nil
 }
 
 // installStepWith gives the copy to root first: chown drops capabilities
@@ -210,9 +236,26 @@ func adminError(code int, msg string, err error) error {
 	if msg == "" {
 		msg = err.Error()
 	}
+	if noAgent(msg) {
+		return fmt.Errorf(i18n.T("没有 polkit 认证代理，系统弹不出授权窗口（常见于通过 SSH 登录，或没有自带认证代理的精简桌面）。请在桌面会话里启动一个认证代理（比如 polkit-gnome、lxqt-policykit）后再试：%s",
+			"No polkit agent is running, so the system can't ask for the authorization (usual over SSH, or on a minimal desktop that starts none). Start one in the desktop session (polkit-gnome or lxqt-policykit, say) and try again: %s"), firstLine(msg))
+	}
 	if code == 127 {
 		return fmt.Errorf(i18n.T("无法取得授权（桌面可能没有运行 polkit 认证代理）：%s",
 			"Couldn't get an authorization (the desktop may have no polkit agent running): %s"), msg)
 	}
 	return fmt.Errorf(i18n.T("授权失败：%s", "Authorization failed: %s"), msg)
+}
+
+// noAgent is whether pkexec said that nothing could ask the user: no
+// agent is registered for the session, and it could not be one itself
+// for want of a terminal.
+func noAgent(msg string) bool {
+	return strings.Contains(msg, "No authentication agent found") ||
+		strings.Contains(msg, "textual authentication agent")
+}
+
+func firstLine(s string) string {
+	s, _, _ = strings.Cut(strings.TrimSpace(s), "\n")
+	return strings.TrimSpace(s)
 }

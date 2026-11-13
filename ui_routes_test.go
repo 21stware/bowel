@@ -88,7 +88,7 @@ func TestRoutesAddRule(t *testing.T) {
 	u := routesFixture()
 	u.selectGroup("ai")
 	u.routes.svc = "claude"
-	tt := ui.NewTester(u.view, 1060, 760)
+	tt := ui.NewTester(u.view, 1060, 860) // room for the exit choice above the services
 	tt.Advance(time.Second)
 
 	typeInto(t, tt, "新规则", "https://chat.example.com/x")
@@ -325,6 +325,43 @@ func TestScopeChipsTakeEveryClick(t *testing.T) {
 	}
 }
 
+// TestScopeChipsKeepTheirWidth: a chip is as wide with a narrowed count as
+// with the full one, so that choosing in one row moves nothing in the other.
+// A smaller count is not narrower on screen: 0 is wider than 1.
+func TestScopeChipsKeepTheirWidth(t *testing.T) {
+	u, regions := scopeFixture()
+	u.home.regionsMore = true
+	tt := ui.NewTester(u.view, 760, 760)
+	tt.Advance(time.Second)
+	chips := func(count string) []ui.Rect {
+		t.Helper()
+		var out []ui.Rect
+		for _, r := range regions {
+			a, ok := tt.AccessByRole(ui.RoleButton, r+count)
+			if !ok {
+				t.Fatalf("no chip %q: %q", r+count, tt.Texts())
+			}
+			out = append(out, a.Bounds)
+		}
+		return out
+	}
+	was := chips(" 1")
+	// The fixture's regions have their one node from the first source:
+	// with another chosen, each counts none.
+	other := slices.IndexFunc(u.snap.Providers, func(pv ProviderView) bool { return pv.Enabled && pv.ID != u.snap.Nodes[0].Provider })
+	if other < 0 {
+		t.Fatal("the fixture has one source only")
+	}
+	u.changePolicy("ai", func(q *routes.Policy) { q.Providers = []string{u.snap.Providers[other].ID} })
+	tt.Frame()
+	tt.Advance(50 * time.Millisecond)
+	for i, now := range chips(" 0") {
+		if now != was[i] {
+			t.Errorf("%s: %+v with one node, %+v with none", regions[i], was[i], now)
+		}
+	}
+}
+
 // TestRoutesFixAction: a broken group's notice opens its strategy, in
 // place on this tab and in 代理's expansion elsewhere.
 func TestRoutesFixAction(t *testing.T) {
@@ -471,3 +508,231 @@ func TestDefaultExitChoice(t *testing.T) {
 		shot(t, tt, map[bool]string{false: "home-routes", true: "home-routes-direct"}[direct])
 	}
 }
+
+// TestGroupExitChoice: a route group other than 直连 and 拦截 chooses its
+// exit as 其他流量 does. Going direct hides its node strategy and keeps it;
+// it stays a group that can be renamed and deleted.
+func TestGroupExitChoice(t *testing.T) {
+	u := routesFixture()
+	u.snap.Settings.Routing.SetStrategy("ai", routes.ModeFixed, "hk")
+	tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})
+	tt.Advance(time.Second)
+	if err := tt.Click("AI 服务"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	for _, want := range []string{"走节点", "不经过节点，用本机网络", "节点策略"} {
+		if !hasTextPart(tt, want) {
+			t.Errorf("on a node, lacks %q: %q", want, tt.Texts())
+		}
+	}
+	if err := tt.Click("不经过节点，用本机网络"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if q := u.shownSettings().Routing.Policy("ai"); !q.Direct || q.Mode != routes.ModeFixed || q.Fixed != "hk" {
+		t.Errorf("the policy after going direct: %+v", q)
+	}
+	if slices.Contains(tt.Texts(), "节点策略") || !hasTextPart(tt, "节点策略会保留") || hasTextPart(tt, "当前网络打不开的网站") {
+		t.Errorf("direct: %q", tt.Texts())
+	}
+	if _, ok := tt.AccessByRole(ui.RoleTextField, "路由组名字"); !ok {
+		t.Error("a group that goes direct can't be renamed")
+	}
+	if !hasTextPart(tt, "删除路由组") {
+		t.Errorf("a group that goes direct can't be deleted: %q", tt.Texts())
+	}
+	shot(t, tt, "routes-group-direct")
+	if err := tt.Click("走节点"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if q := u.shownSettings().Routing.Policy("ai"); q.Direct || q.Fixed != "hk" {
+		t.Errorf("the policy back on a node: %+v", q)
+	}
+	for _, name := range []string{"直连", "拦截"} {
+		if err := tt.Click(name); err != nil {
+			t.Fatal(err)
+		}
+		tt.Advance(time.Second)
+		if hasTextPart(tt, "走节点") || hasTextPart(tt, "不经过节点，用本机网络") {
+			t.Errorf("%s chooses an exit: %q", name, tt.Texts())
+		}
+	}
+}
+
+// dragOnto drags the row showing from onto the row showing to.
+func dragOnto(t *testing.T, tt *ui.Tester, from, to string) {
+	t.Helper()
+	a, ok := tt.Find(from)
+	if !ok {
+		t.Fatalf("no %q: %q", from, tt.Texts())
+	}
+	b, ok := tt.Find(to)
+	if !ok {
+		t.Fatalf("no %q: %q", to, tt.Texts())
+	}
+	ax, ay := a.X+a.W/2, a.Y+a.H/2
+	bx, by := b.X+b.W/2, b.Y+b.H/2
+	tt.Press(ax, ay)
+	tt.Frame()
+	for i := 1; i <= 4; i++ {
+		tt.Move(ax+(bx-ax)*float32(i)/4, ay+(by-ay)*float32(i)/4)
+		tt.Frame()
+	}
+	tt.Release(bx, by)
+	tt.Advance(200 * time.Millisecond)
+}
+
+// TestDragToReorder: a route group dragged onto another takes its place,
+// and so does a rule set within its group; the fixed groups neither move
+// nor take one. The list says what the order means.
+func TestDragToReorder(t *testing.T) {
+	u := routesFixture()
+	plan := &u.snap.Settings.Routing
+	g := plan.AddGroup(nil, "OpenAI")
+	first := plan.AddRuleSet(nil, "ai", "宽的规则集", "https://x.example/a.yaml")
+	second := plan.AddRuleSet(nil, "ai", "窄的规则集", "https://x.example/b.yaml")
+	tt := ui.NewTesterWith(u.view, 1060, 860, ui.TesterOptions{})
+	tt.Advance(time.Second)
+	if !hasTextPart(tt, "规则集从上到下匹配") {
+		t.Errorf("no word on what the order means: %q", tt.Texts())
+	}
+	order := func() []string {
+		var out []string
+		for _, c := range u.shownSettings().Routing.Groups {
+			out = append(out, c.ID)
+		}
+		return out
+	}
+	dragOnto(t, tt, "OpenAI", "AI 服务")
+	if got, want := order(), []string{routes.Default, g, "ai", "media", "dev", "direct", routes.Reject}; !slices.Equal(got, want) {
+		t.Errorf("after dragging up: %v, want %v", got, want)
+	}
+	shot(t, tt, "routes-reordered")
+	dragOnto(t, tt, "OpenAI", "开发")
+	if got, want := order(), []string{routes.Default, "ai", "media", "dev", g, "direct", routes.Reject}; !slices.Equal(got, want) {
+		t.Errorf("after dragging down: %v, want %v", got, want)
+	}
+	before := order()
+	dragOnto(t, tt, "OpenAI", "直连")
+	dragOnto(t, tt, "拦截", "流媒体")
+	dragOnto(t, tt, "其他流量", "流媒体")
+	if got := order(); !slices.Equal(got, before) {
+		t.Errorf("a fixed group moved or gave up its place: %v", got)
+	}
+
+	if err := tt.Click("AI 服务"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	sets := func() []string {
+		var out []string
+		for _, l := range routes.Lines(routes.Build(u.shownSettings().Routing, nil), nil) {
+			if l.Set != "" {
+				out = append(out, l.Set)
+			}
+		}
+		return out
+	}
+	if got := sets(); !slices.Equal(got, []string{first, second}) {
+		t.Fatalf("sets before: %v", got)
+	}
+	dragOnto(t, tt, "窄的规则集", "宽的规则集")
+	if got := sets(); !slices.Equal(got, []string{second, first}) {
+		t.Errorf("sets after dragging the second onto the first: %v", got)
+	}
+	a, _ := tt.Find("窄的规则集")
+	b, _ := tt.Find("宽的规则集")
+	if a.Y >= b.Y {
+		t.Errorf("the list still shows the old order: %v %v", a, b)
+	}
+	dragOnto(t, tt, "窄的规则集", "Claude") // a service and a set are not one another's place
+	if got := sets(); !slices.Equal(got, []string{second, first}) {
+		t.Errorf("sets after a drag onto a service: %v", got)
+	}
+}
+
+// inView tells whether the box is wholly inside a window h tall.
+func inView(r ui.Rect, h float32) bool { return r.H > 0 && r.Y >= 0 && r.Y+r.H <= h }
+
+// TestRoutesOpeningKeepsTheRow: opening a service below the open one
+// closes that one's editor, and the clicked row stays under the pointer.
+func TestRoutesOpeningKeepsTheRow(t *testing.T) {
+	u := routesFixture()
+	u.selectGroup("ai")
+	u.routes.svc = "openai"
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	tt.Wheel(700, 500, 0, 400) // OpenAI's editor above, partly scrolled away
+	tt.Advance(time.Second)
+	before, ok := tt.Find("Claude")
+	if !ok || !inView(before, 760) {
+		t.Fatalf("Claude not in view: %v %v", before, ok)
+	}
+	tt.ClickAt(before.X+before.W/2, before.Y+before.H/2)
+	tt.Advance(time.Second)
+	if u.routes.svc != "claude" {
+		t.Fatalf("open: %q", u.routes.svc)
+	}
+	after, _ := tt.Find("Claude")
+	if d := after.Y - before.Y; d < -1 || d > 1 {
+		t.Errorf("the row moved from y %.0f to %.0f", before.Y, after.Y)
+	}
+}
+
+// TestRoutesMineStaysPut: 我添加的 opened from elsewhere comes into view,
+// and its first rule doesn't move it to the top while the group shows.
+// Shown again, the group lists it first.
+func TestRoutesMineStaysPut(t *testing.T) {
+	u := routesFixture()
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	u.openRoutes("ai", routes.MineID("ai"))
+	tt.Frame()
+	tt.Advance(time.Second)
+	before, ok := tt.Find("我添加的")
+	if !ok || !inView(before, 760) {
+		t.Fatalf("我添加的 not in view: %v %v", before, ok)
+	}
+	typeInto(t, tt, "新规则", "example.org")
+	tt.Key(0, ui.KeyEnter)
+	tt.Advance(time.Second)
+	if got := u.shownSettings().Rules; len(got) != 1 || got[0].Service != "" || got[0].Route != "ai" {
+		t.Fatalf("rules: %+v", got)
+	}
+	if after, _ := tt.Find("我添加的"); after.Y < before.Y-1 || after.Y > before.Y+1 {
+		t.Errorf("我添加的 moved from y %.0f to %.0f", before.Y, after.Y)
+	}
+	if !inView(must(tt.Find("*.example.org")), 760) {
+		t.Errorf("the new rule is out of view: %q", tt.Texts())
+	}
+
+	u.selectGroup(routes.Default)
+	tt.Frame()
+	u.selectGroup("ai")
+	tt.Frame()
+	tt.Frame()
+	mine, _ := tt.Find("我添加的")
+	openai, _ := tt.Find("OpenAI")
+	if mine.Y >= openai.Y {
+		t.Errorf("shown again, 我添加的 (y %.0f) is not above OpenAI (y %.0f)", mine.Y, openai.Y)
+	}
+}
+
+// TestRoutesNewServiceInView: a new service, listed last, comes into view.
+func TestRoutesNewServiceInView(t *testing.T) {
+	u := routesFixture()
+	u.selectGroup("ai")
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	if err := tt.Click("＋ 新建服务"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if r, ok := tt.Find("新服务"); !ok || !inView(r, 760) {
+		t.Errorf("新服务 not in view: %v %v", r, ok)
+	}
+}
+
+func must(r ui.Rect, ok bool) ui.Rect { return r }

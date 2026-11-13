@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/mihomo"
 )
 
@@ -316,7 +317,7 @@ func TestStatsRollover(t *testing.T) {
 // TestRealCore runs the bundled mihomo, downloads through its mixed port
 // and makes a dial fail, and checks what the monitor saw.
 func TestRealCore(t *testing.T) {
-	bin, _ := filepath.Abs("../../resources/darwin-arm64/bin/mihomo")
+	bin, _ := filepath.Abs("../../resources/darwin-arm64/bin/" + core.BinName)
 	if _, err := os.Stat(bin); err != nil {
 		t.Skip("no mihomo binary:", err)
 	}
@@ -593,6 +594,60 @@ func TestFindProcessAndSkip(t *testing.T) {
 	}
 }
 
+// TestUnnamed: the core named the program behind none of five connections
+// from this computer, and only then; another device's connections, those
+// through a route group's own port and bowel's own lookup don't count, and
+// one named settles it, also after the fifth.
+func TestUnnamed(t *testing.T) {
+	now := time.Now()
+	conn := func(id, src string, named bool) mihomo.Connection {
+		c := fakeConn(id, 0, 0, now, "DIRECT")
+		c.Metadata.SourceIP, c.Metadata.SourcePort = src, "5000"+id[len(id)-1:]
+		if !named {
+			c.Metadata.ProcessPath = ""
+		}
+		return c
+	}
+	poll := func(m *Monitor, cs ...mihomo.Connection) bool {
+		m.apply(mihomo.Snapshot{Connections: cs}, now)
+		return m.Now().Unnamed
+	}
+
+	m := New("")
+	m.FindProcess = func(string, netip.AddrPort) string { return "/usr/bin/curl" } // bowel's own lookup
+	asked := 0
+	m.Mine = func() []netip.Addr { asked++; return []netip.Addr{netip.MustParseAddr("198.18.0.1")} }
+	if poll(m, conn("a1", "127.0.0.1", false), conn("a2", "::1", false), conn("a3", "198.18.0.1", false), conn("a4", "127.0.0.1", false)) {
+		t.Error("unnamed after four")
+	}
+	if poll(m, conn("d1", "192.168.1.20", false), conn("d2", "192.168.1.21", false)) {
+		t.Error("another device's connections counted")
+	}
+	if asked != 2 {
+		t.Errorf("addresses asked %d times in two polls, want 2", asked)
+	}
+	port := func(id string) mihomo.Connection {
+		c := conn(id, "127.0.0.1", false)
+		c.Metadata.InboundName = "bowel-port-7901"
+		return c
+	}
+	if poll(m, port("p1"), port("p2"), port("p3")) {
+		t.Error("connections through a route group's port counted")
+	}
+	if !poll(m, conn("a5", "127.0.0.1", false)) {
+		t.Error("not unnamed after five from this computer")
+	}
+	if poll(m, conn("a6", "127.0.0.1", true)) {
+		t.Error("still unnamed after the core named one")
+	}
+
+	m = New("")
+	poll(m, conn("b1", "127.0.0.1", false), conn("b2", "127.0.0.1", true))
+	if poll(m, conn("b3", "127.0.0.1", false), conn("b4", "127.0.0.1", false), conn("b5", "127.0.0.1", false), conn("b6", "127.0.0.1", false), conn("b7", "127.0.0.1", false)) {
+		t.Error("unnamed after the core named one")
+	}
+}
+
 // TestRejectedConnections: what a rule refused becomes a blocked connection
 // from its log line, once; what only ends in REJECT, or a poll happens to
 // catch, doesn't; and a flood leaves the other connections and the events be.
@@ -693,4 +748,15 @@ func TestPollEvery(t *testing.T) {
 	}
 	m.Wake()
 	wait("after Wake")
+}
+
+func TestNote(t *testing.T) {
+	m := New("")
+	m.Note("bowel: config applied in 14ms")
+	l := m.Logs(0)
+	if len(l) != 1 || l[0].Level != "info" || l[0].Text != "bowel: config applied in 14ms" {
+		t.Fatalf("logs = %+v", l)
+	}
+	var none *Monitor
+	none.Note("x") // an app without a monitor yet
 }

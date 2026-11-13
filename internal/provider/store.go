@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gopkg.in/yaml.v3"
 	"io"
 	"net/http"
 	"net/url"
@@ -171,6 +172,9 @@ func (s *Store) Add(ctx context.Context, client *http.Client, input string) (Pro
 		p.Name = linkName(t)
 	case File:
 		data = []byte(t)
+		if err := noNodes(data); err != nil {
+			return Provider{}, err
+		}
 		p.Name = i18n.T("粘贴的配置", "Pasted config")
 	}
 	return s.create(p, data)
@@ -232,6 +236,44 @@ func (s *Store) Update(ctx context.Context, client *http.Client, id string) (Pro
 	})
 }
 
+// Reload reads a local file's provider again: from path, or from the file
+// it last came from when path is "". What it reads is checked as an update
+// is; if it won't do, the copy Moho has stays as it is.
+func (s *Store) Reload(id, path string) (Provider, error) {
+	p, ok := s.Get(id)
+	if !ok {
+		return p, fmt.Errorf(i18n.T("没有这个 Provider: %s", "No such Provider: %s"), id)
+	}
+	if p.Kind != File {
+		return p, nil
+	}
+	if path == "" {
+		path = p.Source
+	}
+	if path == "" {
+		return p, errors.New(i18n.T("不知道这个 Provider 来自哪个文件", "There is no telling which file this Provider came from"))
+	}
+	data, err := os.ReadFile(path)
+	if err == nil {
+		err = looksLikeNodes(data)
+	}
+	if err == nil && s.Vet != nil {
+		err = s.Vet(id, data)
+	}
+	if err != nil {
+		p, _ = s.update(id, func(p *Provider) { p.Error = err.Error() })
+		return p, err
+	}
+	tmp := s.Path(id) + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return p, err
+	}
+	if err := os.Rename(tmp, s.Path(id)); err != nil {
+		return p, err
+	}
+	return s.update(id, func(p *Provider) { p.Source, p.UpdatedAt, p.Error = path, time.Now(), "" })
+}
+
 // Due lists subscriptions whose auto-update interval has passed.
 func (s *Store) Due(now time.Time) []string {
 	var ids []string
@@ -267,12 +309,101 @@ func (s *Store) Delete(id string) error {
 	return s.saveLocked()
 }
 
+// Snapshot is every provider and its file's content by id, as they are now:
+// what an export holds, and what Replace takes back.
+func (s *Store) Snapshot() ([]Provider, map[string][]byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	files := map[string][]byte{}
+	for _, p := range s.items {
+		if b, err := os.ReadFile(s.Path(p.ID)); err == nil {
+			files[p.ID] = b
+		}
+	}
+	return slices.Clone(s.items), files
+}
+
+// Replace makes the store hold items and nothing else, each with its
+// content from files. Every item needs content; nothing is changed if one
+// has none. Files are replaced whole, as the core may be reading them.
+func (s *Store) Replace(items []Provider, files map[string][]byte) error {
+	seen := map[string]bool{}
+	for _, p := range items {
+		if _, ok := files[p.ID]; !ok || p.ID == "" || p.ID != filepath.Base(p.ID) || seen[p.ID] {
+			return fmt.Errorf(i18n.T("Provider %s 的内容不完整", "Provider %s is incomplete"), firstNonEmpty(p.Name, p.ID))
+		}
+		seen[p.ID] = true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range items {
+		tmp := s.Path(p.ID) + ".tmp"
+		if err := os.WriteFile(tmp, files[p.ID], 0o600); err != nil {
+			return err
+		}
+		if err := os.Rename(tmp, s.Path(p.ID)); err != nil {
+			return err
+		}
+	}
+	entries, _ := os.ReadDir(s.dir)
+	for _, e := range entries {
+		if id, ok := strings.CutSuffix(e.Name(), ".txt"); ok && !seen[id] {
+			_ = os.Remove(filepath.Join(s.dir, e.Name()))
+		}
+	}
+	s.items = slices.Clone(items)
+	return s.saveLocked()
+}
+
+// configNodes counts what a Clash config has to give nodes: its own
+// `proxies`, and the `proxy-providers` it would have the core download. ok
+// is false for anything else (node links, Base64). A template whose every
+// node line is still a comment has both keys and nothing under them.
+func configNodes(data []byte) (own, remote int, ok bool) {
+	var doc map[string]any
+	if yaml.Unmarshal(data, &doc) != nil {
+		return 0, 0, false
+	}
+	_, has := doc["proxies"]
+	_, groups := doc["proxy-groups"]
+	if !has && !groups {
+		return 0, 0, false
+	}
+	list, _ := doc["proxies"].([]any)
+	providers, _ := doc["proxy-providers"].(map[string]any)
+	return len(list), len(providers), true
+}
+
+// noNodes refuses a config that has nothing to give nodes at all.
+func noNodes(data []byte) error {
+	if own, remote, ok := configNodes(data); ok && own == 0 && remote == 0 {
+		return errors.New(i18n.T("这份配置里一个节点都没有：proxies 和 proxy-providers 都是空的，或者还被注释着。先在文件里填上节点或订阅链接，再添加", "This config has no nodes at all: its proxies and proxy-providers are both empty, or still commented out. Put nodes or a subscription link in the file, then add it"))
+	}
+	return nil
+}
+
+// OwnNodes says whether provider id's file has nodes for the core to read
+// from it. A config whose nodes all come from its own proxy-providers has
+// none: the core would refuse such a file ("file must have a `proxies`
+// field") each time it loads.
+func (s *Store) OwnNodes(id string) bool {
+	b, err := os.ReadFile(s.Path(id))
+	if err != nil {
+		return true // the core's to report
+	}
+	own, _, ok := configNodes(b)
+	return !ok || own > 0
+}
+
 // looksLikeNodes rejects content mihomo would read as zero nodes: an HTML
 // error page, an empty answer.
 func looksLikeNodes(data []byte) error {
 	t := strings.TrimSpace(string(data))
 	if t == "" {
 		return errors.New(i18n.T("内容为空", "The content is empty"))
+	}
+	if err := noNodes(data); err != nil {
+		return err
 	}
 	if strings.Contains(t, "proxies:") || linkScheme.MatchString(t) {
 		return nil

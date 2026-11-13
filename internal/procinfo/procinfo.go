@@ -1,10 +1,16 @@
 // Package procinfo names the process behind a local socket.
 //
-// mihomo does this itself, but on macOS 27 it cannot when Moho starts it:
-// the kernel's socket list (net.inet.tcp.pcblist_n) comes back empty to a
-// process whose parent is an ad-hoc signed app, and Moho's core is such a
-// child. Moho itself, opened like any app, still gets the full list, so
-// the monitor asks here for connections the core could not name.
+// mihomo does this itself. On macOS 27 the kernel's socket list
+// (net.inet.tcp.pcblist_n) holds only the asker's own sockets unless the
+// asker is signed under an identifier with a dot in it, and not by an
+// Apple Development certificate (no combination tried on 27.2 passed,
+// #131), and its parent is not an app; the core is
+// started detached (core.startCore) and named (core.BinName) so that a
+// release's is all three, and bowel, opened like any app, is all three by
+// itself. The monitor still asks here for the connections the
+// core does not look up, those through a route group's own port, and for
+// any it could not name: a core given by MOHO_CORE under another
+// signature, or the copy TUN runs on that an earlier version made.
 package procinfo
 
 import (

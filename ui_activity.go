@@ -351,8 +351,14 @@ func actRule(c Conn) string {
 
 // actRuleWord is actRule with a rule set under the name people gave it.
 func (u *UI) actRuleWord(c Conn) string {
+	return ruleWord(c, u.shownSettings().Routing.Services)
+}
+
+// ruleWord is actRule with a rule set of services under the name people
+// gave it.
+func ruleWord(c Conn, services []routes.ServiceConf) string {
 	if c.Rule == "RuleSet" {
-		for _, s := range u.shownSettings().Routing.Services {
+		for _, s := range services {
 			if s.Source != "" && c.Payload == routes.RuleSetProvider(s.ID) {
 				return c.Rule + "(" + s.Name + ")"
 			}
@@ -385,6 +391,9 @@ func (u *UI) activityPage(c *ui.Context, p *pal) {
 	c.OnWindowShortcut(0, ui.KeyEscape, func() { a.open = "" })
 	ui.Column(c).Fill().Children(func() {
 		u.actHead(c, p)
+		if u.tick.AppsUnknown {
+			ui.Text(c, appsUnknownNote()).FontSize(12).TextColor(p.signal).Padding(0, 26, 10, 26)
+		}
 		if a.logTab {
 			u.actLogBar(c, p)
 			u.actLogList(c, p)
@@ -398,8 +407,8 @@ func (u *UI) activityPage(c *ui.Context, p *pal) {
 func (u *UI) actHead(c *ui.Context, p *pal) {
 	a := &u.act
 	n := a.count("active")
-	if len(a.conns) == 0 && u.snap.Takeover.On {
-		n = u.tick.Active // before the first fetch
+	if len(a.conns) == 0 {
+		n = u.tick.Active // before the first fetch, taken over or not
 	}
 	title := fmt.Sprintf(i18n.T("%d 个连接", "%d connections"), n)
 	sub := fmt.Sprintf(i18n.T("↓ %s · ↑ %s · 今日 %s", "↓ %s · ↑ %s · Today %s"), fmtRate(u.tick.Down), fmtRate(u.tick.Up), fmtBytes(u.tick.TodayDown+u.tick.TodayUp))
@@ -468,7 +477,7 @@ func actSelect(c *ui.Context, p *pal, sel *string, options []string, label strin
 	}
 	s.Trigger.Children(func() {
 		ui.Text(c, *sel).FontSize(12).TextColor(p.ink).NoWrap()
-		actChevron(c, p.mute)
+		chevron(c, p.mute, false)
 	})
 	s.Popup(func(panel ui.Element) {
 		panel.Margin(4, 0, 0, 0).Padding(4).Radius(p.r(9)).Background(p.sheet).Border(1, p.hair).Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, .12)).MinWidth(120)
@@ -481,15 +490,6 @@ func actSelect(c *ui.Context, p *pal, sel *string, options []string, label strin
 			}
 			item.Children(func() { ui.Text(c, o).FontSize(12).TextColor(col).NoWrap() })
 		}
-	})
-}
-
-// actChevron is the small down arrow of a drop-down.
-func actChevron(c *ui.Context, col ui.Color) {
-	ui.Box(c).Size(7, 4).Shrink(0).Margin(1, 0, 0, 0).Draw(func(pt *ui.Painter, r ui.Rect) {
-		var path ui.Path
-		path.MoveTo(r.X, r.Y).LineTo(r.X+r.W/2, r.Y+r.H).LineTo(r.X+r.W, r.Y)
-		pt.StrokePath(&path, 1.3, col)
 	})
 }
 
@@ -642,7 +642,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 	if !u.snap.Takeover.On && len(a.conns) > 0 {
 		ui.Row(c).Gap(10).Padding(8, 26).Background(p.hair2).AlignItems(ui.Center).Children(func() {
 			ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(p.faint)
-			ui.Text(c, i18n.T("bowel 现在没有接管流量，新的连接不会经过这里。", "bowel is not taking over traffic; new connections won’t show up here.")).FontSize(12).TextColor(p.ink2).Grow(1)
+			ui.Text(c, i18n.T("bowel 现在没有接管流量，只有代理指向 bowel 端口的应用会出现在这里。", "bowel is not taking over traffic; only apps pointed at its port show up here.")).FontSize(12).TextColor(p.ink2).Grow(1)
 			btn(c, p, i18n.T("去代理开启 →", "Turn on in Proxy →")).OnClick(func() { u.page = "home" })
 		})
 	}
@@ -686,7 +686,13 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 		}
 		ui.Column(c).Padding(48, 0).Gap(6).AlignItems(ui.Center).Children(func() {
 			if !u.snap.Takeover.On && len(a.conns) == 0 {
-				ui.Text(c, i18n.T("流量现在不经过 bowel", "Traffic isn’t going through bowel")).FontSize(17).FontWeight(700).TextColor(p.ink2)
+				// Only when nothing was observed: a connection the first fetch
+				// has yet to list, or traffic a moment ago, went through bowel.
+				head := i18n.T("流量现在不经过 bowel", "Traffic isn’t going through bowel")
+				if u.trafficSeen() {
+					head = i18n.T("现在没有经过 bowel 的连接", "No connections through bowel right now")
+				}
+				ui.Text(c, head).FontSize(17).FontWeight(700).TextColor(p.ink2)
 				ui.Text(c, i18n.T("开启接管后，经过 bowel 的连接会显示在这里。", "Turn on Takeover, and connections through bowel show up here.")).FontSize(12.5).TextColor(p.mute)
 				btn(c, p, i18n.T("去代理开启 →", "Turn on in Proxy →")).Margin(10, 0, 0, 0).OnClick(func() { u.page = "home" })
 				return

@@ -4,11 +4,17 @@ package sysproxy
 // read and write them (sysproxy_windows.go) so that it is tested anywhere.
 
 import (
+	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
+	"unicode/utf16"
+
+	"github.com/oboo/moho/internal/i18n"
 )
 
 // WinINet's INTERNET_PER_CONN_FLAGS bits.
@@ -141,34 +147,175 @@ func winServer(web, secure, socks Endpoint) string {
 	return strings.Join(parts, ";")
 }
 
-// winBypass turns Moho's bypass list into ProxyOverride entries. WinINet
-// matches wildcards, not networks, so an IPv4 network becomes the
-// wildcards that cover it (10.0.0.0/8 → 10.*). IPv6 networks, which it
-// cannot match, are left out, and so are IPv6 addresses: one of those in
-// ProxyOverride makes InternetSetOption refuse the whole call with
-// ERROR_INVALID_PARAMETER. <local>, the names without a dot, is added, as
-// Windows' "Don't use the proxy server for local addresses" does.
-func winBypass(list []string) string {
+// winBypassMax is how long ProxyOverride may get, in UTF-16 units. Microsoft
+// documents no limit; 2064 is the one reported for WinINet, and a list of
+// 1210 is known to be taken (#36). What does not fit is left out: the core
+// still sends it direct, only by way of the proxy port.
+const winBypassMax = 2000
+
+// winBypass turns Moho's bypass list into ProxyOverride, and says which
+// entries it left out. InternetSetOption refuses the whole call with
+// ERROR_INVALID_PARAMETER for a list it does not like, and Microsoft does
+// not say what it likes, so only forms known to be taken go in:
+//
+//   - a host, with wildcards, a scheme or a port (*.lan, 192.168.*,
+//     https://intra, example.com:8080), and Windows' own <local>;
+//   - an IPv4 network as the wildcards that cover it (10.0.0.0/8 → 10.*):
+//     WinINet matches wildcards, not networks.
+//
+// Left out are IPv6 addresses and networks in any spelling (one of those is
+// refused, #36, and WinINet cannot match them), entries with a separator,
+// a space or a control character in them, with a path, or with a port
+// that is no number, and what would make the list longer than
+// winBypassMax. The order is kept and duplicates go. <local>, the names
+// without a dot, is added, as Windows' "Don't use the proxy server for
+// local addresses" does.
+func winBypass(list []string) (string, []Dropped) {
 	var out []string
-	add := func(s string) {
-		if !slices.Contains(out, s) {
-			out = append(out, s)
-		}
-	}
+	var dropped []Dropped
+	size := len("<local>") // kept room for
 	for _, b := range list {
-		if b = strings.TrimSpace(b); b == "" || isIPv6Entry(b) {
+		if b = strings.TrimSpace(b); b == "" {
 			continue
 		}
-		if !strings.Contains(b, "/") {
-			add(b)
-			continue
+		forms, why := winBypassForms(b)
+		if why == "" {
+			forms = slices.DeleteFunc(forms, func(f string) bool { return f == "<local>" || slices.Contains(out, f) })
+			n := 0
+			for _, f := range forms {
+				n += utf16Len(f) + 1 // and its separator
+			}
+			if size+n <= winBypassMax {
+				out, size = append(out, forms...), size+n
+				continue
+			}
+			why = "length"
 		}
-		for _, w := range wildcards(b) {
-			add(w)
+		if !slices.ContainsFunc(dropped, func(d Dropped) bool { return d.Entry == b }) {
+			dropped = append(dropped, Dropped{Entry: b, Why: why})
 		}
 	}
-	add("<local>")
-	return strings.Join(out, ";")
+	return strings.Join(append(out, "<local>"), ";"), dropped
+}
+
+// winBypassForms is one entry as ProxyOverride has it, or why it has none.
+func winBypassForms(b string) (forms []string, why string) {
+	if strings.HasPrefix(b, "<") && strings.HasSuffix(b, ">") && !strings.ContainsAny(b[1:len(b)-1], "<>;") {
+		return []string{b}, "" // <local>, <-loopback>
+	}
+	if strings.ContainsFunc(b, func(r rune) bool { return r <= ' ' || r == 0x7f || strings.ContainsRune(`;,"<>|\^`, r) }) {
+		return nil, "malformed"
+	}
+	host, scheme := b, ""
+	if sch, rest, ok := strings.Cut(b, "://"); ok {
+		scheme, host = sch+"://", strings.TrimSuffix(rest, "/")
+	}
+	if isIPv6Entry(host) {
+		return nil, "ipv6"
+	}
+	if scheme == "" && strings.Contains(host, "/") {
+		if w := wildcards(host); len(w) > 0 {
+			return w, ""
+		}
+		return nil, "malformed"
+	}
+	b = scheme + host
+	if h, port, ok := strings.Cut(host, ":"); ok {
+		if _, err := strconv.ParseUint(port, 10, 16); err != nil && port != "*" {
+			return nil, "malformed"
+		}
+		host = h
+	}
+	if host == "" || strings.Contains(host, "/") {
+		return nil, "malformed"
+	}
+	return []string{b}, ""
+}
+
+func utf16Len(s string) int {
+	n := 0
+	for _, r := range s {
+		n += utf16.RuneLen(r)
+	}
+	return n
+}
+
+// winMinimalBypass is the list tried when Windows refuses bowel's: this
+// machine and the private networks, in the forms Windows' own settings
+// page and every other proxy program write.
+var winMinimalBypass, _ = winBypass([]string{"localhost", "127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"})
+
+// winSet names the options a write sets: the rest stay as Windows has them.
+type winSet uint8
+
+const (
+	setFlags winSet = 1 << iota
+	setServer
+	setBypass
+	setPAC
+)
+
+// winTakeover points the proxies at server through write, which sets the
+// options named of a winSettings. Windows refuses a write whole, and says
+// neither which option it was about nor why, so a refusal is narrowed
+// down by what it takes next: the same with the minimal bypass list, then
+// with no bypass list at all, which leaves the system's own. The first
+// that works is the takeover, and Written says what was refused. If none
+// does, the error names what the last, smallest write held.
+func winTakeover(write func(winSettings, winSet) error, server string, bypass []string) (Written, error) {
+	ws := winSettings{flags: winDirect | winProxy, server: server}
+	var w Written
+	ws.override, w.Dropped = winBypass(bypass)
+	first := write(ws, setFlags|setServer|setBypass)
+	if first == nil {
+		w.Bypass = ws.override
+		return w, nil
+	}
+	w.Refused = &Refused{Value: "ProxyOverride", Content: ws.override, Error: first.Error()}
+	if ws.override != winMinimalBypass {
+		ws.override = winMinimalBypass
+		if write(ws, setFlags|setServer|setBypass) == nil {
+			w.Bypass, w.Refused.Instead = ws.override, "minimal"
+			return w, nil
+		}
+	}
+	err := write(ws, setFlags|setServer)
+	if err == nil {
+		w.Refused.Instead = "kept"
+		return w, nil
+	}
+	// Not the bypass list, then: the write holds nothing else but these.
+	w.Refused = &Refused{Value: "ProxyServer", Content: server, Error: err.Error()}
+	return w, fmt.Errorf(i18n.T("Windows 不接受代理地址 ProxyServer=%q（flags=%#x，不写「不走代理」的列表也一样）：%w", "Windows refused ProxyServer=%q (flags=%#x, and so it did without a bypass list): %w"), server, ws.flags, err)
+}
+
+// winRefusal names what a refused write held, for its error.
+func winRefusal(ws winSettings, set winSet, err error) error {
+	var parts []string
+	if set&setFlags != 0 {
+		parts = append(parts, fmt.Sprintf("flags=%#x", ws.flags))
+	}
+	if set&setServer != 0 {
+		parts = append(parts, fmt.Sprintf("ProxyServer=%q", ws.server))
+	}
+	if set&setBypass != 0 {
+		parts = append(parts, fmt.Sprintf("ProxyOverride=%q", ws.override))
+	}
+	if set&setPAC != 0 {
+		parts = append(parts, fmt.Sprintf("AutoConfigURL=%q", ws.pac))
+	}
+	return fmt.Errorf(i18n.T("Windows 不接受这次写入的代理设置（%s）：%w", "Windows refused the proxy settings written (%s): %w"), strings.Join(parts, " "), err)
+}
+
+// winRestoreSet is what putting saved back writes, over cur: the script's
+// address only if it differs, as there is seldom one and an empty string
+// written for it is one more thing Windows could refuse.
+func winRestoreSet(saved, cur winSettings) winSet {
+	set := setFlags | setServer | setBypass
+	if saved.pac != cur.pac {
+		set |= setPAC
+	}
+	return set
 }
 
 // isIPv6Entry reports whether a bypass entry names an IPv6 address, bracketed
@@ -214,4 +361,31 @@ func wildcards(cidr string) []string {
 		out = append(out, w)
 	}
 	return out
+}
+
+// winInvalidParameter is ERROR_INVALID_PARAMETER, what WinINet answers
+// for a call it does not take.
+const winInvalidParameter = syscall.Errno(87)
+
+// winQuery reads the LAN settings through query, which takes the WinINet
+// handle to ask on. It asks with none, as Windows' own examples do; some
+// builds refuse that as an invalid parameter (#124, Windows 11 26200), so
+// then it asks again on a session handle from open, which loads the same
+// settings. The handle is closed before it returns. Only reads go this
+// way: a write on a session handle may change only that session.
+func winQuery[T any](query func(h uintptr) (T, error), open func() (uintptr, func(), error)) (T, error) {
+	v, err := query(0)
+	if err == nil || !errors.Is(err, winInvalidParameter) {
+		return v, err
+	}
+	h, done, oerr := open()
+	if oerr != nil {
+		return v, fmt.Errorf("%w (and on a session handle: %w)", err, oerr)
+	}
+	defer done()
+	v, herr := query(h)
+	if herr != nil {
+		return v, fmt.Errorf("%w (and on a session handle: %w)", err, herr)
+	}
+	return v, nil
 }

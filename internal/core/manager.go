@@ -23,6 +23,7 @@ import (
 
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/mihomo"
+	"github.com/oboo/moho/internal/nowindow"
 )
 
 type State string
@@ -40,13 +41,25 @@ type Status struct {
 	Version string `json:"version,omitempty"`
 	// Error is why the core failed or, while it runs, the proxy port it
 	// could not open.
-	Error     string    `json:"error,omitempty"`
+	Error string `json:"error,omitempty"`
+	// TunError is what the running core said when it could not bring the
+	// TUN device up, "" when it said nothing of the kind or the device
+	// came up since.
+	TunError  string    `json:"tunError,omitempty"`
 	PID       int       `json:"pid,omitempty"`
 	StartedAt time.Time `json:"startedAt,omitzero"`
 }
 
 // ErrClosed is what starting a core says after Close.
 var ErrClosed = errors.New("the core manager is closed")
+
+// StartError is a core that did not come up, as against a config it
+// refused or a reload that failed: the one failure another executable may
+// not have. It reads as the error it holds.
+type StartError struct{ Err error }
+
+func (e *StartError) Error() string { return e.Err.Error() }
+func (e *StartError) Unwrap() error { return e.Err }
 
 const (
 	stopGrace = 3 * time.Second // for the core to exit when asked
@@ -60,6 +73,10 @@ type Manager struct {
 	// SafePaths are directories outside Dir the core may read files from
 	// (mihomo refuses provider paths elsewhere).
 	SafePaths []string
+
+	// ReloadWait is how long Apply waits for a running core to answer a
+	// reload; 0 is 15 s. See Loading for what happens after.
+	ReloadWait time.Duration
 
 	// OnStatus and OnTraffic are called from the manager's goroutines.
 	OnStatus func(Status)
@@ -81,6 +98,9 @@ type Manager struct {
 	client    *mihomo.Client
 	status    Status
 	listenErr string // the proxy port the running core could not open
+	tunErr    string // why the running core could not bring the TUN device up
+	loading   bool   // see Loading
+	timing    ApplyTiming
 	stopping  bool
 	closed    bool // by Close
 	cancel    context.CancelFunc
@@ -101,8 +121,22 @@ type Process interface {
 	Stop()
 }
 
-// child is the core as a child of the app.
+// child is the core as a child of the app. macOS starts it another way
+// (startCore in proc_darwin.go).
 type child struct{ cmd *exec.Cmd }
+
+// startChild runs bin as a child of the app, its output going to out.
+func startChild(bin string, args []string, dir string, env []string, out io.Writer) (Process, error) {
+	c := nowindow.Command(bin, args...)
+	c.Dir = dir
+	c.Env = env
+	setProcAttr(c)
+	c.Stdout, c.Stderr = out, out
+	if err := c.Start(); err != nil {
+		return nil, err
+	}
+	return child{c}, nil
+}
 
 func (c child) Pid() int    { return c.cmd.Process.Pid }
 func (c child) Wait() error { return c.cmd.Wait() }
@@ -173,6 +207,13 @@ func (m *Manager) SetBin(bin string) {
 	m.mu.Unlock()
 }
 
+// BinPath is the executable the next start uses.
+func (m *Manager) BinPath() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.Bin
+}
+
 // Status returns the current status.
 func (m *Manager) Status() Status {
 	m.mu.Lock()
@@ -180,6 +221,7 @@ func (m *Manager) Status() Status {
 	s := m.status
 	if s.State == Running {
 		s.Error = m.listenErr
+		s.TunError = m.tunErr
 	}
 	return s
 }
@@ -209,12 +251,12 @@ func (m *Manager) setStatus(s Status) {
 func (m *Manager) Test(path string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, m.Bin, "-t", "-d", m.Dir, "-f", path)
+	cmd := nowindow.CommandContext(ctx, m.Bin, "-t", "-d", m.Dir, "-f", path)
 	cmd.Env = m.env()
-	setProcAttr(cmd) // on Windows, keeps the check from opening a console window
+	setProcAttr(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf(i18n.T("配置检查失败: %s", "The config check failed: %s"), lastLines(string(out), 3))
+		return fmt.Errorf(i18n.T("配置检查失败: %s", "The config check failed: %s"), coreSaid(string(out)))
 	}
 	return nil
 }
@@ -231,24 +273,136 @@ func (m *Manager) Check(cfg []byte) error {
 
 // Apply writes cfg as the runtime config and makes the core use it:
 // a running core reloads it, a stopped one starts.
+//
+// config.yaml is only ever replaced by a config the core has accepted or
+// that passed Test. A running core is the check: it parses a reload in
+// full before it changes anything, and refuses with what `mihomo -t`
+// would say, staying on the config it has. That spares a second process
+// that loads the geodata again for every switch flipped (#60). When the
+// reload is not plainly accepted (refused, or no answer in time), Test
+// says whether the config is at fault.
 func (m *Manager) Apply(cfg []byte) error {
+	var t ApplyTiming
+	defer func() {
+		m.mu.Lock()
+		m.timing = t
+		m.mu.Unlock()
+	}()
 	tmp := filepath.Join(m.Dir, "config.next.yaml")
 	if err := os.WriteFile(tmp, cfg, 0o600); err != nil {
 		return err
 	}
-	if err := m.Test(tmp); err != nil {
-		return err
+	test := func() error {
+		defer since(&t.Check, time.Now())
+		return m.Test(tmp)
 	}
-	if err := os.Rename(tmp, m.ConfigPath()); err != nil {
-		return err
+	c, err := m.Client()
+	if err != nil { // no core to ask
+		if err := test(); err != nil {
+			return err
+		}
+		if err := os.Rename(tmp, m.ConfigPath()); err != nil {
+			return err
+		}
+		m.mu.Lock()
+		m.loading = false
+		m.mu.Unlock()
+		defer since(&t.Start, time.Now())
+		return m.start()
 	}
-	if c, err := m.Client(); err == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		m.setListenErr("") // a reload tries a port again, and says so if it fails
-		return c.Reload(ctx, m.ConfigPath())
+	wait := m.ReloadWait
+	if wait <= 0 {
+		wait = 15 * time.Second // what the client waits for any answer
 	}
-	return m.start()
+	ctx, cancel := context.WithTimeout(context.Background(), wait)
+	defer cancel()
+	m.mu.Lock()
+	listenErr := m.listenErr
+	m.mu.Unlock()
+	m.setListenErr("") // a reload tries a port again, and says so if it fails
+	m.setTunErr("")    // and the TUN device
+	began := time.Now()
+	err = c.Reload(ctx, tmp)
+	since(&t.Reload, began)
+	slow := false
+	if err != nil {
+		if terr := test(); terr != nil {
+			m.setListenErr(listenErr) // the core is as it was
+			return terr
+		}
+		// The core answers a reload only once it has fetched every remote
+		// file the config names for the first time (a rule set, a
+		// subscription of the config's own), and one it can't reach takes
+		// it 20 s. The config has passed the check, so a core that
+		// outlasts the wait and still answers is loading it, not refusing
+		// it: Loading says so until a reload is answered again.
+		slow = isTimeout(err) && m.answers(c)
+	}
+	if rerr := os.Rename(tmp, m.ConfigPath()); rerr != nil {
+		return rerr
+	}
+	m.mu.Lock()
+	m.loading = slow
+	m.mu.Unlock()
+	if slow {
+		return nil
+	}
+	return err
+}
+
+// ApplyTiming is where the last Apply spent its time. Check is zero when
+// the running core accepted the config itself.
+type ApplyTiming struct {
+	Check  time.Duration // `mihomo -t`
+	Reload time.Duration // the running core's answer to the reload
+	Start  time.Duration // starting a core that was not running
+}
+
+// Timing is the last Apply's.
+func (m *Manager) Timing() ApplyTiming {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.timing
+}
+
+func since(d *time.Duration, t time.Time) { *d = time.Since(t) }
+
+// Loading says whether the core was still fetching what the last config
+// names when Apply stopped waiting for it.
+func (m *Manager) Loading() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.loading
+}
+
+func isTimeout(err error) bool {
+	var ne net.Error
+	return errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout())
+}
+
+func (m *Manager) answers(c *mihomo.Client) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := c.Version(ctx)
+	return err == nil
+}
+
+var coreLogLine = regexp.MustCompile(`level=(error|fatal) msg=("(?:[^"\\]|\\.)*")`)
+
+// coreSaid is why the core refused a config, out of what `mihomo -t`
+// printed: the messages of its error lines without their timestamps, or
+// failing that the last lines as they are.
+func coreSaid(out string) string {
+	var msgs []string
+	for _, m := range coreLogLine.FindAllStringSubmatch(out, -1) {
+		if s, err := strconv.Unquote(m[2]); err == nil {
+			msgs = append(msgs, s)
+		}
+	}
+	if len(msgs) == 0 {
+		return lastLines(out, 3)
+	}
+	return strings.Join(msgs, "\n")
 }
 
 // Restart stops the core and starts it again with the current config.
@@ -258,6 +412,14 @@ func (m *Manager) Restart() error {
 }
 
 func (m *Manager) start() error {
+	err := m.run()
+	if err != nil && !errors.Is(err, ErrClosed) {
+		return &StartError{err}
+	}
+	return err
+}
+
+func (m *Manager) run() error {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
@@ -277,6 +439,7 @@ func (m *Manager) start() error {
 	}
 	killStale(filepath.Join(m.Dir, "mihomo.pid"))
 	m.setListenErr("")
+	m.setTunErr("")
 	if m.socket != "" {
 		_ = os.Remove(m.socket)
 	}
@@ -297,17 +460,13 @@ func (m *Manager) start() error {
 		}
 	}
 	if cmd == nil {
-		c := exec.Command(m.Bin, "-d", m.Dir, "-f", m.ConfigPath())
-		c.Dir = m.Dir
-		c.Env = m.env()
-		setProcAttr(c)
-		c.Stdout, c.Stderr = pw, pw
-		if err := c.Start(); err != nil {
+		p, err := startCore(m.Bin, []string{"-d", m.Dir, "-f", m.ConfigPath()}, m.Dir, m.env(), pw)
+		if err != nil {
 			pw.Close()
 			m.setStatus(Status{State: Failed, Error: err.Error()})
 			return err
 		}
-		cmd = child{c}
+		cmd = p
 	}
 	_ = os.WriteFile(filepath.Join(m.Dir, "mihomo.pid"), []byte(strconv.Itoa(cmd.Pid())), 0o600)
 	go m.readLogs(pr)
@@ -438,7 +597,7 @@ func (m *Manager) Stop() {
 	if c, ok := cmd.(child); ok {
 		c.kill()
 	} else {
-		cmd.Stop()
+		cmd.Stop() // a second time insists
 	}
 	select {
 	case <-exited:
@@ -483,14 +642,58 @@ func (m *Manager) readLogs(r io.Reader) {
 	for sc.Scan() {
 		m.logs.add(sc.Text())
 		m.noteListenError(sc.Text())
+		m.noteTunError(sc.Text())
 	}
+}
+
+// tunListenFailed is what mihomo logs for a TUN device it cannot bring
+// up (no right to make one: a core that is not the installed copy, or
+// that Windows' task did not start). Like a port it cannot open, it goes
+// on without it. tunListening is its line for a device that came up.
+var (
+	tunListenFailed = regexp.MustCompile(`Start TUN listening error: (.*?)"?\s*$`)
+	tunListening    = regexp.MustCompile(`\[TUN\] Tun adapter listening at`)
+)
+
+func (m *Manager) noteTunError(line string) {
+	if g := tunListenFailed.FindStringSubmatch(line); g != nil {
+		m.setTunErr(g[1])
+	} else if tunListening.MatchString(line) {
+		m.setTunErr("")
+	}
+}
+
+func (m *Manager) setTunErr(msg string) {
+	m.mu.Lock()
+	changed := m.tunErr != msg
+	m.tunErr = msg
+	fn := m.OnListenError
+	m.mu.Unlock()
+	if changed && fn != nil {
+		fn()
+	}
+}
+
+// TunUp asks the running core whether its TUN device is up: its answer
+// is the listener as it is, whatever the config asked for. known is false
+// when there is no core to ask or it did not answer.
+func (m *Manager) TunUp(ctx context.Context) (up, known bool) {
+	c, err := m.Client()
+	if err != nil {
+		return false, false
+	}
+	cfg, err := c.Config(ctx)
+	if err != nil {
+		return false, false
+	}
+	return cfg.Tun.Enable, true
 }
 
 // proxyListenFailed is what mihomo logs for a proxy port it cannot open. It
 // goes on without the port, its controller answering as usual, so this line
 // is all there is to tell that nothing is listening. The DNS listener and
 // the like are not the proxy, and have their own line.
-var proxyListenFailed = regexp.MustCompile(`Start (?:Mixed\(http\+socks\)|HTTP|SOCKS) server error: listen \S+ \S*:(\d+): bind:`)
+var proxyListenFailed = regexp.MustCompile(`(?:Start (?:Mixed\(http\+socks\)|HTTP|SOCKS) server error|Listener bowel-port-\d+ listen err): listen \S+ \S*:(\d+): bind:`)
 
 func (m *Manager) noteListenError(line string) {
 	if g := proxyListenFailed.FindStringSubmatch(line); g != nil {

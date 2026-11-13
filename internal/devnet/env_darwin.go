@@ -7,15 +7,16 @@ import (
 )
 
 // osDetect reads what only macOS's own tools tell: the routes and the DNS
-// the system splits by domain.
-func osDetect(ctx context.Context) (routes []Route, resolvers []Resolver) {
+// the system splits by domain, and the servers every other name goes to.
+func osDetect(ctx context.Context) (routes []Route, resolvers []Resolver, defaultDNS []string) {
 	if out, err := run(ctx, "/usr/sbin/scutil", "--dns"); err == nil {
 		resolvers = parseResolvers(out, proxyDNS)
+		defaultDNS = parseDefaultDNS(out)
 	}
 	if out, err := run(ctx, "/usr/sbin/netstat", "-rn"); err == nil {
 		routes = parseRoutes(out)
 	}
-	return routes, resolvers
+	return routes, resolvers, defaultDNS
 }
 
 func run(ctx context.Context, name string, args ...string) (string, error) {

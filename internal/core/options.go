@@ -16,6 +16,17 @@ import (
 	"github.com/oboo/moho/internal/i18n"
 )
 
+// ExtraPort is a mixed port on 127.0.0.1 whose traffic all leaves by one
+// route group, whatever the rules and the mode say: two programs given
+// different ports reach the same site by different exits. Route is the
+// route's id, so that renaming the group keeps the port; under a provider's
+// own routing (Input.Imported), which has no route ids, it is the name of
+// one of that config's groups.
+type ExtraPort struct {
+	Port  int    `json:"port"`
+	Route string `json:"route"`
+}
+
 // Options are the core's options the 设置 window edits, as Clash clients
 // expose them. Settings embeds them, so their JSON keys sit at the top of
 // settings.json.
@@ -28,6 +39,9 @@ type Options struct {
 	// skip it, so it only asks the LAN.
 	Authentication []string `json:"authentication"`
 	LanAllowedIPs  []string `json:"lanAllowedIps"`
+	// ExtraPorts are mixed ports of this machine alone, each for one route
+	// group; see ExtraPort.
+	ExtraPorts []ExtraPort `json:"extraPorts"`
 
 	// Core.
 	IPv6          IPv6Mode `json:"ipv6"`
@@ -55,6 +69,9 @@ type Options struct {
 	Fallback           []string `json:"fallback"`
 	// ProxyNameservers resolve the nodes' own addresses.
 	ProxyNameservers []string `json:"proxyNameservers"`
+	// DirectNameservers resolve the names of connections that go direct;
+	// with none the upstream servers do. "system" is the system's own.
+	DirectNameservers []string `json:"directNameservers"`
 	// NameserverPolicy is "pattern=server" entries; a pattern may repeat.
 	NameserverPolicy []string `json:"nameserverPolicy"`
 	FakeIPRange      string   `json:"fakeIpRange"`
@@ -158,6 +175,35 @@ var (
 // DefaultNameservers are the resolvers DNS uses when none are given.
 var DefaultNameservers = []string{"https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"}
 
+// NameserverHosts are the addresses of the DNS servers Moho knows by name,
+// as their operators publish them. The core has to look a server's own name
+// up before it can ask it anything, and does so over plain port 53; where
+// that question is blocked, or led back into the tunnel and answered with a
+// fake address, no name resolves at all. With the addresses written down the
+// question is never asked.
+var NameserverHosts = map[string][]string{
+	"dns.alidns.com": {"223.5.5.5", "223.6.6.6"},
+	"doh.pub":        {"1.12.12.12", "120.53.53.53"},
+	"dot.pub":        {"1.12.12.12", "120.53.53.53"},
+}
+
+// nameserverHost is the name in a DNS server's address: "" for one written
+// as an IP, and for system, dhcp and the like.
+func nameserverHost(server string) string {
+	if !strings.Contains(server, "://") {
+		return ""
+	}
+	u, err := url.Parse(server)
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(u.Hostname())
+	if _, err := netip.ParseAddr(host); err == nil {
+		return ""
+	}
+	return host
+}
+
 // DefaultOptions are Moho's choices.
 var DefaultOptions = Options{
 	LanAllowedIPs: []string{"0.0.0.0/0", "::/0"},
@@ -199,12 +245,13 @@ func (o Options) Clone() Options {
 	for _, l := range o.lists() {
 		*l = slices.Clone(*l)
 	}
+	o.ExtraPorts = slices.Clone(o.ExtraPorts)
 	return o
 }
 
 func (o *Options) lists() []*[]string {
 	return []*[]string{&o.Authentication, &o.LanAllowedIPs, &o.Nameservers, &o.DefaultNameservers,
-		&o.Fallback, &o.ProxyNameservers, &o.NameserverPolicy, &o.FakeIPFilter, &o.Hosts, &o.DNSHijack,
+		&o.Fallback, &o.ProxyNameservers, &o.DirectNameservers, &o.NameserverPolicy, &o.FakeIPFilter, &o.Hosts, &o.DNSHijack,
 		&o.SniffHTTP, &o.SniffTLS, &o.SniffQUIC, &o.SniffSkip, &o.DevOffScenarios, &o.DevExtra}
 }
 
@@ -267,6 +314,14 @@ func (o Options) Validate() error {
 			return fmt.Errorf(i18n.T("%s要在 0 到 65535 之间", "%s must be between 0 and 65535"), p.name)
 		}
 	}
+	for _, e := range o.ExtraPorts {
+		if e.Port < 1 || e.Port > 65535 {
+			return errors.New(i18n.T("端口要在 1 到 65535 之间", "The port must be between 1 and 65535"))
+		}
+		if e.Route == "" {
+			return fmt.Errorf(i18n.T("端口 %d 没有写路由组", "Port %d names no route group"), e.Port)
+		}
+	}
 	for _, a := range o.Authentication {
 		if u, pw, ok := strings.Cut(a, ":"); !ok || u == "" || pw == "" {
 			return fmt.Errorf(i18n.T("认证要写成 用户名:密码: %s", "Authentication must be user:password: %s"), a)
@@ -316,7 +371,7 @@ func (o Options) Validate() error {
 			return fmt.Errorf(i18n.T("引导 DNS 要写 IP: %s", "Bootstrap DNS servers must be IPs: %s"), ns)
 		}
 	}
-	for _, l := range [][]string{o.Nameservers, o.DefaultNameservers, o.Fallback, o.ProxyNameservers, o.FakeIPFilter, o.DNSHijack, o.SniffSkip} {
+	for _, l := range [][]string{o.Nameservers, o.DefaultNameservers, o.Fallback, o.ProxyNameservers, o.DirectNameservers, o.FakeIPFilter, o.DNSHijack, o.SniffSkip} {
 		for _, s := range l {
 			if strings.ContainsAny(s, " \t,") {
 				return fmt.Errorf(i18n.T("写法不对: %s", "Malformed entry: %s"), s)
@@ -381,6 +436,15 @@ func (o Options) Validate() error {
 		return errors.New(i18n.T("密钥不能有空格", "The secret cannot have spaces"))
 	}
 	return nil
+}
+
+// ExtraPortNumbers are the ports of ExtraPorts.
+func (o Options) ExtraPortNumbers() []int {
+	var out []int
+	for _, e := range o.ExtraPorts {
+		out = append(out, e.Port)
+	}
+	return out
 }
 
 // ExtPort is the extra controller's port, 0 without one.

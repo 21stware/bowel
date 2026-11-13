@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,7 +46,7 @@ tun: {enable: true}
 
 func mustParse(t *testing.T, src string) *Imported {
 	t.Helper()
-	im, err := ParseImported([]byte(src))
+	im, err := ParseImported([]byte(src), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,6 +125,30 @@ func TestImportedTakesOnlyRouting(t *testing.T) {
 	groupNamed(t, cfg, ProbeGroup)
 }
 
+// TestImportedSaysWhatIsUnused: what of the source's own settings acts on
+// traffic is named, in a fixed order, and only when it is switched on.
+func TestImportedSaysWhatIsUnused(t *testing.T) {
+	if got := mustParse(t, issue33).Unused; !slices.Equal(got, []string{"dns", "tun", "listeners", "mixed-port"}) {
+		t.Errorf("issue33: %v", got)
+	}
+	rules := "proxy-groups:\n  - {name: G, type: select, proxies: [DIRECT]}\nrules:\n  - MATCH,G\n"
+	for src, want := range map[string][]string{
+		"":                       nil,
+		"tun: {enable: false}\n": nil,
+		"dns:\n  enable: false\n  nameserver: [1.2.3.4]\n":                                      nil,
+		"listeners: []\nport: 0\nhosts: {}\n":                                                   nil,
+		"sniffer: ~\nlog-level: debug\nsecret: x\nexternal-controller: :9090\n":                 nil,
+		"sniffer: {enable: true}\nhosts: {a.example: 10.0.0.1}\nport: 7890\nsocks-port: 7891\n": {"hosts", "sniffer", "port", "socks-port"},
+		"tunnels: [tcp/udp,127.0.0.1:6553,8.8.8.8:53,DIRECT]\n":                                 {"tunnels"},
+		"dns: {nameserver-policy: {+.ts.net: 100.100.100.100}}\n":                               nil, // off, as the core reads it
+		"dns: {enable: true, nameserver-policy: {+.ts.net: 100.100.100.100}}\n":                 {"dns"},
+	} {
+		if got := mustParse(t, rules+src).Unused; !slices.Equal(got, want) {
+			t.Errorf("%q: %v, want %v", src, got, want)
+		}
+	}
+}
+
 // TestImportedPausesUserRules: the user's rules and rule sets name groups
 // the source doesn't have.
 func TestImportedPausesUserRules(t *testing.T) {
@@ -172,7 +197,7 @@ func TestImportedRefusesWhatCannotWork(t *testing.T) {
 		"filesets": head + "proxy-groups:\n  - {name: G, type: select, proxies: [A]}\nrule-providers:\n  r: {type: file, path: ./r.yaml, behavior: domain}\nrules: ['RULE-SET,r,G', 'MATCH,G']\n",
 		"filenode": head + "proxy-providers:\n  n: {type: file, path: ./n.yaml}\nproxy-groups:\n  - {name: G, type: select, use: [n]}\nrules: [MATCH,G]\n",
 	} {
-		if im, err := ParseImported([]byte(src)); err == nil {
+		if im, err := ParseImported([]byte(src), nil); err == nil {
 			t.Errorf("%s: accepted: %+v", name, im)
 		}
 	}
@@ -180,7 +205,7 @@ func TestImportedRefusesWhatCannotWork(t *testing.T) {
 
 func TestImportedOfNodeListIsNone(t *testing.T) {
 	for _, src := range []string{"proxies:\n  - {name: A, type: direct}\n", "vmess://abcd", "dmVzczovL2FiY2Q="} {
-		if im, err := ParseImported([]byte(src)); im != nil || err != nil {
+		if im, err := ParseImported([]byte(src), nil); im != nil || err != nil {
 			t.Errorf("%q: %v, %v", src, im, err)
 		}
 	}
@@ -281,7 +306,7 @@ rules:
 // TestImportedTheCoreAccepts runs the bundled core over the example, the way
 // Apply does.
 func TestImportedTheCoreAccepts(t *testing.T) {
-	bin := filepath.Join("..", "..", "resources", runtime.GOOS+"-"+runtime.GOARCH, "bin", "mihomo")
+	bin := filepath.Join("..", "..", "resources", runtime.GOOS+"-"+runtime.GOARCH, "bin", BinName)
 	if _, err := os.Stat(bin); err != nil {
 		t.Skip("no bundled core")
 	}
@@ -310,5 +335,115 @@ func TestImportedTheCoreAccepts(t *testing.T) {
 	cmd := exec.Command(bin, "-t", "-d", dir, "-f", path)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+// TestImportedLocalFileProviders: a `type: file` provider is read from the
+// file kept under its name, never from the path the config wrote.
+func TestImportedLocalFileProviders(t *testing.T) {
+	src := `
+proxy-providers:
+  nodes: {type: file, path: /etc/passwd, path-in-bundle: x, filter: JP, health-check: {enable: true, url: "http://t", interval: 300}}
+  spare: {type: file, path: ./x.yaml}
+proxy-groups:
+  - {name: G, type: select, use: [nodes]}
+rules: ['MATCH,G']
+`
+	var asked []string
+	have := map[string][]string{"nodes": {"/store/abc.txt"}}
+	local := func(name string) []string { asked = append(asked, name); return have[name] }
+	im, err := ParseImported([]byte(src), local)
+	if err != nil || im == nil {
+		t.Fatal(im, err)
+	}
+	if !slices.Equal(asked, []string{"nodes"}) {
+		t.Errorf("asked for %v: an unused provider needs no file", asked)
+	}
+	cfg := buildImported(t, Input{Imported: im})
+	n := cfg["proxy-providers"].(map[string]any)["nodes"].(map[string]any)
+	if n["type"] != "file" || n["path"] != "/store/abc.txt" || n["path-in-bundle"] != nil || n["filter"] != "JP" || n["health-check"] == nil {
+		t.Errorf("nodes = %v", n)
+	}
+	if use := stringsOf(groupNamed(t, cfg, "G")["use"]); !slices.Equal(use, []string{"nodes"}) {
+		t.Errorf("use = %v", use)
+	}
+
+	have = nil
+	_, err = ParseImported([]byte(src), local)
+	var missing *MissingFile
+	if !errors.As(err, &missing) || missing.Name != "nodes" {
+		t.Errorf("err = %v", err)
+	}
+	have = map[string][]string{"nodes": {"/a", "/b"}}
+	if _, err = ParseImported([]byte(src), local); err == nil || errors.As(err, &missing) {
+		t.Errorf("two files under one name: %v", err)
+	}
+	if _, err = ParseImported([]byte(src), nil); err == nil || errors.As(err, &missing) {
+		t.Errorf("no store: %v", err)
+	}
+}
+
+// TestImportedIssue101 is the template of issue #101 as it was pasted, every
+// node line still a comment: anchors and merge keys, include-all groups
+// with look-behind filters, mrs rule sets and a logical rule are all read,
+// and the core takes what is built of them. That it has no node is for
+// whoever adds it to say (provider.Store); nothing here is wrong with it.
+func TestImportedIssue101(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "testdata", "issue101.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	im, err := ParseImported(src, nil)
+	if err != nil || im == nil {
+		t.Fatalf("im = %v, err = %v", im, err)
+	}
+	if len(im.Groups) != 18 || len(im.Rules) != 21 || len(im.RuleProviders) != 19 || len(im.Proxies)+len(im.ProxyProviders) != 0 {
+		t.Fatalf("%d groups, %d rules, %d rule sets, %d nodes, %d subscriptions", len(im.Groups), len(im.Rules), len(im.RuleProviders), len(im.Proxies), len(im.ProxyProviders))
+	}
+	if p := im.RuleProviders["Private"]; p["format"] != "mrs" || p["behavior"] != "domain" || p["type"] != "http" {
+		t.Errorf("the merge key was not followed: %v", p)
+	}
+	if hosts := im.RemoteHosts([]string{"Private", "ChinaIP"}); !slices.Equal(hosts, []string{"github.com"}) {
+		t.Errorf("hosts = %v", hosts)
+	}
+	cfg := buildImported(t, Input{Imported: im, Routes: routes.Template(), MixedPort: 17899, Mode: "rule", LogLevel: "info", TestURL: "http://t", ProbePort: 17900})
+	// With no node to include, a group falls back as the config says, or
+	// as the core would have made it.
+	if g := groupNamed(t, cfg, "香港策略"); !slices.Equal(stringsOf(g["proxies"]), []string{"REJECT"}) || g["include-all"] != nil {
+		t.Errorf("香港策略 = %v", g)
+	}
+	if g := groupNamed(t, cfg, "全球手动"); !slices.Equal(stringsOf(g["proxies"]), []string{"COMPATIBLE"}) {
+		t.Errorf("全球手动 = %v", g)
+	}
+
+	bin, geo := bundledMihomo(t)
+	bin, _ = filepath.Abs(bin)
+	dir := coreDir(t, geo)
+	b, err := BuildConfig(Input{Imported: im, Routes: routes.Template(), MixedPort: 17899, Mode: "rule", LogLevel: "info", TestURL: "http://t", ProbePort: 17900})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(bin, "-t", "-d", dir, "-f", path).CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+func TestCoreSaid(t *testing.T) {
+	out := `time="2026-11-11T08:21:18.129168000-05:00" level=info msg="Start initial configuration in progress"
+time="2026-11-11T08:21:18.129264000-05:00" level=error msg="proxy group[0]: G: 'nope' not found"
+configuration file /tmp/x/config.next.yaml test failed
+`
+	if got := coreSaid(out); got != "proxy group[0]: G: 'nope' not found" {
+		t.Errorf("got %q", got)
+	}
+	if got := coreSaid(`time="x" level=fatal msg="Parse config error: rules[1] [RULE-SET,x,DIRECT] error: rule set [x] not found"`); got != "Parse config error: rules[1] [RULE-SET,x,DIRECT] error: rule set [x] not found" {
+		t.Errorf("got %q", got)
+	}
+	if got := coreSaid("a\nb\nc\nd\n"); got != "b\nc\nd" {
+		t.Errorf("what is no log line: %q", got)
 	}
 }

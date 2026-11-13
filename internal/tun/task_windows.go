@@ -1,25 +1,23 @@
 package tun
 
 import (
-	"errors"
 	"fmt"
-	"os/exec"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 
-	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/nowindow"
 )
 
 // Task is the core as the scheduled task runs it: elevated, not a child
 // of the app, and in no session of the user's.
 type Task struct {
-	name string // the task's
+	name string // of the task that started it
 	exe  string // the core's file name, as the process list has it
 	pid  int
 
@@ -27,38 +25,62 @@ type Task struct {
 	done chan struct{}
 }
 
-// Spawn starts the core through the task when bin is the copy the
-// installation made, and returns nil for any other: that one runs as a
-// child. An instance a crash of the app left running is ended first.
+// Spawn starts the core through the installation's tasks when bin is
+// the copy the installation made, and returns nil for any other: that one
+// runs as a child. An instance a crash of the app left running is ended
+// first. The task tried first is the one that needs no session of the
+// user's, unless the other was what worked the last time; which one
+// worked is kept for the next start, since finding out that a task
+// started nothing takes the whole wait.
 func Spawn(bin string) (*Task, error) {
 	if !Installed(bin) {
 		return nil, nil
 	}
-	t := &Task{name: taskName(), exe: filepath.Base(bin), done: make(chan struct{})}
-	_ = schtasks("/End", "/TN", t.name)
-	before := pids(t.exe)
-	if len(before) > 0 {
-		// A core just ended may take a moment to go, and while it is
-		// there the task starts no other.
-		time.Sleep(500 * time.Millisecond)
-		before = pids(t.exe)
-	}
-	if err := schtasks("/Run", "/TN", t.name); err != nil {
-		return nil, fmt.Errorf(i18n.T("无法通过计划任务启动内核（重新开启 TUN 可以再授权一次）：%s",
-			"Couldn't start the core through its scheduled task (turning TUN on again asks for the authorization once more): %s"), err)
-	}
-	deadline := time.Now().Add(8 * time.Second)
-	for time.Now().Before(deadline) {
-		for pid := range pids(t.exe) {
-			if !before[pid] {
-				t.pid = pid
-				return t, nil
-			}
+	t := &Task{exe: filepath.Base(bin), done: make(chan struct{})}
+	first := taskName()
+	_ = schtasks("/End", "/TN", first)
+	_ = schtasks("/End", "/TN", fallbackName(first))
+	// A core just ended may take a moment to go, and while it is there
+	// the task starts no other. One that stays was not ended with its
+	// task, and only the installation, elevated, can end it.
+	for deadline := time.Now().Add(5 * time.Second); len(running(bin)) > 0; time.Sleep(100 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			return nil, orphaned{}
 		}
-		time.Sleep(100 * time.Millisecond)
 	}
-	return nil, errors.New(i18n.T("计划任务没有把内核启动起来", "The scheduled task didn't start the core"))
+	before := pids(t.exe) // other programs' cores of the same name
+	last, _ := os.ReadFile(rememberPath())
+	name, err := startTask(first, string(last), hasFallback(bin),
+		func(name string) error { return schtasks("/Run", "/TN", name) },
+		func(name string) error { return schtasks("/Query", "/TN", name) },
+		func() bool {
+			deadline := time.Now().Add(8 * time.Second)
+			for time.Now().Before(deadline) {
+				for pid := range pids(t.exe) {
+					if !before[pid] {
+						t.pid = pid
+						return true
+					}
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+			return false
+		})
+	if err != nil {
+		return nil, err
+	}
+	t.name = name
+	if name == first {
+		_ = os.Remove(rememberPath())
+	} else if strings.TrimSpace(string(last)) != rememberFallback {
+		_ = os.WriteFile(rememberPath(), []byte(rememberFallback+"\n"), 0o644)
+	}
+	return t, nil
 }
+
+// rememberPath is where which task worked is kept: in the data folder,
+// beside the directory the core runs in.
+func rememberPath() string { return filepath.Join(filepath.Dir(CoreDir), "tun-task") }
 
 func (t *Task) Pid() int { return t.pid }
 
@@ -91,8 +113,7 @@ func schtasks(args ...string) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(filepath.Join(sys, "schtasks.exe"), args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	cmd := nowindow.Command(filepath.Join(sys, "schtasks.exe"), args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if msg := strings.TrimSpace(string(out)); msg != "" {
@@ -100,6 +121,37 @@ func schtasks(args ...string) error {
 		}
 	}
 	return err
+}
+
+// running are the processes whose program is the installed core bin.
+// Another program's core has the same name and is none of them; nor is
+// one whose path the system will not tell.
+func running(bin string) []int {
+	var out []int
+	for _, name := range []string{filepath.Base(bin), filepath.Base(bin) + ".old"} {
+		for pid := range pids(name) {
+			h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+			if err != nil {
+				continue
+			}
+			if sameImage(imagePath(h), bin) {
+				out = append(out, pid)
+			}
+			windows.CloseHandle(h)
+		}
+	}
+	return out
+}
+
+// imagePath is the path of the program the process h runs, "" when it
+// cannot be told.
+func imagePath(h windows.Handle) string {
+	buf := make([]uint16, windows.MAX_LONG_PATH)
+	n := uint32(len(buf))
+	if err := windows.QueryFullProcessImageName(h, 0, &buf[0], &n); err != nil {
+		return ""
+	}
+	return windows.UTF16ToString(buf[:n])
 }
 
 // pids are the processes whose executable is named exe.

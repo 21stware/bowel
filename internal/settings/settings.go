@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -42,6 +43,10 @@ type Settings struct {
 	// Gateway: this Mac is the LAN's gateway and DNS, through TUN. Like
 	// the entries, it waits while takeover is paused or TUN is off.
 	Gateway bool `json:"gateway"`
+	// TunKeepDNS leaves the system's DNS servers alone under TUN. Unless
+	// set, macOS's are pointed into TUN while it is on (sysdns): settings
+	// saved before this existed take them over too.
+	TunKeepDNS bool `json:"tunKeepSystemDns"`
 
 	Mode      string   `json:"mode"` // rule, global, direct
 	MixedPort int      `json:"mixedPort"`
@@ -69,6 +74,9 @@ type Settings struct {
 
 	// StartHidden: opened at login, Moho stays in the menu bar.
 	StartHidden bool `json:"startHidden"`
+	// TraySpeed: the rates stand beside the menu bar icon (in its tooltip
+	// on Windows, whose tray has no text). Off unless asked for.
+	TraySpeed bool `json:"traySpeed"`
 
 	// MCPPolicy is what happens when an agent asks, over MCP, to change
 	// something: "ask" the user each time, "allow" it, or "deny" it.
@@ -83,7 +91,8 @@ type Settings struct {
 var Appearances = []string{"system", "light", "dark"}
 
 // Skins are the choices of Skin; the interface (skins.go) draws each.
-var Skins = []string{"paper", "broadsheet", "phosphor", "neon", "blueprint", "sakura"}
+var Skins = []string{"paper", "broadsheet", "phosphor", "neon", "blueprint", "sakura",
+	"shanshui", "celadon", "dunhuang", "dusk", "aurora", "obsidian", "riso"}
 
 // BorderStyles are the choices of Borders.
 var BorderStyles = []string{"straight", "twisted"}
@@ -132,39 +141,95 @@ func Open(dir string) (*Store, error) {
 	}
 	// A clone: decoding reuses the lists' arrays, which must not be Defaults'.
 	st := &Store{path: filepath.Join(dir, "settings.json"), s: Defaults.Clone()}
-	if b, err := os.ReadFile(st.path); err == nil {
-		_ = json.Unmarshal(b, &st.s)
-		st.s.IPv6 = migrateIPv6(b, st.s.IPv6)
+	b, err := os.ReadFile(st.path)
+	if err != nil {
+		b = []byte("{}") // no file yet: the defaults
 	}
-	if st.s.Language == "" {
-		st.s.Language = Defaults.Language
+	if st.s, err = Decode(b); err != nil {
+		// What could not be read is the defaults from here on, and the
+		// next save writes them over the file: keep what it held.
+		log.Println("settings: unreadable, kept as", filepath.Base(brokenPath(st.path))+":", err)
+		_ = os.WriteFile(brokenPath(st.path), b, 0o600)
 	}
-	if st.s.Accent == "" {
-		st.s.Accent = Defaults.Accent
-	}
-	if st.s.Appearance == "" {
-		st.s.Appearance = Defaults.Appearance
-	}
-	if st.s.Borders == "" {
-		st.s.Borders = Defaults.Borders
-	}
-	if st.s.Skin == "" {
-		st.s.Skin = Defaults.Skin
-	}
-	if st.s.MixedPort == 0 {
-		st.s.MixedPort = Defaults.MixedPort
-	}
-	if st.s.Mode == "" {
-		st.s.Mode = Defaults.Mode
-	}
-	if st.s.TestURL == "" {
-		st.s.TestURL = Defaults.TestURL
-	}
-	if st.s.LogLevel == "" {
-		st.s.LogLevel = Defaults.LogLevel
-	}
-	st.s.Options.Fill()
 	return st, nil
+}
+
+// brokenPath is where a settings file that could not be read is kept.
+func brokenPath(path string) string {
+	return strings.TrimSuffix(path, ".json") + ".broken.json"
+}
+
+// Decode is the settings a settings.json holds: what it leaves out is the
+// default, and what older versions wrote is brought up to date. With an
+// error it is still the settings as far as they could be read.
+func Decode(b []byte) (Settings, error) {
+	s := Defaults.Clone()
+	err := json.Unmarshal(b, &s)
+	s.IPv6 = migrateIPv6(b, s.IPv6)
+	if s.Language == "" {
+		s.Language = Defaults.Language
+	}
+	if s.Accent == "" {
+		s.Accent = Defaults.Accent
+	}
+	if s.Appearance == "" {
+		s.Appearance = Defaults.Appearance
+	}
+	if s.Borders == "" {
+		s.Borders = Defaults.Borders
+	}
+	if s.Skin == "" {
+		s.Skin = Defaults.Skin
+	}
+	if s.MixedPort == 0 {
+		s.MixedPort = Defaults.MixedPort
+	}
+	if s.Mode == "" {
+		s.Mode = Defaults.Mode
+	}
+	if s.TestURL == "" {
+		s.TestURL = Defaults.TestURL
+	}
+	if s.LogLevel == "" {
+		s.LogLevel = Defaults.LogLevel
+	}
+	s.Options.Fill()
+	return s, err
+}
+
+// takeMachine makes s's settings of the machine those of from: what
+// depends on the computer bowel runs on, or decides who reaches it, and so
+// has no business in a configuration carried to another. They are the
+// takeover and the gateway, the ports and the LAN's access, the interface
+// and the TUN device's name, the developer networks, the dashboards'
+// controller, and what agents may change. The rest travels (see the test's
+// list of every key).
+func (s *Settings) takeMachine(from Settings) {
+	from = from.Clone()
+	s.SystemProxy, s.Tun, s.Paused, s.Gateway = from.SystemProxy, from.Tun, from.Paused, from.Gateway
+	s.MixedPort, s.AllowLan = from.MixedPort, from.AllowLan
+	s.MCPPolicy = from.MCPPolicy
+	s.HTTPPort, s.SocksPort, s.ExtraPorts = from.HTTPPort, from.SocksPort, from.ExtraPorts
+	s.Authentication, s.LanAllowedIPs = from.Authentication, from.LanAllowedIPs
+	s.Interface, s.TunDevice = from.Interface, from.TunDevice
+	s.DevOff, s.DevOffScenarios, s.DevExtra = from.DevOff, from.DevOffScenarios, from.DevExtra
+	s.ExtController, s.ExtSecret = from.ExtController, from.ExtSecret
+}
+
+// Portable is s as it is exported: the settings of the machine are the
+// defaults, so the file says nothing of them.
+func Portable(s Settings) Settings {
+	s = s.Clone()
+	s.takeMachine(Defaults)
+	return s
+}
+
+// KeepMachine is imported as it is used on this machine: local's settings
+// of the machine stay.
+func KeepMachine(local, imported Settings) Settings {
+	imported = imported.Clone()
+	imported.takeMachine(local)
+	return imported
 }
 
 // migrateIPv6 turns the true of a file from before the modes into Auto:
@@ -258,6 +323,7 @@ func (s *Settings) ResetCore() {
 	s.LogLevel, s.TestURL, s.Bypass, s.Options = d.LogLevel, d.TestURL, d.Bypass, d.Options
 	s.RouteTargets = nil
 	s.HTTPPort, s.SocksPort, s.Authentication, s.LanAllowedIPs = keep.HTTPPort, keep.SocksPort, keep.Authentication, keep.LanAllowedIPs
+	s.ExtraPorts = keep.ExtraPorts
 	s.ExtController, s.ExtSecret = keep.ExtController, keep.ExtSecret
 }
 
@@ -297,7 +363,7 @@ func (s Settings) Validate() error {
 	}
 	// Every listener on a port of its own.
 	ports := map[int]bool{s.MixedPort: true}
-	for _, p := range []int{s.HTTPPort, s.SocksPort, s.ExtPort()} {
+	for _, p := range append([]int{s.HTTPPort, s.SocksPort, s.ExtPort()}, s.ExtraPortNumbers()...) {
 		if p > 0 && ports[p] {
 			return fmt.Errorf(i18n.T("端口 %d 用了两次", "Port %d is used twice"), p)
 		}

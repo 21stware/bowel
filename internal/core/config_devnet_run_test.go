@@ -28,7 +28,7 @@ import (
 func bundledMihomo(t *testing.T) (bin, geo string) {
 	t.Helper()
 	root := filepath.Join("..", "..", "resources")
-	bin = filepath.Join(root, runtime.GOOS+"-"+runtime.GOARCH, "bin", "mihomo")
+	bin = filepath.Join(root, runtime.GOOS+"-"+runtime.GOARCH, "bin", BinName)
 	if _, err := os.Stat(bin); err != nil || testing.Short() {
 		t.Skip("no bundled core")
 	}
@@ -59,6 +59,7 @@ func TestCoreAcceptsOverlay(t *testing.T) {
 		for _, tun := range []bool{false, true} {
 			in := devInput(mode, dev)
 			in.Tun, in.Sniff = tun, true
+			in.Options.DirectNameservers = []string{"system", "10.0.0.53"}
 			b, err := BuildConfig(in)
 			if err != nil {
 				t.Fatal(err)

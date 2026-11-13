@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/oboo/moho/internal/core"
@@ -38,7 +39,35 @@ type importedCache struct {
 // routingInfo is what a provider's file brings, as of updatedAt.
 type routingInfo struct {
 	at      time.Time
+	local   string // the local files there were to match by name
 	routing ProviderRouting
+}
+
+// localFiles gives, for a `type: file` proxy-provider of config's, the files
+// bowel keeps under that name: those of the enabled local file Providers
+// called the same. The user put each there; the path the config names for
+// its provider is never read (issue #75).
+func (a *App) localFiles(config string) func(name string) []string {
+	return func(name string) []string {
+		var paths []string
+		for _, p := range a.providers.List() {
+			if p.Kind == provider.File && p.Enabled && p.ID != config && p.Name == name {
+				paths = append(paths, a.providers.Path(p.ID))
+			}
+		}
+		return paths
+	}
+}
+
+// localSig changes when what localFiles has to offer does.
+func (a *App) localSig() string {
+	var b strings.Builder
+	for _, p := range a.providers.List() {
+		if p.Kind == provider.File && p.Enabled {
+			b.WriteString(p.ID + "\x00" + p.Name + "\x00")
+		}
+	}
+	return b.String()
 }
 
 func (a *App) dropImported() {
@@ -71,7 +100,7 @@ func (a *App) importedLocked(s settings.Settings) *core.Imported {
 	data, err := a.providers.Content(key)
 	var im *core.Imported
 	if err == nil {
-		im, err = core.ParseImported(data)
+		im, err = core.ParseImported(data, a.localFiles(key))
 	}
 	if err == nil && im == nil {
 		err = errors.New(i18n.T("这份配置里没有路由组", "This config has no route groups"))
@@ -168,7 +197,11 @@ func (a *App) importedView(s settings.Settings, im *core.Imported, px map[string
 	if im == nil {
 		return nil
 	}
-	v := &ImportedView{Provider: s.ImportedRouting, Name: a.providerTitle(s.ImportedRouting), Rules: len(im.Rules), PausedRules: len(s.Rules), PausedSets: len(a.ruleSetRefs(s)), Groups: []GroupView{}}
+	v := &ImportedView{Provider: s.ImportedRouting, Name: a.providerTitle(s.ImportedRouting), Rules: len(im.Rules), PausedRules: len(s.Rules), PausedSets: len(a.ruleSetRefs(s)), Groups: []GroupView{}, Unused: im.Unused}
+	opts := s.Options.Clone()
+	if v.DNSFill = im.DNS.Apply(&opts); len(v.DNSFill) > 0 {
+		v.DNSSkipped = im.DNS.Skipped
+	}
 	byName := map[string]string{}
 	for _, r := range a.routes() {
 		byName[r.Name] = r.ID
@@ -220,23 +253,58 @@ func (a *App) importedIssue(s settings.Settings, snap Snapshot) *Issue {
 			return &Issue{Level: "warn", Text: fmt.Sprintf(i18n.T("%s 这次更新没有应用，路由没有变化", "%s: the last update wasn't applied; the routing is unchanged"), p.Name), Detail: p.Error, Action: "providers", Label: i18n.T("查看", "View")}
 		}
 	}
-	return nil
+	a.mu.Lock()
+	waiting := a.impWaiting
+	a.mu.Unlock()
+	return waiting.issue(a.importedNow())
+}
+
+// importedWaiting is what a config in use names for the core to download
+// that the core has nothing of: rule sets without a rule, and node
+// providers without a node. The core fetches them directly, before any
+// node is there to go through, so an address that can't be reached from
+// this network stays empty.
+type importedWaiting struct{ sets, subs []string }
+
+func (w importedWaiting) issue(im *core.Imported) *Issue {
+	if im == nil || len(w.sets)+len(w.subs) == 0 {
+		return nil
+	}
+	hosts := im.RemoteHosts(slices.Concat(w.subs, w.sets))
+	detail := fmt.Sprintf(i18n.T("内核直接从 %s 下载它们，现在还没有下到。", "The core downloads them straight from %s and has not got them yet."), strings.Join(hosts, i18n.T("、", ", ")))
+	if len(w.subs) > 0 {
+		detail += " " + fmt.Sprintf(i18n.T("没有节点的订阅：%s。", "Subscriptions without nodes: %s."), strings.Join(w.subs, i18n.T("、", ", ")))
+	}
+	if len(w.sets) > 0 {
+		detail += " " + fmt.Sprintf(i18n.T("空的规则集：%s。用到它们的规则在下载好之前不会匹配。", "Empty rule sets: %s. The rules that use them match nothing until they arrive."), strings.Join(w.sets, i18n.T("、", ", ")))
+	}
+	detail += " " + i18n.T("如果这些地址在当前网络下打不开，可以改回 bowel 路由，或把配置里的地址换成能直连的镜像。", "If these addresses can't be opened from this network, go back to bowel's routing, or point the config at a mirror that can be reached directly.")
+	text := fmt.Sprintf(i18n.T("这份配置有 %d 个规则集还没下载下来", "%d of this config's rule sets haven't been downloaded"), len(w.sets))
+	if len(w.subs) > 0 {
+		text = fmt.Sprintf(i18n.T("这份配置的订阅「%s」还没下载到节点", "This config's subscription %s has no nodes yet"), w.subs[0])
+	}
+	return &Issue{Level: "warn", Text: text, Detail: detail, Action: "providers", Label: i18n.T("查看", "View")}
 }
 
 // providerRouting says what p's file brings. Asked for each snapshot, it
 // reads a file only when that has changed.
 func (a *App) providerRouting(p provider.Provider) ProviderRouting {
 	s := a.settings.Get()
+	local := a.localSig()
 	a.routesMu.Lock()
 	info, ok := a.imp.info[p.ID]
 	a.routesMu.Unlock()
-	if !ok || !info.at.Equal(p.UpdatedAt) {
-		info = routingInfo{at: p.UpdatedAt}
+	if !ok || !info.at.Equal(p.UpdatedAt) || info.local != local {
+		info = routingInfo{at: p.UpdatedAt, local: local}
 		if data, err := a.providers.Content(p.ID); err == nil && core.HasGroups(data) {
-			if im, err := core.ParseImported(data); err != nil {
+			if im, err := core.ParseImported(data, a.localFiles(p.ID)); err != nil {
 				info.routing.Problem = err.Error()
+				var missing *core.MissingFile
+				if errors.As(err, &missing) {
+					info.routing.NeedsFile = missing.Name
+				}
 			} else if im != nil {
-				info.routing.Groups, info.routing.Rules = len(im.Groups), len(im.Rules)
+				info.routing.Groups, info.routing.Rules, info.routing.Remote = len(im.Groups), len(im.Rules), len(im.ProviderNames())
 			}
 		}
 		a.routesMu.Lock()
@@ -259,7 +327,7 @@ func (a *App) vetUpdate(id string, data []byte) error {
 	if s.ImportedRouting != id {
 		return nil
 	}
-	im, err := core.ParseImported(data)
+	im, err := core.ParseImported(data, a.localFiles(id))
 	if err == nil && im == nil {
 		err = errors.New(i18n.T("这次下载的内容里没有路由组", "What was downloaded has no route groups"))
 	}
@@ -297,7 +365,7 @@ func (a *App) setImportedRouting(id string) error {
 		if err != nil {
 			return err
 		}
-		im, err := core.ParseImported(data)
+		im, err := core.ParseImported(data, a.localFiles(id))
 		if err != nil {
 			return err
 		}
@@ -311,6 +379,24 @@ func (a *App) setImportedRouting(id string) error {
 	_ = a.coreCall(5*time.Second, func(ctx context.Context, c *mihomo.Client) error { return c.CloseAllConnections(ctx) })
 	go a.locateExits(false)
 	return nil
+}
+
+// fillImportedDNS copies the DNS servers, policy, fake-ip filter and hosts
+// of the config in use into the settings, and says which of the config's
+// keys it took. Once, when asked: from then on they are settings like any
+// typed in, and an update of the config does not change them. A list the
+// config lacks stays as it is. If the core refuses the result, the settings
+// are as they were.
+func (a *App) fillImportedDNS() ([]string, error) {
+	im := a.importedNow()
+	if im == nil {
+		return nil, errors.New(i18n.T("没有在使用导入配置的路由", "No imported config's routing is in use"))
+	}
+	var took []string
+	if err := a.updateSettings(func(s *settings.Settings) { took = im.DNS.Apply(&s.Options) }); err != nil {
+		return nil, err
+	}
+	return took, nil
 }
 
 // selectMember points an imported group of the kind the user chooses in at
@@ -358,7 +444,11 @@ func mcpImported(v *ImportedView) map[string]any {
 		}
 		groups = append(groups, map[string]any{"name": g.Name, "kind": g.Kind, "now": g.Now, "exit": display(g.Exit), "selectable": g.Selectable, "rules": g.Rules, "members": members})
 	}
-	return map[string]any{"provider": v.Name, "rules": v.Rules, "pausedUserRules": v.PausedRules, "pausedRuleSets": v.PausedSets, "groups": groups}
+	unused := v.Unused
+	if unused == nil {
+		unused = []string{}
+	}
+	return map[string]any{"provider": v.Name, "rules": v.Rules, "pausedUserRules": v.PausedRules, "pausedRuleSets": v.PausedSets, "groups": groups, "unusedSettings": unused}
 }
 
 // mcpSelectMember is select_node under an imported config.

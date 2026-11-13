@@ -47,6 +47,12 @@ type devState struct {
 	fellBack bool
 	// bypass is the list the system proxy was last given.
 	bypass []string
+	// at is when env was read; dnsOutside is whether the system's DNS
+	// server it found is one TUN leaves out, and lease what the network
+	// hands out as DNS servers (dnsIssue, localDNS).
+	at         time.Time
+	dnsOutside bool
+	lease      dnsLease
 }
 
 func (a *App) devEnv() devnet.Env {
@@ -60,9 +66,12 @@ func (a *App) detectDev(limit time.Duration) devnet.Env {
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	env := devDetect(ctx)
-	env.IPv6 = readIPv6(a.settings.Get(), env.PrimaryIface)
+	s := a.settings.Get()
+	env.IPv6 = readIPv6(s, env.PrimaryIface)
+	env.LocalDNS = a.localDNS(s, env, true)
+	outside := dnsOutside(env.DefaultDNS, overlayOf(s, env).TunExclude)
 	a.dev.mu.Lock()
-	a.dev.env = env
+	a.dev.env, a.dev.at, a.dev.dnsOutside = env, time.Now(), outside
 	a.dev.mu.Unlock()
 	return env
 }
@@ -125,12 +134,19 @@ func (a *App) bypassOf(s settings.Settings) []string {
 // says so.
 func (a *App) applyDev(s settings.Settings, build func(devnet.Overlay) ([]byte, error)) error {
 	env := a.devEnv()
+	env.LocalDNS = a.localDNS(s, env, false) // s may have just turned TUN on
 	dev := overlayOf(s, env)
 	cfg, err := build(dev)
 	if err != nil {
 		return err
 	}
 	err = a.core.Apply(cfg)
+	if a.leaveTunCore(err) {
+		if cfg, err = build(dev); err != nil {
+			return err
+		}
+		err = a.core.Apply(cfg)
+	}
 	fellBack := false
 	if err != nil && env.Detected() {
 		log.Println("developer networks: the core refused what was detected:", err)
@@ -182,6 +198,7 @@ func (a *App) devSync() {
 		}
 	}
 	a.syncBypass()
+	a.applySystemDNS()
 }
 
 // syncBypass gives the system proxy the bypass list as it stands, if it

@@ -27,6 +27,8 @@ var (
 	wininet         = windows.NewLazySystemDLL("wininet.dll")
 	procSetOption   = wininet.NewProc("InternetSetOptionW")
 	procQueryOption = wininet.NewProc("InternetQueryOptionW")
+	procOpen        = wininet.NewProc("InternetOpenW")
+	procCloseHandle = wininet.NewProc("InternetCloseHandle")
 	procGlobalFree  = windows.NewLazySystemDLL("kernel32.dll").NewProc("GlobalFree")
 )
 
@@ -107,23 +109,57 @@ func strOption(option uint32, s string) (perConnOption, []uint16) {
 	return o, u
 }
 
-// apply writes ws whole.
-func apply(ws winSettings) error {
-	server, su := strOption(connServer, ws.server)
-	bypass, bu := strOption(connBypass, ws.override)
-	pac, pu := strOption(connPAC, ws.pac)
-	opts := []perConnOption{{option: connFlags, value: [8 / ptrSize]uintptr{uintptr(ws.flags)}}, server, bypass, pac}
-	return write(opts, su, bu, pu)
+// apply writes the options of ws that set names, and leaves the others as
+// Windows has them. Windows refuses a write whole: winRefusal names what
+// one held.
+func apply(ws winSettings, set winSet) error {
+	var opts []perConnOption
+	var keep [][]uint16
+	if set&setFlags != 0 {
+		opts = append(opts, perConnOption{option: connFlags, value: [8 / ptrSize]uintptr{uintptr(ws.flags)}})
+	}
+	for _, o := range []struct {
+		in     winSet
+		option uint32
+		s      string
+	}{{setServer, connServer, ws.server}, {setBypass, connBypass, ws.override}, {setPAC, connPAC, ws.pac}} {
+		if set&o.in != 0 {
+			opt, u := strOption(o.option, o.s)
+			opts, keep = append(opts, opt), append(keep, u)
+		}
+	}
+	if len(opts) == 0 {
+		return nil
+	}
+	return write(opts, keep...)
+}
+
+// openSession opens a WinINet session that takes the system's settings,
+// for read to ask on when Windows refuses to answer without one.
+func openSession() (uintptr, func(), error) {
+	agent, _ := windows.UTF16PtrFromString("bowel")
+	const preconfig = 0 // INTERNET_OPEN_TYPE_PRECONFIG
+	h, _, err := procOpen.Call(uintptr(unsafe.Pointer(agent)), preconfig, 0, 0, 0)
+	runtime.KeepAlive(agent)
+	if h == 0 {
+		return 0, nil, fmt.Errorf("InternetOpen: %w", err)
+	}
+	return h, func() { procCloseHandle.Call(h) }, nil
 }
 
 // read reads the LAN settings.
 func read() (winSettings, error) {
+	return winQuery(readOn, openSession)
+}
+
+// readOn reads the LAN settings on WinINet handle h, 0 for none.
+func readOn(h uintptr) (winSettings, error) {
 	query := func(flagsOption uint32) ([]perConnOption, error) {
 		opts := []perConnOption{{option: flagsOption}, {option: connServer}, {option: connBypass}, {option: connPAC}}
 		list := perConnOptionList{count: uint32(len(opts)), options: &opts[0]}
 		list.size = uint32(unsafe.Sizeof(list))
 		n := list.size
-		r, _, err := procQueryOption.Call(0, optPerConnection, uintptr(unsafe.Pointer(&list)), uintptr(unsafe.Pointer(&n)))
+		r, _, err := procQueryOption.Call(h, optPerConnection, uintptr(unsafe.Pointer(&list)), uintptr(unsafe.Pointer(&n)))
 		runtime.KeepAlive(opts)
 		if r == 0 {
 			return nil, fmt.Errorf("InternetQueryOption: %w", err)
@@ -156,19 +192,15 @@ func read() (winSettings, error) {
 
 // Enable points the LAN settings' proxies at host:port, with the hosts and
 // networks in bypass left out of them. It turns automatic configuration
-// off, which would come before them; Restore turns it back on.
+// off, which would come before them, and leaves the script's address for
+// Windows' settings page; Restore turns it back on. If Windows refuses the
+// bypass list the takeover is made with a shorter one or none: LastWrite
+// tells which, and what was refused.
 func Enable(host string, port int, bypass []string) error {
-	cur, err := read()
-	if err != nil {
-		return err
-	}
 	e := Endpoint{On: true, Host: host, Port: port}
-	return apply(winSettings{
-		flags:    winDirect | winProxy,
-		server:   winServer(e, e, Endpoint{}),
-		override: winBypass(bypass),
-		pac:      cur.pac, // kept for Windows' settings page, unused
-	})
+	w, err := winTakeover(apply, winServer(e, e, Endpoint{}), bypass)
+	setLastWrite(w)
+	return err
 }
 
 // Disable turns the proxies off and leaves the rest as it is.
@@ -177,8 +209,11 @@ func Disable() error {
 	if err != nil {
 		return err
 	}
-	opts := []perConnOption{{option: connFlags, value: [8 / ptrSize]uintptr{uintptr(cur.flags&^winProxy | winDirect)}}}
-	return write(opts)
+	ws := winSettings{flags: cur.flags&^winProxy | winDirect}
+	if err := apply(ws, setFlags); err != nil {
+		return winRefusal(ws, setFlags, err)
+	}
+	return nil
 }
 
 // Snapshot reads the LAN settings. It changes nothing.
@@ -196,7 +231,15 @@ func Restore(_ context.Context, saved Saved) error {
 	if len(saved.Services) == 0 {
 		return Disable()
 	}
-	return apply(saved.Services[0].winSettings())
+	ws := saved.Services[0].winSettings()
+	set := setFlags | setServer | setBypass | setPAC
+	if cur, err := read(); err == nil {
+		set = winRestoreSet(ws, cur)
+	}
+	if err := apply(ws, set); err != nil {
+		return winRefusal(ws, set, err)
+	}
+	return nil
 }
 
 // Check reads the LAN settings and tells whether they point at the core's

@@ -30,6 +30,7 @@ type providersUI struct {
 	empty bool   // the list was empty in the last frame
 
 	open    string    // the provider whose nodes show, "" for none
+	offer   string    // the provider just added whose config brings a routing: it is asked about once
 	confirm string    // the provider whose 删除 asks to be pressed again
 	confAt  time.Time // when it started asking
 
@@ -255,8 +256,8 @@ func (u *UI) provFileBtn(c *ui.Context, p *pal, fail func(string)) {
 			case err != nil:
 				fail(err.Error())
 			case pv != nil && u.win != nil:
-				id := pv.ID
-				u.win.Update(func() { u.prov.open = id })
+				added := *pv
+				u.win.Update(func() { u.provAdded(added) })
 			}
 		}()
 	})
@@ -345,10 +346,20 @@ func (u *UI) provSubmit(input string, fail func(string)) {
 				if strings.TrimSpace(u.prov.input) == input {
 					u.prov.input = ""
 				}
-				u.prov.open = pv.ID
+				u.provAdded(pv)
 			})
 		}
 	}()
+}
+
+// provAdded opens the provider just added. One whose config brings a routing
+// of its own is asked about there and then: it is the moment someone knows
+// what they added, and the line under the name is easy to miss.
+func (u *UI) provAdded(pv ProviderView) {
+	u.prov.open = pv.ID
+	if pv.Routing.Groups > 0 && pv.Routing.Problem == "" && !pv.Routing.InUse {
+		u.prov.offer = pv.ID
+	}
 }
 
 // ---- Rows ----
@@ -566,7 +577,7 @@ func (u *UI) provAuto(c *ui.Context, p *pal, pv ProviderView) {
 		sel.Trigger.Row().Gap(5).Padding(5, 9).Radius(p.r(7)).Border(1, p.hair2).AlignItems(ui.Center).Label(i18n.T("自动更新", "Auto update")).Children(func() {
 			ui.Text(c, i18n.T("自动更新", "Auto-update")).FontSize(11.5).TextColor(p.mute).NoWrap()
 			ui.Text(c, cur).FontSize(12).FontWeight(600).TextColor(p.ink).NoWrap()
-			ui.Text(c, "▾").FontSize(9).TextColor(p.mute)
+			chevron(c, p.mute, false)
 		})
 		if sel.Open() {
 			u.prov.popup = true
@@ -607,7 +618,7 @@ func (u *UI) provAuto(c *ui.Context, p *pal, pv ProviderView) {
 // disabled source — and the chevron. 停用 and 删除 sit in the open row.
 func (u *UI) provOps(c *ui.Context, p *pal, pv ProviderView, busy, open bool) {
 	id := pv.ID
-	ui.Row(c).Width(86).Gap(10).Justify(ui.End).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).Width(100).Gap(10).Justify(ui.End).AlignItems(ui.Center).Children(func() {
 		switch {
 		case !pv.Enabled:
 			u.provBtn(c.Key("toggle"), p, i18n.T("启用", "Enable"), false).OnClick(func() {
@@ -621,12 +632,14 @@ func (u *UI) provOps(c *ui.Context, p *pal, pv ProviderView, busy, open bool) {
 					u.do(func() error { return u.app.updateProvider(bg(), id) })
 				}
 			})
+		case pv.Kind == "file":
+			u.provBtn(c.Key("reload"), p, i18n.T("重新读取", "Reload"), false).OnClick(func() {
+				if u.app != nil && !busy {
+					u.do(func() error { return u.app.reloadProvider(bg(), id) })
+				}
+			})
 		}
-		chev := "▾"
-		if open {
-			chev = "▴"
-		}
-		ui.Text(c, chev).FontSize(11).TextColor(p.mute).Width(10)
+		chevron(c, p.mute, open)
 	})
 }
 

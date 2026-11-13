@@ -159,9 +159,9 @@ func (u *UI) sourcesSection(c *ui.Context, p *pal) {
 	if len(down) > 0 {
 		line, col = sourcesLine(down), p.warn
 	}
-	label := i18n.T("查看 ▾", "Show ▾")
+	label := i18n.T("查看", "Show")
 	if h.srcList {
-		label = i18n.T("收起 ▴", "Hide ▴")
+		label = i18n.T("收起", "Hide")
 	}
 	section(c, p, i18n.T("依赖源", "Download sources"), "", func() {
 		ui.Text(c, line).FontSize(13).FontWeight(600).TextColor(col)
@@ -174,7 +174,7 @@ func (u *UI) sourcesSection(c *ui.Context, p *pal) {
 					}
 				})
 			}
-			btn(c.Key("sources-toggle"), p, label).OnClick(func() { h.srcList = !h.srcList })
+			btnChevron(c.Key("sources-toggle"), p, label, h.srcList).OnClick(func() { h.srcList = !h.srcList })
 		})
 	})
 	if !h.srcList {
@@ -217,11 +217,11 @@ func (u *UI) sourceRow(c *ui.Context, p *pal, src devtools.Source) {
 			if kind, m := u.sourceFix(src); kind != "" {
 				btn(c.Key("fix"), p, i18n.T("修复", "Fix")).Tooltip(fixWord(kind, m)).OnClick(func() { u.fixSource(src) })
 			}
-			label := i18n.T("换源 ▾", "Change ▾")
+			label := i18n.T("换源", "Change")
 			if open {
-				label = i18n.T("收起 ▴", "Hide ▴")
+				label = i18n.T("收起", "Hide")
 			}
-			btn(c.Key("ways"), p, label).OnClick(func() {
+			btnChevron(c.Key("ways"), p, label, open).OnClick(func() {
 				if open {
 					h.srcOpen = ""
 				} else {

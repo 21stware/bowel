@@ -12,6 +12,7 @@ import (
 	"github.com/oboo/moho/internal/gateway"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
+	"github.com/oboo/moho/internal/sysproxy"
 )
 
 // ---- State ----
@@ -67,6 +68,9 @@ type Snapshot struct {
 	// ControllerTCP is Moho's own controller address when it fell back to
 	// TCP; the dashboards' controller is then that one.
 	ControllerTCP string `json:"controllerTcp,omitempty"`
+	// CanUndoImport: a configuration was imported, and what it replaced is
+	// kept (app_backup.go).
+	CanUndoImport bool `json:"canUndoImport,omitempty"`
 	// Dev is what the developer networks page shows.
 	Dev DevNet `json:"dev"`
 	// Tools are the developer tools found.
@@ -147,6 +151,10 @@ type Takeover struct {
 	Lan     bool     `json:"lan"`
 	LanAddr string   `json:"lanAddr,omitempty"`
 	Bypass  []string `json:"bypass"`
+	// Written is what the last takeover of the system proxy gave the OS,
+	// where the OS takes the bypass list in a form of its own (Windows):
+	// the list as written, the entries left out, and what the OS refused.
+	Written *sysproxy.Written `json:"written,omitempty"`
 	// Gateway is this Mac as the LAN's gateway, as it really is.
 	Gateway GatewayView `json:"gateway"`
 }
@@ -297,8 +305,16 @@ type ProviderRouting struct {
 	Groups int  `json:"groups,omitempty"`
 	Rules  int  `json:"rules,omitempty"`
 	InUse  bool `json:"inUse,omitempty"` // it is what routes traffic now
+	// Remote is how many subscriptions of its own (proxy-providers) the
+	// config's groups take nodes from: the core downloads those, and only
+	// while the routing is in use.
+	Remote int `json:"remote,omitempty"`
 	// Problem is why it can't be used, "" when it can.
 	Problem string `json:"problem,omitempty"`
+	// NeedsFile is the proxy-provider of its config that is a local file
+	// bowel has no local file Provider for; adding one by that name is all
+	// the problem takes.
+	NeedsFile string `json:"needsFile,omitempty"`
 }
 
 // ImportedView is a provider's own routing, as it is now.
@@ -311,6 +327,15 @@ type ImportedView struct {
 	PausedRules int         `json:"pausedRules"`
 	PausedSets  int         `json:"pausedSets"`
 	Groups      []GroupView `json:"groups"`
+	// Unused are the config's settings that act on traffic and are not
+	// used, as the config names them (core.Imported.Unused).
+	Unused []string `json:"unused,omitempty"`
+	// DNSFill are the config's DNS lists (nameserver, hosts and the like,
+	// as the config names them) that the settings have differently: they
+	// can be copied into the settings, once, when asked. DNSSkipped are the
+	// entries of them that would be left out.
+	DNSFill    []string `json:"dnsFill,omitempty"`
+	DNSSkipped []string `json:"dnsSkipped,omitempty"`
 }
 
 // GroupView is one group of an imported config.
@@ -350,6 +375,13 @@ type Tick struct {
 	TodayDown int64            `json:"todayDown"`
 	TodayUp   int64            `json:"todayUp"`
 	MonthDown int64            `json:"monthDown"`
+	// AppsUnknown: the core can't tell which program on this computer
+	// opened a connection (monitor.Snapshot.Unnamed), so no rule for an
+	// application matches. On macOS it takes how the core is signed: one
+	// signed by an Apple Development identity, as `mygo dev` does when the
+	// keychain has one, saw none in any combination tried on 27.2 (#131);
+	// the ad hoc signature mygo dev falls back to does see them.
+	AppsUnknown bool `json:"appsUnknown,omitempty"`
 }
 
 type AppRate struct {

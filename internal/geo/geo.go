@@ -256,6 +256,38 @@ func (m match) rank() int {
 	return r
 }
 
+// hidden reports whether r is a character that takes no room and that
+// providers put inside a name so that it isn't read, by a person or by a
+// filter: "H\u200bK\u200bG" looks like "HKG" and is not found by a search for
+// it. The joiners U+200C and U+200D are not among them: Persian and Indic
+// writing needs them, and so do emoji made of several. Nor are the direction
+// marks U+200E and U+200F.
+func hidden(r rune) bool {
+	switch r {
+	case 0x00ad, 0x180e, 0x200b, 0xfeff:
+		return true
+	}
+	return r >= 0x2060 && r <= 0x2064
+}
+
+// Visible is s without its hidden characters: a name as people read it. A
+// name that is nothing but hidden characters stays.
+func Visible(s string) string {
+	if !strings.ContainsFunc(s, hidden) {
+		return s
+	}
+	t := strings.Map(func(r rune) rune {
+		if hidden(r) {
+			return -1
+		}
+		return r
+	}, s)
+	if t == "" {
+		return s
+	}
+	return t
+}
+
 func (m match) place() Place {
 	if m.t.city != nil {
 		return m.t.city.place()
@@ -264,6 +296,12 @@ func (m match) place() Place {
 }
 
 func findMatches(s string) []match {
+	s = strings.Map(func(r rune) rune {
+		if hidden(r) || r >= 0x200c && r <= 0x200f {
+			return -1
+		}
+		return r
+	}, s)
 	var ms []match
 
 	// Flag emoji: a pair of regional indicators spells the ISO code.

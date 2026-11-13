@@ -20,7 +20,7 @@ func coreBin(t *testing.T) string {
 	if p := os.Getenv("MOHO_CORE"); p != "" {
 		return p
 	}
-	p, _ := filepath.Abs(filepath.Join("..", "..", "resources", runtime.GOOS+"-"+runtime.GOARCH, "bin", "mihomo"))
+	p, _ := filepath.Abs(filepath.Join("..", "..", "resources", runtime.GOOS+"-"+runtime.GOARCH, "bin", BinName))
 	if _, err := os.Stat(p); err != nil {
 		t.Skip("no mihomo binary; run scripts/fetch-core.sh")
 	}
@@ -309,6 +309,8 @@ func TestListenErrorFromCoreLog(t *testing.T) {
 		{"reserved on windows", `Start Mixed(http+socks) server error: listen tcp 127.0.0.1:7899: bind: An attempt was made to access a socket in a way forbidden by its access permissions.`, "7899"},
 		{"all interfaces", `Start HTTP server error: listen tcp :8080: bind: address already in use`, "8080"},
 		{"socks", `Start SOCKS server error: listen tcp [::1]:1080: bind: address already in use`, "1080"},
+		{"an extra port", `Listener bowel-port-7901 listen err: listen tcp 127.0.0.1:7901: bind: address already in use`, "7901"},
+		{"the probe's is not the user's", `Listener moho-probe listen err: listen tcp 127.0.0.1:7900: bind: address already in use`, ""},
 		{"dns is not the proxy", `Start DNS server error: listen udp 127.0.0.1:1053: bind: address already in use`, ""},
 		{"not a bind", `Start Mixed(http+socks) server error: too many open files`, ""},
 	} {
@@ -400,4 +402,37 @@ func TestProxyPortTaken(t *testing.T) {
 		t.Fatalf("the core should have the port now: %v", err)
 	}
 	c.Close()
+}
+
+// Issue 117: a core that cannot bring the TUN device up says so in one
+// line and goes on; the reason is kept until the device comes up, the
+// config is loaded again or the core starts anew.
+func TestTunErrorFromCoreLog(t *testing.T) {
+	m := &Manager{status: Status{State: Running}}
+	calls := 0
+	m.OnListenError = func() { calls++ }
+	m.noteTunError(`time="2026-11-12T01:08:08Z" level=info msg="[TUN] default interface changed by monitor, => WLAN"`)
+	if got := m.Status().TunError; got != "" || calls != 0 {
+		t.Fatalf("nothing failed: %q, %d calls", got, calls)
+	}
+	m.noteTunError(`time="2026-11-12T01:08:08Z" level=error msg="Start TUN listening error: configure tun interface: Access is denied."`)
+	if got := m.Status().TunError; got != "configure tun interface: Access is denied." || calls != 1 {
+		t.Fatalf("as the core prints it: %q, %d calls", got, calls)
+	}
+	// As streamLogs writes what the controller says of a task's core.
+	m.setTunErr("")
+	m.noteTunError(`level=error msg="Start TUN listening error: create tun: operation not permitted"`)
+	if got := m.Status().TunError; got != "create tun: operation not permitted" {
+		t.Fatalf("from the controller: %q", got)
+	}
+	m.noteTunError(`level=info msg="[TUN] Tun adapter listening at: Meta([198.18.0.1/30],[]), mtu: 9000"`)
+	if got := m.Status().TunError; got != "" {
+		t.Fatalf("the device came up: %q", got)
+	}
+	// A core that is not running has no device to speak of.
+	m.setTunErr("x")
+	m.status = Status{State: Stopped}
+	if got := m.Status().TunError; got != "" {
+		t.Fatalf("stopped: %q", got)
+	}
 }

@@ -44,12 +44,12 @@ func TestSourcesQuiet(t *testing.T) {
 	tt.Frame()
 	tt.Advance(2 * time.Second)
 	toolsShot(t, tt, "sources-quiet")
-	for _, s := range []string{"依赖源", "4 个下载源都通", "查看 ▾"} {
+	for _, s := range []string{"依赖源", "4 个下载源都通", "查看"} {
 		if !tt.HasText(s) {
 			t.Errorf("no %q", s)
 		}
 	}
-	for _, s := range []string{"一键修复", "换源 ▾", "registry.npmmirror.com"} {
+	for _, s := range []string{"一键修复", "换源", "registry.npmmirror.com"} {
 		if tt.HasText(s) {
 			t.Errorf("%q shows before it is asked for", s)
 		}
