@@ -11,6 +11,7 @@ bowel is a <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> client for m
 <p align="center">
   <a href="https://github.com/21stware/bowel/releases/latest"><b>Download</b></a> ·
   <a href="https://bowel.dev/en/">Website</a> ·
+  <a href="https://t.me/+BI3KVgBn7SE3YjVh">Telegram</a> ·
   <a href="README.zh-CN.md">简体中文</a>
 </p>
 
