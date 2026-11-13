@@ -479,7 +479,7 @@ func (u *UI) notice(c *ui.Context, p *pal) {
 				}
 				if id, ok := strings.CutPrefix(is.Action, "fix:"); ok {
 					ui.ButtonBase(c.Key("all-auto")).Shrink(0).Padding(5, 6).Margin(-5, -6).OnClick(func() {
-						u.changePolicy(id, func(q *routes.Policy) { q.Mode, q.Regions, q.Providers = routes.ModeAuto, nil, nil })
+						u.changePolicy(id, func(q *routes.Policy) { q.Mode, q.Regions, q.Providers, q.Nodes = routes.ModeAuto, nil, nil, nil })
 					}).Children(func() {
 						ui.Text(c, i18n.T("改用全部节点自动", "Use all nodes")).FontSize(12.5).FontWeight(600).Underline().TextColor(p.ink).NoWrap()
 					})
@@ -516,7 +516,7 @@ func (u *UI) fixRoute(id string) {
 		return
 	}
 	u.page = "home"
-	u.home.query, u.home.region = "", ""
+	u.home.query, u.home.region, u.home.picking = "", "", ""
 	if id == routes.Default {
 		u.home.x, u.home.sub = "hero", ""
 	} else {

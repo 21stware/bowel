@@ -83,8 +83,26 @@ type Settings struct {
 	// Reading is always allowed. "" is ask.
 	MCPPolicy string `json:"mcpPolicy"`
 
+	// Tailnet is a tailnet the core joins itself, where the Tailscale app
+	// can't run beside bowel: Android lets one app at a time be the VPN.
+	Tailnet Tailnet `json:"tailnet,omitzero"`
+
 	// The core's options, the 设置 window's; their keys sit at this level.
 	core.Options
+}
+
+// Tailnet is the core's own Tailscale: a node of the tailnet that lives in
+// the core (tsnet), with its state in the core's folder.
+type Tailnet struct {
+	On bool `json:"on"`
+	// Hostname is the machine's name on the tailnet; "" leaves it to the
+	// app, which can't read the phone's own name.
+	Hostname string `json:"hostname,omitempty"`
+	// AuthKey logs in without a browser. Once logged in it is not read
+	// again: the state the core keeps is.
+	AuthKey string `json:"authKey,omitempty"`
+	// StateID names the folder of the node's state; a new one logs out.
+	StateID string `json:"stateId,omitempty"`
 }
 
 // Appearances are the choices of Appearance.
@@ -202,7 +220,8 @@ func Decode(b []byte) (Settings, error) {
 // has no business in a configuration carried to another. They are the
 // takeover and the gateway, the ports and the LAN's access, the interface
 // and the TUN device's name, the developer networks, the dashboards'
-// controller, and what agents may change. The rest travels (see the test's
+// controller, what agents may change, and the tailnet node, whose key is
+// this device's. The rest travels (see the test's
 // list of every key).
 func (s *Settings) takeMachine(from Settings) {
 	from = from.Clone()
@@ -214,6 +233,7 @@ func (s *Settings) takeMachine(from Settings) {
 	s.Interface, s.TunDevice = from.Interface, from.TunDevice
 	s.DevOff, s.DevOffScenarios, s.DevExtra = from.DevOff, from.DevOffScenarios, from.DevExtra
 	s.ExtController, s.ExtSecret = from.ExtController, from.ExtSecret
+	s.Tailnet = from.Tailnet
 }
 
 // Portable is s as it is exported: the settings of the machine are the
@@ -355,6 +375,12 @@ func (s Settings) Validate() error {
 	}
 	if u, err := url.Parse(s.TestURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return errors.New(i18n.T("测速地址要是 http 或 https 链接", "The test URL must be an http or https link"))
+	}
+	if strings.ContainsAny(s.Tailnet.Hostname, " \t./\\:") {
+		return errors.New(i18n.T("设备名只能用字母、数字和连字符", "The device name may only have letters, digits and hyphens"))
+	}
+	if k := s.Tailnet.AuthKey; k != "" && !strings.HasPrefix(k, "tskey-") {
+		return errors.New(i18n.T("auth key 以 tskey- 开头", "An auth key starts with tskey-"))
 	}
 	for _, b := range s.Bypass {
 		if strings.ContainsAny(b, " \t,;") {

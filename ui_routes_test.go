@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -736,3 +737,58 @@ func TestRoutesNewServiceInView(t *testing.T) {
 }
 
 func must(r ui.Rect, ok bool) ui.Rect { return r }
+
+// TestPickNodes: 自动最快's range can be nodes ticked by hand. 挑选 lists
+// every node, a click ticks one instead of fixing on it, and once done
+// the list has only the ticked ones (#129).
+func TestPickNodes(t *testing.T) {
+	u := routesFixture()
+	u.selectGroup("ai")
+	u.routes.pol = true
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	if err := tt.Click("挑选…"); err != nil {
+		t.Fatalf("%v: %q", err, tt.Texts())
+	}
+	tt.Advance(100 * time.Millisecond)
+	if !hasTextPart(tt, "勾选的节点就是范围") {
+		t.Errorf("picking: %q", tt.Texts())
+	}
+	a, b := u.snap.Nodes[0], u.snap.Nodes[1]
+	for _, n := range []NodeView{a, b} {
+		if err := tt.Click(n.Display); err != nil {
+			t.Fatal(err)
+		}
+		tt.Advance(100 * time.Millisecond)
+	}
+	q := u.policy("ai")
+	if q.Mode != routes.ModeAuto || !slices.Equal(q.Nodes, []string{a.Name, b.Name}) {
+		t.Fatalf("picked: %+v", q)
+	}
+	shot(t, tt, "routes-auto-picking")
+	if !hasTextPart(tt, "已选 2") {
+		t.Errorf("chip: %q", tt.Texts())
+	}
+	if err := tt.Click("完成"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(100 * time.Millisecond)
+	shot(t, tt, "routes-auto-picked")
+	// The list's rows: each node's name is a text of its own there, where
+	// the rest of the page has it after a flag or a strategy.
+	for _, n := range u.snap.Nodes {
+		if want := n.Name == a.Name || n.Name == b.Name; slices.Contains(tt.Texts(), n.Display) != want {
+			t.Errorf("%s shown: %v", n.Display, !want)
+		}
+	}
+	// A pick that is gone is said.
+	u.changePolicy("ai", func(q *routes.Policy) { q.Nodes = append(q.Nodes, "gone‹x") })
+	tt = ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	if !hasTextPart(tt, "有 1 个已不在订阅里") {
+		t.Errorf("gone: %q", tt.Texts())
+	}
+	if w := u.policyWord(u.route("ai")); !strings.Contains(w, "3 个节点") {
+		t.Errorf("in words: %q", w)
+	}
+}

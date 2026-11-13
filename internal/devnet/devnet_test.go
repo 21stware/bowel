@@ -218,7 +218,7 @@ func TestCompileCatalogAlone(t *testing.T) {
 
 func TestCompileTailscale(t *testing.T) {
 	o := Compile(Options{}, runningEnv())
-	if !slices.Contains(o.Outbounds, Outbound{TailscaleOutbound, "utun4"}) || !slices.Contains(o.Outbounds, Outbound{"VPN-utun5", "utun5"}) {
+	if !slices.Contains(o.Outbounds, Outbound{Name: TailscaleOutbound, Iface: "utun4"}) || !slices.Contains(o.Outbounds, Outbound{Name: "VPN-utun5", Iface: "utun5"}) {
 		t.Errorf("outbounds %+v", o.Outbounds)
 	}
 	for host, target := range map[string]string{
@@ -459,5 +459,42 @@ func TestLocalDNSInOverlay(t *testing.T) {
 	}
 	if a, b := Compile(Options{}, env).Fingerprint(), Compile(Options{}, Env{}).Fingerprint(); a == b {
 		t.Error("a change of the network's servers does not reload the config")
+	}
+}
+
+// The core's own node gets the tailnet's addresses and names, and nothing
+// is kept from the core: no bypass, no fake-ip exception, no TUN exclusion.
+func TestTsnetOverlay(t *testing.T) {
+	o := TsnetOverlay(Tsnet{Hostname: "p"})
+	if len(o.Outbounds) != 1 || o.Outbounds[0].Tsnet == nil || o.Outbounds[0].Name != TailscaleOutbound {
+		t.Fatalf("outbounds %+v", o.Outbounds)
+	}
+	for _, h := range []string{"100.85.4.93", "box.tail17b34.ts.net", "fd7a:115c:a1e0::1"} {
+		if r, ok := o.Match(h); !ok || r.Target != TailscaleOutbound {
+			t.Errorf("%s: %+v %v", h, r, ok)
+		}
+	}
+	if _, ok := o.Match("example.com"); ok {
+		t.Error("example.com matched")
+	}
+	if !o.Covers("IP-CIDR,100.85.0.0/16,x") || !o.Covers("DOMAIN-SUFFIX,box.ts.net,x") {
+		t.Error("Covers")
+	}
+	if len(o.Bypass)+len(o.NoProxy)+len(o.FakeIPFilter)+len(o.TunExclude)+len(o.SniffSkip)+len(o.Policy) > 0 {
+		t.Errorf("keeps something from the core: %+v", o)
+	}
+}
+
+func TestInTailnet(t *testing.T) {
+	for host, want := range map[string]bool{
+		"100.64.0.1": true, "100.127.255.254": true, "100.128.0.1": false, "8.8.8.8": false,
+		"fd7a:115c:a1e0::1": true, "[fd7a:115c:a1e0:ab12::1]": true, "fd7a:115c:a1e1::1": false,
+		"::ffff:100.100.1.2": true,
+		"box.tail1234.ts.net": true, "BOX.TAIL1234.TS.NET.": true, "ts.net": true, "x.beta.tailscale.net": true,
+		"nots.net": false, "example.com": false, "": false,
+	} {
+		if got := InTailnet(host); got != want {
+			t.Errorf("%q: %v", host, got)
+		}
 	}
 }

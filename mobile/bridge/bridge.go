@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -453,6 +452,16 @@ func Call(method, payload string) (string, error) {
 		return "null", x.flushDNS(ctx)
 	case "updateGeo":
 		return "null", x.updateGeo()
+	case "tailnet":
+		return encode(x.tailnet())
+	case "tailnetLogin":
+		d, err := x.tailnetLogin(ctx)
+		if err != nil {
+			return "", err
+		}
+		return encode(d)
+	case "tailnetLogout":
+		return "null", x.tailnetLogout(ctx)
 	}
 	return "", fmt.Errorf("unknown method %q", method)
 }
@@ -489,11 +498,19 @@ func encode(v any) (string, error) {
 func (x *bridge) setMode(ctx context.Context, mode string) error {
 	x.setMu.Lock()
 	defer x.setMu.Unlock()
-	if _, err := x.set.Update(func(s *settings.Settings) { s.Mode = mode }); err != nil {
+	s, err := x.set.Update(func(s *settings.Settings) { s.Mode = mode })
+	if err != nil {
 		return err
 	}
 	if c, _ := x.core(); c != nil {
-		if err := c.Patch(ctx, map[string]any{"mode": mode}); err != nil {
+		// With the tailnet's rules the core stays in rule mode, and the mode
+		// is the list's last line (core.BuildConfig): it takes a new config.
+		if !tailnetOverlay(s.Tailnet).Empty() {
+			err = x.reload(ctx, c)
+		} else {
+			err = c.Patch(ctx, map[string]any{"mode": mode})
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -597,13 +614,13 @@ func (x *bridge) autoUpdate() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	for _, id := range ids {
-		_, _ = x.store.Update(ctx, http.DefaultClient, id)
+		_, _ = x.store.Update(ctx, x.httpClient(), id)
 	}
 	_ = x.applyConfig(ctx)
 }
 
 func (x *bridge) addProvider(ctx context.Context, input string) error {
-	if _, err := x.store.Add(ctx, http.DefaultClient, input); err != nil {
+	if _, err := x.store.Add(ctx, x.httpClient(), input); err != nil {
 		return err
 	}
 	return x.applyConfig(ctx)
@@ -637,6 +654,7 @@ func (x *bridge) writeConfig() error {
 	raw, err := core.BuildConfig(core.Input{
 		Providers: refs, Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders,
 		Mode: s.Mode, Tun: true, LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: probePort, Options: opts,
+		Dev: tailnetOverlay(s.Tailnet),
 	})
 	if err != nil {
 		return err
@@ -661,6 +679,7 @@ func (x *bridge) writeConfig() error {
 		cfg["find-process-mode"] = "off"
 	}
 	delete(cfg, "mixed-port")
+	addTailnetListener(cfg, s.Tailnet)
 	if err := x.lockProbe(cfg); err != nil {
 		return err
 	}
@@ -703,7 +722,7 @@ func (x *bridge) addFile(ctx context.Context, path string) error {
 }
 
 func (x *bridge) updateProvider(ctx context.Context, id string) error {
-	if _, err := x.store.Update(ctx, http.DefaultClient, id); err != nil {
+	if _, err := x.store.Update(ctx, x.httpClient(), id); err != nil {
 		x.push()
 		return err
 	}
@@ -719,7 +738,7 @@ func (x *bridge) updateAll() int {
 		if p.Kind != provider.Subscription || !p.Enabled {
 			continue
 		}
-		if _, err := x.store.Update(ctx, http.DefaultClient, p.ID); err != nil {
+		if _, err := x.store.Update(ctx, x.httpClient(), p.ID); err != nil {
 			failed++
 		}
 	}

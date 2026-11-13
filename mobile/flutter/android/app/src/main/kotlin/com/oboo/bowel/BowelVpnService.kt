@@ -90,7 +90,7 @@ class BowelVpnService : VpnService() {
             process = core
             // Without its TUN the core would run on while the phone's traffic
             // goes nowhere: end it, so the failure shows.
-            val log = CoreLog(File(dir, "core.log")) { core.destroy() }
+            val log = CoreLog(File(dir, "core.log"), File(dir, TAILNET_LOG)) { core.destroy() }
             Thread({ log.readAll(core) }, "bowel-core-log").start()
             sendDescriptor(File(dir, "tunfd.sock"), tun, core)
             waitForController(File(dir, "c.sock"), core)
@@ -219,9 +219,18 @@ class BowelVpnService : VpnService() {
         }
     }
 
-    /** Keeps the core's output for logcat, a file, and the error shown when it dies. */
-    private class CoreLog(file: File, private val onFatal: () -> Unit) {
+    /**
+     * Keeps the core's output for logcat, a file, and the error shown when it
+     * dies. Its Tailscale lines also go to a file of their own, which the
+     * bridge reads for the node's state: the core can't be asked for it. That
+     * file is appended to, so the bridge may empty it.
+     */
+    private class CoreLog(file: File, tailnetFile: File, private val onFatal: () -> Unit) {
         private val writer = FileWriter(file, false)
+        private val tailnet = run {
+            tailnetFile.writeText("")
+            FileWriter(tailnetFile, true)
+        }
         private val last = ArrayDeque<String>()
 
         @Volatile
@@ -243,6 +252,10 @@ class BowelVpnService : VpnService() {
             Log.i(TAG, line)
             writer.appendLine(line)
             writer.flush()
+            if (TAILSCALE in line) {
+                tailnet.appendLine(line)
+                tailnet.flush()
+            }
             last.addLast(line)
             if (last.size > ERROR_LINES) last.removeFirst()
             if (fatal == null && TUN_FAILED in line) {
@@ -255,7 +268,10 @@ class BowelVpnService : VpnService() {
         fun lastLines() = last.joinToString("\n")
 
         @Synchronized
-        private fun close() = writer.close()
+        private fun close() {
+            writer.close()
+            tailnet.close()
+        }
     }
 
     companion object {
@@ -268,6 +284,8 @@ class BowelVpnService : VpnService() {
         private const val NOTIFICATION_ID = 1
         private const val ERROR_LINES = 5
         private const val TUN_FAILED = "Start TUN listening error"
+        private const val TAILSCALE = "[Tailscale]"
+        private const val TAILNET_LOG = "tailnet.log"
         private const val POLL_MS = 100L
         private const val DESCRIPTOR_TIMEOUT_MS = 10_000L
         private const val CONTROLLER_TIMEOUT_MS = 30_000L

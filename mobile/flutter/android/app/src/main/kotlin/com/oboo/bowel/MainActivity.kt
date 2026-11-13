@@ -59,6 +59,7 @@ class MainActivity : FlutterActivity() {
             "pickFile" -> pick(result, documentPicker("*/*"))
             "pickImage" -> pick(result, imagePicker())
             "openVPNSettings" -> openVpnSettings(result)
+            "openURL" -> openUrl(call.argument<String>("url").orEmpty(), result)
             "listApps" -> offMain(result) { launcherApps() }
             else -> result.notImplemented()
         }
@@ -153,6 +154,21 @@ class MainActivity : FlutterActivity() {
             result.success(null)
         } catch (e: ActivityNotFoundException) {
             result.error("settings", e.message, null)
+        }
+    }
+
+    // A page in the browser, such as Tailscale's login: https only.
+    private fun openUrl(url: String, result: MethodChannel.Result) {
+        val uri = Uri.parse(url)
+        if (uri.scheme != "https") {
+            result.error("url", "not an https link", null)
+            return
+        }
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
+            result.success(null)
+        } catch (e: ActivityNotFoundException) {
+            result.error("url", e.message, null)
         }
     }
 

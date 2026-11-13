@@ -87,9 +87,10 @@ func (x *bridge) fileNodes() []string {
 	return out
 }
 
-func inScope(q routes.Policy, provider, country string) bool {
+func inScope(q routes.Policy, name, provider, country string) bool {
 	return (len(q.Providers) == 0 || slices.Contains(q.Providers, provider)) &&
-		(len(q.Regions) == 0 || slices.Contains(q.Regions, country))
+		(len(q.Regions) == 0 || slices.Contains(q.Regions, country)) &&
+		(len(q.Nodes) == 0 || slices.Contains(q.Nodes, name))
 }
 
 // nodeLists are the node lists the config needs for the groups' strategies.
@@ -104,7 +105,7 @@ func (x *bridge) nodeLists(all []routes.Route) (scopes, orders map[string][]stri
 		if q.Scoped() {
 			list := []string{}
 			for _, n := range names {
-				if inScope(q, providerOf(n), placeOf(n).Country) {
+				if inScope(q, n, providerOf(n), placeOf(n).Country) {
 					list = append(list, n)
 				}
 			}
@@ -324,6 +325,9 @@ func (x *bridge) explain(input string) explainData {
 		return explainData{Error: err.Error()}
 	}
 	s := x.set.Get()
+	if r, ok := tailnetOverlay(s.Tailnet).Match(host); ok {
+		return explainData{Rule: r.Text, Name: "Tailscale", Note: i18n.T("走内置 Tailscale：tailnet 的地址和 MagicDNS 名字在所有模式下都走它。", "Goes by the built-in Tailscale: the tailnet's addresses and MagicDNS names go by it in every mode.")}
+	}
 	all := x.routes()
 	id, rule, _, sure := routes.Explain(host, routes.Active(all, s.Rules), all)
 	if !sure {
