@@ -153,7 +153,8 @@ func (a *App) devLoop() {
 			return
 		}
 		a.devSync()
-		if a.tools.ticks++; a.tools.ticks%toolsEvery == 0 {
+		// Without a window nothing shows the tools or the sources.
+		if a.tools.ticks++; a.tools.ticks%toolsEvery == 0 && !a.headless {
 			a.refreshTools()
 			a.probeSources()
 		}

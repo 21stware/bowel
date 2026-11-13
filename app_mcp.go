@@ -186,6 +186,9 @@ var errDenied = errors.New("denied")
 
 // approve lets a change through as the policy says, asking when it is ask.
 func (a *App) approve(ctx context.Context, s *mcp.Session, what words, detail string) error {
+	if isLocal(s) { // the user's own command (app_cli.go): nothing to ask
+		return nil
+	}
 	switch a.settings.Get().Policy() {
 	case "allow":
 		return nil
@@ -220,6 +223,9 @@ func (a *App) change(ctx context.Context, s *mcp.Session, what words, detail str
 		return err
 	}
 	err := do()
+	if isLocal(s) { // the list is of what agents asked for
+		return err
+	}
 	ch := agentChange{At: time.Now(), Client: s.Name(), What: what, Outcome: "applied"}
 	if err != nil {
 		ch.Outcome, ch.Error = "failed", err.Error()
@@ -563,7 +569,7 @@ func (a *App) mcpServer() *mcp.Server {
 						"providers": len(snap.Providers), "activeConnections": t.Active,
 						"traffic":     map[string]int64{"downBps": t.Down, "upBps": t.Up, "todayDown": t.TodayDown, "todayUp": t.TodayUp, "monthDown": t.MonthDown},
 						"agentPolicy": a.settings.Get().Policy(), "version": snap.Version,
-						"ipv6": a.ipv6Report(),
+						"ipv6": a.ipv6Report(), "headless": a.headless,
 					}, nil
 				},
 			},
@@ -994,7 +1000,7 @@ func (a *App) mcpServer() *mcp.Server {
 					if err := mcp.Args(raw, &p); err != nil {
 						return nil, err
 					}
-					patch, err := a.settingsPatch(p.Changes)
+					patch, err := a.settingsPatch(p.Changes, isLocal(s))
 					if err != nil {
 						return nil, err
 					}
@@ -1074,7 +1080,8 @@ func (a *App) ruleFor(kind, target string) (routes.UserRule, error) {
 
 // settingsPatch checks an agent's changes and gives them as JSON to decode
 // onto the settings.
-func (a *App) settingsPatch(changes map[string]json.RawMessage) ([]byte, error) {
+// The policy itself is the user's: local says the user is who asks.
+func (a *App) settingsPatch(changes map[string]json.RawMessage, local bool) ([]byte, error) {
 	if len(changes) == 0 {
 		return nil, errors.New("no changes given")
 	}
@@ -1082,6 +1089,7 @@ func (a *App) settingsPatch(changes map[string]json.RawMessage) ([]byte, error) 
 	ok := editable(st)
 	for k, v := range changes {
 		switch {
+		case k == "mcpPolicy" && local:
 		case slices.Contains(notEditable, k):
 			return nil, fmt.Errorf("%s can't be changed here (%s)", k, map[string]string{
 				"mcpPolicy": "only the user sets it, in Settings > MCP", "rules": "use add_rule and remove_rule",

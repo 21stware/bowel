@@ -117,6 +117,13 @@ type App struct {
 	gwProbing bool
 	gwErr     error
 	upd       updateState
+	// headless: no window, tray or main thread's loop (`bowel daemon`,
+	// app_daemon.go). stop ends such a run.
+	headless bool
+	stop     chan struct{}
+	// watchedAt is when a command last read the connections or the logs,
+	// in Unix seconds: they are polled every second while one watches.
+	watchedAt atomic.Int64
 	dev       devState
 	tools     toolsState
 }
@@ -260,6 +267,7 @@ func (a *App) start() {
 	go a.probeSources()
 	go a.debugDriver()
 	a.startMCP()
+	a.startCLI()
 }
 
 func (a *App) openWindow() {
@@ -367,6 +375,9 @@ func (a *App) pollEvery() time.Duration {
 		return time.Second
 	}
 	if u := a.uiRef(); u != nil && u.panel.win.Load() != nil {
+		return time.Second
+	}
+	if time.Now().Unix()-a.watchedAt.Load() < 5 {
 		return time.Second
 	}
 	return 5 * time.Second
@@ -1040,7 +1051,7 @@ func (a *App) updateSettings(fn func(*settings.Settings)) error {
 		return err
 	}
 	i18n.Set(next.Language)
-	if appearanceOf(next) != appearanceOf(old) {
+	if appearanceOf(next) != appearanceOf(old) && !a.headless {
 		mygo.Theme.SetSource(mygo.ThemeSource(appearanceOf(next)))
 	}
 	if appOnly(old, next) { // the core does not care
