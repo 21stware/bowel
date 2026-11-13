@@ -101,6 +101,74 @@ func TestSkinPick(t *testing.T) {
 	}
 }
 
+// TestMrRobotSkin: 黑客军团 keeps the dark and brings its red, with white
+// on it; it is a terminal, in one face with square corners; its texture is
+// its own; and the main window draws on its near-black paper, which the
+// texture leaves dark.
+func TestMrRobotSkin(t *testing.T) {
+	k := skinByID("mrrobot")
+	if k.id != "mrrobot" || k.fixed() != "dark" {
+		t.Fatalf("skin %q keeps %q", k.id, k.fixed())
+	}
+	s := settings.Defaults.Clone()
+	s.Appearance = "light"
+	skinPick(&s, "mrrobot")
+	if s.Accent != "#E0242B" || appearanceOf(s) != "dark" {
+		t.Errorf("picked: accent %s, appearance %s", s.Accent, appearanceOf(s))
+	}
+	if err := s.Validate(); err != nil {
+		t.Error(err)
+	}
+	p := *k.dark
+	p.setAccent(k.accent)
+	if p.onAccent != ui.Hex("#ffffff") || p.accentLine != p.accent {
+		t.Errorf("on its red: text %v, line %v", p.onAccent, p.accentLine)
+	}
+	if p.font != faceMono || p.display != faceMono || p.round != 0 {
+		t.Errorf("face %q, display %q, round %v", p.font, p.display, p.round)
+	}
+	if p.deco == nil {
+		t.Fatal("no texture")
+	}
+	for _, col := range []ui.Color{p.ink2, p.signal, p.good, p.warn, p.route["default"], p.route["ai"], p.route["media"], p.route["dev"]} {
+		if c := contrast(col, p.paper); c < 4.5 {
+			t.Errorf("%v on its paper is %.2f:1", col, c)
+		}
+	}
+	u := fixtureUI()
+	u.snap.Settings = s
+	tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: true})
+	tt.Frame()
+	// Between the scan lines, in the middle, where the texture is lightest.
+	r, g, b, _ := tt.Image().At(530, 401).RGBA()
+	if q := p.paper; r>>8 > uint32(q.R)+24 || g>>8 > uint32(q.G)+24 || b>>8 > uint32(q.B)+24 {
+		t.Errorf("the main window draws %d %d %d, not on its paper", r>>8, g>>8, b>>8)
+	}
+	// The cursor, bottom right: red half of the time, and all of it for a
+	// desktop that asks for less motion.
+	lit := func(tt *ui.Tester) bool {
+		r, g, _, _ := tt.Image().At(1048, 745).RGBA()
+		return r>>8 > 150 && g>>8 < 90
+	}
+	on := 0
+	for i := 0; i < 4; i++ {
+		tt.Advance(cursorBlink)
+		if lit(tt) {
+			on++
+		}
+	}
+	if on != 2 {
+		t.Errorf("the cursor shows in %d of 4 half blinks", on)
+	}
+	still := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: true, Preferences: ui.Preferences{ReduceMotion: true}})
+	for i := 0; i < 4; i++ {
+		still.Advance(cursorBlink)
+		if !lit(still) {
+			t.Fatal("the cursor blinks for a desktop that asks for less motion")
+		}
+	}
+}
+
 func TestSkinShots(t *testing.T) {
 	if testing.Short() {
 		t.Skip()
