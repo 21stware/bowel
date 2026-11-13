@@ -572,3 +572,32 @@ func TestTunDNSRuleNotAskedWhereRefused(t *testing.T) {
 		t.Errorf("%+v", is)
 	}
 }
+
+// TestTunStackFirewallNote: issue 117's later finding. With ufw's default
+// on, the system and mixed stacks lose the TCP that doesn't use the proxy
+// port, and gVisor doesn't. The TUN entry says so, naming the stack in
+// use and the way to gVisor; the title bar doesn't, since a firewall that
+// lets the device in is fine and can't be read without root.
+func TestTunStackFirewallNote(t *testing.T) {
+	for _, stack := range []string{"mixed", "system"} {
+		if d := tunStackDetail(stack, true); !strings.Contains(d, stack) || !strings.Contains(d, "tunStack gvisor") {
+			t.Errorf("%s behind a firewall: %q", stack, d)
+		}
+		if d := tunStackDetail(stack, false); d != "" {
+			t.Errorf("%s, no firewall: %q", stack, d)
+		}
+	}
+	if d := tunStackDetail("gvisor", true); d != "" {
+		t.Errorf("gvisor behind a firewall: %q", d)
+	}
+	saved := osTun
+	defer func() { osTun = saved }()
+	osTun.needsRule = func(string) bool { return false }
+	a := &App{}
+	a.tunFirewall.Store(true)
+	cs := core.Status{State: core.Running, StartedAt: time.Now().Add(-time.Minute)}
+	on := Takeover{Tun: Entry{Wanted: true, Status: "on"}}
+	if st, is := a.judge(true, settings.Settings{Tun: true, TunStack: "mixed"}, cs, on, Snapshot{Nodes: []NodeView{{Name: "n"}}}, nil); st != StateOK || is != nil {
+		t.Errorf("title bar: state %v, issue %+v", st, is)
+	}
+}
