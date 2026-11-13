@@ -89,7 +89,7 @@ func TestRoutesAddRule(t *testing.T) {
 	u := routesFixture()
 	u.selectGroup("ai")
 	u.routes.svc = "claude"
-	tt := ui.NewTester(u.view, 1060, 860) // room for the exit choice above the services
+	tt := ui.NewTester(u.view, 1060, 884) // room for the exit choice above the services
 	tt.Advance(time.Second)
 
 	typeInto(t, tt, "新规则", "https://chat.example.com/x")
@@ -663,12 +663,12 @@ func TestRoutesOpeningKeepsTheRow(t *testing.T) {
 	u := routesFixture()
 	u.selectGroup("ai")
 	u.routes.svc = "openai"
-	tt := ui.NewTester(u.view, 1060, 760)
+	tt := ui.NewTester(u.view, 1060, 784) // tall enough for Claude's editor once open
 	tt.Advance(time.Second)
 	tt.Wheel(700, 500, 0, 400) // OpenAI's editor above, partly scrolled away
 	tt.Advance(time.Second)
 	before, ok := tt.Find("Claude")
-	if !ok || !inView(before, 760) {
+	if !ok || !inView(before, 784) {
 		t.Fatalf("Claude not in view: %v %v", before, ok)
 	}
 	tt.ClickAt(before.X+before.W/2, before.Y+before.H/2)

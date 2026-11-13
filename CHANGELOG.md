@@ -7,6 +7,7 @@
 ## Unreleased
 
 - Android 上订阅地址在 tailnet 里（`http://100.x.x.x:3002/...`、`机器名.xxx.ts.net`）时，以前添加和更新都会等满 30 秒后报 `context deadline exceeded`，同一链接在手机浏览器里却能打开：bowel 自己不走自己的 VPN，取订阅时直连手机的网络，而只有内置 Tailscale 的节点能到 tailnet。现在开着内置 Tailscale 时，内核多一个只监听 `127.0.0.1`、带密码（和测出口用的端口同一个随机密码，手机上别的应用用不了）的端口，直接通到这个节点，bowel 取 tailnet 里的订阅都走它；其他地址照旧直连。没开内置 Tailscale 或没开 VPN 时立即说明要先打开哪一个，不再干等。用随附的内核在 macOS 上实测过：经这个端口的请求交给了 tsnet 节点，不带密码被拒绝；没有在 Android 真机上实测（#135）
+- 内置的 Claude 服务补上了 Anthropic 的两个域名 `claudemcpclient.com` 和 `claudemcpcontent.com`。以前它们不在列表里，连接会按其他规则走，多半落到默认路由组；现在和 Claude 的其他域名一样走「AI 服务」。已有的配置不用改，更新后自动生效，在「路由组」页 Claude 下面可以单独关掉其中一条
 
 ## [0.4.3] - 2026-11-13
 
