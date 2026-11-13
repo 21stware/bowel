@@ -1,12 +1,19 @@
 package bridge
 
 import (
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/oboo/moho/internal/devnet"
+	"github.com/oboo/moho/internal/mihomo"
 	"github.com/oboo/moho/internal/settings"
+	"gopkg.in/yaml.v3"
 )
 
 // What the core said of its node, as the host keeps it.
@@ -65,5 +72,72 @@ func TestTailnetOverlay(t *testing.T) {
 		if tn.Hostname != defaultHostname || tn.StateDir != "tailscale/ab" {
 			t.Errorf("%+v", tn)
 		}
+	}
+}
+
+// The app is outside its own VPN: a subscription on a tailnet machine is
+// fetched through the core's listener that leads to the node.
+func TestTailnetFetch(t *testing.T) {
+	was := canTailnet
+	canTailnet = true
+	defer func() { canTailnet = was }()
+	x := testBridge(t)
+	proxyOf := func(raw string) (*url.URL, error) {
+		t.Helper()
+		r, _ := http.NewRequest(http.MethodGet, raw, nil)
+		return x.httpClient().Transport.(*http.Transport).Proxy(r)
+	}
+	if u, err := proxyOf("https://example.com/sub"); u != nil || err != nil {
+		t.Errorf("public: %v %v", u, err)
+	}
+	if _, err := proxyOf("http://100.101.1.2:3002/sub"); err == nil || !strings.Contains(err.Error(), "Tailscale") {
+		t.Errorf("node off: %v", err)
+	}
+
+	if _, err := x.set.Update(func(s *settings.Settings) { s.Tailnet.On = true }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := proxyOf("http://box.tail1.ts.net/sub"); err == nil || !strings.Contains(err.Error(), "VPN") {
+		t.Errorf("VPN off: %v", err)
+	}
+
+	if err := x.writeConfig(); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(x.dir, "config.yaml"))
+	type listener struct {
+		Name   string `yaml:"name"`
+		Listen string `yaml:"listen"`
+		Port   int    `yaml:"port"`
+		Proxy  string `yaml:"proxy"`
+		Users  []any  `yaml:"users"`
+	}
+	var cfg struct {
+		Listeners []listener `yaml:"listeners"`
+	}
+	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(cfg.Listeners, func(l listener) bool {
+		return l.Name == tailnetListener
+	})
+	if i < 0 {
+		t.Fatalf("no %s in %+v", tailnetListener, cfg.Listeners)
+	}
+	if l := cfg.Listeners[i]; l.Listen != "127.0.0.1" || l.Port != tailnetPort || l.Proxy != devnet.TailscaleOutbound || len(l.Users) != 1 {
+		t.Errorf("listener = %+v", l)
+	}
+
+	x.client = mihomo.NewUnix(filepath.Join(x.dir, "none.sock")) // the core is up
+	u, err := proxyOf("http://[fd7a:115c:a1e0::1]:3002/sub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pass, _ := x.probeLogin().Password()
+	if got, _ := u.User.Password(); u.Host != "127.0.0.1:"+strconv.Itoa(tailnetPort) || got != pass || pass == "" {
+		t.Errorf("proxy = %v", u)
+	}
+	if u, _ := proxyOf("https://example.com/sub"); u != nil {
+		t.Errorf("public went through the node: %v", u)
 	}
 }

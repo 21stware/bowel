@@ -4,6 +4,10 @@
 它随应用打包，显示在“更新内容”窗口里；`mygo build` 也从这里取升级包的说明，
 签名发布时缺少当前版本的一节会构建失败。发版时把 Unreleased 改成版本号。
 
+## Unreleased
+
+- Android 上订阅地址在 tailnet 里（`http://100.x.x.x:3002/...`、`机器名.xxx.ts.net`）时，以前添加和更新都会等满 30 秒后报 `context deadline exceeded`，同一链接在手机浏览器里却能打开：bowel 自己不走自己的 VPN，取订阅时直连手机的网络，而只有内置 Tailscale 的节点能到 tailnet。现在开着内置 Tailscale 时，内核多一个只监听 `127.0.0.1`、带密码（和测出口用的端口同一个随机密码，手机上别的应用用不了）的端口，直接通到这个节点，bowel 取 tailnet 里的订阅都走它；其他地址照旧直连。没开内置 Tailscale 或没开 VPN 时立即说明要先打开哪一个，不再干等。用随附的内核在 macOS 上实测过：经这个端口的请求交给了 tsnet 节点，不带密码被拒绝；没有在 Android 真机上实测（#135）
+
 ## [0.4.3] - 2026-11-13
 
 - Android 上可以不装官方 Tailscale App 访问 tailnet：在「设置 → Tailscale」打开「内置 Tailscale」，内核里会跑一个 Tailscale 节点（tsnet），`100.64.0.0/10`、`fd7a:115c:a1e0::/48` 和 `*.ts.net` 在规则、全局、直连三种模式下都走它，其余流量照旧。Android 同时只能有一个 VPN，官方 App 和 bowel 本来不能一起开，现在不需要它了。第一次用时点「登录」，在浏览器里批准这台设备（也可以填一次性的 auth key）；登录状态保存在 bowel 的数据目录里，重启和改配置都不用重新登录，「退出登录」会换一个新的状态目录。MagicDNS 的完整名字（`机器名.xxx.ts.net`）可以用，因为名字以 fake-ip 交给节点、由它解析；不带后缀的短名字还不行。ping 100.x 地址不通（tailscale 出站不转发 ICMP），TCP 和 UDP 正常。改配置或切换模式时节点会重启，之后几秒内的第一个连接可能超时。iOS 上不提供：网络扩展的内存放不下第二个网络栈。在一加（Android 16）上实测过：浏览器登录、三种模式下按 100.x 地址和 MagicDNS 名字访问 tailnet 里的电脑、退出登录；用 auth key 登录没有实测（#135）

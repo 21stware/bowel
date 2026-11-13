@@ -9,9 +9,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +39,50 @@ const tailnetProbe = "http://100.100.100.100/"
 // defaultHostname names the phone on the tailnet when the user hasn't: Go
 // on Android can't read the name the phone was given.
 const defaultHostname = "bowel-android"
+
+// tailnetPort is the core's listener that sends all it gets to the node.
+// This app is left out of its own VPN, so its own requests (a subscription
+// on a tailnet machine) reach the tailnet only through here. Like the probe
+// listener it takes the probe's password (lockProbe): any app on the phone
+// can reach 127.0.0.1.
+const tailnetPort = probePort + 1
+
+// tailnetListener is the name of the listener on tailnetPort.
+const tailnetListener = "bowel-tailnet"
+
+// addTailnetListener adds the listener on tailnetPort when the node is on.
+func addTailnetListener(cfg map[string]any, t settings.Tailnet) {
+	if tailnetOverlay(t).Empty() {
+		return
+	}
+	ls, _ := cfg["listeners"].([]any)
+	cfg["listeners"] = append(ls, map[string]any{
+		"name": tailnetListener, "type": "mixed", "listen": "127.0.0.1", "port": tailnetPort,
+		"proxy": devnet.TailscaleOutbound,
+	})
+}
+
+// httpClient is the client for the app's own requests: direct, except to a
+// tailnet machine, which goes through the core's node. Without the node such
+// a request fails at once and says why, instead of waiting out its timeout.
+func (x *bridge) httpClient() *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.Proxy = func(r *http.Request) (*url.URL, error) {
+		if !canTailnet || !devnet.InTailnet(r.URL.Hostname()) {
+			return nil, nil
+		}
+		if !x.set.Get().Tailnet.On {
+			return nil, errors.New(i18n.T("这个地址在 tailnet 里：先在设置里打开内置 Tailscale",
+				"This address is on a tailnet: turn on the built-in Tailscale in Settings first"))
+		}
+		login := x.probeLogin()
+		if c, _ := x.core(); c == nil || login == nil {
+			return nil, errors.New(i18n.T("这个地址在 tailnet 里：先开启 VPN", "This address is on a tailnet: turn the VPN on first"))
+		}
+		return &url.URL{Scheme: "http", User: login, Host: "127.0.0.1:" + strconv.Itoa(tailnetPort)}, nil
+	}
+	return &http.Client{Transport: tr}
+}
 
 // tailnetOverlay is what the core's config takes from the setting.
 func tailnetOverlay(t settings.Tailnet) devnet.Overlay {
