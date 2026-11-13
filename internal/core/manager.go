@@ -4,11 +4,9 @@ package core
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -76,11 +74,6 @@ type Manager struct {
 	// elevated, which a child of the app could not be. Such a core prints
 	// to no one: its log is read from the controller instead.
 	Spawn func(bin string) (Process, error)
-	// Attach, if set, is asked first for a core that is already running,
-	// left by another run of the app, as one the manager can wait for and
-	// end; nil when it is an ordinary process. The other half of Spawn: a
-	// core Spawn started is not the app's to end as a process.
-	Attach func(pid int) Process
 
 	mu        sync.Mutex
 	cmd       Process
@@ -90,11 +83,10 @@ type Manager struct {
 	listenErr string // the proxy port the running core could not open
 	stopping  bool
 	closed    bool // by Close
-	detached  bool // by Detach: the core runs on, and is not this manager's
 	cancel    context.CancelFunc
 
 	// The controller's address: a unix socket, or TCP with a secret on
-	// Windows, kept from run to run (tcpController).
+	// Windows, chosen once per run of the app.
 	socket, tcpAddr, secret string
 
 	logs logRing
@@ -126,43 +118,16 @@ func New(bin, dir string) (*Manager, error) {
 	socket := filepath.Join(dir, "mihomo.sock")
 	// Unix socket paths are limited to ~104 bytes; fall back to TCP.
 	if runtime.GOOS == "windows" || len(socket) > 100 {
-		if err := m.tcpController(); err != nil {
+		port, err := freePort()
+		if err != nil {
 			return nil, err
 		}
+		m.tcpAddr = "127.0.0.1:" + strconv.Itoa(port)
+		m.secret = randomHex(16)
 	} else {
 		m.socket = socket
 	}
 	return m, nil
-}
-
-// controllerFile keeps the TCP controller's address and secret, so that
-// the next run of the app can reach a core this one left running (Detach).
-const controllerFile = "controller.json"
-
-// tcpController chooses the TCP controller's address: the last run's while
-// its core still runs or its port is free, else a new one.
-func (m *Manager) tcpController() error {
-	type saved struct{ Addr, Secret string }
-	path := filepath.Join(m.Dir, controllerFile)
-	var s saved
-	if b, err := os.ReadFile(path); err == nil && json.Unmarshal(b, &s) == nil && s.Addr != "" && s.Secret != "" {
-		free := false
-		if l, err := net.Listen("tcp", s.Addr); err == nil {
-			l.Close()
-			free = true
-		}
-		if free || liveCore(filepath.Join(m.Dir, "mihomo.pid")) != 0 {
-			m.tcpAddr, m.secret = s.Addr, s.Secret
-			return nil
-		}
-	}
-	port, err := freePort()
-	if err != nil {
-		return err
-	}
-	m.tcpAddr, m.secret = "127.0.0.1:"+strconv.Itoa(port), randomHex(16)
-	b, _ := json.Marshal(saved{m.tcpAddr, m.secret})
-	return os.WriteFile(path, b, 0o600)
 }
 
 // ConfigPath is where the runtime config is written.
@@ -310,92 +275,61 @@ func (m *Manager) start() error {
 		m.setStatus(Status{State: Failed, Error: err.Error()})
 		return err
 	}
-	m.endStray()
+	killStale(filepath.Join(m.Dir, "mihomo.pid"))
 	m.setListenErr("")
 	if m.socket != "" {
 		_ = os.Remove(m.socket)
 	}
 	m.setStatus(Status{State: Starting})
 
-	fail := func(err error) error {
-		m.setStatus(Status{State: Failed, Error: err.Error()})
-		return err
-	}
 	var cmd Process
-	var tail *logTail
+	var spawned bool
+	pr, pw := io.Pipe()
 	if m.Spawn != nil {
 		p, err := m.Spawn(m.Bin)
 		if err != nil {
-			return fail(err)
+			pw.Close()
+			m.setStatus(Status{State: Failed, Error: err.Error()})
+			return err
 		}
 		if p != nil {
-			cmd = p
+			cmd, spawned = p, true
 		}
 	}
 	if cmd == nil {
-		// Into a file and not a pipe to the app: a core that outlives the
-		// app (Detach) would be killed by its next line on a pipe no one
-		// reads.
-		f, err := os.OpenFile(m.logPath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_TRUNC, 0o600)
-		if err != nil {
-			return fail(err)
-		}
 		c := exec.Command(m.Bin, "-d", m.Dir, "-f", m.ConfigPath())
 		c.Dir = m.Dir
 		c.Env = m.env()
 		setProcAttr(c)
-		c.Stdout, c.Stderr = f, f
-		err = c.Start()
-		f.Close()
-		if err != nil {
-			return fail(err)
+		c.Stdout, c.Stderr = pw, pw
+		if err := c.Start(); err != nil {
+			pw.Close()
+			m.setStatus(Status{State: Failed, Error: err.Error()})
+			return err
 		}
-		cmd, tail = child{c}, m.newTail(false)
+		cmd = child{c}
 	}
 	_ = os.WriteFile(filepath.Join(m.Dir, "mihomo.pid"), []byte(strconv.Itoa(cmd.Pid())), 0o600)
-	return m.run(cmd, tail)
-}
+	go m.readLogs(pr)
 
-// run takes cmd, a core that has just started or been taken over, as the
-// manager's and waits for its controller. tail reads what the core prints;
-// without one it prints to no one, and its log is read from the controller.
-func (m *Manager) run(cmd Process, tail *logTail) error {
-	var pw *io.PipeWriter
-	if tail == nil {
-		var pr *io.PipeReader
-		pr, pw = io.Pipe()
-		go m.readLogs(pr)
-	}
 	exited := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
 	m.mu.Lock()
 	m.cmd, m.exited, m.cancel = cmd, exited, cancel
 	closed := m.closed
 	m.mu.Unlock()
-	if tail != nil {
-		go tail.follow(ctx)
-	}
 
 	go func() {
 		err := cmd.Wait()
+		pw.Close()
 		cancel()
-		if pw != nil {
-			pw.Close()
-		}
 		// The status changes before exited closes, so that Stop and start
 		// see it once they return.
 		defer close(exited)
 		m.mu.Lock()
-		if m.detached { // no longer this manager's: another's, or gone with it
-			m.mu.Unlock()
-			return
-		}
 		stopping := m.stopping
 		m.cmd, m.client = nil, nil
 		m.mu.Unlock()
-		if tail != nil {
-			tail.read() // its last words, for the message below
-		}
 		_ = os.Remove(filepath.Join(m.Dir, "mihomo.pid"))
 		if stopping {
 			m.setStatus(Status{State: Stopped})
@@ -436,7 +370,7 @@ func (m *Manager) run(cmd Process, tail *logTail) error {
 			m.client = client
 			m.mu.Unlock()
 			m.setStatus(Status{State: Running, Version: v.Version, PID: cmd.Pid(), StartedAt: time.Now()})
-			if pw != nil {
+			if spawned {
 				go m.streamLogs(ctx, client, pw)
 			}
 			if m.OnTraffic != nil { // a stream no one reads costs a decode a second
@@ -501,7 +435,7 @@ func (m *Manager) Stop() {
 		return
 	case <-time.After(stopGrace):
 	}
-	if c, ok := cmd.(interface{ kill() }); ok {
+	if c, ok := cmd.(child); ok {
 		c.kill()
 	} else {
 		cmd.Stop()
@@ -517,188 +451,8 @@ func (m *Manager) Stop() {
 func (m *Manager) Close() {
 	m.mu.Lock()
 	m.closed = true
-	stray := m.cmd == nil && !m.detached
 	m.mu.Unlock()
 	m.Stop()
-	if stray {
-		// A core left by an earlier run that this one never came to start
-		// over or take over: the app's quitting leaves no core behind.
-		m.endStray()
-	}
-}
-
-// endStray ends a core a previous run of the app left behind (after a
-// crash, or of a version this one does not take over), when the pid file
-// still names a mihomo process. It waits for it to be gone, as Stop does:
-// the core that starts next wants the ports this one still holds.
-func (m *Manager) endStray() {
-	pid := liveCore(filepath.Join(m.Dir, "mihomo.pid"))
-	if pid == 0 {
-		return
-	}
-	p, _ := m.attach(pid)
-	p.Stop()
-	if gone(pid, stopGrace) {
-		return
-	}
-	if k, ok := p.(interface{ kill() }); ok {
-		k.kill()
-	} else {
-		p.Stop()
-	}
-	gone(pid, killGrace)
-}
-
-// attach is the running core pid as a Process, and whether it is an
-// ordinary one, which prints to the log file.
-func (m *Manager) attach(pid int) (p Process, plain bool) {
-	if m.Attach != nil {
-		if p := m.Attach(pid); p != nil {
-			return p, false
-		}
-	}
-	return adopted{pid}, true
-}
-
-// gone waits up to d for the process to end, and says whether it did.
-func gone(pid int, d time.Duration) bool {
-	for end := time.Now().Add(d); alive(pid); time.Sleep(20 * time.Millisecond) {
-		if time.Now().After(end) {
-			return false
-		}
-	}
-	return true
-}
-
-// Left is the pid of the core running in dir, as its pid file names it,
-// and 0 when none runs: for telling whether a core that was let go of
-// (Detach) is still there.
-func Left(dir string) int { return liveCore(filepath.Join(dir, "mihomo.pid")) }
-
-// Detach lets go of a running core without ending it, so that the next run
-// of the app can take it over (TakeOver) and nothing it carries is cut:
-// for a restart into a new version. It returns the core's pid, and then the
-// manager is closed as by Close. It returns 0, having changed nothing, when
-// there is no core to leave.
-func (m *Manager) Detach() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closed || m.cmd == nil || m.client == nil || m.status.State != Running {
-		return 0
-	}
-	pid := m.cmd.Pid()
-	m.closed, m.detached = true, true
-	m.cancel()
-	m.cmd, m.client = nil, nil
-	m.status = Status{State: Stopped}
-	return pid
-}
-
-// TakeOver makes the core that a previous run left running (Detach) this
-// manager's, reporting whether it did. pid is the core that run named, and
-// want the version it must state ("" for any): a core of another version
-// than the one this app would start is left to start, which replaces it.
-// Before anything was started.
-func (m *Manager) TakeOver(pid int, want string) bool {
-	m.mu.Lock()
-	busy := m.closed || m.cmd != nil
-	m.mu.Unlock()
-	if busy || pid <= 1 || liveCore(filepath.Join(m.Dir, "mihomo.pid")) != pid {
-		return false
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	c := m.newClient()
-	v, err := c.Version(ctx)
-	if err != nil || proxiesLoaded(ctx, c) != nil || (want != "" && v.Version != want) {
-		return false
-	}
-	m.setListenErr("")
-	p, plain := m.attach(pid)
-	var tail *logTail
-	if plain {
-		tail = m.newTail(true)
-	}
-	return m.run(p, tail) == nil
-}
-
-// logPath is the file the core prints to.
-func (m *Manager) logPath() string { return filepath.Join(m.Dir, "core.log") }
-
-// maxLogFile is the size at which the core's log file is emptied: the
-// last lines are kept in memory, and the file is only how they get here.
-const maxLogFile = 4 << 20
-
-// logTail reads what the core appends to its log file.
-type logTail struct {
-	m    *Manager
-	mu   sync.Mutex
-	off  int64
-	rest []byte // a line not ended yet
-}
-
-// newTail reads the log file from its start, or with fromEnd only what is
-// added from now on.
-func (m *Manager) newTail(fromEnd bool) *logTail {
-	t := &logTail{m: m}
-	if st, err := os.Stat(m.logPath()); err == nil && fromEnd {
-		t.off = st.Size()
-	}
-	return t
-}
-
-func (t *logTail) follow(ctx context.Context) {
-	tick := time.NewTicker(150 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-			t.read()
-		}
-	}
-}
-
-// read takes in the lines added since it last ran.
-func (t *logTail) read() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	path := t.m.logPath()
-	st, err := os.Stat(path)
-	if err != nil {
-		return
-	}
-	if st.Size() < t.off { // emptied
-		t.off, t.rest = 0, nil
-	}
-	if st.Size() == t.off {
-		return
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	buf := make([]byte, min(st.Size()-t.off, 1<<20))
-	n, _ := f.ReadAt(buf, t.off)
-	t.off += int64(n)
-	data := append(t.rest, buf[:n]...)
-	for {
-		i := bytes.IndexByte(data, '\n')
-		if i < 0 {
-			break
-		}
-		line := strings.TrimRight(string(data[:i]), "\r")
-		t.m.logs.add(line)
-		t.m.noteListenError(line)
-		data = data[i+1:]
-	}
-	t.rest = append([]byte(nil), data...)
-	// The core appends, so its next line starts the emptied file.
-	if t.off > maxLogFile && os.Truncate(path, 0) == nil {
-		t.off, t.rest = 0, nil
-	}
 }
 
 // Logs returns the latest lines the core printed.

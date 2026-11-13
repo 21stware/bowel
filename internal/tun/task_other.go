@@ -10,9 +10,6 @@ type Task struct{}
 // Spawn starts nothing here, and says so with a nil task.
 func Spawn(bin string) (*Task, error) { return nil, nil }
 
-// Attach has nothing to attach to here.
-func Attach(bin string, pid int) *Task { return nil }
-
 func (*Task) Pid() int    { return 0 }
 func (*Task) Wait() error { return nil }
 func (*Task) Stop()       {}

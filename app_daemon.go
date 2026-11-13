@@ -107,7 +107,12 @@ func runDaemon([]string) error {
 func (a *App) startHeadless() {
 	a.upd.notify = a.emit
 	a.copyGeo()
-	go a.firstConfig()
+	go func() {
+		a.detectDev(2 * time.Second)
+		if err := a.applyConfig(); err != nil {
+			log.Println("core:", err)
+		}
+	}()
 	go a.loop()
 	go a.devLoop()
 	a.startMCP()

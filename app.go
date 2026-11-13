@@ -62,10 +62,6 @@ type App struct {
 	probePort int
 	gw        *gateway.Gateway
 
-	// handingOver: the quit under way is a restart for an update, which
-	// leaves the core running for the new version (app_handover.go).
-	handingOver atomic.Bool
-
 	setMu     sync.Mutex // serialises updateSettings
 	routesMu  sync.Mutex // guards the two below: see routes
 	routesNow []routes.Route
@@ -174,7 +170,6 @@ func newApp() (*App, error) {
 		return nil, err
 	}
 	cm.Spawn = spawnTun
-	cm.Attach = func(pid int) core.Process { return attachTun(tunBin, pid) }
 	probe, err := core.FreePort()
 	if err != nil {
 		return nil, err
@@ -259,7 +254,12 @@ func (a *App) start() {
 	a.openWindow()
 	a.setupTray()
 	a.copyGeo()
-	go a.firstConfig()
+	go func() {
+		a.detectDev(2 * time.Second)
+		if err := a.applyConfig(); err != nil {
+			log.Println("core:", err)
+		}
+	}()
 	go a.loop()
 	go a.updateLoop()
 	go a.devLoop()
@@ -268,17 +268,6 @@ func (a *App) start() {
 	go a.debugDriver()
 	a.startMCP()
 	a.startCLI()
-}
-
-// firstConfig brings the core up: the one the last version left running
-// for this one, reloaded, else a new one.
-func (a *App) firstConfig() {
-	a.takeOverCore()
-	a.detectDev(2 * time.Second)
-	if err := a.applyConfig(); err != nil {
-		log.Println("core:", err)
-	}
-	a.endHandover()
 }
 
 func (a *App) openWindow() {

@@ -13,13 +13,13 @@ import (
 // signature. When either cannot say, it is not stale: a root copy that
 // works is not to be replaced on a guess.
 func Stale(bundled, installed string) bool {
-	a, b := Version(bundled), Version(installed)
+	a, b := version(bundled), version(installed)
 	return a != "" && b != "" && a != b
 }
 
-// Version is what `mihomo -v` calls the core's version, "" when it cannot
+// version is what `mihomo -v` calls the core's version, "" when it cannot
 // be told: "Mihomo Meta v1.19.33 darwin arm64 with go1.26.10 …".
-func Version(bin string) string {
+func version(bin string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, bin, "-v").Output()

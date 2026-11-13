@@ -2,11 +2,10 @@ package main
 
 // Updating bowel itself. A running program cannot swap its own code, so an
 // update is a new version installed beside this one and a restart into it:
-// mygo.Updater downloads it, checks its signature and puts it in place.
-// The restart's quit hands the core over to the new version where it can
-// (app_handover.go), so that the proxy is never down in between; where it
-// cannot, it is the ordinary quit, which puts the system proxy and the
-// gateway back and ends the core.
+// mygo.Updater downloads it, checks its signature and puts it in place, and
+// the restart goes through the ordinary quit, which puts the system proxy
+// and the gateway back and ends the core. Should the new version not come
+// up, the Mac is left with its own network, not a proxy that is gone.
 
 import (
 	"context"
@@ -227,8 +226,6 @@ func (a *App) restartForUpdate(ctx context.Context, version string) {
 	if err := a.writeUpdateMarker(updateRestart{From: mygo.App.Version(), To: version}); err != nil {
 		log.Println("update:", err) // only the message after the restart is lost
 	}
-	// From here the quit is the restart's, and only that one hands over.
-	a.handingOver.Store(true)
 	osUpdate.relaunch()
 }
 
