@@ -3,14 +3,21 @@
 package main
 
 import (
+	"os/exec"
+	"syscall"
+
 	"github.com/oboo/moho/internal/i18n"
-	"github.com/oboo/moho/internal/nowindow"
 )
 
 // revealFile shows the file at path in Explorer, selected.
+//
+// This is exec.Command on purpose, not nowindow.Command: the flag nowindow
+// sets to keep a console from flashing is read by Explorer as an order to
+// open its window hidden, and the folder comes up as a window that is there
+// but invisible. Explorer is a GUI program and opens no console to hide.
 func revealFile(path string) error {
-	cmd := nowindow.Command("explorer.exe")
-	cmd.SysProcAttr.CmdLine = revealLine(path)
+	cmd := exec.Command("explorer.exe")
+	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: revealLine(path)}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
