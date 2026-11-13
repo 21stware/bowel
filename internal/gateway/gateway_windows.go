@@ -66,3 +66,7 @@ func PrimaryInterface() string {
 	iface, _ := netif.DefaultRoute()
 	return iface
 }
+
+// TunFirewall is Linux's: a firewall here does not filter what comes back
+// on the TUN device.
+func TunFirewall() bool { return false }
