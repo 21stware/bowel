@@ -1,0 +1,59 @@
+# bowel
+
+> bowel is a client for the mihomo proxy core on macOS, Windows, Linux and Android. It routes traffic by purpose (AI services, streaming, development, direct), measures what it claims, and can be driven entirely from a command line (`bowel <command> --json`) or an MCP server. Its gateway mode makes one computer the way out for every other device on the LAN.
+
+Facts an agent needs before acting:
+
+- One program is the app, the command line and the daemon. `bowel` with no command opens the app; `bowel <command>` drives the running one; `bowel daemon` runs it without a window. Paths: `/Applications/bowel.app/Contents/MacOS/bowel` (macOS), `/opt/bowel/bowel` (Linux packages).
+- Every reading command takes `--json`. Exit codes: 0 done, 1 failed (bowel not running, a refused change), 2 a wrong command. `bowel <command> --help` has examples.
+- A daemon with a data folder of its own (`BOWEL_DATA_DIR`, as in the systemd unit) only answers commands that name the same folder.
+- Changes made by an agent are asked of the user first (a dialog in the app). A daemon cannot ask and refuses; only the user can allow them, with `bowel settings set mcpPolicy allow`. Reading never asks. Do not try to get round this.
+- Never invent a subscription link or node; ask the user for theirs.
+
+## Gateway mode: set it up now
+
+Makes this computer (G) the gateway and DNS of other devices on the LAN (a TV, a console, a phone), on macOS and Linux. Not on Windows; not on musl systems (OpenWrt, Alpine).
+
+```bash
+bowel status --json                 # 1. running? "providers" > 0?
+bowel providers add '<link>'        # 2. only if there is none; the link comes from the user
+bowel gateway on                    # 3. turns TUN and the takeover on too; remembered across restarts
+bowel status --json                 # 4. poll until .takeover.gateway.status == "on"
+```
+
+Then read `.takeover.gateway.ip` (G) and tell the user to set, on each device: **router/gateway = G, DNS = G and no second DNS**, keeping the device's own address. Or, for the whole LAN, the router's DHCP options: default gateway = G, DNS = G, with G itself on a fixed address whose gateway stays the real router.
+
+`.takeover.gateway.status`: `on` works · `checking` wait · `paused` run `bowel gateway on` · `install` the user authorizes once in the app, or the daemon runs as root · `error` read `.detail`. Warn the user when `.dhcp` (G's address may change), `.wifi` (slow) or `.firewall` (may block port 53 and forwarding) is true.
+
+Verify: `nslookup example.com G` from any LAN machine answers `198.18.x.x`; `bowel gateway devices --json` lists a device once it has used the gateway. Undo: `bowel gateway off`, then devices back to DHCP.
+
+That is the manual step: only the devices someone points at G use it. The automatic step covers the whole LAN, by bowel handing out the addresses (DHCP) itself. Offer it only if the user wants every device covered:
+
+```bash
+bowel gateway check --json          # .servers: who hands out addresses on the LAN now
+bowel gateway auto                  # only when .servers is empty; refused otherwise
+bowel gateway devices --json        # each device: via "auto" or "manual", online, connections
+bowel gateway manual                # back; the router's DHCP must be on again first
+```
+
+A DHCP server in `.servers` has to be turned off in that router's admin page first. That is the user's to do: say which address it is, and stop. Afterwards `.takeover.gateway.auto.status` is `on`, or `error` with `.detail`. G needs a fixed address for this. On Linux it needs root.
+
+Do not stop bowel, turn the gateway off or go back to manual as a test while automatic is on, or where the router's DHCP hands out G: the whole LAN goes offline. IPv4 only: a device with IPv6 can pass the gateway by.
+
+- [Gateway mode, in full](https://raw.githubusercontent.com/21stware/bowel/main/docs/gateway.md): how it works, the systemd unit for a Linux server, pointing devices, what survives a crash or a restart, troubleshooting by symptom, limits
+
+## Command line
+
+- [README: the command line](https://raw.githubusercontent.com/21stware/bowel/main/README.md): `status`, `on`/`off`, `mode`, `routes`, `route use`, `nodes`, `providers`, `rules`, `conns`, `logs`, `settings`, `tun`, `gateway`, `tui`, `daemon`, `stop`
+- [README（中文）](https://raw.githubusercontent.com/21stware/bowel/main/README.zh-CN.md): the same in Chinese, with installation for each system
+
+## How it works
+
+- [Architecture](https://raw.githubusercontent.com/21stware/bowel/main/docs/architecture.md): providers, routes, rules, the core as a sidecar, TUN, the gateway, MCP, the daemon
+- [Platform parity](https://raw.githubusercontent.com/21stware/bowel/main/docs/platform-parity.md): what each system has, how far each has been tried, and what an authorization leaves behind
+- [Developer networks](https://raw.githubusercontent.com/21stware/bowel/main/docs/dev-network.md): what stays off the proxy (LAN, Tailscale, VPN) and why
+
+## Optional
+
+- [Changelog](https://raw.githubusercontent.com/21stware/bowel/main/CHANGELOG.md): what each version changed, in Chinese
+- [Releases](https://github.com/21stware/bowel/releases/latest): installers for every system

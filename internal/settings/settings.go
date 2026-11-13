@@ -47,6 +47,10 @@ type Settings struct {
 	// set, macOS's are pointed into TUN while it is on (sysdns): settings
 	// saved before this existed take them over too.
 	TunKeepDNS bool `json:"tunKeepSystemDns"`
+	// GatewayAuto: with the gateway on, bowel hands out the LAN's addresses
+	// itself (DHCP), so that every device uses it without being set up.
+	// Without it devices are pointed at the gateway by hand.
+	GatewayAuto bool `json:"gatewayAuto,omitempty"`
 
 	Mode      string   `json:"mode"` // rule, global, direct
 	MixedPort int      `json:"mixedPort"`
@@ -226,6 +230,7 @@ func Decode(b []byte) (Settings, error) {
 func (s *Settings) takeMachine(from Settings) {
 	from = from.Clone()
 	s.SystemProxy, s.Tun, s.Paused, s.Gateway = from.SystemProxy, from.Tun, from.Paused, from.Gateway
+	s.GatewayAuto = from.GatewayAuto
 	s.MixedPort, s.AllowLan = from.MixedPort, from.AllowLan
 	s.MCPPolicy = from.MCPPolicy
 	s.HTTPPort, s.SocksPort, s.ExtraPorts = from.HTTPPort, from.SocksPort, from.ExtraPorts

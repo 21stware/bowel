@@ -57,7 +57,9 @@ func (a *App) gatewayOn(s settings.Settings) bool {
 
 // setGateway turns gateway mode on or off. On needs TUN, so it turns TUN
 // and takeover on too; the first time it asks for an administrator's
-// authorisation, once for TUN and the gateway together.
+// authorisation, once for TUN and the gateway together. From a paused
+// takeover the system proxy stays out of it: a server that is only a
+// gateway has no desktop to set one on, and would show an error for it.
 func (a *App) setGateway(on bool) error {
 	done := a.begin("gateway")
 	defer done()
@@ -66,12 +68,7 @@ func (a *App) setGateway(on bool) error {
 			return err
 		}
 	}
-	if _, err := a.settings.Update(func(s *settings.Settings) {
-		s.Gateway = on
-		if on {
-			s.Tun, s.Paused = true, false
-		}
-	}); err != nil {
+	if _, err := a.settings.Update(func(s *settings.Settings) { wantGateway(s, on) }); err != nil {
 		return err
 	}
 	err := a.afterTakeover()
@@ -82,6 +79,20 @@ func (a *App) setGateway(on bool) error {
 		return err
 	}
 	return a.gatewayErr()
+}
+
+// wantGateway is the switch in the settings. On turns TUN and the takeover
+// on with it; off leaves both as they are.
+func wantGateway(s *settings.Settings, on bool) {
+	s.Gateway = on
+	if !on {
+		s.GatewayAuto = false // the next time starts at manual again
+		return
+	}
+	if s.Paused { // nothing was taken over: only TUN goes on, as with TUN's own switch
+		s.SystemProxy = false
+	}
+	s.Tun, s.Paused = true, false
 }
 
 // prepareGateway gets what the gateway needs root for: TUN's core, and
@@ -134,6 +145,7 @@ func (a *App) syncGateway() {
 	if err != nil {
 		log.Println("gateway:", err)
 	}
+	a.syncDHCP()
 }
 
 func (a *App) gatewayErr() error {
@@ -158,6 +170,8 @@ func (a *App) probeGateway() {
 		pr.dns = sys.AnswersDNS(net.JoinHostPort(pr.net.IP, "53"))
 	}
 	pr.devices = gateway.Devices(a.mon.Sources(), gateway.LocalAddrs())
+	a.updateDevices()
+	a.tendAuto()
 	a.mu.Lock()
 	a.gwProbe = pr
 	a.mu.Unlock()

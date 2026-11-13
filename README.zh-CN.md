@@ -80,7 +80,7 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 ### 其他
 - **自定义规则**：支持按域名、关键词或 IP 段添加分流规则并测试匹配结果；macOS、Windows 和 Linux 上还可以按应用分流。
 - **出口位置实测**：通过 Cloudflare 请求实测节点真实的出口所在地。
-- **网关模式**（macOS、Linux）：支持作为局域网网关为电视、游戏机和手机提供代理服务。
+- **网关模式**（macOS、Linux）：支持作为局域网网关（旁路由）为电视、游戏机和手机提供代理服务。完整说明见 [docs/gateway.md](docs/gateway.md)，人和 agent 都可以照着做。
 - **TUN**（macOS、Windows、Linux）：接管不遵循系统代理设置的应用程序流量。
 - **开发工具**（macOS、Linux）：Docker、终端和 Git 不读系统代理，bowel 列出哪些没有接入，点一下写好它们自己的配置，撤销时原样删除。
 - **下载源**：实测 npm、pip、Go 和 Cargo 的官方源与各个镜像，点一下换源；当前的源连不上时，一键换到最快的那个，或让它重新走节点。

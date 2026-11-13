@@ -119,8 +119,9 @@ func tree() *Command {
 			configCommand(),
 			{Name: "tun", Args: "<on|off>", Min: 1, Max: 1, Choices: onOffChoices, Short: words{"打开或关闭 TUN（接管全部流量）", "Turn TUN on or off (it takes all traffic)"},
 				Examples: []string{"bowel tun on", "bowel tun off"}, Run: runTun},
-			{Name: "gateway", Args: "<on|off>", Min: 1, Max: 1, Choices: onOffChoices, Short: words{"打开或关闭网关模式（让局域网其他设备经这台电脑上网）", "Turn gateway mode on or off (other devices on the LAN go out through this computer)"},
-				Examples: []string{"bowel gateway on", "bowel gateway off"}, Run: runGateway},
+			{Name: "gateway", Args: "<on|off|check|auto|manual|devices>", Min: 1, Max: 1, Choices: []string{"on", "off", "check", "auto", "manual", "devices"},
+				Short:    words{"网关模式（让局域网其他设备经这台电脑上网）：开关、检测 DHCP、自动或手动接入、列出设备", "Gateway mode (other devices on the LAN go out through this computer): on and off, check for DHCP, automatic or manual, list devices"},
+				Examples: []string{"bowel gateway on", "bowel gateway check", "bowel gateway auto", "bowel gateway devices", "bowel gateway off"}, Run: runGateway},
 			{Name: "dns", Short: words{"DNS 相关操作", "Things to do with DNS"}, Sub: []*Command{
 				{Name: "flush", Short: words{"清空内核的 DNS 缓存和 fake-ip 映射", "Clear the core's DNS cache and fake-ip mappings"}, Examples: []string{"bowel dns flush"}, Run: runDNSFlush},
 			}},
@@ -149,13 +150,36 @@ type entry struct {
 }
 
 type takeover struct {
-	On      bool   `json:"on"`
-	System  entry  `json:"system"`
-	Tun     entry  `json:"tun"`
-	Port    int    `json:"port"`
-	Lan     bool   `json:"lan"`
-	LanAddr string `json:"lanAddr"`
-	Gateway entry  `json:"gateway"`
+	On      bool        `json:"on"`
+	System  entry       `json:"system"`
+	Tun     entry       `json:"tun"`
+	Port    int         `json:"port"`
+	Lan     bool        `json:"lan"`
+	LanAddr string      `json:"lanAddr"`
+	Gateway gatewayView `json:"gateway"`
+}
+
+// gatewayView is the gateway: an entry, where it is, and its second step.
+type gatewayView struct {
+	entry
+	IP     string `json:"ip"`
+	Router string `json:"router"`
+	Auto   struct {
+		Wanted  bool     `json:"wanted"`
+		Status  string   `json:"status"`
+		Detail  string   `json:"detail"`
+		Servers []string `json:"servers"`
+		Pool    string   `json:"pool"`
+		Leases  int      `json:"leases"`
+	} `json:"auto"`
+}
+
+// gatewayStep is the gateway's step in a word: manual or automatic.
+func gatewayStep(g gatewayView) string {
+	if g.Auto.Wanted {
+		return i18n.T("自动", "automatic")
+	}
+	return i18n.T("手动", "manual")
 }
 
 type route struct {
@@ -255,7 +279,10 @@ func (c *Ctx) statusFacts(st status) [][]string {
 	}
 	if tk.Gateway.Wanted {
 		gw := entryCell(tk.Gateway.Status, tk.Gateway.Detail)
-		take += " · " + i18n.T("网关", "gateway") + " " + c.paint(gw.color, gw.text)
+		take += " · " + i18n.T("网关", "gateway") + " " + c.paint(gw.color, gw.text) + " (" + gatewayStep(tk.Gateway) + ")"
+		if a := tk.Gateway.Auto; a.Wanted && a.Status == "error" && a.Detail != "" {
+			take += " " + c.paint(red, a.Detail)
+		}
 	}
 	traffic := fmt.Sprintf("↓ %s/s  ↑ %s/s · %s ↓ %s ↑ %s · %s", fmtBytes(st.Traffic.DownBps), fmtBytes(st.Traffic.UpBps),
 		i18n.T("今日", "today"), fmtBytes(st.Traffic.TodayDown), fmtBytes(st.Traffic.TodayUp),
@@ -319,7 +346,7 @@ func (c *Ctx) takeoverNotes(tk takeover) {
 	for _, e := range []struct {
 		name string
 		e    entry
-	}{{i18n.T("系统代理", "system proxy"), tk.System}, {"TUN", tk.Tun}, {i18n.T("网关", "gateway"), tk.Gateway}} {
+	}{{i18n.T("系统代理", "system proxy"), tk.System}, {"TUN", tk.Tun}, {i18n.T("网关", "gateway"), tk.Gateway.entry}} {
 		if !e.e.Wanted || !tk.On || e.e.Status == "on" || e.e.Status == "checking" || e.e.Status == "off" {
 			continue
 		}
@@ -1151,6 +1178,14 @@ func runTun(c *Ctx) error {
 }
 
 func runGateway(c *Ctx) error {
+	switch c.args[0] {
+	case "check":
+		return runGatewayCheck(c)
+	case "auto", "manual":
+		return runGatewayAuto(c, c.args[0] == "auto")
+	case "devices":
+		return runGatewayDevices(c)
+	}
 	on := c.args[0] == "on"
 	var out struct {
 		Changed  bool     `json:"changed"`
@@ -1199,5 +1234,122 @@ func runVersion(c *Ctx) error {
 		return nil
 	}
 	fmt.Fprintln(c.out, "bowel "+c.env.Version)
+	return nil
+}
+
+// gatewayFill is what to type on a device, and where the gateway stands.
+func (c *Ctx) gatewayFill(g gatewayView) {
+	if g.IP != "" {
+		fmt.Fprintf(c.out, "  %s  %s\n  DNS   %s\n", i18n.T("网关", "Router"), g.IP, g.IP)
+	}
+}
+
+func runGatewayCheck(c *Ctx) error {
+	stop := c.spin(i18n.T("正在检测局域网里的 DHCP 服务器…", "Checking the LAN for DHCP servers…"))
+	var out struct {
+		Servers []string    `json:"servers"`
+		Gateway gatewayView `json:"gateway"`
+	}
+	raw, err := c.get("check_dhcp", nil, &out)
+	stop()
+	if err != nil {
+		return err
+	}
+	if c.json {
+		c.printJSON(raw, false)
+		return nil
+	}
+	switch {
+	case len(out.Servers) > 0 && out.Gateway.Auto.Status == "on":
+		fmt.Fprintf(c.out, i18n.T("%s 也在分配地址。两个 DHCP 服务器会抢设备：关掉它的，或执行 `bowel gateway manual`。\n", "%s hands out addresses too. Two DHCP servers fight over devices: turn that one off, or run `bowel gateway manual`.\n"), strings.Join(out.Servers, ", "))
+	case len(out.Servers) > 0:
+		fmt.Fprintf(c.out, i18n.T("当前网络的 DHCP 服务器是 %s。关闭它的 DHCP 服务后，可以用 `bowel gateway auto` 把这台电脑设为内网代理网关。\n", "The DHCP server of this network is %s. Once its DHCP service is off, `bowel gateway auto` makes this computer the LAN's gateway for every device.\n"), strings.Join(out.Servers, ", "))
+	case out.Gateway.Auto.Status == "on":
+		fmt.Fprintln(c.out, i18n.T("只有 bowel 在分配地址。", "Only bowel hands out addresses."))
+	default:
+		fmt.Fprintln(c.out, i18n.T("局域网里没有 DHCP 服务器在应答。可以执行 `bowel gateway auto`：开启后所有内网流量都将通过这台电脑代理。", "No DHCP server answers on the LAN. `bowel gateway auto` is possible: all of the LAN's traffic will then go through this computer."))
+	}
+	return nil
+}
+
+func runGatewayAuto(c *Ctx, on bool) error {
+	var out struct {
+		Changed bool        `json:"changed"`
+		Gateway gatewayView `json:"gateway"`
+	}
+	raw, err := c.get("set_gateway_auto", map[string]any{"enabled": on}, &out)
+	if err != nil {
+		return err
+	}
+	switch {
+	case !out.Changed:
+		c.done(raw, fmt.Sprintf(i18n.T("网关已经是%s", "The gateway is %s already"), gatewayStep(out.Gateway)))
+	case on:
+		c.done(raw, i18n.T("已设为内网代理网关：所有内网流量都将通过这台电脑代理", "This computer is now the LAN's gateway: all of the LAN's traffic goes through it"))
+		if !c.json && out.Gateway.Auto.Pool != "" {
+			fmt.Fprintf(c.out, "  %s %s\n", i18n.T("新设备的地址从", "New devices get addresses from"), out.Gateway.Auto.Pool)
+		}
+	default:
+		c.done(raw, i18n.T("已退回手动。从这里领到地址的设备，要等别的 DHCP 服务器打开后才能上网", "Back to manual. Devices that got their address here need another DHCP server on to get out again"))
+		if !c.json {
+			c.gatewayFill(out.Gateway)
+		}
+	}
+	return nil
+}
+
+func runGatewayDevices(c *Ctx) error {
+	var out struct {
+		Devices []struct {
+			IP     string    `json:"ip"`
+			MAC    string    `json:"mac"`
+			Name   string    `json:"name"`
+			Via    string    `json:"via"`
+			Online bool      `json:"online"`
+			Conns  int       `json:"conns"`
+			Down   int64     `json:"down"`
+			Up     int64     `json:"up"`
+			Seen   time.Time `json:"seen"`
+		} `json:"devices"`
+		Gateway gatewayView `json:"gateway"`
+	}
+	raw, err := c.get("list_devices", nil, &out)
+	if err != nil {
+		return err
+	}
+	if c.json {
+		c.printJSON(raw, false)
+		return nil
+	}
+	if !out.Gateway.Wanted {
+		fmt.Fprintln(c.out, i18n.T("网关没有打开。", "The gateway is off."))
+		return nil
+	}
+	if len(out.Devices) == 0 {
+		fmt.Fprintln(c.out, i18n.T("还没有设备经过这里。", "No device has come through yet."))
+		c.gatewayFill(out.Gateway)
+		return nil
+	}
+	var rows [][]cell
+	for _, d := range out.Devices {
+		st := cell{i18n.T("离线", "offline"), gray}
+		if d.Online {
+			st = cell{i18n.T("在线", "online"), green}
+		}
+		via := i18n.T("手动", "manual")
+		if d.Via == "auto" {
+			via = i18n.T("自动", "automatic")
+		}
+		name := d.Name
+		if name == "" {
+			name = "—"
+		}
+		seen := "—"
+		if !d.Seen.IsZero() {
+			seen = d.Seen.Local().Format("01-02 15:04")
+		}
+		rows = append(rows, []cell{st, t(name), t(d.IP), t(d.MAC), t(via), t(fmt.Sprint(d.Conns)), t("↓" + fmtBytes(d.Down) + " ↑" + fmtBytes(d.Up)), t(seen)})
+	}
+	c.table([]string{i18n.T("状态", "State"), i18n.T("设备", "Device"), i18n.T("地址", "Address"), "MAC", i18n.T("接入", "Via"), i18n.T("连接", "Conns"), i18n.T("流量", "Traffic"), i18n.T("最近", "Last seen")}, rows)
 	return nil
 }

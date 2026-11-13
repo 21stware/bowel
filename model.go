@@ -42,8 +42,10 @@ type Snapshot struct {
 	Issue *Issue `json:"issue,omitempty"`
 	Core  Core   `json:"core"`
 	// Mode is "rule", "global" or "direct".
-	Mode      string         `json:"mode"`
-	Takeover  Takeover       `json:"takeover"`
+	Mode     string   `json:"mode"`
+	Takeover Takeover `json:"takeover"`
+	// Devices are the other devices that use the gateway.
+	Devices   []DeviceView   `json:"devices,omitempty"`
 	Routes    []RouteView    `json:"routes"`
 	Nodes     []NodeView     `json:"nodes"`
 	Exit      *Exit          `json:"exit,omitempty"`
@@ -183,6 +185,56 @@ type GatewayView struct {
 	Awake      bool `json:"awake"`
 	// Devices is how many other devices have connections through bowel.
 	Devices int `json:"devices"`
+	// Auto is the step after manual: bowel hands out the LAN's addresses,
+	// so every device comes here by itself.
+	Auto AutoView `json:"auto"`
+}
+
+// AutoView is the gateway handing out addresses (DHCP), as it is.
+type AutoView struct {
+	// Supported: this system, run like this, can probe for and serve DHCP.
+	Supported bool `json:"supported"`
+	Wanted    bool `json:"wanted"`
+	// Status: off, on, or error (wanted, and not serving: Detail says why).
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
+	// Servers are the other DHCP servers the last check found on the LAN;
+	// while there is one, bowel must not start its own.
+	Servers  []string  `json:"servers"`
+	Checked  time.Time `json:"checked,omitzero"`
+	Checking bool      `json:"checking,omitempty"`
+	// CheckError is why the last check could not be made.
+	CheckError string `json:"checkError,omitempty"`
+	// Pool is the range new devices get addresses from, and Leases how
+	// many hold one now.
+	Pool   string `json:"pool,omitempty"`
+	Leases int    `json:"leases"`
+}
+
+// DeviceView is another device on the LAN that uses the gateway.
+type DeviceView struct {
+	IP   string `json:"ip"`
+	MAC  string `json:"mac,omitempty"`
+	Name string `json:"name,omitempty"`
+	// Via: "auto" has its address from bowel, "manual" was pointed here on
+	// the device itself.
+	Via    string `json:"via"`
+	Online bool   `json:"online"`
+	// Conns are its open connections; Down and Up what the connections
+	// bowel still remembers carried.
+	Conns  int           `json:"conns"`
+	Down   int64         `json:"down"`
+	Up     int64         `json:"up"`
+	Seen   time.Time     `json:"seen,omitzero"`
+	Events []DeviceEvent `json:"events"`
+}
+
+// DeviceEvent is a device coming or going, newest first in a list.
+type DeviceEvent struct {
+	At time.Time `json:"at"`
+	// Kind is "on" or "off".
+	Kind string `json:"kind"`
+	Note string `json:"note,omitempty"`
 }
 
 // RouteView is a kind of traffic and where it goes now.
