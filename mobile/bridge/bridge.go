@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -615,13 +614,13 @@ func (x *bridge) autoUpdate() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	for _, id := range ids {
-		_, _ = x.store.Update(ctx, http.DefaultClient, id)
+		_, _ = x.store.Update(ctx, x.httpClient(), id)
 	}
 	_ = x.applyConfig(ctx)
 }
 
 func (x *bridge) addProvider(ctx context.Context, input string) error {
-	if _, err := x.store.Add(ctx, http.DefaultClient, input); err != nil {
+	if _, err := x.store.Add(ctx, x.httpClient(), input); err != nil {
 		return err
 	}
 	return x.applyConfig(ctx)
@@ -680,6 +679,7 @@ func (x *bridge) writeConfig() error {
 		cfg["find-process-mode"] = "off"
 	}
 	delete(cfg, "mixed-port")
+	addTailnetListener(cfg, s.Tailnet)
 	if err := x.lockProbe(cfg); err != nil {
 		return err
 	}
@@ -722,7 +722,7 @@ func (x *bridge) addFile(ctx context.Context, path string) error {
 }
 
 func (x *bridge) updateProvider(ctx context.Context, id string) error {
-	if _, err := x.store.Update(ctx, http.DefaultClient, id); err != nil {
+	if _, err := x.store.Update(ctx, x.httpClient(), id); err != nil {
 		x.push()
 		return err
 	}
@@ -738,7 +738,7 @@ func (x *bridge) updateAll() int {
 		if p.Kind != provider.Subscription || !p.Enabled {
 			continue
 		}
-		if _, err := x.store.Update(ctx, http.DefaultClient, p.ID); err != nil {
+		if _, err := x.store.Update(ctx, x.httpClient(), p.ID); err != nil {
 			failed++
 		}
 	}
