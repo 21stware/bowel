@@ -54,6 +54,9 @@ type App struct {
 	ruleSets  *ruleset.Store
 	core      *core.Manager
 	mon       *monitor.Monitor
+	revive    *reviver // starts a core that quit by itself
+	auto      gwAuto   // the gateway handing out addresses
+	devs      devices  // the devices that use the gateway
 	loc       *locate.Locator
 	http      *http.Client
 	coreBin   string      // the bundled core
@@ -190,6 +193,8 @@ func newApp() (*App, error) {
 	a.mon.SkipGroup = core.ProbeGroup // the location probe's own traffic
 	a.mon.FindProcess = procinfo.New().Find
 	a.mon.Every = a.pollEvery
+	a.devs.path = filepath.Join(data, "gateway-devices.json")
+	a.revive = &reviver{state: func() core.State { return cm.Status().State }, quitting: a.isQuitting, apply: a.applyConfig, sleep: time.Sleep}
 	cm.OnStatus = func(s core.Status) { a.onCoreStatus(s) }
 	cm.OnListenError = func() { a.emit() }
 	a.mon.OnTick(a.onTick)
@@ -492,6 +497,9 @@ func (a *App) refresh() {
 }
 
 func (a *App) onCoreStatus(s core.Status) {
+	if a.revive != nil {
+		a.revive.note(s)
+	}
 	a.mu.Lock()
 	if a.monCancel != nil {
 		a.monCancel()
@@ -1895,6 +1903,10 @@ func (a *App) snapshot() Snapshot {
 		tk.LanAddr = lanAddr(s.MixedPort)
 	}
 	tk.Gateway = gatewayView(s, on, tk.Tun.Status, a.gw.System().Ready(), a.gw.Awake(), gwp, gwErr)
+	tk.Gateway.Auto = a.autoView(s, tk.Gateway.Status == "on")
+	if s.Gateway {
+		snap.Devices = a.devs.view(a.mon.Conns())
+	}
 	snap.Takeover = tk
 	snap.Dev = a.devReport(s, tk.Tun.Status == "on")
 	snap.Tools = a.toolsView()

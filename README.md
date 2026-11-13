@@ -66,7 +66,7 @@ Six skins that change the look of the whole interface.
 ### Other
 - **Custom rules**: Route specific domains, keywords, or IP ranges, and test where addresses go.
 - **Measured exit locations**: Verify true exit locations through Cloudflare trace.
-- **Gateway mode** (macOS, Linux): Turn this computer into a LAN gateway for devices like TVs and consoles.
+- **Gateway mode** (macOS, Linux): Turn this computer into a LAN gateway for devices like TVs and consoles. The full guide, for people and agents, is [docs/gateway.md](docs/gateway.md).
 - **TUN** (macOS, Windows, Linux): Intercept traffic from applications that ignore system proxy settings.
 - **Developer tools** (macOS, Linux): Docker, the terminal and Git ignore the system proxy. bowel lists which ones aren't connected, writes their own config in one click, and removes it cleanly when you undo.
 - **Download sources**: Measures the official source and each mirror for npm, pip, Go and Cargo, and switches in one click. When the current source stops answering, one click moves you to the fastest one that does, or sends it through a node again.

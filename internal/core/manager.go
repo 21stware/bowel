@@ -75,6 +75,11 @@ type Manager struct {
 	// to no one: its log is read from the controller instead.
 	Spawn func(bin string) (Process, error)
 
+	// applyMu makes Apply one at a time: two at once share the file the
+	// next config is written to, and one would rename it from under the
+	// other (a command that arrives while the first config is applied).
+	applyMu sync.Mutex
+
 	mu        sync.Mutex
 	cmd       Process
 	exited    chan struct{}
@@ -232,6 +237,8 @@ func (m *Manager) Check(cfg []byte) error {
 // Apply writes cfg as the runtime config and makes the core use it:
 // a running core reloads it, a stopped one starts.
 func (m *Manager) Apply(cfg []byte) error {
+	m.applyMu.Lock()
+	defer m.applyMu.Unlock()
 	tmp := filepath.Join(m.Dir, "config.next.yaml")
 	if err := os.WriteFile(tmp, cfg, 0o600); err != nil {
 		return err

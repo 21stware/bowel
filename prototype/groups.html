@@ -197,6 +197,26 @@ canvas.spark { width: 100%; height: 44px; display: block; margin-top: 10px; }
 .toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: left .15s; }
 .toggle.on { background: var(--good); } .toggle.on::after { left: 16px; }
 .toggle.busy { opacity: .6; }
+.toggle.held { opacity: .4; cursor: default; }
+.toggle.wait { background: color-mix(in srgb, var(--good) 45%, var(--hair)); } .toggle.wait::after { left: 16px; }
+/* ---------- gateway: other devices, in 接管 ---------- */
+.three .entry { padding: 3px 0; } .three .entry .w { font-size: 18.5px; }
+.gw-kv { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 5px 12px; align-items: center; font-size: 12px; margin-top: 5px; }
+.gw-kv > span:nth-child(3n+1) { color: var(--mute); }
+.gw-next { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 0 12px; align-items: center; font-size: 12px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--hair); }
+.gw-next > span:first-child { color: var(--mute); align-self: start; padding-top: 1px; }
+.gw-next .t { line-height: 1.5; } .gw-next .t b { font-weight: 600; } .gw-next .t small { display: block; font-size: 11.5px; color: var(--mute); }
+.gw-next .t.good b { color: var(--good); } .gw-next .t.warn b { color: var(--signal); }
+.gw-next .act { display: flex; gap: 6px; }
+.gw-next .btn.go { background: var(--ink); color: var(--paper); box-shadow: none; font-weight: 600; }
+/* ---------- 日志 > 设备 ---------- */
+.gd { display: grid; grid-template-columns: 12px 1.3fr 120px 86px 1.3fr 90px 14px; gap: 12px; align-items: center; padding: 9px 4px; border-bottom: 1px solid var(--hair-2); font-size: 12px; cursor: pointer; }
+.gd:hover { background: var(--hover); } .gd.head { cursor: default; color: var(--mute); font-size: 10.5px; letter-spacing: .08em; font-weight: 600; } .gd.head:hover { background: none; }
+.gd .st { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); } .gd.up .st { background: var(--good); }
+.gd .nm { font: 600 15px/1.2 var(--serif); } .gd:not(.up):not(.head) .nm { color: var(--mute); }
+.gd-log { background: var(--paper-2); padding: 8px 18px 12px 28px; border-bottom: 1px solid var(--hair); font: 11.5px/1.5 var(--mono); }
+.gd-log div { display: grid; grid-template-columns: 96px 44px 1fr; gap: 12px; padding: 3px 0; }
+.gd-log .on { color: var(--good); font-weight: 700; } .gd-log .off { color: var(--mute); font-weight: 700; }
 .rlist .rr { display: grid; grid-template-columns: 10px 90px 1fr 190px 70px 60px 14px; gap: 14px; align-items: center; padding: 11px 6px; border-bottom: 1px solid var(--hair-2); border-radius: 6px; }
 .rlist .rr:hover { background: var(--hover); }
 .rr .rn { font: 700 16px var(--serif); }
@@ -752,16 +772,33 @@ const LOGS = [
 ];
 const EVENTS = [["Arc → googlevideo.com", "流媒体 · 新加坡 01"], ["Claude → api.anthropic.com", "AI 服务 · 洛杉矶 VPS"], ["git → github.com:22", "开发 · 东京 01"], ["WeChat → weixin.qq.com", "直连"], ["Slack → wss.slack.com", "默认 · 香港 03 IPLC"], ["npm → registry.npmjs.org", "开发 · 东京 01"]];
 
+// Devices that use the gateway, for 日志 > 设备. via: how it got here,
+// "hand" (the gateway typed in on the device) or "lan" (an address from
+// bowel). log: when it came and went, newest first.
+const GW_DEVICES = [
+  { id: "tv", name: "客厅电视", ip: "192.168.1.31", via: "lan", up: true, now: "3 个连接 · Netflix", today: "6.1 GB", log: [["今天 19:42", "on", "上线 · 从 bowel 领到 192.168.1.31"], ["今天 01:10", "off", "离线 · 租约到期没有续"], ["昨天 18:03", "on", "上线"]] },
+  { id: "ns", name: "Switch", ip: "192.168.1.32", via: "lan", up: true, now: "1 个连接 · nintendo.net", today: "820 MB", log: [["今天 20:15", "on", "上线"], ["今天 12:31", "off", "离线"]] },
+  { id: "ph", name: "阿包的 iPhone", ip: "192.168.1.40", via: "hand", up: true, now: "7 个连接 · ChatGPT", today: "1.3 GB", log: [["今天 08:02", "on", "上线 · 第一次经过这里"]] },
+  { id: "mi", name: "卧室小米电视", ip: "192.168.1.33", via: "lan", up: false, now: "离线 2 小时", today: "3.4 GB", log: [["今天 20:40", "off", "离线 · 5 分钟没有流量"], ["今天 17:22", "on", "上线"]] },
+  { id: "nas", name: "NAS", ip: "192.168.1.10", via: "lan", up: true, now: "没有连接", today: "210 MB", log: [["3 天前", "on", "上线"]] },
+  { id: "pr", name: "打印机", ip: "192.168.1.52", via: "lan", up: false, now: "离线 3 天", today: "—", log: [["3 天前", "off", "离线"]] },
+];
+
 const S = {
   page: "home", state: "ok", mode: "rule", entries: { sys: true, tun: false }, tunInstalled: false, lan: false, dark: false,
   pending: {}, x: null, sub: null, pendingNode: null,
   nd: { region: "all", q: "" },
-  act: { tab: "conn", q: "", status: "active", route: "all", app: "all", net: "all", sort: ["rate", -1], paused: false, open: 8, armed: false, lv: "all" },
+  act: { dst: "all", dopen: null, tab: "conn", q: "", status: "active", route: "all", app: "all", net: "all", sort: ["rate", -1], paused: false, open: 8, armed: false, lv: "all" },
   prov: { open: "a" },
   devView: "real",
   dev: { quit: null, list: false, open: null, ask: null, word: "", armed: false, items: [] },
   set: { open: false, sec: "general", group: "default", pol: false, polIn: false, reveal: false, svc: null, armed: null, err: "", draft: null, sdraft: null, serr: "", focus: null, text: "", kind: "", rerr: "", conflict: null, test: "api.anthropic.com", delTo: "default" },
   sim: { down: null, la: null, jp: false }, notice: null,
+  // Three steps up: off → on (manual: devices are pointed here one by one)
+  // → auto (bowel hands out the addresses, so every device comes here).
+  // router: whether the router's DHCP is on (the demo's switch); dhcp: what
+  // the last check found.
+  gw: { on: false, router: true, dhcp: "other", auto: false, ask: false },
 };
 let hist = Array.from({ length: 80 }, (_, i) => sample(i)), tickN = 80;
 function sample(i) {
@@ -1180,9 +1217,10 @@ const VIEWS = {
 
   takeover() {
     const sysOn = S.entries.sys && S.state !== "off", tunOn = S.entries.tun && S.state !== "off";
-    const names = [sysOn && "系统代理", tunOn && "TUN"].filter(Boolean);
+    const gwOn = S.gw.on && tunOn;
+    const names = [sysOn && "系统代理", tunOn && "TUN", gwOn && "网关"].filter(Boolean);
     return {
-      normal: `<div class="pad"><span class="hint">展开</span><div class="kicker" data-m="k-takeover">接管</div><div style="margin-top:6px">${entryWord("sys", "系统代理")}${entryWord("tun", "TUN")}</div></div>`,
+      normal: `<div class="pad three"><span class="hint">展开</span><div class="kicker" data-m="k-takeover">接管</div><div style="margin-top:4px">${entryWord("sys", "系统代理")}${entryWord("tun", "TUN")}${gwWord()}</div></div>`,
       compact: (v) => cmp(v, "takeover", "接管", names.length ? names.join(" + ") : "未接管", {
         cls: (busy("entry:sys") || busy("entry:tun") ? "shimmer " : "") + (S.state === "error" ? "bad" : ""),
         sub: S.state === "error" ? "被其他程序改掉了" : names.length ? "生效中" : "",
@@ -1197,7 +1235,8 @@ const VIEWS = {
         <div class="dsec"><h4><span data-m="tk-tun">TUN</span><small>所有应用，包括不认系统代理的</small></h4>
           <div class="kv"><span>状态</span><span>${busy("entry:tun") ? `<span class="shimmer">${S.tunInstalled ? "正在启用…" : "正在安装提权服务，请在系统弹窗中确认…"}</span>` : tunOn ? '<b style="color:var(--good)">生效中</b> · utun9' : S.tunInstalled ? "未使用" : "未使用 · 需要先安装一次提权服务"}</span>
             <span>协议栈</span><span>mixed（gVisor + system）</span><span>DNS</span><span>劫持 53 端口 · fake-ip</span></div>
-          <button class="toggle ${tunOn ? "on" : ""} ${busy("entry:tun") ? "busy" : ""}" data-entry="tun"></button></div>
+          <button class="toggle ${tunOn ? "on" : ""} ${busy("entry:tun") ? "busy" : ""} ${gwOn ? "held" : ""}" ${gwOn ? 'title="网关在用，先关网关"' : 'data-entry="tun"'}></button></div>
+        ${gwSection(gwOn)}
         <div class="dsec"><h4>本地端口<small>给手动配置的应用用</small></h4>
           <div class="kv"><span>混合端口</span><span class="num">7899 · HTTP 和 SOCKS5</span><span>局域网</span><span>${S.lan ? "允许 · 192.168.1.23:7899" : "不允许"}</span></div>
           <button class="toggle ${S.lan ? "on" : ""}" data-lan></button></div>
@@ -1346,6 +1385,70 @@ function nodePicker(rid) {
   const list = tabbed(NODES.filter((n) => !gone(n))).sort(byMs);
   const note = r.broken ? `<span class="nope">${node(r.node).name} 不通。固定节点不会自动切换，换一个能用的。</span>` : "";
   return `${toolRow(rid, true)}${note ? noteP(note) : ""}${picks(list, "✓")}${list.length ? "" : `<div class="muted" style="padding:26px 6px;font-size:12.5px">没有符合条件的节点</div>`}`;
+}
+
+// The gateway's line in the 接管 cell: no switch, the step in a word.
+// A click opens the cell, where it is set up.
+function gwWord() {
+  const g = S.gw, on = g.on && S.entries.tun && S.state !== "off";
+  const text = busy("gw") ? '<span class="shimmer">正在打开…</span>' : `<i></i>${!on ? "关闭" : g.auto ? "自动" : "手动"}`;
+  return `<button class="entry ${on ? "on" : ""}" data-expand="takeover"><span class="w">网关</span><span class="s">${text}</span></button>`;
+}
+
+// The gateway in 接管's detail. On is manual: the two values to type on a
+// device. Under them, one line says what stands between here and automatic.
+function gwSection(on) {
+  const g = S.gw, G = "192.168.1.23", R = "192.168.1.1";
+  const status = busy("gw") ? '<span class="shimmer">正在打开，会同时打开 TUN…</span>' : !on ? "未使用"
+    : `<b style="color:var(--good)">生效中</b> · ${g.auto ? "自动" : "手动"}`;
+  let body = "";
+  if (on) {
+    const row = (cls, head, sub, act) => `<div class="gw-next"><span>内网代理</span><div class="t ${cls}"><b>${head}</b><small>${sub}</small></div><div class="act">${act}</div></div>`;
+    const next = g.ask ? row("warn", "关闭后，从这里领到地址的设备会断网", "直到路由器的 DHCP 重新打开", '<button class="btn" data-gw-ask="no">取消</button><button class="btn danger" data-gw-ask="yes">仍然关闭</button>')
+      : g.auto ? row("good", "已开启", '所有内网流量都通过本服务代理 · <u style="cursor:pointer" data-acttab="dev">查看设备</u>', '<button class="btn" data-gw-auto="off">关闭</button>')
+      : busy("gwauto") ? row("", '<span class="shimmer">正在开启…</span>', "启动地址分配，检查网关可达", "")
+      : g.dhcp === "other" ? row("", `DHCP 服务器 <span class="num">${R}</span>`, "关闭它的 DHCP 后，可以将当前服务设为内网代理网关", `<button class="btn" data-gw-check>${busy("gwcheck") ? '<span class="shimmer">检测中…</span>' : "重新检测"}</button>`)
+      : row("", "当前服务可以设为内网代理网关", "开启后所有内网流量都将通过本服务代理", '<button class="btn go" data-gw-auto="on">确认开启</button>');
+    body = `<div class="gw-kv"><span>网关</span><b class="num">${G}</b><button class="btn">复制</button><span>DNS</span><b class="num">${G}</b><button class="btn">复制</button></div>${next}`;
+  }
+  return `<div class="dsec"><h4>网关<small>局域网里的其他设备</small></h4>
+    <div><div class="kv"><span>状态</span><span>${status}</span></div>${body}</div>
+    <button class="toggle ${on || busy("gw") ? "on" : ""} ${busy("gw") ? "busy" : ""}" data-gw></button></div>`;
+}
+
+// gwAct is every click in the gateway's section.
+function gwAct(d) {
+  const g = S.gw;
+  const check = () => { g.dhcp = g.router ? "other" : "free"; };
+  if (d.gw !== undefined) {
+    if (!g.on || !S.entries.tun) return apply("gw", 1100, () => { S.tunInstalled = true; S.entries.tun = true; g.on = true; g.auto = false; check(); });
+    if (g.auto) g.ask = "off"; else g.on = false;
+  }
+  else if (d.gwCheck !== undefined) return apply("gwcheck", 900, check);
+  else if (d.gwAuto === "on") return apply("gwauto", 1500, () => { g.auto = true; });
+  else if (d.gwAuto === "off") g.ask = "auto";
+  else if (d.gwAsk) { if (d.gwAsk === "yes") { g.auto = false; if (g.ask === "off") g.on = false; check(); } g.ask = false; }
+  else if (d.gwSt) S.act.dst = d.gwSt;
+  else if (d.gwOpen) S.act.dopen = S.act.dopen === d.gwOpen ? null : d.gwOpen;
+  render();
+}
+
+// 日志 > 设备: who uses the gateway, and when each came and went.
+function deviceRows() {
+  const a = S.act, g = S.gw;
+  const list = GW_DEVICES.filter((v) => (g.auto || v.via === "hand") && (a.dst === "all" || (a.dst === "up") === v.up) && (!a.q || (v.name + v.ip).toLowerCase().includes(a.q.toLowerCase())));
+  const rows = list.map((v) => `<div class="gd ${v.up ? "up" : ""}" data-gw-open="${v.id}"><i class="st"></i><span class="nm">${v.name}</span><span class="num">${v.ip}</span><span>${v.via === "hand" ? "手动" : "自动"}</span><span class="muted">${v.now}</span><span class="num">${v.today}</span><span class="muted">${a.dopen === v.id ? "▾" : "›"}</span></div>
+    ${a.dopen === v.id ? `<div class="gd-log">${v.log.map(([t, k, m]) => `<div><span style="color:var(--faint)">${t}</span><span class="${k}">${k === "on" ? "上线" : "离线"}</span><span>${m}</span></div>`).join("")}</div>` : ""}`).join("");
+  return `<div class="gd head"><span></span><span>设备</span><span>地址</span><span>接入</span><span>现在</span><span>今日</span><span></span></div>${rows || `<div class="muted" style="padding:40px 0;text-align:center">${g.auto ? "没有符合的设备。" : "没有符合的设备。手动接入的设备用过网关后会出现在这里。"}</div>`}`;
+}
+function deviceView() {
+  const a = S.act, g = S.gw;
+  if (!g.on) return `<div class="tbl"><div class="muted" style="padding:60px 0;text-align:center">网关没有打开。在「代理」页的「接管」里打开后，经过这台电脑的设备会列在这里。</div></div>`;
+  return `<div class="qbar"><div class="q1">
+      <label class="qinput"><span class="muted">⌕</span><input id="aq" placeholder="搜索设备或地址" value="${a.q}" /></label>
+      <div class="seg">${[["all", "全部"], ["up", "在线"], ["down", "离线"]].map(([id, l]) => `<button class="${a.dst === id ? "on" : ""}" data-gw-st="${id}">${l}</button>`).join("")}</div>
+    </div></div>
+    <div class="tbl" id="dtbl">${deviceRows()}</div>`;
 }
 
 function entryWord(id, word) {
@@ -1519,7 +1622,7 @@ function activity() {
   const apps = [...new Set(CONNS.map((c) => c.app))];
   return `<div class="p-head">
       <div><div class="kicker">日志</div><h2>${count("active") + 48} 个连接<small class="num">↓ 1.31 MB/s · ↑ 48 KB/s · 今日 2.31 GB</small></h2></div>
-      <div class="right"><div class="subtabs">${[["conn", "连接"], ["log", "日志"]].map(([id, l]) => `<button class="${a.tab === id ? "on" : ""}" data-acttab="${id}">${l}</button>`).join("")}</div></div>
+      <div class="right"><div class="subtabs">${[["conn", "连接"], ["log", "日志"], ["dev", "设备"]].map(([id, l]) => `<button class="${a.tab === id ? "on" : ""}" data-acttab="${id}">${l}</button>`).join("")}</div></div>
     </div>
     ${a.tab === "conn" ? `
     <div class="qbar">
@@ -1538,7 +1641,7 @@ function activity() {
         </span>
       </div>
     </div>
-    <div class="tbl" id="atbl">${connTable()}</div>` : logView()}`;
+    <div class="tbl" id="atbl">${connTable()}</div>` : a.tab === "dev" ? deviceView() : logView()}`;
 }
 function connTable() {
   const rows = filtered(), [sk, sd] = S.act.sort;
@@ -2066,7 +2169,7 @@ function renderDemo() {
   seg("d-theme", [[false, "浅色"], [true, "深色"]], "dark");
   seg("d-dev", [["real", "本机现状"], ["sample", "各种状态"]], "devView");
   $("dvquit").innerHTML = devQuit();
-  $("d-sim").innerHTML = `<button class="${S.sim.rsFail ? "on" : ""}" data-sim="rs">规则集更新失败</button><button class="${prov("a").expired ? "on" : ""}" data-sim="expire">机场 A 到期</button><button class="${S.sim.down ? "on" : ""}" data-sim="kill">默认的节点挂掉</button><button class="${S.sim.la ? "on" : ""}" data-sim="la">洛杉矶挂掉</button><button class="${S.sim.jp ? "on" : ""}" data-sim="jp">日本全下线</button>`;
+  $("d-sim").innerHTML = `<button class="${S.sim.rsFail ? "on" : ""}" data-sim="rs">规则集更新失败</button><button class="${prov("a").expired ? "on" : ""}" data-sim="expire">机场 A 到期</button><button class="${S.sim.down ? "on" : ""}" data-sim="kill">默认的节点挂掉</button><button class="${S.sim.la ? "on" : ""}" data-sim="la">洛杉矶挂掉</button><button class="${S.sim.jp ? "on" : ""}" data-sim="jp">日本全下线</button>${S.gw.on && !S.gw.auto ? `<button class="${S.gw.router ? "" : "on"}" data-sim="gwdhcp">路由器关掉了 DHCP</button>` : ""}`;
 }
 
 // ==================================================================
@@ -2188,6 +2291,7 @@ function toggleEntry(id) {
     if (id === "tun" && !on) S.tunInstalled = true;
     if (S.state === "off") { S.entries = { sys: false, tun: false }; S.state = "ok"; }
     S.entries[id] = !on;
+    if (!S.entries.tun) S.gw.on = false;
     if (S.state === "error" && id === "sys") S.state = "ok";
     if (!S.entries.sys && !S.entries.tun) { S.state = "off"; S.x = null; S.sub = null; }
     delete S.pending["entry:" + id];
@@ -2260,7 +2364,7 @@ function setMode(m) {
 // ==================================================================
 // Events
 // ==================================================================
-const ACTIONS = "[data-rs-open],[data-rs-x],[data-rs-file],[data-rs-add],[data-rs-upd],[data-dv-quit],[data-dv-card],[data-dv-list],[data-dv-open],[data-dv-ask],[data-dv-do],[data-dv-cancel],[data-dv-test],[data-dv-recheck],[data-dv-undoall],[data-set],[data-page],[data-mode],[data-entry],[data-expand],[data-collapse],[data-pick],[data-region],[data-test],[data-lan],[data-fix],[data-acttab],[data-astatus],[data-aroute],[data-sort],[data-kill],[data-conn],[data-pause],[data-closeall],[data-lv],[data-upd],[data-updall],[data-provoff],[data-add],[data-goapp],[data-prov],[data-sub-open],[data-sub-back],[data-strat],[data-scope],[data-o-add],[data-o-up],[data-o-del],[data-settings],[data-unbreak],[data-notice-x],[data-sim],[data-sw-close],[data-sw-sec],[data-g-route],[data-rg-new],[data-rg-open],[data-go-rg],[data-pol],[data-rg-del],[data-rg-del-x],[data-goto],[data-s-new],[data-s-open],[data-s-split],[data-s-off],[data-s-reset],[data-s-del],[data-r-off],[data-r-del],[data-r-add],[data-cf-move],[data-cf-x]";
+const ACTIONS = "[data-rs-open],[data-rs-x],[data-rs-file],[data-rs-add],[data-rs-upd],[data-dv-quit],[data-dv-card],[data-dv-list],[data-dv-open],[data-dv-ask],[data-dv-do],[data-dv-cancel],[data-dv-test],[data-dv-recheck],[data-dv-undoall],[data-set],[data-page],[data-mode],[data-entry],[data-gw],[data-gw-check],[data-gw-auto],[data-gw-ask],[data-gw-st],[data-gw-open],[data-expand],[data-collapse],[data-pick],[data-region],[data-test],[data-lan],[data-fix],[data-acttab],[data-astatus],[data-aroute],[data-sort],[data-kill],[data-conn],[data-pause],[data-closeall],[data-lv],[data-upd],[data-updall],[data-provoff],[data-add],[data-goapp],[data-prov],[data-sub-open],[data-sub-back],[data-strat],[data-scope],[data-o-add],[data-o-up],[data-o-del],[data-settings],[data-unbreak],[data-notice-x],[data-sim],[data-sw-close],[data-sw-sec],[data-g-route],[data-rg-new],[data-rg-open],[data-go-rg],[data-pol],[data-rg-del],[data-rg-del-x],[data-goto],[data-s-new],[data-s-open],[data-s-split],[data-s-off],[data-s-reset],[data-s-del],[data-r-off],[data-r-del],[data-r-add],[data-cf-move],[data-cf-x]";
 document.addEventListener("click", (e) => {
   const t = e.target.closest(ACTIONS);
   if (!t) {
@@ -2275,6 +2379,7 @@ document.addEventListener("click", (e) => {
   if (d.page) { S.page = d.page; S.x = null; S.sub = null; return render(); }
   if (d.mode) return setMode(d.mode);
   if (d.entry) return toggleEntry(d.entry);
+  if (Object.keys(d).some((k) => k.startsWith("gw"))) return gwAct(d);
   if (d.expand) return expand(d.expand, d.sub || null);
   if (d.collapse !== undefined) return collapse();
   if (d.subOpen) { S.nd = ndFor(d.subOpen); return morph(() => { S.sub = d.subOpen; render(); }); }
@@ -2315,6 +2420,7 @@ document.addEventListener("click", (e) => {
   });
   if (d.sim === "la") return simulate(() => { const n = node("la"); if (S.sim.la) { n.ms = S.sim.la; S.sim.la = null; } else { S.sim.la = n.ms; n.ms = 0; } });
   if (d.sim === "jp") return simulate(() => { S.sim.jp = !S.sim.jp; });
+  if (d.sim === "gwdhcp") { S.gw.router = !S.gw.router; return render(); }
   if (d.gRoute) {
     // Fixing a broken group from the news bar: where it can be fixed on this page.
     if (S.page === "routes") { openGroup(d.gRoute); S.set.pol = true; S.set.polIn = true; return render(); }
@@ -2408,7 +2514,7 @@ document.addEventListener("click", (e) => {
 });
 function onInput(e) {
   const id = e.target.id;
-  if (id === "aq") { S.act.q = e.target.value; S.act.armed = false; if ($("atbl")) $("atbl").innerHTML = connTable(); if ($("ltbl")) $("ltbl").innerHTML = logRows(); }
+  if (id === "aq") { S.act.q = e.target.value; S.act.armed = false; if ($("atbl")) $("atbl").innerHTML = connTable(); if ($("ltbl")) $("ltbl").innerHTML = logRows(); if ($("dtbl")) $("dtbl").innerHTML = deviceRows(); }
   if (id === "nd-q") { S.nd.q = e.target.value; render(); }
   if (id === "g-name") {
     const r = route(S.set.group), v = e.target.value;

@@ -43,6 +43,10 @@ type Settings struct {
 	// Gateway: this Mac is the LAN's gateway and DNS, through TUN. Like
 	// the entries, it waits while takeover is paused or TUN is off.
 	Gateway bool `json:"gateway"`
+	// GatewayAuto: with the gateway on, bowel hands out the LAN's addresses
+	// itself (DHCP), so that every device uses it without being set up.
+	// Without it devices are pointed at the gateway by hand.
+	GatewayAuto bool `json:"gatewayAuto,omitempty"`
 
 	Mode      string   `json:"mode"` // rule, global, direct
 	MixedPort int      `json:"mixedPort"`

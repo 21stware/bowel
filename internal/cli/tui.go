@@ -353,7 +353,7 @@ func (t *tui) toggles() []toggle {
 			"set_takeover", func(on bool) map[string]any { return map[string]any{"systemProxy": on} }},
 		{"TUN", tk.Tun.Wanted, state(tk.Tun), i18n.T("接管全部流量，包括不理会系统代理的应用；首次需要管理员授权", "All traffic; asks for an administrator once"),
 			"set_takeover", func(on bool) map[string]any { return map[string]any{"tun": on} }},
-		{i18n.T("网关模式", "Gateway mode"), tk.Gateway.Wanted, state(tk.Gateway), i18n.T("让局域网其他设备经这台电脑上网", "Other LAN devices go out through this computer"),
+		{i18n.T("网关模式", "Gateway mode"), tk.Gateway.Wanted, state(tk.Gateway.entry), i18n.T("让局域网其他设备经这台电脑上网", "Other LAN devices go out through this computer"),
 			"set_gateway", func(on bool) map[string]any { return map[string]any{"enabled": on} }},
 		{i18n.T("允许局域网", "Allow LAN"), tk.Lan, lan, i18n.T("局域网里的设备可以使用代理端口", "LAN devices may use the proxy port"),
 			"update_settings", changes("allowLan")},

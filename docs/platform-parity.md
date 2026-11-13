@@ -5,7 +5,7 @@ What the desktop app does on each system, taking macOS as the baseline: every be
 How far each implementation has been tried is its own column, because "it compiles" and "it has run" are different claims:
 
 - **macOS**: developed and run on.
-- **Linux**: the package tests run on Ubuntu 24.04 (arm64, kernel 6.8), unprivileged and with no desktop session. Anything that needs a desktop (polkit's dialog, GNOME's or KDE's settings, the tray, a screenshot tool) or root on a real network (the TUN device itself, forwarding) has **not** been run.
+- **Linux**: the package tests run on Ubuntu 24.04 (arm64, kernel 6.8), unprivileged and with no desktop session. Anything that needs a desktop (polkit's dialog, GNOME's or KDE's settings, the tray, a screenshot tool) or root on a real network (the TUN device itself, forwarding) has **not** been run on hardware. Gateway mode is the exception: `scripts/gateway-e2e.sh` runs it as root in containers, with a real TUN device, real forwarding and a device behind it (see [gateway.md](gateway.md)).
 - **Windows**: cross-compiled and vetted, with the logic that needs no Windows API tested on other systems. **Nothing has run on Windows.**
 
 ## The table

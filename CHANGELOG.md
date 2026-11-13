@@ -9,6 +9,14 @@
 - Windows 和 Linux 支持 TUN：第一次开启时授权一次（Windows 是 UAC，Linux 通过 polkit），之后开关不再询问
 - Linux 可以接管系统代理（GNOME 一系和 KDE），并像其他系统一样实测它是否仍指向 bowel、退出时恢复原样
 - Linux 支持网关模式：局域网里的其他设备可以把这台电脑当网关
+- 内核意外退出后会自动重新启动（间隔逐渐拉长，最长一分钟），做网关时不再需要人来处理
+- 没有桌面的 Linux 服务器上打开网关模式，不再因为设置不了系统代理而显示“异常”
+- 修复 bowel 刚启动时立刻执行命令可能报配置文件不存在的问题
+- 新增网关模式的完整说明 docs/gateway.md，官网提供 llms.txt 供 agent 读取
+- 网关分三步：关闭、手动、自动。打开后是手动，照着填网关和 DNS；局域网里没有别的 DHCP 服务器时，可以再设为内网代理网关，由 bowel 分配地址，所有设备自动经过这里
+- 首页「接管」里始终有「网关」一行，显示关闭、手动或自动；网关的说明精简成两行地址和一行内网代理
+- 「日志」新增「设备」页：经过网关的设备、是否在线、连接和流量，以及每台设备的上线、离线记录
+- 命令行新增 `bowel gateway check`、`auto`、`manual` 和 `devices`
 - 内网直连在 Windows 和 Linux 上也会识别本机的 Tailscale、VPN 路由和分流 DNS
 - Linux 上可以接入终端（zsh、bash）和 Git 的代理；Windows 和 Linux 可以扫描屏幕上的二维码、测到节点服务器的延迟
 - 新增命令行：`bowel status`、`on`/`off`、`mode`、`routes`、`nodes`、`providers`、`rules`、`conns`、`logs`、`settings` 等，支持 `--json` 和 shell 补全；`bowel daemon` 可以不开窗口运行，适合服务器和 SSH
