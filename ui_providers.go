@@ -393,7 +393,7 @@ func (u *UI) provRow(c *ui.Context, p *pal, pv ProviderView) {
 				pr.open = pv.ID
 			}
 		}).Children(func() {
-			u.provName(c, p, pv, busy, len(nodes))
+			u.provName(c, p, pv, busy, nodes)
 			provUsage(c, p, pv)
 			provHealth(c, p, nodes)
 			u.provAuto(c, p, pv)
@@ -406,7 +406,7 @@ func (u *UI) provRow(c *ui.Context, p *pal, pv ProviderView) {
 	})
 }
 
-func (u *UI) provName(c *ui.Context, p *pal, pv ProviderView, busy bool, shown int) {
+func (u *UI) provName(c *ui.Context, p *pal, pv ProviderView, busy bool, nodes []NodeView) {
 	ui.Column(c).Gap(3).Grow(1).Basis(0).MinWidth(0).Children(func() {
 		shimmer(disp(ui.Text(c, pv.Name), p).FontSize(18).FontWeight(700).TextColor(p.ink).MaxLines(1), busy, p)
 		src := provKindWord(pv.Kind)
@@ -419,7 +419,7 @@ func (u *UI) provName(c *ui.Context, p *pal, pv ProviderView, busy bool, shown i
 		case busy:
 			meta = i18n.T("正在更新…", "Updating…")
 		default:
-			count := max(pv.Nodes, shown)
+			count := max(pv.Nodes, len(nodes))
 			meta = nodesCount(count)
 			if pv.Kind == "subscription" || !pv.UpdatedAt.IsZero() {
 				meta += i18n.T(" · 更新于 ", " · updated ") + ago(pv.UpdatedAt)
@@ -433,6 +433,7 @@ func (u *UI) provName(c *ui.Context, p *pal, pv ProviderView, busy bool, shown i
 			ui.Text(c, pv.Error).FontSize(11.5).TextColor(p.signal).MaxLines(2)
 		}
 		u.provRouting(c, p, pv)
+		provDialers(c, p, pv, nodes)
 	})
 }
 
@@ -736,7 +737,12 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 		ui.Row(c.Key(n.Name)).Gap(12).Padding(7, 0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 			cols(
 				func() { flagBadge(c, p, nodeFlag(n), 11) },
-				func() { ui.Text(c, n.Display).FontSize(12.5).FontWeight(700).TextColor(p.ink).MaxLines(1) },
+				func() {
+					ui.Text(c, n.Display).FontSize(12.5).FontWeight(700).TextColor(p.ink).MaxLines(1).Shrink(1)
+					if n.MissingDialer != "" {
+						ui.Text(c, fmt.Sprintf(i18n.T("经 %s", "via %s"), n.MissingDialer)).FontSize(11).TextColor(p.signal).NoWrap().Shrink(0)
+					}
+				},
 				func() {
 					ui.Text(c, placeName(n)).FontSize(12).TextColor(p.ink2).MaxLines(1).Shrink(1)
 					locTag(c, p, n.Where.Source)

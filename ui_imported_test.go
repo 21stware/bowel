@@ -170,3 +170,46 @@ func TestImportedPageOffersItsDNS(t *testing.T) {
 		t.Errorf("after 取消: %q", tt.Texts())
 	}
 }
+
+// A node that dials through a name the routing in use lacks can't connect:
+// the row says how many and through what, and what to do when its config's
+// routing would bring the name; the node is marked in the row's list.
+func TestProviderSaysWhatItsNodesDialThrough(t *testing.T) {
+	u := fixtureUI()
+	id := u.snap.Providers[0].ID
+	marked := 0
+	for i := range u.snap.Nodes {
+		if u.snap.Nodes[i].Provider == id && marked < 2 {
+			u.snap.Nodes[i].MissingDialer = "入口"
+			marked++
+		}
+	}
+	u.page = "providers"
+	u.prov.open = id
+	u.snap.Providers[0].Routing = ProviderRouting{Groups: 2, Rules: 5}
+	tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})
+	tt.Advance(2 * time.Second)
+	shot(t, tt, "imported-dialer-offer")
+	if !tt.HasText("2 个节点要经这份配置里的「入口」连接，只有使用这份配置的路由时才能连上") || !tt.HasText("经 入口") {
+		t.Errorf("no line for an unused routing: %q", tt.Texts())
+	}
+	// A list of nodes has no routing to offer, and one in use that lacks
+	// the name is not helped by using it.
+	for _, r := range []ProviderRouting{{}, {Groups: 2, Rules: 5, InUse: true}} {
+		u.snap.Providers[0].Routing = r
+		tt = ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})
+		tt.Advance(time.Second)
+		if !tt.HasText("2 个节点要经「入口」连接，现在的路由里没有这个名字，所以连不上") {
+			t.Errorf("%+v: no line: %q", r, tt.Texts())
+		}
+	}
+	shot(t, tt, "imported-dialer")
+	for i := range u.snap.Nodes {
+		u.snap.Nodes[i].MissingDialer = ""
+	}
+	tt = ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})
+	tt.Advance(time.Second)
+	if tt.HasText("经 入口") {
+		t.Errorf("a line with nothing missing: %q", tt.Texts())
+	}
+}
