@@ -31,7 +31,7 @@ func sv(id, name, group, rules string) builtin {
 
 var builtins = []builtin{
 	sv("openai", "OpenAI", "ai", "openai.com chatgpt.com oaistatic.com oaiusercontent.com sora.com"),
-	sv("claude", "Claude", "ai", "anthropic.com claude.ai claude.com claudeusercontent.com"),
+	sv("claude", "Claude", "ai", "anthropic.com claude.ai claude.com claudeusercontent.com claudemcpclient.com claudemcpcontent.com"),
 	sv("gemini", "Gemini", "ai", "gemini.google.com generativelanguage.googleapis.com aistudio.google.com notebooklm.google.com bard.google.com"),
 	sv("perplexity", "Perplexity", "ai", "perplexity.ai"),
 	sv("grok", "Grok", "ai", "x.ai grok.com"),
