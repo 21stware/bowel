@@ -28,6 +28,10 @@ type homeUI struct {
 	region string // node picker filter: "", a country, or "?"
 	query  string
 	nodes  ui.ListState
+	// picking is the route whose 自动最快 range is being picked by hand:
+	// its node list then has every node the regions and sources allow,
+	// and a click ticks one instead of fixing on it.
+	picking string
 	// The 地区 row: the regions behind 更多 are out, the common ones being
 	// chosen.
 	regionsMore, regionsEdit bool
@@ -1481,6 +1485,17 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 	}
 	q2 := strings.ToLower(strings.TrimSpace(h.query))
 	tabs := q.Mode != routes.ModeAuto // 自动最快 has its range instead
+	picking := q.Mode == routes.ModeAuto && h.picking == rid
+	// The picks the core no longer lists, when it lists any: a pick is
+	// kept by name, so it comes back if its node does.
+	var gone []string
+	if len(u.snap.Nodes) > 0 {
+		for _, name := range q.Nodes {
+			if _, ok := u.node(name); !ok {
+				gone = append(gone, name)
+			}
+		}
+	}
 	if !tabs {
 		u.scopeRows(c, p, rid, q)
 	}
@@ -1555,10 +1570,16 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 	}
 	switch q.Mode {
 	case routes.ModeAuto:
-		if r.Broken != "" {
-			note(i18n.T("这个范围里没有可用节点，放宽地区或来源。范围不会被悄悄放宽。", "No usable node in this range: widen the regions or sources. A range is never widened on its own."), true)
-		} else {
+		switch {
+		case picking:
+			note(i18n.T("勾选的节点就是范围，自动最快只在它们之间选；一个都不勾就是地区和来源里的全部。订阅更新后按名字保留。", "The ticked nodes are the range, and the fastest is picked among them; none ticked is every node the regions and sources allow. Picks are kept by name when a subscription updates."), false)
+		case r.Broken != "":
+			note(i18n.T("这个范围里没有可用节点，放宽地区、来源或勾选的节点。范围不会被悄悄放宽。", "No usable node in this range: widen the regions, sources or picked nodes. A range is never widened on its own."), true)
+		default:
 			note(i18n.T("定时测速，在范围内用最快的；挂了自动换（◆ 为当前）。点节点可以直接固定到它。", "Tested on a schedule, using the fastest in range and moving on if it fails (◆ is current). Click a node to fix on it."), false)
+		}
+		if len(gone) > 0 && !picking {
+			note(fmt.Sprintf(i18n.T("勾选的节点里有 %d 个已不在订阅里，会被跳过；在「节点 → 挑选」里能看到并去掉。", "%d of the picked nodes are no longer in their subscription and are skipped; Nodes → Pick shows them, to untick."), len(gone)), false)
 		}
 	case routes.ModeOrder:
 		if r.Broken != "" {
@@ -1590,7 +1611,8 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 	for _, n := range u.snap.Nodes {
 		switch {
 		case !queried(n):
-		case q.Mode == routes.ModeAuto && !nodeInScope(q, n):
+		case picking && !nodeInScope(withoutPicks(q), n):
+		case !picking && q.Mode == routes.ModeAuto && !nodeInScope(q, n):
 		case q.Mode == routes.ModeOrder && slices.Contains(q.Order, n.Name):
 		case q.Mode != routes.ModeAuto && !inTab(n):
 		default:
@@ -1598,6 +1620,13 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 		}
 	}
 	sort.SliceStable(list, func(i, j int) bool { return rankOf(list[i].n) < rankOf(list[j].n) })
+	if picking {
+		var head []pick
+		for _, name := range gone {
+			head = append(head, pick{n: NodeView{Name: name, Display: display(name)}, gone: true})
+		}
+		list = append(head, list...)
+	}
 	if q.Mode == routes.ModeOrder {
 		head := []pick{{head: fmt.Sprintf(i18n.T("备用顺序 · %d", "Backup order · %d"), len(q.Order))}}
 		for i, name := range q.Order {
@@ -1644,7 +1673,8 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 		n := item.n
 		ordered := item.place > 0
 		adding := q.Mode == routes.ModeOrder && !ordered
-		on := r.Node == n.Name && r.Broken == "" && !adding
+		on := r.Node == n.Name && r.Broken == "" && !adding && !picking
+		picked := picking && slices.Contains(q.Nodes, n.Name)
 		sw := u.pending("node:"+rid) && on
 		row := ui.ButtonBase(c.Key(n.Name)).Padding(8, 26).Gap(10).Row().AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2)
 		ink, sub := p.ink, p.mute
@@ -1660,6 +1690,9 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 		}
 		row.OnClick(func() {
 			switch {
+			case picking:
+				name := n.Name
+				u.changePolicy(rid, func(q *routes.Policy) { q.Nodes = toggled(q.Nodes, name) })
 			case ordered:
 			case adding:
 				u.changePolicy(rid, func(q *routes.Policy) { q.Order = append(q.Order, n.Name) })
@@ -1702,7 +1735,7 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 			ui.Text(c, fmtDelay(n)).FontSize(12).FontFeatures("tnum").Width(nodeColW).Shrink(0).NoWrap().TextAlign(ui.End).TextColor(delayColor(p, n.Delay, n.Tested))
 			mark := ""
 			switch {
-			case on && q.Mode == routes.ModeFixed:
+			case picked, on && q.Mode == routes.ModeFixed:
 				mark = "✓"
 			case on:
 				mark = "◆"

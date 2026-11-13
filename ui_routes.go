@@ -103,7 +103,7 @@ func (u *UI) ruleHome(cn Conn) (group, svc string, ok bool) {
 func (u *UI) selectGroup(id string) {
 	r := &u.routes
 	r.group, r.svc, r.pol, r.armed, r.nameOf, r.nameErr, r.reveal = id, "", false, "", "", "", ""
-	u.home.region, u.home.query = "", ""
+	u.home.region, u.home.query, u.home.picking = "", "", ""
 	u.clearRuleDraft()
 	u.closeRuleSetImport()
 }
@@ -173,7 +173,7 @@ func (u *UI) setStrategy(rid, mode string) {
 		return
 	}
 	cur := u.route(rid).Node
-	u.home.region, u.home.query = "", ""
+	u.home.region, u.home.query, u.home.picking = "", "", ""
 	u.changeRouting(func(s *settings.Settings) { s.Routing.SetStrategy(rid, mode, cur) }, nil)
 }
 
@@ -427,6 +427,35 @@ func (u *UI) scopeRows(c *ui.Context, p *pal, rid string, q routes.Policy) {
 				})
 				chip(c, p, id, label, pv.Name+count(in), slices.Contains(q.Providers, id), func() {
 					u.changePolicy(rid, func(q *routes.Policy) { q.Providers = toggled(q.Providers, id) })
+				})
+			}
+		})
+		row("nodes", i18n.T("节点", "Nodes"), func() {
+			h := &u.home
+			picking := h.picking == rid
+			all := i18n.T("全部", "All")
+			chip(c, p, "all", all, all, len(q.Nodes) == 0 && !picking, func() {
+				h.picking = ""
+				u.changePolicy(rid, func(q *routes.Policy) { q.Nodes = nil })
+			})
+			pick := i18n.T("挑选…", "Pick…")
+			if len(q.Nodes) > 0 {
+				pick = fmt.Sprintf(i18n.T("已选 %d", "%d picked"), len(q.Nodes))
+			}
+			widest := fmt.Sprintf(i18n.T("已选 %d", "%d picked"), max(len(q.Nodes), 10))
+			if w := i18n.T("挑选…", "Pick…"); len(w) > len(widest) {
+				widest = w
+			}
+			chip(c, p, "pick", pick, widest, len(q.Nodes) > 0 || picking, func() {
+				if picking {
+					h.picking = ""
+				} else {
+					h.picking = rid
+				}
+			})
+			if picking {
+				ui.ButtonBase(c.Key("done")).Padding(3, 10).OnClick(func() { h.picking = "" }).Children(func() {
+					ui.Text(c, i18n.T("完成", "Done")).FontSize(12).FontWeight(600).TextColor(p.ink).Underline().NoWrap()
 				})
 			}
 		})
@@ -805,7 +834,7 @@ func (u *UI) strategyCard(c *ui.Context, p *pal, v RouteView) {
 		b := ui.ButtonBase(c.Key("head")).Row().Gap(10).Padding(10, 14).AlignItems(ui.Center)
 		b.Label(i18n.T("节点策略", "Node strategy")).OnClick(func() {
 			st.pol = !st.pol
-			u.home.region, u.home.query = "", ""
+			u.home.region, u.home.query, u.home.picking = "", "", ""
 		}).Children(func() {
 			ui.Text(c, i18n.T("节点策略", "Node strategy")).FontSize(12.5).FontWeight(600).TextColor(p.ink).NoWrap().Shrink(0)
 			ui.Text(c, u.policyWord(v)).FontSize(12.5).TextColor(p.ink2).NoWrap().Shrink(0).Margin(0, 0, 0, 4)

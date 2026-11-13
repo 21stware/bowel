@@ -69,7 +69,7 @@ func (a *App) nodeLists(all []routes.Route) (scopes, orders map[string][]string)
 				if pl := a.loc.Guess(n, display(n)).Place; pl != nil {
 					country = pl.Country
 				}
-				if inScope(q, providerOf(n), country) {
+				if inScope(q, n, providerOf(n), country) {
 					list = append(list, n)
 				}
 			}
@@ -88,11 +88,12 @@ func (a *App) nodeLists(all []routes.Route) (scopes, orders map[string][]string)
 	return scopes, orders
 }
 
-// inScope says whether a node from provider, leaving from country, is in
-// the range of q's automatic choice.
-func inScope(q routes.Policy, provider, country string) bool {
+// inScope says whether node name, from provider, leaving from country, is
+// in the range of q's automatic choice.
+func inScope(q routes.Policy, name, provider, country string) bool {
 	return (len(q.Providers) == 0 || slices.Contains(q.Providers, provider)) &&
-		(len(q.Regions) == 0 || slices.Contains(q.Regions, country))
+		(len(q.Regions) == 0 || slices.Contains(q.Regions, country)) &&
+		(len(q.Nodes) == 0 || slices.Contains(q.Nodes, name))
 }
 
 // wanted is what route r's selector should be on.
@@ -225,10 +226,11 @@ func nodeInScope(q routes.Policy, n NodeView) bool {
 	if n.Where.Place != nil {
 		country = n.Where.Place.Country
 	}
-	return inScope(q, n.Provider, country)
+	return inScope(q, n.Name, n.Provider, country)
 }
 
-// scopeWord is a range in words: its regions, then its providers.
+// scopeWord is a range in words: its regions, its providers, then how
+// many nodes were picked by hand.
 func scopeWord(q routes.Policy, provName func(string) string) string {
 	out := ""
 	add := func(s string) {
@@ -243,7 +245,17 @@ func scopeWord(q routes.Policy, provName func(string) string) string {
 	for _, id := range q.Providers {
 		add(provName(id))
 	}
+	if n := len(q.Nodes); n > 0 {
+		add(fmt.Sprintf(i18n.T("%d 个节点", "%d nodes"), n))
+	}
 	return out
+}
+
+// withoutPicks is q's range before the nodes picked by hand narrow it:
+// what there is to pick from.
+func withoutPicks(q routes.Policy) routes.Policy {
+	q.Nodes = nil
+	return q
 }
 
 // brokenIssue is what the title bar says about a broken group.

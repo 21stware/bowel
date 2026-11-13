@@ -311,7 +311,7 @@ func brokenWhy(q routes.Policy, nodes []nodeData) string {
 			return "order"
 		}
 	default:
-		if q.Scoped() && !slices.ContainsFunc(nodes, func(n nodeData) bool { return inScope(q, n.Provider, n.Where.Country) && alive(n) }) {
+		if q.Scoped() && !slices.ContainsFunc(nodes, func(n nodeData) bool { return inScope(q, n.Name, n.Provider, n.Where.Country) && alive(n) }) {
 			return "scope"
 		}
 	}
