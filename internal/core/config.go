@@ -204,6 +204,10 @@ func BuildConfig(in Input) ([]byte, error) {
 	if len(dev.Outbounds) > 0 {
 		var out []any
 		for _, b := range dev.Outbounds {
+			if b.Tsnet != nil {
+				out = append(out, tsnetProxy(b.Name, *b.Tsnet))
+				continue
+			}
 			out = append(out, map[string]any{"name": b.Name, "type": "direct", "interface-name": b.Iface})
 		}
 		cfg["proxies"] = out
@@ -525,6 +529,26 @@ func exitOf(all []routes.Route, id string) (string, bool) {
 
 // ExtraPortListener is the name of the listener of an extra port.
 func ExtraPortListener(port int) string { return fmt.Sprintf("bowel-port-%d", port) }
+
+// TsnetStateDir is where the core keeps a tsnet node's state, under its
+// own folder: the core refuses a path outside it.
+const TsnetStateDir = "tailscale"
+
+// tsnetProxy is the core's node of a tailnet.
+func tsnetProxy(name string, t devnet.Tsnet) map[string]any {
+	dir := TsnetStateDir
+	if t.StateDir != "" {
+		dir = t.StateDir
+	}
+	p := map[string]any{"name": name, "type": "tailscale", "state-dir": dir, "udp": true}
+	if t.Hostname != "" {
+		p["hostname"] = t.Hostname
+	}
+	if t.AuthKey != "" {
+		p["auth-key"] = t.AuthKey
+	}
+	return p
+}
 
 // rulesFor is the rule list. Outside rule mode the core would ignore the
 // list and send everything one way, so the mode becomes the list's last

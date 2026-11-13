@@ -190,6 +190,17 @@ func (c *Client) NodeDelay(ctx context.Context, provider, name, testURL string, 
 	return v.Delay, err
 }
 
+// ProxyDelay tests one top-level proxy, which also starts one that starts
+// on first use.
+func (c *Client) ProxyDelay(ctx context.Context, name, testURL string, timeout time.Duration) (int, error) {
+	q := url.Values{"url": {testURL}, "timeout": {fmt.Sprint(timeout.Milliseconds())}}
+	var v struct {
+		Delay int `json:"delay"`
+	}
+	err := c.do(ctx, http.MethodGet, "/proxies/"+url.PathEscape(name)+"/delay?"+q.Encode(), nil, &v)
+	return v.Delay, err
+}
+
 // GroupDelay tests every proxy of a group; proxies that failed are absent.
 func (c *Client) GroupDelay(ctx context.Context, group, testURL string, timeout time.Duration) (map[string]int, error) {
 	q := url.Values{"url": {testURL}, "timeout": {fmt.Sprint(timeout.Milliseconds())}}

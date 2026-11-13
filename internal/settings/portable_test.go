@@ -19,7 +19,7 @@ var machineKeys = []string{
 	"interface", "tunDevice",
 	"devNetOff", "devNetOffScenarios", "devNetExtra",
 	"extController", "extSecret",
-	"mcpPolicy",
+	"mcpPolicy", "tailnet",
 }
 
 // portableKeys are the settings that travel. A new setting belongs in one

@@ -13,6 +13,7 @@ import 'options.dart';
 import 'routing.dart';
 import 'rows.dart';
 import 'sheet.dart';
+import 'tailnet.dart';
 
 /// 设置, with its own stack of pages: swiping back stays in this tab, and the
 /// system tab bar stays over them.
@@ -179,6 +180,7 @@ class _SettingsHomeState extends State<_SettingsHome> {
                 if (android) ...[
                   navRow(l, tr('分应用代理', 'Per-app proxy'), out == 0 ? tr('全部 App', 'All apps') : tr('{0} 个不走', '{0} excluded', [out]), sub: tr('选择哪些 App 不走 bowel', 'Choose which apps skip bowel'), onTap: () => pushPage(context, AppsPage(app: app))),
                   navRow(l, tr('始终开启 VPN', 'Always-on VPN'), tr('系统设置', 'System Settings'), sub: tr('系统级，开机即接管', 'System-wide, on from startup'), onTap: Shell.instance.openVPNSettings),
+                  navRow(l, 'Tailscale', '', sub: tr('不用官方 App 访问 tailnet', 'Reach your tailnet without the Tailscale app'), onTap: () => pushPage(context, TailnetPage(app: app))),
                 ] else
                   toggleRow(l, tr('断线后自动接管', 'Reconnect automatically'), app.vpnOnDemand, () => app.setOnDemand(!app.vpnOnDemand), sub: tr('网络恢复或切换后自动重连，下次开启 VPN 时生效', 'Reconnects when the network returns or changes. Applies the next time VPN turns on.')),
               ]),
