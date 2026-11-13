@@ -4,7 +4,8 @@
   var root = document.documentElement;
   var dark = window.matchMedia("(prefers-color-scheme: dark)");
   // Each language is its own page (scripts/build-site.py), marked on <html>.
-  var lang = root.classList.contains("en") ? "en" : "zh";
+  // The screenshots are named as the app names its languages.
+  var lang = { "zh-TW": "zh-Hant", "en": "en", "ja": "ja" }[root.lang] || "zh";
   // The screenshots sit beside this script, whichever directory the page is in.
   var here = document.currentScript.src;
   var shot = function (name) { return new URL("shots/" + name + ".webp", here).href; };
@@ -46,6 +47,11 @@
     // Warm the cache so switching is instant.
     b.addEventListener("pointerenter", function () { new Image().src = shot("skin-" + b.dataset.skin + "-" + lang); }, { once: true });
   });
+
+  // The language menu closes on a click outside it and on Escape.
+  var menu = document.querySelector(".lang");
+  document.addEventListener("click", function (e) { if (!menu.contains(e.target)) menu.open = false; });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") menu.open = false; });
 
   // Copy buttons.
   document.addEventListener("click", function (e) {

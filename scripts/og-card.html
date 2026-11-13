@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- The card link previews show (og:image), 1200×630. scripts/site-og.sh
-     photographs it once per language: og-card.html?en and og-card.html?zh. -->
+     photographs it once per language: og-card.html?zh, ?zh-Hant, ?en and ?ja. -->
 <html>
 <head>
 <meta charset="utf-8">
@@ -12,23 +12,33 @@
   .brand { display: flex; align-items: center; gap: 18px; font-size: 44px; font-weight: 800; letter-spacing: -.02em; }
   .brand img { width: 76px; height: 76px; }
   h1 { margin: 54px 0 0; font-size: 58px; line-height: 1.1; font-weight: 800; letter-spacing: -.02em; }
-  .zh h1 { letter-spacing: 0; line-height: 1.2; }
+  :lang(zh) h1, :lang(ja) h1 { letter-spacing: 0; line-height: 1.2; }
+  :lang(zh-TW) body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang TC", sans-serif; }
+  :lang(ja) body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Hiragino Sans", sans-serif; }
+  :lang(ja) h1 { font-size: 46px; white-space: pre-line; }
   p { margin: 30px 0 0; font-size: 27px; color: #3b3936; }
   .shot { position: absolute; left: 590px; top: 96px; width: 900px; border-radius: 14px;
     box-shadow: 0 30px 70px -20px rgba(21, 20, 19, .35), 0 0 0 1px rgba(21, 20, 19, .1); }
-  .zh .en, .en .zh { display: none; }
 </style>
 </head>
 <body>
 <div class="copy">
   <div class="brand"><img src="../site/icon.png" alt="">bowel</div>
-  <h1><span class="zh">跨平台的 mihomo 客户端</span><span class="en">A cross-platform mihomo client</span></h1>
+  <h1 id="title"></h1>
   <p>macOS · Windows · Linux · Android</p>
 </div>
 <img class="shot" id="shot" alt="">
 <script>
-  var l = location.search === "?zh" ? "zh" : "en";
-  document.documentElement.className = l;
+  var titles = {
+    "zh": ["zh-CN", "跨平台的 mihomo 客户端"],
+    "zh-Hant": ["zh-TW", "跨平台的 mihomo 用戶端"],
+    "en": ["en", "A cross-platform mihomo client"],
+    "ja": ["ja", "どの OS でも使える\nmihomo クライアント"]
+  };
+  var l = location.search.slice(1);
+  if (!titles[l]) l = "en";
+  document.documentElement.lang = titles[l][0];
+  document.getElementById("title").textContent = titles[l][1];
   document.getElementById("shot").src = "../site/shots/home-" + l + ".webp";
 </script>
 </body>

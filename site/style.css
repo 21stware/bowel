@@ -22,6 +22,15 @@
   --w: 1180px;
   color-scheme: light dark;
 }
+/* Each language reads in its own region's typeface. */
+html:lang(zh-TW) {
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", "Microsoft JhengHei", "Noto Sans CJK TC", "Helvetica Neue", Arial, sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang TC", "Microsoft JhengHei", "Noto Sans CJK TC", sans-serif;
+}
+html:lang(ja) {
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, "Noto Sans CJK JP", "Helvetica Neue", Arial, sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, "Noto Sans CJK JP", sans-serif;
+}
 @media (prefers-color-scheme: dark) {
   :root {
     --paper: #171615;
@@ -55,10 +64,11 @@ img { display: block; max-width: 100%; height: auto; }
 a { color: inherit; }
 code { font: .9em var(--mono); background: var(--hair2); padding: .1em .35em; border-radius: 5px; }
 h1, h2, h3 { font-family: var(--display); margin: 0; letter-spacing: -.02em; }
-html.zh h1, html.zh h2 { letter-spacing: 0; }
+html:is(:lang(zh), :lang(ja)) :is(h1, h2) { letter-spacing: 0; }
 ::selection { background: var(--accent); color: var(--accent-ink); }
 
-/* Language: every string is written twice; the root's class picks one. */
+/* Language: index.html holds every string in Chinese and English, and opened
+   as it is the root's class picks one. The built pages hold one language each. */
 html.zh .en, html.en .zh { display: none !important; }
 
 /* Nav */
@@ -79,11 +89,21 @@ html.zh .en, html.en .zh { display: none !important; }
 .links a { text-decoration: none; color: var(--ink2); font-size: 14.5px; padding: 6px 12px; border-radius: 8px; }
 .links a:hover { background: var(--hair2); color: var(--ink); }
 .nav-end { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-.lang {
-  font: 600 13px var(--sans); color: var(--ink2); text-decoration: none;
-  background: transparent; border: 1px solid var(--hair); border-radius: 999px; padding: 5px 12px;
+.lang { position: relative; font: 600 13px var(--sans); }
+.lang summary {
+  display: flex; align-items: center; gap: 6px; list-style: none; cursor: pointer; user-select: none; white-space: nowrap;
+  color: var(--ink2); border: 1px solid var(--hair); border-radius: 999px; padding: 5px 12px 5px 10px;
 }
-.lang:hover { color: var(--ink); border-color: var(--faint); }
+.lang summary::-webkit-details-marker { display: none; }
+.lang summary b { font-weight: inherit; }
+.lang summary:hover, .lang[open] summary { color: var(--ink); border-color: var(--faint); }
+.lang-menu {
+  position: absolute; right: 0; top: calc(100% + 8px); min-width: 148px; padding: 5px;
+  background: var(--card); border-radius: 12px; box-shadow: var(--shadow);
+}
+.lang-menu a { display: block; padding: 7px 12px; border-radius: 8px; text-decoration: none; color: var(--ink2); font-weight: 500; font-size: 14px; white-space: nowrap; }
+.lang-menu a:hover { background: var(--hair2); color: var(--ink); }
+.lang-menu a[aria-current] { color: var(--ink); font-weight: 650; }
 .gh { display: inline-flex; padding: 6px; border-radius: 8px; color: var(--ink2); }
 .gh:hover { background: var(--hair2); color: var(--ink); }
 
@@ -107,7 +127,7 @@ html.zh .en, html.en .zh { display: none !important; }
 .tag {
   margin: 0 0 14px; font-size: 12.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--mute);
 }
-html.zh .tag { letter-spacing: .3em; }
+html:is(:lang(zh), :lang(ja)) .tag { letter-spacing: .3em; }
 .fine { color: var(--mute); font-size: 13.5px; margin: 14px 0 0; }
 .mono { font: 13.5px/1.7 var(--mono); color: var(--mute); }
 
@@ -118,7 +138,10 @@ section { padding: 0 max(24px, calc((100vw - var(--w)) / 2)); }
 .kicker { display: inline-flex; align-items: center; gap: 12px; margin: 0 0 26px; font-size: 14px; color: var(--ink2); padding: 6px 16px 6px 14px; border-radius: 999px; background: var(--hair2); font-family: var(--sans); font-weight: 400; letter-spacing: 0; }
 /* The slogan is set like a heading; the page's h1 is the pill above it. */
 .slogan { margin: 0; font-family: var(--display); font-size: clamp(46px, 8.4vw, 108px); line-height: 1.02; font-weight: 800; letter-spacing: -.02em; }
-html.zh .slogan { line-height: 1.12; letter-spacing: 0; }
+html:is(:lang(zh), :lang(ja)) .slogan { line-height: 1.12; letter-spacing: 0; }
+/* Japanese breaks between phrases; the slogan only where its text allows. */
+html:lang(ja) :is(h1, h2, h3, .lede, .sub) { word-break: auto-phrase; }
+html:lang(ja) .slogan { word-break: keep-all; }
 .lede { max-width: 640px; margin: 28px auto 0; font-size: clamp(17px, 1.6vw, 20px); color: var(--ink2); }
 /* Get: platform tabs, then that platform's downloads and command. */
 .get { max-width: 600px; margin: 36px auto 0; text-align: center; }
