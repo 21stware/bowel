@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -16,8 +17,12 @@ import (
 
 // ---- What the update says ----
 
+func updateInstallHint() string {
+	return i18n.T("在后台下载并装好，期间网络不受影响；装好后再决定什么时候重启", "Downloads and installs in the background without touching the network; you choose when to restart")
+}
+
 func updateRestartHint() string {
-	return i18n.T("下载完成后 bowel 会自动重启，网络会中断几秒", "bowel restarts once it is downloaded, and the network drops for a few seconds")
+	return i18n.T("重启时网络会中断几秒；不重启的话，下次打开 bowel 时生效", "The network drops for a few seconds while bowel restarts; otherwise the update takes effect the next time bowel opens")
 }
 
 // updateAction is a link beside the update's words.
@@ -33,16 +38,30 @@ type updateLine struct {
 	tip     string
 	percent int // of the bar, -1 for none
 	busy    bool
+	// open, when set, makes the text a link to the new version's notes.
+	open    func()
 	actions []updateAction
 }
 
 // updateLine is what there is to say about updating, nil for nothing.
 func (u *UI) updateLine() *updateLine {
 	if up := u.snap.Update; up != nil {
+		var open func()
+		tip := ""
+		if up.Notes != "" {
+			open = func() {
+				u.panelClose()
+				u.openUpdateNotes()
+			}
+			tip = fmt.Sprintf(i18n.T("查看 %s 的更新内容", "See what's new in %s"), up.Version)
+		}
 		switch up.Status {
 		case updateAvailable:
-			return &updateLine{dot: "accent", percent: -1, text: fmt.Sprintf(i18n.T("新版本 %s", "Version %s"), up.Version),
-				actions: []updateAction{{"update-start", i18n.T("升级", "Update"), updateRestartHint(), func() { go u.app.startUpdate() }}}}
+			return &updateLine{dot: "accent", percent: -1, text: fmt.Sprintf(i18n.T("新版本 %s", "Version %s"), up.Version), open: open, tip: tip,
+				actions: []updateAction{{"update-start", i18n.T("升级", "Update"), updateInstallHint(), func() { go u.app.startUpdate() }}}}
+		case updateReady:
+			return &updateLine{dot: "accent", percent: -1, text: fmt.Sprintf(i18n.T("%s 已就绪 · 重启以完成更新", "%s is ready · restart to finish"), up.Version), open: open, tip: tip,
+				actions: []updateAction{{"update-restart", i18n.T("立即重启", "Restart now"), updateRestartHint(), func() { go u.app.restartUpdate() }}}}
 		case updateDownloading:
 			if up.Percent >= 100 {
 				return &updateLine{percent: -1, busy: true, text: i18n.T("正在安装…", "Installing…")}
@@ -53,7 +72,7 @@ func (u *UI) updateLine() *updateLine {
 			return &updateLine{percent: -1, busy: true, text: i18n.T("正在重启…", "Restarting…")}
 		case updateFailed:
 			return &updateLine{dot: "signal", percent: -1, text: i18n.T("升级失败", "Update failed"), tip: up.Error,
-				actions: []updateAction{{"update-retry", i18n.T("重试", "Retry"), updateRestartHint(), func() { go u.app.startUpdate() }}}}
+				actions: []updateAction{{"update-retry", i18n.T("重试", "Retry"), updateInstallHint(), func() { go u.app.startUpdate() }}}}
 		}
 	}
 	just := u.snap.UpdateInfo.Just
@@ -71,6 +90,27 @@ func (u *UI) updateLine() *updateLine {
 			u.openChangelog(just.From)
 			go u.app.dismissUpdated()
 		}}, dismiss}}
+}
+
+// updateText is the line's words, made by text, and returned to be laid
+// out. With notes to read they are a link to them, underlined under the
+// pointer only: the actions beside them are underlined always, and two
+// links at rest read as one.
+func updateText(c *ui.Context, p *pal, l *updateLine, text func(*ui.Context) ui.Element) ui.Element {
+	if l.open == nil {
+		t := text(c)
+		if l.tip != "" {
+			t.Tooltip(l.tip)
+		}
+		return shimmer(t, l.busy, p)
+	}
+	b := ui.ButtonBase(c.Key("update-notes")).Justify(ui.Start).Label(l.text).Tooltip(l.tip).OnClick(l.open)
+	hover := b.Hovered()
+	return b.Children(func() {
+		if t := text(c); hover {
+			t.Underline()
+		}
+	})
 }
 
 func updateBar(c *ui.Context, p *pal, percent int) {
@@ -99,11 +139,9 @@ func (u *UI) updateNotice(c *ui.Context, p *pal) {
 		if l.percent >= 0 {
 			updateBar(c, p, l.percent)
 		}
-		t := ui.Text(c, l.text).FontSize(12.5).FontWeight(500).TextColor(p.ink).NoWrap()
-		if l.tip != "" {
-			t.Tooltip(l.tip)
-		}
-		shimmer(t, l.busy, p)
+		updateText(c, p, l, func(c *ui.Context) ui.Element {
+			return ui.Text(c, l.text).FontSize(12.5).FontWeight(500).TextColor(p.ink).NoWrap()
+		})
 		for _, a := range l.actions {
 			ui.ButtonBase(c.Key(a.key)).Shrink(0).Padding(5, 6).Margin(-5, -6).OnClick(a.click).Children(func() {
 				t := ui.Text(c, a.label).FontSize(12.5).FontWeight(600).Underline().TextColor(p.ink).NoWrap()
@@ -127,7 +165,9 @@ func (u *UI) panelUpdate(c *ui.Context, p *pal) {
 	}
 	ui.Row(c.Key("update")).Margin(0, 10, 10, 10).Padding(8, 10).Radius(p.r(8)).Background(col.Alpha(.11)).Gap(10).AlignItems(ui.Center).Children(func() {
 		ui.Box(c).Size(3, 14).Radius(p.r(2)).Background(col)
-		shimmer(ui.Text(c, l.text).FontSize(12).TextColor(p.ink).Grow(1).Basis(0), l.busy, p)
+		updateText(c, p, l, func(c *ui.Context) ui.Element {
+			return ui.Text(c, l.text).FontSize(12).TextColor(p.ink)
+		}).Grow(1).Basis(0)
 		if l.percent >= 0 {
 			updateBar(c, p, l.percent)
 		}
@@ -145,7 +185,13 @@ func (u *UI) updateRow(c *ui.Context, p *pal) {
 	info, up := u.snap.UpdateInfo, u.snap.Update
 	title := i18n.T("软件更新", "Software update")
 	current := fmt.Sprintf(i18n.T("当前版本 %s", "Version %s"), u.snap.Version)
+	// 更新内容 is the new version's, once one is found with notes; its
+	// window links to the versions before.
 	log := func() {
+		if up != nil && up.Notes != "" {
+			btn(c.Key("changelog"), p, fmt.Sprintf(i18n.T("%s 更新内容", "What's new in %s"), up.Version)).OnClick(u.openUpdateNotes)
+			return
+		}
 		btn(c.Key("changelog"), p, i18n.T("更新内容", "What's new")).OnClick(func() { u.openChangelog("") })
 	}
 	check := func() {
@@ -174,7 +220,12 @@ func (u *UI) updateRow(c *ui.Context, p *pal) {
 		}
 		optRow(c, p, title, desc, func() { log(); check() })
 	case up.Status == updateAvailable:
-		optRow(c, p, title, fmt.Sprintf(i18n.T("新版本 %s", "Version %s"), up.Version)+"，"+updateRestartHint(), func() { log(); start(i18n.T("升级", "Update")) })
+		optRow(c, p, title, fmt.Sprintf(i18n.T("新版本 %s", "Version %s"), up.Version)+"，"+updateInstallHint(), func() { log(); start(i18n.T("升级", "Update")) })
+	case up.Status == updateReady:
+		optRow(c, p, title, fmt.Sprintf(i18n.T("新版本 %s 已装好，重启后生效。", "Version %s is installed and takes effect after a restart. "), up.Version)+updateRestartHint(), func() {
+			log()
+			btn(c.Key("update-restart"), p, i18n.T("立即重启", "Restart now")).OnClick(func() { go u.app.restartUpdate() })
+		})
 	case up.Status == updateDownloading && up.Percent < 100:
 		optRow(c, p, title, fmt.Sprintf(i18n.T("下载 %d%%", "Downloading %d%%"), up.Percent), func() {
 			updateBar(c, p, up.Percent)
@@ -198,6 +249,8 @@ var changelogText string
 type changelogEntry struct {
 	Version, Date string
 	Items         []string
+	// Next: the new version that was found, from its release's notes.
+	Next bool
 }
 
 var changelogHeading = regexp.MustCompile(`^## \[?v?(\d+\.\d+\.\d+[^\]\s]*)\]?(?:\s+-\s+(\S+))?`)
@@ -235,17 +288,54 @@ func changelogSince(all []changelogEntry, from string) []changelogEntry {
 	return all
 }
 
+// notesItems are the items of a release's notes, the version's section of
+// CHANGELOG.md: its list items, and any other line of text but a heading.
+func notesItems(notes string) []string {
+	var items []string
+	for line := range strings.Lines(notes) {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		item, _ := strings.CutPrefix(line, "- ")
+		items = append(items, item)
+	}
+	return items
+}
+
+// nextEntry is the new version that was found, as an entry of the
+// changelog, when its release has notes.
+func (u *UI) nextEntry() (changelogEntry, bool) {
+	up := u.snap.Update
+	if up == nil || up.Notes == "" {
+		return changelogEntry{}, false
+	}
+	e := changelogEntry{Version: up.Version, Items: notesItems(up.Notes), Next: true}
+	if !up.Date.IsZero() {
+		e.Date = up.Date.Local().Format(time.DateOnly)
+	}
+	return e, true
+}
+
 // changelogUI is the 更新内容 window.
 type changelogUI struct {
 	win atomic.Pointer[mygo.Window]
 	// from is the version the list goes back to, "" for all of them.
 	from string
+	// next: the list is the new version that was found, alone.
+	next bool
 }
 
 // openChangelog shows the changes since from, or all of them. On the main
 // thread.
-func (u *UI) openChangelog(from string) {
-	u.clog.from = from
+func (u *UI) openChangelog(from string) { u.showChangelog(from, false) }
+
+// openUpdateNotes shows what the new version that was found changes,
+// before it is installed. On the main thread.
+func (u *UI) openUpdateNotes() { u.showChangelog("", true) }
+
+func (u *UI) showChangelog(from string, next bool) {
+	u.clog.from, u.clog.next = from, next
 	if u.app == nil {
 		return
 	}
@@ -286,12 +376,21 @@ func (u *UI) changelogView(c *ui.Context) {
 		}
 	})
 	all := parseChangelog(changelogText)
+	// The new version, found and not yet run, heads the list: this one's
+	// CHANGELOG.md was written before it.
+	next, hasNext := u.nextEntry()
+	if hasNext && !slices.ContainsFunc(all, func(e changelogEntry) bool { return e.Version == next.Version }) {
+		all = append([]changelogEntry{next}, all...)
+	}
 	list := changelogSince(all, u.clog.from)
+	if u.clog.next && hasNext && all[0].Next {
+		list = all[:1]
+	}
 	ui.Column(c).Absolute().Fill().Background(p.paper).Children(func() {
 		ui.Row(c).Height(max(c.TitleBar().Height, 50)).Shrink(0).Padding(0, 26, 0, 92).Gap(12).AlignItems(ui.Center).DragWindow().Children(func() {
 			disp(ui.Text(c, i18n.T("更新内容", "What's new")), p).FontSize(17).FontWeight(700).TextColor(p.ink).Grow(1)
 			if len(list) < len(all) {
-				ui.ButtonBase(c.Key("all")).Shrink(0).OnClick(func() { u.clog.from = "" }).Children(func() {
+				ui.ButtonBase(c.Key("all")).Shrink(0).OnClick(func() { u.clog.from, u.clog.next = "", false }).Children(func() {
 					ui.Text(c, i18n.T("查看全部版本", "All versions")).FontSize(12.5).FontWeight(600).Underline().TextColor(p.ink).NoWrap()
 				})
 			}
@@ -315,6 +414,13 @@ func (u *UI) changelogEntry(c *ui.Context, p *pal, e changelogEntry) {
 			}
 			if e.Version == u.snap.UpdateInfo.From {
 				changelogTag(c, p, i18n.T("升级前版本", "Before the update"), false)
+			}
+			if e.Next {
+				label := i18n.T("新版本", "New version")
+				if up := u.snap.Update; up != nil && up.Status == updateReady {
+					label = i18n.T("已装好，待重启", "Installed, restart to finish")
+				}
+				changelogTag(c, p, label, false)
 			}
 			ui.Spacer(c)
 			ui.Text(c, e.Date).FontSize(12).FontFeatures("tnum").TextColor(p.mute)
