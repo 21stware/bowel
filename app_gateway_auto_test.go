@@ -37,6 +37,7 @@ type lanFake struct {
 	lan     netip.Prefix
 	neigh   map[netip.Addr]string
 	conn    net.PacketConn // the server's socket, on the loopback
+	conns   []*lanTestConn // all servers to join before restoring the fakes
 	arpWait time.Duration  // how long reading the ARP table takes
 	arps    int            // how often it was read
 	// probing, if set, is called while a check listens, with the address
@@ -62,6 +63,30 @@ func (l *lanFake) asked() int {
 	return l.probes
 }
 
+// lanTestConn accepts test requests on loopback, but never lets the DHCP
+// server's broadcast replies escape to the host's LAN.
+type lanTestConn struct {
+	net.PacketConn
+	done chan struct{}
+	once sync.Once
+}
+
+func (c *lanTestConn) ReadFrom(p []byte) (int, net.Addr, error) {
+	n, addr, err := c.PacketConn.ReadFrom(p)
+	if err != nil {
+		// Serve can no longer handle a packet or call the fake operations.
+		c.once.Do(func() { close(c.done) })
+	}
+	return n, addr, err
+}
+
+func (c *lanTestConn) WriteTo(p []byte, addr net.Addr) (int, error) {
+	if to, ok := addr.(*net.UDPAddr); !ok || !to.IP.IsLoopback() {
+		return 0, errors.New("no LAN in tests")
+	}
+	return c.PacketConn.WriteTo(p, addr)
+}
+
 // fakeLAN puts a fake LAN (192.168.1.0/24 behind 192.168.1.1) in place of
 // the real one. The server's socket is one of the loopback's, which only
 // the test reaches.
@@ -83,8 +108,15 @@ func fakeLAN(t *testing.T) *lanFake {
 	}
 	osDHCP.listen = func(*dhcp.Server) (net.PacketConn, error) {
 		c, err := net.ListenPacket("udp4", "127.0.0.1:0")
-		l.set(func(l *lanFake) { l.conn = c })
-		return c, err
+		if err != nil {
+			return nil, err
+		}
+		conn := &lanTestConn{PacketConn: c, done: make(chan struct{})}
+		l.set(func(l *lanFake) {
+			l.conn = conn
+			l.conns = append(l.conns, conn)
+		})
+		return conn, nil
 	}
 	osDHCP.lan = func(gateway.Network) (netip.Addr, netip.Prefix, bool) {
 		l.mu.Lock()
@@ -99,7 +131,16 @@ func fakeLAN(t *testing.T) *lanFake {
 		time.Sleep(wait)
 		return m
 	}
-	t.Cleanup(func() { osDHCP, dhcpRetry = saved, retry })
+	t.Cleanup(func() {
+		l.mu.Lock()
+		conns := slices.Clone(l.conns)
+		l.mu.Unlock()
+		for _, c := range conns {
+			c.Close()
+			<-c.done
+		}
+		osDHCP, dhcpRetry = saved, retry
+	})
 	return l
 }
 
@@ -365,6 +406,7 @@ func TestCheckLeavesOutOwnServer(t *testing.T) {
 			}
 			a.auto.mu.Lock()
 			a.auto.clear, a.auto.clearAt = "en0|192.168.1.20|192.168.1.0/24", time.Now()
+			a.auto.clearLAN = a.settings.Get().GatewayAutoLAN
 			a.auto.mu.Unlock()
 			a.syncDHCP()
 			return []netip.Addr{self}
