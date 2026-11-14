@@ -145,6 +145,10 @@ type Proxy struct {
 	History []History `json:"history"`
 	// Extra holds the tests of each URL apart; History has every test.
 	Extra map[string]URLTests `json:"extra,omitempty"`
+
+	// DialerProxy is the proxy or group a node reaches its server through,
+	// "" when it dials by itself.
+	DialerProxy string `json:"dialer-proxy,omitempty"`
 }
 
 type History struct {

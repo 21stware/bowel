@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -621,5 +622,128 @@ func TestImportedLocalFileProvider(t *testing.T) {
 	}
 	if a.importedNow() == nil || !hasRoute(a, "G") {
 		t.Error("the config did not come back with its file")
+	}
+}
+
+// chainedSub has a node that reaches its server, an HTTP proxy on port,
+// through a group of the same config (`dialer-proxy`), as someone with a
+// landing node behind an entry writes it.
+func chainedSub(port string) string {
+	return `proxies:
+  - {name: Entry-01, type: direct}
+  - {name: Home, type: http, server: 127.0.0.1, port: ` + port + `, dialer-proxy: Entry}
+proxy-groups:
+  - {name: Entry, type: select, proxies: [Entry-01]}
+  - {name: Out, type: select, proxies: [Home, DIRECT]}
+rules:
+  - MATCH,Out
+`
+}
+
+// connectProxy is an HTTP proxy for a node to point at; it gives its port.
+func connectProxy(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodConnect {
+			http.Error(w, "CONNECT only", http.StatusMethodNotAllowed)
+			return
+		}
+		up, err := net.Dial("tcp", r.Host)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer up.Close()
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = io.WriteString(conn, "HTTP/1.1 200 Connection established\r\n\r\n")
+		go func() { _, _ = io.Copy(up, conn) }()
+		_, _ = io.Copy(conn, up)
+	}))
+	t.Cleanup(srv.Close)
+	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+	return port
+}
+
+// TestImportedDialerProxy: the name a node dials through is at the top level
+// of the running config only while its config's routing is in use. Under
+// bowel's own the node is still listed, and cannot connect: it says through
+// what, and stops saying so once that is there.
+func TestImportedDialerProxy(t *testing.T) {
+	a, id, serve := importedApp(t)
+	ctx := context.Background()
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	t.Cleanup(site.Close)
+	serve(chainedSub(connectProxy(t)))
+	if err := a.updateProvider(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	missing := func() map[string]string {
+		a.refresh()
+		out := map[string]string{}
+		for _, n := range a.snapshot().Nodes {
+			if n.Provider == id && n.MissingDialer != "" {
+				out[display(n.Name)] = n.MissingDialer
+			}
+		}
+		return out
+	}
+	c, err := a.core.Client()
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := func() error {
+		_, err := c.NodeDelay(ctx, "p-"+id, "Home"+core.NodeSep+id, site.URL, 2*time.Second)
+		return err
+	}
+
+	if got := missing(); len(got) != 1 || got["Home"] != "Entry" {
+		t.Fatalf("under bowel's routing: %v", got)
+	}
+	// The core says the same when asked to use the node.
+	if listed() == nil {
+		t.Error("the node connected without what it dials through")
+	}
+
+	if err := a.setImportedRouting(id); err != nil {
+		t.Fatal(err)
+	}
+	if got := missing(); len(got) != 0 {
+		t.Errorf("under its own routing: %v", got)
+	}
+	if px := coreProxies(t, a); px["Home"].DialerProxy != "Entry" {
+		t.Errorf("Home dials through %q", px["Home"].DialerProxy)
+	}
+	if _, err := c.ProxyDelay(ctx, "Home", site.URL, 2*time.Second); err != nil {
+		t.Errorf("Home under its own routing: %v", err)
+	}
+	if err := listed(); err != nil {
+		t.Errorf("the listed copy under its own routing: %v", err)
+	}
+
+	if err := a.setImportedRouting(""); err != nil {
+		t.Fatal(err)
+	}
+	if got := missing(); got["Home"] != "Entry" {
+		t.Errorf("back under bowel's routing: %v", got)
+	}
+}
+
+// TestImportedRelayRefused: a relay group is refused with the reason, before
+// the core is asked.
+func TestImportedRelayRefused(t *testing.T) {
+	a, _ := routingApp(t, nil)
+	v, err := a.addProvider(context.Background(), "proxies:\n  - {name: A, type: direct}\n  - {name: B, type: direct}\nproxy-groups:\n  - {name: Chain, type: relay, proxies: [A, B]}\nrules:\n  - MATCH,Chain\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(v.Routing.Problem, "relay") || v.Routing.Groups != 0 {
+		t.Errorf("routing = %+v", v.Routing)
+	}
+	if err := a.setImportedRouting(v.ID); err == nil || !strings.Contains(err.Error(), "relay") {
+		t.Errorf("err = %v", err)
 	}
 }

@@ -2393,6 +2393,14 @@ func (a *App) snapshot() Snapshot {
 			v.History = t.History
 		}
 		v.Ping = pings[name].ms
+		// A `dialer-proxy` names a proxy or group at the top level of the
+		// running config. A config's own nodes and groups are there only
+		// while its routing is in use; its nodes are listed either way.
+		if via := p.DialerProxy; via != "" {
+			if _, there := px[via]; !there {
+				v.MissingDialer = via
+			}
+		}
 		v.Where = located(a.loc.Guess(name, display(name)))
 		if locating[name] {
 			v.Where.Source = "locating"

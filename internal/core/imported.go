@@ -163,6 +163,10 @@ func (im *Imported) check(local func(name string) []string) error {
 	usedProviders := map[string]bool{}
 	for _, g := range im.Groups {
 		name := nameOf(g)
+		if GroupKind(g) == "relay" {
+			// The core dropped this kind and refuses a config that has one.
+			return fmt.Errorf(i18n.T("路由组「%s」是 relay 类型，内核已经不再支持：请在节点上改用 dialer-proxy", "Route group %s is a relay group, which the core no longer supports: use dialer-proxy on its nodes instead"), name)
+		}
 		members, uses := stringsOf(g["proxies"]), stringsOf(g["use"])
 		allProxies := on(g, "include-all") || on(g, "include-all-proxies")
 		allProviders := on(g, "include-all") || on(g, "include-all-providers")

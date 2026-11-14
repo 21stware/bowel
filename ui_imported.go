@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -37,8 +38,6 @@ func groupKindWord(kind string) string {
 		return i18n.T("顺序备用", "Fallback")
 	case "load-balance":
 		return i18n.T("负载均衡", "Load balance")
-	case "relay":
-		return i18n.T("链式代理", "Relay")
 	}
 	return kind
 }
@@ -114,6 +113,35 @@ func (u *UI) provRouting(c *ui.Context, p *pal, pv ProviderView) {
 		ui.Text(c, fmt.Sprintf(i18n.T("这份配置带 %d 个路由组、%d 条规则", "This config has %d route groups and %d rules"), r.Groups, r.Rules)).FontSize(11.5).TextColor(p.mute).NoWrap()
 		use(i18n.T("使用它们", "Use them"))
 	})
+}
+
+// provDialers is the row's line about its nodes that cannot connect: each
+// is to reach its server through a proxy or group (`dialer-proxy`) that the
+// routing in use doesn't have. A config's own nodes and groups are there
+// only while its routing is in use, which is then what the line says to do.
+func provDialers(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView) {
+	var through []string
+	n := 0
+	for _, node := range nodes {
+		if via := node.MissingDialer; via != "" {
+			n++
+			if !slices.Contains(through, via) {
+				through = append(through, via)
+			}
+		}
+	}
+	if n == 0 {
+		return
+	}
+	names := strings.Join(through[:min(len(through), 3)], i18n.T("、", ", "))
+	if len(through) > 3 {
+		names += i18n.T(" 等", " and more")
+	}
+	text := fmt.Sprintf(i18n.T("%d 个节点要经「%s」连接，现在的路由里没有这个名字，所以连不上", "%d nodes connect through %s, which the routing in use doesn't have, so they can't connect"), n, names)
+	if r := pv.Routing; r.Groups > 0 && r.Problem == "" && !r.InUse {
+		text = fmt.Sprintf(i18n.T("%d 个节点要经这份配置里的「%s」连接，只有使用这份配置的路由时才能连上", "%d nodes connect through %s of this config, and only work while this config's routing is in use"), n, names)
+	}
+	ui.Text(c, text).FontSize(11.5).TextColor(p.signal).MaxLines(2)
 }
 
 func (u *UI) useRouting(id string) {
