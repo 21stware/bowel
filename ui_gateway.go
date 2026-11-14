@@ -190,6 +190,8 @@ func (u *UI) gatewayAuto(c *ui.Context, p *pal, toast func(string)) {
 			link(c.Key("gw-devices"), p, i18n.T("查看设备", "Devices"), func() { u.act.showDevices(); u.page = "activity" })
 			btn(c.Key("gw-auto-off"), p, i18n.T("关闭", "Turn off")).Shrink(0).OnClick(func() { u.gw.ask = "manual" })
 		}
+	case a.Wanted && a.Status == "starting":
+		title, col = a.Detail, p.mute
 	case a.Wanted:
 		title, col = a.Detail, p.signal
 		if title == "" {

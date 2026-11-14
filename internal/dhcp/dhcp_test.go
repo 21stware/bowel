@@ -179,9 +179,55 @@ func TestLeasesLastAndReturn(t *testing.T) {
 // An address some device answers at without a lease is passed over.
 func TestInUseIsSkipped(t *testing.T) {
 	s, _ := testServer(t, "")
-	s.cfg.InUse = func(a netip.Addr) bool { return a == ip("192.168.1.100") || a == ip("192.168.1.101") }
+	// .100 and .101 have devices of their own; .50 is where device 7 sits.
+	s.cfg.InUse = func(a netip.Addr, m string) bool {
+		return a == ip("192.168.1.100") || a == ip("192.168.1.101") || (a == ip("192.168.1.50") && m != mac(7).String())
+	}
 	if o := s.handle(msg(Discover, mac(1), nil)); o.msg.YIAddr != ip("192.168.1.102") {
 		t.Fatalf("offered %v", o.msg.YIAddr)
+	}
+	// Asking for a taken address by name gets another, and no lease on it.
+	if o := s.handle(msg(Discover, mac(2), map[byte][]byte{optRequested: addrBytes(ip("192.168.1.50"))})); o.msg.YIAddr == ip("192.168.1.50") {
+		t.Fatal("offered the address another device answers at")
+	}
+	if r := s.handle(msg(Request, mac(2), map[byte][]byte{optRequested: addrBytes(ip("192.168.1.50"))})); r.msg.Type() != Nak {
+		t.Fatalf("leased the address another device answers at: %+v", r.msg)
+	}
+	// The device that sits there keeps it.
+	if r := s.handle(msg(Request, mac(7), map[byte][]byte{optRequested: addrBytes(ip("192.168.1.50"))})); r.msg.Type() != Ack {
+		t.Fatalf("the address's own device was refused: %+v", r.msg)
+	}
+}
+
+// An address a device declines goes to nobody for a while, known holder or
+// not; and offers nobody took do not pile up.
+func TestDeclineAndOffers(t *testing.T) {
+	s, now := testServer(t, "")
+	o := s.handle(msg(Discover, mac(1), nil))
+	bad := o.msg.YIAddr
+	s.handle(msg(Request, mac(1), map[byte][]byte{optRequested: addrBytes(bad), optServer: addrBytes(self)}))
+	s.handle(msg(Decline, mac(1), map[byte][]byte{optRequested: addrBytes(bad), optServer: addrBytes(self)}))
+	if len(s.Leases()) != 0 {
+		t.Fatalf("the declined lease is kept: %+v", s.Leases())
+	}
+	for n := byte(1); n <= 3; n++ {
+		if o := s.handle(msg(Discover, mac(n), nil)); o == nil || o.msg.YIAddr == bad {
+			t.Fatalf("device %d was offered the declined address", n)
+		}
+	}
+	if r := s.handle(msg(Request, mac(4), map[byte][]byte{optRequested: addrBytes(bad)})); r.msg.Type() != Nak {
+		t.Fatal("the declined address was leased")
+	}
+	if len(s.offers) != 3 {
+		t.Fatalf("%d offers held", len(s.offers))
+	}
+	// Later the offers are gone and the address is back.
+	*now = now.Add(declineHold + time.Second)
+	if o := s.handle(msg(Discover, mac(9), nil)); o == nil || o.msg.YIAddr != bad {
+		t.Fatalf("after the hold a new device got %+v", o)
+	}
+	if len(s.offers) != 1 || len(s.declined) != 0 {
+		t.Fatalf("held: %d offers, %d declined", len(s.offers), len(s.declined))
 	}
 }
 

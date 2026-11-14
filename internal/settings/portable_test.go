@@ -14,7 +14,7 @@ import (
 // machineKeys are the settings an exported configuration leaves out and an
 // imported one leaves alone. Every other key travels.
 var machineKeys = []string{
-	"systemProxy", "tun", "paused", "gateway", "gatewayAuto",
+	"systemProxy", "tun", "paused", "gateway", "gatewayAuto", "gatewayAutoLan",
 	"mixedPort", "allowLan", "httpPort", "socksPort", "extraPorts", "authentication", "lanAllowedIps",
 	"interface", "tunDevice",
 	"devNetOff", "devNetOffScenarios", "devNetExtra",

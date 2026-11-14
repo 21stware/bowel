@@ -38,10 +38,11 @@ type Config struct {
 	LeaseTime time.Duration
 	// Path is the file the leases are kept in; none when empty.
 	Path string
-	// InUse, if set, says whether some device already answers at an
-	// address nobody leased: one with a fixed address, which must not be
-	// given to another.
-	InUse func(netip.Addr) bool
+	// InUse, if set, says whether a device other than the one with the
+	// hardware address mac already answers at an address: one with a fixed
+	// address, which must not be given to another. It is called with the
+	// server's lock held, so it must not wait for the server.
+	InUse func(ip netip.Addr, mac string) bool
 	// OnChange is called after a lease was given, renewed or given back.
 	OnChange func()
 }
@@ -51,8 +52,9 @@ type Config struct {
 const DefaultLease = 20 * time.Minute
 
 const (
-	offerHold = time.Minute         // an offer nobody requested
-	keepFor   = 30 * 24 * time.Hour // an expired lease's address stays its device's
+	offerHold   = time.Minute         // an offer nobody requested
+	declineHold = time.Hour           // an address a device found taken stays away this long
+	keepFor     = 30 * 24 * time.Hour // an expired lease's address stays its device's
 )
 
 // Server hands out addresses on one LAN.
@@ -63,6 +65,9 @@ type Server struct {
 	mu     sync.Mutex
 	leases map[string]*Lease  // by MAC
 	offers map[string]offered // by MAC
+	// declined are addresses a device refused because someone else answers
+	// there, and until when they are given to nobody.
+	declined map[netip.Addr]time.Time
 }
 
 type offered struct {
@@ -82,7 +87,7 @@ func New(cfg Config) (*Server, error) {
 	if cfg.LeaseTime <= 0 {
 		cfg.LeaseTime = DefaultLease
 	}
-	s := &Server{cfg: cfg, now: time.Now, leases: map[string]*Lease{}, offers: map[string]offered{}}
+	s := &Server{cfg: cfg, now: time.Now, leases: map[string]*Lease{}, offers: map[string]offered{}, declined: map[netip.Addr]time.Time{}}
 	s.load()
 	return s, nil
 }
@@ -171,6 +176,9 @@ func (s *Server) usable(ip netip.Addr, mac string) bool {
 		return false
 	}
 	now := s.now()
+	if until, ok := s.declined[ip]; ok && now.Before(until) {
+		return false
+	}
 	for m, l := range s.leases {
 		if m != mac && l.IP == ip && l.Active(now) {
 			return false
@@ -192,13 +200,33 @@ func broadcastOf(p netip.Prefix) netip.Addr {
 	return netip.AddrFrom4(a)
 }
 
+// taken says whether another device answers at ip, as far as is known.
+func (s *Server) taken(ip netip.Addr, mac string) bool {
+	return s.cfg.InUse != nil && s.cfg.InUse(ip, mac)
+}
+
+// prune forgets what has run out: offers nobody requested, and addresses
+// declined long ago. Under s.mu.
+func (s *Server) prune(now time.Time) {
+	for m, o := range s.offers {
+		if !now.Before(o.until) {
+			delete(s.offers, m)
+		}
+	}
+	for ip, until := range s.declined {
+		if !now.Before(until) {
+			delete(s.declined, ip)
+		}
+	}
+}
+
 // pick chooses the address to offer mac: the one it had, the one it asks
 // for, or the first of the pool that is free.
 func (s *Server) pick(mac string, want netip.Addr) netip.Addr {
 	if l := s.leases[mac]; l != nil && s.usable(l.IP, mac) {
 		return l.IP
 	}
-	if want.IsValid() && s.usable(want, mac) {
+	if want.IsValid() && s.usable(want, mac) && !s.taken(want, mac) {
 		return want
 	}
 	held := map[netip.Addr]bool{} // an expired lease keeps its address while others are free
@@ -213,7 +241,7 @@ func (s *Server) pick(mac string, want netip.Addr) netip.Addr {
 			if (pass == 0 && held[ip]) || !s.usable(ip, mac) {
 				continue
 			}
-			if s.cfg.InUse != nil && s.cfg.InUse(ip) {
+			if s.taken(ip, mac) {
 				continue
 			}
 			return ip
@@ -236,6 +264,7 @@ func (s *Server) handle(m *Message) *reply {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	mac, now := m.CHAddr.String(), s.now()
+	s.prune(now)
 	changed := false
 	defer func() {
 		if changed {
@@ -273,8 +302,14 @@ func (s *Server) handle(m *Message) *reply {
 		if !s.usable(ip, mac) {
 			return s.answer(m, Nak, netip.Addr{})
 		}
-		delete(s.offers, mac)
+		// An address this server neither leased nor offered to the device
+		// is its word alone: not while another device answers there.
 		l := s.leases[mac]
+		known := (l != nil && l.IP == ip) || s.offers[mac].ip == ip
+		if !known && s.taken(ip, mac) {
+			return s.answer(m, Nak, netip.Addr{})
+		}
+		delete(s.offers, mac)
 		if l == nil {
 			l = &Lease{MAC: mac, First: now}
 			s.leases[mac] = l
@@ -288,12 +323,22 @@ func (s *Server) handle(m *Message) *reply {
 
 	case Release, Decline:
 		delete(s.offers, mac)
-		if l := s.leases[mac]; l != nil && l.Active(now) {
+		l := s.leases[mac]
+		if l != nil && l.Active(now) {
 			l.Expires = now
 			changed = true
 		}
 		if m.Type() == Decline {
-			delete(s.leases, mac) // the address was someone's: don't offer it to this device again
+			// The device found someone at the address: it goes to nobody
+			// for a while, whether or not that someone is known here.
+			bad := m.addrOpt(optRequested)
+			if !bad.IsValid() && l != nil {
+				bad = l.IP
+			}
+			if bad.IsValid() && s.cfg.Prefix.Contains(bad) {
+				s.declined[bad] = now.Add(declineHold)
+			}
+			delete(s.leases, mac)
 			changed = true
 		}
 		return nil

@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/netip"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -33,7 +34,12 @@ const (
 	// anything shorter finds nobody.
 	dhcpWait    = 5 * time.Second
 	dhcpRecheck = 5 * time.Minute // while serving: has another server come back?
+	// dhcpClear is how long a clear answer stands before serving on it.
+	dhcpClear = 30 * time.Second
 )
+
+// dhcpRetry is how often a LAN that was not clear to serve is asked again.
+var dhcpRetry = 30 * time.Second
 
 // osDHCP is the LAN as the automatic step sees it. Tests replace it, so
 // that none sends a packet.
@@ -43,9 +49,15 @@ var osDHCP = struct {
 	listen    func(*dhcp.Server) (net.PacketConn, error)
 	// lan is this computer's address on the network n is, and that network.
 	lan func(n gateway.Network) (self netip.Addr, lan netip.Prefix, ok bool)
-}{dhcp.Supported, dhcp.Probe, (*dhcp.Server).Listen, lanPrefix}
+	// neighbours is the system's ARP table.
+	neighbours func() map[netip.Addr]string
+}{dhcp.Supported, dhcp.Probe, (*dhcp.Server).Listen, lanPrefix, gateway.Neighbours}
 
 // gwAuto is the automatic step as it runs.
+//
+// mu is never held across a call into the server, and the server calls
+// back (InUse) while it holds its own lock: what it calls takes neighMu
+// only. So neither waits for the other.
 type gwAuto struct {
 	mu       sync.Mutex
 	srv      *dhcp.Server
@@ -57,8 +69,40 @@ type gwAuto struct {
 	checkErr error
 	checking bool
 
+	// Before the server starts anywhere, the LAN is asked whether someone
+	// hands out addresses there already: clear is the LAN (key) a check
+	// just found free, and tried when a LAN was last asked for this.
+	clear    string
+	clearAt  time.Time
+	starting bool
+	tried    time.Time
+
+	neighMu sync.Mutex
 	neighAt time.Time
 	neigh   map[netip.Addr]string
+}
+
+// lanID names a LAN so that another one is told from it: its network, its
+// router and the router's hardware address, which is what tells apart the
+// many LANs that are all 192.168.1.0/24 behind 192.168.1.1.
+func (a *App) lanID(n gateway.Network, lan netip.Prefix) string {
+	id := lan.String() + " " + n.Router
+	if r, err := netip.ParseAddr(n.Router); err == nil {
+		if mac := a.neighbours()[r]; mac != "" {
+			id += " " + mac
+		}
+	}
+	return id
+}
+
+// sameLAN compares two lanIDs. One without the router's hardware address
+// (not learnt yet) matches by network and router alone.
+func sameLAN(a, b string) bool {
+	fa, fb := strings.Fields(a), strings.Fields(b)
+	if len(fa) < 2 || len(fb) < 2 || fa[0] != fb[0] || fa[1] != fb[1] {
+		return false
+	}
+	return len(fa) < 3 || len(fb) < 3 || fa[2] == fb[2]
 }
 
 // lanPrefix is the LAN n is on: the network of its address on its interface.
@@ -163,7 +207,20 @@ func (a *App) setGatewayAuto(on bool) error {
 			return fmt.Errorf(i18n.T("%s 还在分配地址：先关闭它的 DHCP 服务，再重新检测", "%s still hands out addresses: turn its DHCP service off, then check again"), joinAddrs(others))
 		}
 	}
-	if _, err := a.settings.Update(func(s *settings.Settings) { s.GatewayAuto = on }); err != nil {
+	id := ""
+	if on {
+		// The LAN the user said yes on: automatic serves nowhere else.
+		n := a.gw.System().Network()
+		self, lan, ok := osDHCP.lan(n)
+		if !ok {
+			return errors.New(i18n.T("这台电脑没有连上局域网", "This computer isn't on a LAN"))
+		}
+		id = a.lanID(n, lan)
+		a.auto.mu.Lock()
+		a.auto.clear, a.auto.clearAt = lanKey(n, self, lan), time.Now()
+		a.auto.mu.Unlock()
+	}
+	if _, err := a.settings.Update(func(s *settings.Settings) { s.GatewayAuto, s.GatewayAutoLAN = on, id }); err != nil {
 		return err
 	}
 	a.syncDHCP()
@@ -181,9 +238,22 @@ func joinAddrs(as []netip.Addr) string {
 	return strings.Join(ss, ", ")
 }
 
+// lanKey is what a server serves: the interface, this computer's address
+// there and the network.
+func lanKey(n gateway.Network, self netip.Addr, lan netip.Prefix) string {
+	return n.Iface + "|" + self.String() + "|" + lan.String()
+}
+
 // syncDHCP makes the server follow the settings and the LAN: serving while
 // the automatic step is wanted and the gateway in effect, on the LAN this
 // computer is on now.
+//
+// It never starts unasked on a LAN where it could do harm. The LAN must be
+// the one the user turned automatic on for (a laptop carried to another
+// network offers itself to nobody there), and each time before it starts
+// (at launch, after a pause, when this computer's address changed) the LAN
+// is asked again whether someone hands out addresses: while one answers,
+// bowel stays out and says so.
 func (a *App) syncDHCP() {
 	s := a.settings.Get()
 	want := s.GatewayAuto && a.gatewayOn(s) && !a.isQuitting()
@@ -191,12 +261,12 @@ func (a *App) syncDHCP() {
 	var n gateway.Network
 	var self netip.Addr
 	var lan netip.Prefix
-	key := ""
+	key, id := "", ""
 	if want {
 		n = a.gw.System().Network()
 		var ok bool
 		if self, lan, ok = osDHCP.lan(n); ok {
-			key = n.Iface + "|" + self.String() + "|" + lan.String()
+			key, id = lanKey(n, self, lan), a.lanID(n, lan)
 		}
 	}
 	au.mu.Lock()
@@ -216,6 +286,19 @@ func (a *App) syncDHCP() {
 		au.err = errors.New(i18n.T("这台电脑没有连上局域网", "This computer isn't on a LAN"))
 		return
 	}
+	if !sameLAN(s.GatewayAutoLAN, id) {
+		au.err = errors.New(i18n.T("这不是开启时的那个局域网，bowel 在这里不分配地址。要在这里用，先关闭再重新开启", "This isn't the LAN it was turned on for, so bowel hands out no addresses here. To use it here, turn it off and on again"))
+		return
+	}
+	if au.clear != key || time.Since(au.clearAt) > dhcpClear {
+		// Not known to be free: ask, and come back with the answer.
+		if !au.starting && time.Since(au.tried) > dhcpRetry {
+			au.starting, au.tried = true, time.Now()
+			go a.clearToServe(key)
+		}
+		return
+	}
+	au.clear = "" // good for this start only
 	cfg := dhcp.Config{Iface: n.Iface, Self: self, Prefix: lan, Path: filepath.Join(a.dataDir, "gateway-leases.json"),
 		InUse: a.addressInUse, OnChange: func() { a.updateDevices(); a.emit() }}
 	if r, err := netip.ParseAddr(n.Router); err == nil {
@@ -249,6 +332,29 @@ func (a *App) syncDHCP() {
 	log.Printf("gateway: handing out addresses on %s (%s), new devices from %s to %s", n.Iface, lan, first, last)
 }
 
+// clearToServe asks the LAN whether someone hands out addresses, for the
+// server that is about to start on key, and has syncDHCP start it if not.
+func (a *App) clearToServe(key string) {
+	others, err := a.checkDHCP()
+	au := &a.auto
+	au.mu.Lock()
+	au.starting = false
+	switch {
+	case err != nil:
+		au.err = err
+	case len(others) > 0:
+		au.err = fmt.Errorf(i18n.T("%s 在分配地址，bowel 没有开始分配。关闭它的 DHCP 后会自动继续", "%s hands out addresses, so bowel didn't start to. It goes on by itself once that DHCP is off"), joinAddrs(others))
+	default:
+		au.clear, au.clearAt = key, time.Now()
+	}
+	clear := au.clear == key
+	au.mu.Unlock()
+	if clear {
+		a.syncDHCP()
+	}
+	a.emit()
+}
+
 // stopDHCP ends the server, for when bowel quits.
 func (a *App) stopDHCP() {
 	au := &a.auto
@@ -260,27 +366,23 @@ func (a *App) stopDHCP() {
 	}
 }
 
-// addressInUse says whether some device answers at ip, by the system's ARP
-// table, read at most every few seconds.
-func (a *App) addressInUse(ip netip.Addr) bool {
-	_, ok := a.neighbours()[ip]
-	return ok
+// addressInUse says whether a device other than mac's answers at ip, by
+// the system's ARP table. The server calls it with its lock held.
+func (a *App) addressInUse(ip netip.Addr, mac string) bool {
+	have, ok := a.neighbours()[ip]
+	return ok && have != mac
 }
 
+// neighbours is the ARP table, read at most every few seconds. It takes
+// neighMu and nothing else, so it may be called under any other lock.
 func (a *App) neighbours() map[netip.Addr]string {
 	au := &a.auto
-	au.mu.Lock()
-	fresh := time.Since(au.neighAt) < 10*time.Second
-	m := au.neigh
-	au.mu.Unlock()
-	if fresh {
-		return m
+	au.neighMu.Lock()
+	defer au.neighMu.Unlock()
+	if au.neighAt.IsZero() || time.Since(au.neighAt) >= 10*time.Second {
+		au.neigh, au.neighAt = osDHCP.neighbours(), time.Now()
 	}
-	m = gateway.Neighbours()
-	au.mu.Lock()
-	au.neigh, au.neighAt = m, time.Now()
-	au.mu.Unlock()
-	return m
+	return au.neigh
 }
 
 // leases are the server's, none when it does not run.
@@ -357,39 +459,46 @@ func (a *App) tendAuto() {
 func (a *App) autoView(s settings.Settings, gatewayOn bool) AutoView {
 	au := &a.auto
 	au.mu.Lock()
-	defer au.mu.Unlock()
+	srv, serveErr, starting := au.srv, au.err, au.starting
+	others := slices.Clone(au.others)
 	v := AutoView{Supported: osDHCP.supported, Wanted: s.GatewayAuto && s.Gateway, Status: "off", Servers: []string{}, Checked: au.checked, Checking: au.checking}
-	for _, o := range au.others {
+	for _, o := range others {
 		v.Servers = append(v.Servers, o.String())
 	}
 	if au.checkErr != nil {
 		v.CheckError = au.checkErr.Error()
 	}
+	// The server is asked with au.mu let go: it holds its own lock while
+	// it asks who answers at an address, which comes back to this side.
+	au.mu.Unlock()
 	if !v.Wanted {
 		return v
 	}
 	switch {
-	case au.srv != nil:
+	case srv != nil:
 		v.Status = "on"
-		first, last := au.srv.Pool()
+		first, last := srv.Pool()
 		v.Pool = first.String() + " – " + last.String()
 		now := time.Now()
-		for _, l := range au.srv.Leases() {
+		for _, l := range srv.Leases() {
 			if l.Active(now) {
 				v.Leases++
 			}
 		}
-		if len(au.others) > 0 {
+		if len(others) > 0 {
 			v.Status = "error"
-			v.Detail = fmt.Sprintf(i18n.T("%s 也在分配地址，设备会在两边之间来回", "%s hands out addresses too, so devices go back and forth between the two"), joinAddrs(au.others))
+			v.Detail = fmt.Sprintf(i18n.T("%s 也在分配地址，设备会在两边之间来回", "%s hands out addresses too, so devices go back and forth between the two"), joinAddrs(others))
 		}
 	case !gatewayOn:
 		v.Detail = i18n.T("网关暂停了，地址分配也暂停", "The gateway is paused, and so is handing out addresses")
 		v.Status = "error"
+	case starting && serveErr == nil:
+		v.Status = "starting"
+		v.Detail = i18n.T("正在确认局域网里没有别的 DHCP 服务器…", "Making sure no other DHCP server is on the LAN…")
 	default:
 		v.Status = "error"
-		if au.err != nil {
-			v.Detail = au.err.Error()
+		if serveErr != nil {
+			v.Detail = serveErr.Error()
 		}
 	}
 	return v

@@ -86,7 +86,7 @@ func (a *App) setGateway(on bool) error {
 func wantGateway(s *settings.Settings, on bool) {
 	s.Gateway = on
 	if !on {
-		s.GatewayAuto = false // the next time starts at manual again
+		s.GatewayAuto, s.GatewayAutoLAN = false, "" // the next time starts at manual again
 		return
 	}
 	if s.Paused { // nothing was taken over: only TUN goes on, as with TUN's own switch

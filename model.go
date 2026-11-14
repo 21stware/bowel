@@ -195,7 +195,9 @@ type AutoView struct {
 	// Supported: this system, run like this, can probe for and serve DHCP.
 	Supported bool `json:"supported"`
 	Wanted    bool `json:"wanted"`
-	// Status: off, on, or error (wanted, and not serving: Detail says why).
+	// Status: off, on, starting (the LAN is being asked whether another
+	// server is there, before this one starts), or error (wanted, and not
+	// serving: Detail says why).
 	Status string `json:"status"`
 	Detail string `json:"detail,omitempty"`
 	// Servers are the other DHCP servers the last check found on the LAN;

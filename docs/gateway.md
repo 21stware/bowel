@@ -130,7 +130,9 @@ What to know before the switch:
 - **G needs a fixed address**, set on G itself with R as its router. G does not take an address from its own server.
 - **While G is down, the LAN has no DHCP.** Devices keep their addresses for the rest of a lease (20 minutes) but have no way out, since their router is G. This is the price of automatic; a machine that stays on, with bowel as a service, is what makes it worth paying.
 - **Going back:** turn the router's DHCP on again, then `bowel gateway manual` (or *关闭* on the same line in the app). Devices return to the router within ten minutes. In the other order they are offline in between.
-- bowel keeps checking: if the router's DHCP comes back while bowel serves, the gateway's line turns red and says which server it is.
+- **Only on the LAN you turned it on for.** bowel remembers that LAN (its network, its router and the router's hardware address). On any other network, a laptop taken to an office say, it hands out nothing and says so; back on its own LAN it goes on. To use automatic on another LAN, turn it off and on again there.
+- **It asks again before every start.** At launch, after a pause, and when this computer's address changed, bowel first checks the LAN once more (a few seconds). While another server answers it stays out, says which one, and starts by itself once that one is off.
+- bowel keeps checking while it serves: if the router's DHCP comes back, the gateway's line turns red and says which server it is.
 
 On Linux automatic needs root (the daemon as a system service has it); on macOS the app can do it as it is.
 
@@ -152,7 +154,7 @@ bowel status --json   # .takeover.gateway: status "on", forwarding, dns, tun all
 bowel conns --watch   # connections appear as the device is used
 ```
 
-The same object has `.auto`, the automatic step: `wanted`, `status` (`off`, `on`, `error` with `detail`), `servers` (the other DHCP servers the last check found), `pool` and `leases`.
+The same object has `.auto`, the automatic step: `wanted`, `status` (`off`, `on`, `starting` while the LAN is checked before a start, `error` with `detail`), `servers` (the other DHCP servers the last check found), `pool` and `leases`.
 
 `.takeover.gateway.status` is one of:
 
@@ -204,6 +206,7 @@ The value forwarding had before is kept in `gateway-before.json` in the data fol
 | `bowel gateway auto` says a server still hands out addresses | the router's DHCP is on, or a second router or mesh node has one | turn it off there, `bowel gateway check` until none answers |
 | automatic: "needs to run as root" | Linux, bowel as an ordinary user | run the daemon as a system service |
 | automatic is on and a device has no address | it was off the network when the router's DHCP went, or its lease ended while G was down | reconnect it; check G is up |
+| automatic: "this isn't the LAN it was turned on for" | the computer is on another network, or the router was replaced | nothing to do elsewhere; on a new router, `bowel gateway manual` then `bowel gateway auto` |
 | automatic: the line is red, "… hands out addresses too" | the router's DHCP was switched back on (a firmware reset does that) | turn it off again, or `bowel gateway manual` |
 
 ## Limits

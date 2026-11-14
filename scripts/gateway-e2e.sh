@@ -86,6 +86,15 @@ up() {
   return 1
 }
 forwarding() { gw 'cat /proc/sys/net/ipv4/ip_forward'; }
+# serving waits for bowel to hand out addresses: before each start it asks
+# the LAN for a few seconds whether someone else does.
+serving() {
+  for _ in $(seq "${1:-40}"); do
+    gw 'ss -lun' | grep -q ':67 ' && return 0
+    sleep 0.5
+  done
+  return 1
+}
 cores() { gw "ps -eo stat,comm | grep -c '^[^Z].* mihomo' || true"; }
 fetch() { client 'curl -sS -m 10 -o /dev/null -w "%{http_code}" https://example.com 2>/dev/null || true'; }
 
@@ -179,8 +188,23 @@ check "nothing is left in the data folder" "$(gw 'ls /data | grep -c before || t
 daemon
 up || true
 check "started again, the gateway is back by itself" "$(fetch)" 200
+serving || true
 like "and hands out addresses again" "$(gw 'ss -lun')" ':67 '
 like "the device's lease is remembered" "$(gw 'cat /data/gateway-leases.json')" "$SUBNET\.1[0-9][0-9]"
+
+echo "bowel starts while the router hands out addresses again"
+gw 'bowel stop' >/dev/null
+sleep 3
+router_dhcp
+daemon
+up || true
+sleep 9
+check "it stays out" "$(gw 'ss -lun | grep -c ":67 " || true')" 0
+like "and says who answers" "$(gw 'bowel status --json' | tr -d ' \n')" "\"wanted\":true,\"status\":\"error\",\"detail\":\"$NODE"
+check "the device pointed by hand is not touched by it" "$(fetch)" 200
+docker exec bowel-e2e-node pkill dnsmasq || true
+serving 90 || true
+like "it starts by itself once that is off" "$(gw 'ss -lun')" ':67 '
 
 echo "bowel is killed"
 # The core is bowel's child and may end with it; what counts is that the
