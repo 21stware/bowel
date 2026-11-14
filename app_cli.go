@@ -258,7 +258,14 @@ func (a *App) cliTools() []mcp.Tool {
 				if err := mcp.Args(raw, &p); err != nil {
 					return nil, err
 				}
+				a.auto.mu.Lock()
 				old := a.settings.Get().GatewayAuto
+				// Manual also cancels the current enable before it saves the
+				// setting, even if a superseded request cleared the UI busy flag.
+				if !p.Enabled && a.auto.enabling {
+					old = true
+				}
+				a.auto.mu.Unlock()
 				if old != p.Enabled {
 					err := a.change(ctx, s, words{"更改网关的地址分配", "Change the gateway's handing out of addresses"}, fmt.Sprintf("gatewayAuto: %v → %v", old, p.Enabled),
 						func() error { return a.setGatewayAuto(p.Enabled) })
