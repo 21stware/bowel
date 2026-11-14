@@ -201,6 +201,12 @@ func TestImportedRefusesWhatCannotWork(t *testing.T) {
 			t.Errorf("%s: accepted: %+v", name, im)
 		}
 	}
+	// The core dropped relay groups and refuses a config with one; the
+	// reason is said here, and names what replaces it.
+	_, err := ParseImported([]byte(head+"proxy-groups:\n  - {name: Chain, type: relay, proxies: [A]}\nrules: ['MATCH,Chain']\n"), nil)
+	if err == nil || !strings.Contains(err.Error(), "Chain") || !strings.Contains(err.Error(), "relay") || !strings.Contains(err.Error(), "dialer-proxy") {
+		t.Errorf("relay: %v", err)
+	}
 }
 
 func TestImportedOfNodeListIsNone(t *testing.T) {

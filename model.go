@@ -250,6 +250,11 @@ type NodeView struct {
 	Ping int `json:"ping"`
 	// Routes are the node's tests of each route's main target.
 	Routes map[string]NodeTest `json:"routes,omitempty"`
+	// MissingDialer is the proxy or group the node is to reach its server
+	// through (its `dialer-proxy`) when the running config has none by that
+	// name: the node cannot connect. "" when it dials by itself, or through
+	// something that is there.
+	MissingDialer string `json:"missingDialer,omitempty"`
 }
 
 // NodeTest is how a node did on a route's main target.
