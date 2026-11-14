@@ -907,4 +907,6 @@ var hantTable = map[string]string{
 	"auth key 以 tskey- 开头": "auth key 以 tskey- 開頭",
 	"走内置 Tailscale：tailnet 的地址和 MagicDNS 名字在所有模式下都走它。": "走內建 Tailscale：tailnet 的位址和 MagicDNS 名稱在所有模式下都走它。",
 	"先开启 VPN": "先開啟 VPN",
+	"这个地址在 tailnet 里：先在设置里打开内置 Tailscale": "這個位址在 tailnet 裡：先在設定裡打開內建 Tailscale",
+	"这个地址在 tailnet 里：先开启 VPN": "這個位址在 tailnet 裡：先開啟 VPN",
 }

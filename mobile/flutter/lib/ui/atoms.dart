@@ -645,6 +645,9 @@ class _BareFieldState extends State<BareField> {
         child: Stack(alignment: widget.maxLines == 1 ? Alignment.centerLeft : Alignment.topLeft, children: [
           if (_c.text.isEmpty) IgnorePointer(child: Line1(widget.hint, style.copyWith(color: l.mute, shadows: const []))),
           // A TextField for the system's paste menu; links are never typed.
+          // Suggestions stay on except for secrets: on Android, turning them
+          // off marks the field as a visible password, and some keyboards
+          // then switch to their secure mode.
           TextField(
             controller: _c,
             focusNode: _focus,
@@ -654,7 +657,7 @@ class _BareFieldState extends State<BareField> {
             maxLines: widget.maxLines,
             keyboardType: widget.keyboardType,
             autocorrect: false,
-            enableSuggestions: false,
+            enableSuggestions: widget.keyboardType != TextInputType.visiblePassword,
             onChanged: widget.onChanged,
             onSubmitted: widget.onSubmitted,
             keyboardAppearance: l.isDark ? Brightness.dark : Brightness.light,

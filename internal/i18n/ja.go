@@ -906,4 +906,6 @@ var jaTable = map[string]string{
 	"auth key 以 tskey- 开头": "auth key は tskey- で始まります",
 	"走内置 Tailscale：tailnet 的地址和 MagicDNS 名字在所有模式下都走它。": "内蔵の Tailscale を通ります。tailnet のアドレスと MagicDNS 名はどのモードでもここを通ります。",
 	"先开启 VPN": "先に VPN をオンにしてください",
+	"这个地址在 tailnet 里：先在设置里打开内置 Tailscale": "このアドレスは tailnet 内にあります。先に設定で内蔵の Tailscale をオンにしてください",
+	"这个地址在 tailnet 里：先开启 VPN": "このアドレスは tailnet 内にあります。先に VPN をオンにしてください",
 }
