@@ -33,6 +33,9 @@ const ProbeGroup = "MOHO-PROBE"
 type ProviderRef struct {
 	ID   string
 	Path string
+	// Hidden are nodes the user removed, by their names in the file: the
+	// core leaves them out.
+	Hidden []string
 }
 
 // RuleSetRef is a rule set whose file is there to be read.
@@ -100,6 +103,31 @@ func exactly(names []string) string {
 		quoted[i] = strings.ReplaceAll(regexp.QuoteMeta(n), "`", ".")
 	}
 	return "^(?:" + strings.Join(quoted, "|") + ")$"
+}
+
+// excludeFilter is what provider p leaves out: the entries that only carry
+// information, then the nodes the user removed. The core splits it on
+// backticks and leaves out what any part matches; it matches the names as
+// the file has them, before the override adds the provider's suffix. Each
+// removed name matches literally and whole: a backtick is written \x60, not
+// as one (it would split the filter) nor as "." (it would match any
+// character), and the end is \z, as $ would also match before a final
+// newline.
+func excludeFilter(p ProviderRef) string {
+	if len(p.Hidden) == 0 {
+		return provider.InfoPattern
+	}
+	return provider.InfoPattern + "`" + hiddenPattern(p.Hidden)
+}
+
+// hiddenPattern is one part of an exclude-filter that matches each of names
+// literally and whole (excludeFilter says how).
+func hiddenPattern(names []string) string {
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = strings.ReplaceAll(regexp.QuoteMeta(n), "`", `\x60`)
+	}
+	return "^(?:" + strings.Join(quoted, "|") + `)\z`
 }
 
 // withTarget puts the target before a rule's trailing options:
@@ -240,8 +268,9 @@ func BuildConfig(in Input) ([]byte, error) {
 			"health-check": map[string]any{"enable": true, "url": in.TestURL, "interval": o.HealthInterval, "lazy": true},
 			"override":     map[string]any{"additional-suffix": NodeSep + p.ID},
 			// Entries that only say how much traffic is left and the like
-			// are no nodes (provider.InfoPattern).
-			"exclude-filter": provider.InfoPattern,
+			// are no nodes (provider.InfoPattern), and nor are the ones
+			// the user removed.
+			"exclude-filter": excludeFilter(p),
 		}
 	}
 	if len(providers) > 0 {

@@ -697,7 +697,7 @@ func (a *App) buildConfig(s settings.Settings, dev devnet.Overlay, im *core.Impo
 		// A config whose nodes are all its own proxy-providers' is no node
 		// file: those come with its routing, when that is in use.
 		if p.Enabled && a.providers.OwnNodes(p.ID) {
-			refs = append(refs, core.ProviderRef{ID: p.ID, Path: a.providers.Path(p.ID)})
+			refs = append(refs, core.ProviderRef{ID: p.ID, Path: a.providers.Path(p.ID), Hidden: p.Hidden})
 		}
 	}
 	all := a.routes()
@@ -1812,6 +1812,44 @@ func (a *App) deleteProvider(id string) error {
 	return a.applyConfig()
 }
 
+// hideNode removes node (its full name) from its provider, or with hide
+// false brings it back. It stays removed through the provider's updates.
+// The route groups that picked it by hand are left as they are: one whose
+// range or list it was all of shows as broken, as when a subscription drops
+// a node, and is whole again once the node is restored. pickedBy names them.
+// When the provider's own routing is in use, the node leaves that too
+// (core.Imported.Without).
+func (a *App) hideNode(node string, hide bool) (pickedBy []string, err error) {
+	i := strings.LastIndex(node, core.NodeSep)
+	if i < 0 {
+		return nil, fmt.Errorf(i18n.T("「%s」不是来自 Provider 的节点", "%s is no Provider's node"), node)
+	}
+	id, name := node[i+len(core.NodeSep):], node[:i]
+	done := a.begin("provider:" + id)
+	defer done()
+	if _, err := a.providers.Hide(id, name, hide); err != nil {
+		return nil, err
+	}
+	a.dropImported() // the routing in use may be this provider's: read it again without the node
+	if hide {
+		pickedBy = a.pickedBy(node)
+	}
+	return pickedBy, a.applyConfig()
+}
+
+// pickedBy are the titles of the route groups that name node in their
+// strategy: as their fixed node, on their list, or in their range.
+func (a *App) pickedBy(node string) []string {
+	var out []string
+	for _, r := range a.routes() {
+		q := r.Policy
+		if q.Fixed == node || slices.Contains(q.Order, node) || slices.Contains(q.Nodes, node) {
+			out = append(out, routes.Title(r))
+		}
+	}
+	return out
+}
+
 // ---- The user's rules ----
 
 // addRule sends r's traffic to its route, in place of an older rule for
@@ -2637,7 +2675,7 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 
 func (a *App) providerView(p provider.Provider) ProviderView {
 	v := ProviderView{ID: p.ID, Name: p.Name, Kind: string(p.Kind), Source: maskSource(p), Enabled: p.Enabled,
-		AutoUpdate: p.AutoUpdate, UpdatedAt: p.UpdatedAt, Error: p.Error}
+		AutoUpdate: p.AutoUpdate, UpdatedAt: p.UpdatedAt, Error: p.Error, Hidden: p.Hidden}
 	v.Routing = a.providerRouting(p)
 	if u := p.Usage; u != nil {
 		v.Usage = &Usage{Upload: u.Upload, Download: u.Download, Total: u.Total, Expire: u.Expire}

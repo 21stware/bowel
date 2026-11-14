@@ -428,3 +428,64 @@ func TestInScopePicks(t *testing.T) {
 		t.Error("Scoped / withoutPicks")
 	}
 }
+
+// TestHiddenNodesOnCore: a node removed from its Provider (#160) is gone
+// from the core and from the ranges that picked it by hand; a range it was
+// all of is red rather than wider, and restoring it makes the group whole.
+func TestHiddenNodesOnCore(t *testing.T) {
+	a, n := routingApp(t, nil)
+	hk, us := n["HK"].Name, n["US"].Name
+	ai := routeOf(t, a, "ai")
+	pid := providerOf(hk)
+	changeRouting(t, a, func(p *routes.Plan) { p.ChangePolicy("ai", func(q *routes.Policy) { q.Nodes = []string{hk, us} }) })
+
+	picked, err := a.hideNode(hk, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.refresh()
+	if !slices.Contains(picked, routes.Title(ai)) {
+		t.Errorf("picked by = %q", picked)
+	}
+	px := coreProxies(t, a)
+	if _, ok := px[hk]; ok {
+		t.Errorf("the core still has %q", hk)
+	}
+	if got := px[routes.Auto(ai)].All; !slices.Equal(got, []string{us}) {
+		t.Errorf("range without it = %q", got)
+	}
+	snap := a.snapshot()
+	if slices.ContainsFunc(snap.Nodes, func(v NodeView) bool { return v.Name == hk }) {
+		t.Error("the page still lists it")
+	}
+	if i := slices.IndexFunc(snap.Providers, func(v ProviderView) bool { return v.ID == pid }); i < 0 || !slices.Equal(snap.Providers[i].Hidden, []string{display(hk)}) {
+		t.Errorf("providers = %+v", snap.Providers)
+	}
+
+	if _, err := a.hideNode(us, true); err != nil {
+		t.Fatal(err)
+	}
+	a.refresh()
+	if got := coreProxies(t, a)[routes.Auto(ai)].All; !slices.Equal(got, []string{"REJECT"}) {
+		t.Errorf("all removed = %q", got)
+	}
+	if r := routeIn(a.snapshot(), "ai"); r.Broken != "scope" {
+		t.Errorf("all removed: %+v", r)
+	}
+	if q := a.settings.Get().Routing.Policy("ai"); !slices.Equal(q.Nodes, []string{hk, us}) {
+		t.Errorf("the picks changed: %q", q.Nodes)
+	}
+
+	for _, node := range []string{hk, us} {
+		if _, err := a.hideNode(node, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.refresh()
+	if got := coreProxies(t, a)[routes.Auto(ai)].All; len(got) != 2 {
+		t.Errorf("restored = %q", got)
+	}
+	if _, err := a.hideNode("no-marker", true); err == nil {
+		t.Error("a node of no provider")
+	}
+}

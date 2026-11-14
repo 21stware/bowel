@@ -664,7 +664,7 @@ func (x *bridge) writeConfig() error {
 	refs := []core.ProviderRef{}
 	for _, p := range x.store.List() {
 		if p.Enabled {
-			refs = append(refs, core.ProviderRef{ID: p.ID, Path: x.store.Path(p.ID)})
+			refs = append(refs, core.ProviderRef{ID: p.ID, Path: x.store.Path(p.ID), Hidden: p.Hidden})
 		}
 	}
 	s := x.set.Get()

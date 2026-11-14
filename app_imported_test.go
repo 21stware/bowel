@@ -598,6 +598,21 @@ func TestImportedLocalFileProvider(t *testing.T) {
 		t.Errorf("G after the reload = %v", got)
 	}
 
+	// A node removed from the file's Provider (#160) leaves the config's
+	// groups that read the file too, and comes back when restored.
+	if _, err := a.hideNode("N2"+core.NodeSep+local.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := coreProxies(t, a)["G"].All; !slices.Equal(got, []string{"N1"}) {
+		t.Errorf("G without N2 = %v", got)
+	}
+	if _, err := a.hideNode("N2"+core.NodeSep+local.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := coreProxies(t, a)["G"].All; !slices.Equal(got, []string{"N1", "N2"}) {
+		t.Errorf("G restored = %v", got)
+	}
+
 	// An update that needs a file there is none for is not applied.
 	more := strings.Replace(issue75Config, "use: [nodes]", "use: [nodes, more]", 1)
 	more = "proxies:\n" + strings.Replace(more, "proxy-groups:", "  more: {type: file, path: ./more.yaml}\nproxy-groups:", 1)
@@ -745,5 +760,34 @@ func TestImportedRelayRefused(t *testing.T) {
 	}
 	if err := a.setImportedRouting(v.ID); err == nil || !strings.Contains(err.Error(), "relay") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+// TestImportedWithoutRemovedNode: a node removed from the Provider whose
+// routing is in use (#160) leaves that routing's groups as well, and comes
+// back to them when restored.
+func TestImportedWithoutRemovedNode(t *testing.T) {
+	a, id, _ := importedApp(t)
+	if err := a.setImportedRouting(id); err != nil {
+		t.Fatal(err)
+	}
+	a.refresh()
+	if _, err := a.hideNode("JP-01"+core.NodeSep+id, true); err != nil {
+		t.Fatal(err)
+	}
+	a.refresh()
+	px := coreProxies(t, a)
+	if got := px["Japan"].All; !slices.Equal(got, []string{"JP-02"}) {
+		t.Errorf("Japan without JP-01 = %v", got)
+	}
+	if _, ok := px["JP-01"]; ok {
+		t.Error("the core still has JP-01")
+	}
+	if _, err := a.hideNode("JP-01"+core.NodeSep+id, false); err != nil {
+		t.Fatal(err)
+	}
+	a.refresh()
+	if got := coreProxies(t, a)["Japan"].All; !slices.Equal(got, []string{"JP-01", "JP-02"}) {
+		t.Errorf("Japan restored = %v", got)
 	}
 }

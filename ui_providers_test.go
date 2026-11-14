@@ -250,3 +250,31 @@ func TestProviderRowUntestedEn(t *testing.T) {
 		t.Errorf("closed rows show Delete/Disable: %q", tt.Texts())
 	}
 }
+
+// An open provider gives each node a way to remove it, and lists the
+// nodes removed from it with 恢复 (#160).
+func TestProviderHiddenNodes(t *testing.T) {
+	u := providersUIFixture()
+	u.prov.open = "a"
+	u.snap.Providers[0].Hidden = []string{"日本 99 已删"}
+	tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})
+	tt.Advance(time.Second)
+	shot(t, tt, "providers-hidden")
+	for _, s := range []string{"已移除的节点 · 1", "日本 99 已删", "恢复"} {
+		if !tt.HasText(s) {
+			t.Errorf("open row lacks %q: %q", s, tt.Texts())
+		}
+	}
+	if err := tt.Click("移除这个节点"); err != nil {
+		t.Errorf("no remove button: %v", err)
+	}
+	if err := tt.Click("恢复"); err != nil {
+		t.Error(err)
+	}
+	u.snap.Providers[0].Hidden = nil
+	tt.Frame()
+	tt.Advance(time.Second)
+	if tt.HasText("已移除的节点 · 1") {
+		t.Error("the list shows with nothing removed")
+	}
+}

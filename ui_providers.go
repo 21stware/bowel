@@ -19,6 +19,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/provider"
 	"github.com/oboo/moho/internal/qr"
@@ -703,8 +704,8 @@ func (u *UI) provBtn(c *ui.Context, p *pal, label string, danger bool) ui.Elemen
 func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView) {
 	pr := &u.prov
 	cols := func(cells ...func()) {
-		widths := []float32{22, 0, 0, 100, 0, 64, 64}
-		grow := []float32{0, 1.4, 1.2, 0, 1, 0, 0}
+		widths := []float32{22, 0, 0, 100, 0, 64, 64, 26}
+		grow := []float32{0, 1.4, 1.2, 0, 1, 0, 0, 0}
 		for i, cell := range cells {
 			e := ui.Row(c).Gap(6).AlignItems(ui.Center).MinWidth(0)
 			if widths[i] > 0 {
@@ -712,7 +713,7 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 			} else {
 				e.Grow(grow[i]).Basis(0)
 			}
-			if i >= len(cells)-2 {
+			if i >= 5 {
 				e.Justify(ui.End)
 			}
 			e.Children(cell)
@@ -722,7 +723,7 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 		return func() { ui.Text(c, s).FontSize(10.5).FontWeight(600).LetterSpacing(.8).TextColor(p.mute) }
 	}
 	ui.Row(c).Gap(12).Padding(9, 0, 7, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
-		cols(func() {}, head(i18n.T("节点", "Node")), head(i18n.T("出口位置", "Exit location")), head(i18n.T("协议", "Protocol")), head(i18n.T("被哪些路由使用", "Used by routes")), head("Ping"), head("URL"))
+		cols(func() {}, head(i18n.T("节点", "Node")), head(i18n.T("出口位置", "Exit location")), head(i18n.T("协议", "Protocol")), head(i18n.T("被哪些路由使用", "Used by routes")), head("Ping"), head("URL"), func() {})
 	})
 	if len(nodes) == 0 {
 		msg := i18n.T("这个来源还没有节点。", "This source has no nodes yet.")
@@ -770,6 +771,10 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 				func() {
 					ui.Text(c, fmtDelay(n)).FontSize(12).FontWeight(600).TextColor(delayColor(p, n.Delay, n.Tested)).NoWrap()
 				},
+				func() {
+					label := i18n.T("移除这个节点", "Remove this node")
+					iconBtn(c.Key("hide"), p, "×", 15, label).Tooltip(label).Margin(-6, -6, -6, 0).OnClick(func() { u.provHide(n.Name, n.Display) })
+				},
 			)
 		})
 	}
@@ -779,6 +784,7 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 			ui.Text(c, fmt.Sprintf(i18n.T("还有 %d 个节点…", "%d more nodes…"), more)).FontSize(12).TextColor(p.mute)
 		})
 	}
+	u.provHidden(c, p, pv)
 	// The source, and the name.
 	ui.Row(c).Gap(8).Padding(10, 0, 0, 0).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, i18n.T("来源", "Source")).FontSize(12).TextColor(p.mute)
@@ -815,6 +821,47 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 		})
 		ui.Box(c).Width(1).Height(18).Margin(0, 4).Background(p.hair)
 		u.provManage(c, p, pv)
+	})
+}
+
+// provHide removes node (its full name) from its provider. It can be
+// brought back from the list of removed nodes, so it doesn't ask first.
+func (u *UI) provHide(node, shown string) {
+	if u.app == nil {
+		return
+	}
+	u.do(func() error {
+		picked, err := u.app.hideNode(node, true)
+		if err != nil {
+			return err
+		}
+		msg := fmt.Sprintf(i18n.T("已移除 %s，订阅更新后也不会回来", "Removed %s; it stays removed when the subscription updates"), shown)
+		if len(picked) > 0 {
+			msg += fmt.Sprintf(i18n.T("。手动选了它的路由组：%s", ". Route groups that picked it by hand: %s"), strings.Join(picked, i18n.T("、", ", ")))
+		}
+		u.toast(msg)
+		return nil
+	})
+}
+
+// provHidden lists the nodes the user removed from pv, each with 恢复.
+func (u *UI) provHidden(c *ui.Context, p *pal, pv ProviderView) {
+	if len(pv.Hidden) == 0 {
+		return
+	}
+	ui.Column(c.Key("hidden")).Gap(2).Padding(10, 0, 4, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
+		ui.Text(c, fmt.Sprintf(i18n.T("已移除的节点 · %d", "Removed nodes · %d"), len(pv.Hidden))).FontSize(10.5).FontWeight(600).LetterSpacing(.8).TextColor(p.mute)
+		for _, name := range pv.Hidden {
+			node := name + core.NodeSep + pv.ID
+			ui.Row(c.Key("hidden:"+name)).Gap(12).Padding(4, 0).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, name).FontSize(12.5).TextColor(p.mute).MaxLines(1).Grow(1).Basis(0).MinWidth(0)
+				u.provBtn(c.Key("restore"), p, i18n.T("恢复", "Restore"), false).OnClick(func() {
+					if u.app != nil {
+						u.do(func() error { _, err := u.app.hideNode(node, false); return err })
+					}
+				})
+			})
+		}
 	})
 }
 
