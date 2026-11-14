@@ -38,6 +38,16 @@ type lanFake struct {
 	neigh   map[netip.Addr]string
 	conn    net.PacketConn // the server's socket, on the loopback
 	arpWait time.Duration  // how long reading the ARP table takes
+	arps    int            // how often it was read
+	// probing, if set, is called while a check listens, with the address
+	// the check leaves out, and may add to the servers that answer.
+	probing func(skip netip.Addr) []netip.Addr
+}
+
+func (l *lanFake) arpReads() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.arps
 }
 
 func (l *lanFake) set(fn func(*lanFake)) {
@@ -61,11 +71,15 @@ func fakeLAN(t *testing.T) *lanFake {
 	saved, retry := osDHCP, dhcpRetry
 	dhcpRetry = 0
 	osDHCP.supported = true
-	osDHCP.probe = func(context.Context, string, netip.Addr, time.Duration) ([]netip.Addr, error) {
+	osDHCP.probe = func(_ context.Context, _ string, skip netip.Addr, _ time.Duration) ([]netip.Addr, error) {
 		l.mu.Lock()
-		defer l.mu.Unlock()
 		l.probes++
-		return slices.Clone(l.others), nil
+		found, during := slices.Clone(l.others), l.probing
+		l.mu.Unlock()
+		if during != nil {
+			found = append(found, during(skip)...)
+		}
+		return slices.DeleteFunc(found, func(x netip.Addr) bool { return x == skip }), nil
 	}
 	osDHCP.listen = func(*dhcp.Server) (net.PacketConn, error) {
 		c, err := net.ListenPacket("udp4", "127.0.0.1:0")
@@ -79,6 +93,7 @@ func fakeLAN(t *testing.T) *lanFake {
 	}
 	osDHCP.neighbours = func() map[netip.Addr]string {
 		l.mu.Lock()
+		l.arps++
 		wait, m := l.arpWait, maps.Clone(l.neigh)
 		l.mu.Unlock()
 		time.Sleep(wait)
@@ -270,6 +285,194 @@ func TestGatewayAutoStaysOffOtherLANs(t *testing.T) {
 	a.auto.neighAt = time.Time{}
 	a.syncGateway()
 	settle(t, a, true)
+}
+
+// Automatic is not for a computer whose own address is leased: with the
+// router's DHCP off nobody renews it. It is refused before the LAN is even
+// asked, and a server that runs stops when the address turns into a leased
+// one, with the reason to show; with a fixed address again it goes on.
+func TestGatewayAutoNeedsFixedAddress(t *testing.T) {
+	a, l, f := autoApp(t)
+	f.net.DHCP = true
+	err := a.setGatewayAuto(true)
+	if err == nil || !strings.Contains(err.Error(), "DHCP") || !strings.Contains(err.Error(), "固定地址") {
+		t.Fatalf("with a leased address: %v", err)
+	}
+	if a.settings.Get().GatewayAuto || a.serving() || l.asked() != 0 {
+		t.Fatalf("turned on, or the LAN was asked (%d times), with a leased address", l.asked())
+	}
+
+	f.net.DHCP = false
+	if err := a.setGatewayAuto(true); err != nil {
+		t.Fatal(err)
+	}
+	// The address becomes a leased one while it serves.
+	f.net.DHCP = true
+	before := l.asked()
+	a.tendAuto()
+	settle(t, a, false)
+	v := a.autoView(a.settings.Get(), true)
+	if v.Status != "error" || v.Detail != errLeased().Error() || !a.settings.Get().GatewayAuto {
+		t.Fatalf("serving with a leased address: %+v", v)
+	}
+	// It does not start again either, and asks the LAN nothing meanwhile.
+	a.tendAuto()
+	a.syncGateway()
+	settle(t, a, false)
+	if l.asked() != before {
+		t.Fatalf("asked the LAN %d times with a leased address", l.asked()-before)
+	}
+	// Fixed again: on by itself, after asking the LAN as before every start.
+	f.net.DHCP = false
+	a.tendAuto()
+	settle(t, a, true)
+	if v := a.autoView(a.settings.Get(), true); v.Status != "on" || v.Detail != "" {
+		t.Fatalf("with a fixed address again: %+v", v)
+	}
+}
+
+// A check that begins before bowel's own server runs and ends after it
+// started hears that server too: it is not reported as another one. An
+// answer from this computer while bowel does not serve is another
+// program's server, and is reported.
+func TestCheckLeavesOutOwnServer(t *testing.T) {
+	a, l, _ := autoApp(t)
+	self := netip.MustParseAddr("192.168.1.20")
+
+	// Another program on this computer hands out addresses.
+	l.set(func(l *lanFake) { l.others = []netip.Addr{self} })
+	if others, err := a.checkDHCP(); err != nil || len(others) != 1 || others[0] != self {
+		t.Fatalf("a server on this computer that is not bowel's: %v, %v", others, err)
+	}
+	if err := a.setGatewayAuto(true); err == nil || !strings.Contains(err.Error(), self.String()) {
+		t.Fatalf("turned on beside it: %v", err)
+	}
+	l.set(func(l *lanFake) { l.others = nil })
+
+	// bowel's own starts while a check listens, and answers it: the check
+	// began after the one that cleared the LAN ended, before the server ran.
+	if err := a.setGatewayAuto(true); err != nil {
+		t.Fatal(err)
+	}
+	setPaused(t, a, true)
+	if a.serving() {
+		t.Fatal("serving while paused")
+	}
+	l.set(func(l *lanFake) {
+		l.probing = func(netip.Addr) []netip.Addr {
+			if _, err := a.settings.Update(func(s *settings.Settings) { s.Paused = false }); err != nil {
+				t.Error(err)
+			}
+			a.auto.mu.Lock()
+			a.auto.clear, a.auto.clearAt = "en0|192.168.1.20|192.168.1.0/24", time.Now()
+			a.auto.mu.Unlock()
+			a.syncDHCP()
+			return []netip.Addr{self}
+		}
+	})
+	others, err := a.checkDHCP()
+	if !a.serving() {
+		t.Fatal("the server did not start during the check")
+	}
+	if err != nil || len(others) != 0 {
+		t.Fatalf("bowel's own server reported as another: %v, %v", others, err)
+	}
+	if v := a.autoView(a.settings.Get(), true); v.Status != "on" || len(v.Servers) != 0 {
+		t.Fatalf("view: %+v", v)
+	}
+	// While it serves, a check leaves this computer out from the start.
+	l.set(func(l *lanFake) {
+		l.probing = func(skip netip.Addr) []netip.Addr {
+			if skip != self {
+				t.Errorf("a check while serving leaves out %v", skip)
+			}
+			return []netip.Addr{self}
+		}
+	})
+	if others, err := a.checkDHCP(); err != nil || len(others) != 0 {
+		t.Fatalf("while serving: %v, %v", others, err)
+	}
+}
+
+// Without a router's address the LAN can't be told from another, and the
+// reason given is that one, not that this is another LAN.
+func TestGatewayAutoNeedsRouter(t *testing.T) {
+	a, l, f := autoApp(t)
+	home := f.net
+	f.net.Router = ""
+	err := a.setGatewayAuto(true)
+	if err == nil || err.Error() != errNoRouter().Error() || a.settings.Get().GatewayAuto || l.asked() != 0 {
+		t.Fatalf("without a router: %v (asked %d times)", err, l.asked())
+	}
+	f.net = home
+	if err := a.setGatewayAuto(true); err != nil {
+		t.Fatal(err)
+	}
+	// The router is not known when it is to start again.
+	setPaused(t, a, true)
+	f.net.Router = ""
+	before := l.asked()
+	setPaused(t, a, false)
+	settle(t, a, false)
+	if v := a.autoView(a.settings.Get(), true); v.Status != "error" || v.Detail != errNoRouter().Error() || l.asked() != before {
+		t.Fatalf("starting without a router: %+v (asked %d times)", v, l.asked()-before)
+	}
+	f.net = home
+	a.tendAuto()
+	settle(t, a, true)
+}
+
+// The server does not hold its lock while the ARP table is read: its leases
+// are there at once however long the system takes, and what the server
+// asks under its lock (who answers at an address) reads nothing.
+func TestGatewayAutoSlowARP(t *testing.T) {
+	a, l, _ := autoApp(t)
+	if err := a.setGatewayAuto(true); err != nil {
+		t.Fatal(err)
+	}
+	tv, other := netip.MustParseAddr("192.168.1.100"), "02:00:00:00:00:09"
+	l.set(func(l *lanFake) { l.neigh[tv] = other })
+	a.auto.neighMu.Lock()
+	a.auto.neighAt = time.Time{}
+	a.auto.neighMu.Unlock()
+
+	// Under the server's lock: the table as last read, and no reading.
+	reads := l.arpReads()
+	if a.addressInUse(tv, "02:00:00:00:00:01") || l.arpReads() != reads {
+		t.Fatalf("addressInUse read the table (%d times) or knew what was not read yet", l.arpReads()-reads)
+	}
+
+	// A device asks for an address while the table takes its time.
+	l.set(func(l *lanFake) { l.arpWait = 2 * time.Second })
+	l.mu.Lock()
+	to := l.conn.LocalAddr()
+	l.mu.Unlock()
+	from, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer from.Close()
+	m := &dhcp.Message{Op: 1, XID: 1, CHAddr: net.HardwareAddr{2, 0, 0, 0, 0, 1}, Opts: map[byte][]byte{53: {dhcp.Discover}}}
+	if _, err := from.WriteTo(m.Marshal(), to); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(3 * time.Second); l.arpReads() == reads; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the server did not have the table read for a DISCOVER")
+		}
+	}
+	start := time.Now()
+	a.leases()
+	a.autoView(a.settings.Get(), true)
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("the leases waited %v for the ARP table", d)
+	}
+	// Once read, the server knows who answers there.
+	l.set(func(l *lanFake) { l.arpWait = 0 })
+	a.neighbours()
+	if !a.addressInUse(tv, "02:00:00:00:00:01") || a.addressInUse(tv, other) {
+		t.Fatal("addressInUse does not follow the table that was read")
+	}
 }
 
 // The snapshot and the server do not wait for each other: the server asks

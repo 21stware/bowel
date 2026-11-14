@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/netip"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -124,8 +125,8 @@ func TestTakeoverKeepsAddresses(t *testing.T) {
 		t.Fatalf("starting with a remembered address: %+v", r)
 	}
 	// Another device can't have an address that is taken, nor the router's,
-	// this computer's, or one of another LAN.
-	for _, a := range []string{"192.168.1.31", "192.168.1.1", "192.168.1.20", "192.168.1.255", "10.0.0.5"} {
+	// or one of another LAN.
+	for _, a := range []string{"192.168.1.31", "192.168.1.1", "192.168.1.255", "10.0.0.5"} {
 		r = s.handle(msg(Request, mac(3), map[byte][]byte{optRequested: addrBytes(ip(a))}))
 		if r == nil || r.msg.Type() != Nak || !r.to.IP.Equal(net.IPv4bcast) {
 			t.Fatalf("%s: %+v", a, r)
@@ -228,6 +229,198 @@ func TestDeclineAndOffers(t *testing.T) {
 	}
 	if len(s.offers) != 1 || len(s.declined) != 0 {
 		t.Fatalf("held: %d offers, %d declined", len(s.offers), len(s.declined))
+	}
+}
+
+// A request for this computer's own address gets no answer at all: it is
+// this computer's own DHCP client renewing with the router, and a refusal,
+// which is broadcast, would take the address from under the server.
+func TestOwnAddressIsLeftAlone(t *testing.T) {
+	s, _ := testServer(t, "")
+	own := msg(Request, mac(8), nil)
+	own.CIAddr = self // renewing
+	for _, m := range []*Message{
+		own,
+		msg(Request, mac(8), map[byte][]byte{optRequested: addrBytes(self)}),
+		msg(Request, mac(8), map[byte][]byte{optRequested: addrBytes(self), optServer: addrBytes(self)}),
+	} {
+		if r := s.handle(m); r != nil {
+			t.Fatalf("answered a request for this computer's address: %+v to %v", r.msg, r.to)
+		}
+	}
+	if len(s.Leases()) != 0 {
+		t.Fatalf("leased this computer's address: %+v", s.Leases())
+	}
+	// And it is offered to nobody who asks for it by name.
+	if o := s.handle(msg(Discover, mac(8), map[byte][]byte{optRequested: addrBytes(self)})); o == nil || o.msg.YIAddr == self {
+		t.Fatalf("offered this computer's address: %+v", o)
+	}
+}
+
+// One device can't keep another from its address by declining it: a
+// DECLINE counts only for the address the server gave to the device that
+// sends it.
+func TestDeclineOfAnothersAddress(t *testing.T) {
+	s, now := testServer(t, "")
+	req := func(n byte, a netip.Addr) *reply {
+		return s.handle(msg(Request, mac(n), map[byte][]byte{optRequested: addrBytes(a)}))
+	}
+	a := s.handle(msg(Discover, mac(1), nil)).msg.YIAddr
+	if r := req(1, a); r.msg.Type() != Ack {
+		t.Fatal("no lease")
+	}
+	// B, which holds a lease of its own, declines A's address.
+	b := s.handle(msg(Discover, mac(2), nil)).msg.YIAddr
+	if r := req(2, b); r.msg.Type() != Ack || b == a {
+		t.Fatalf("B's lease: %+v", r.msg)
+	}
+	s.handle(msg(Decline, mac(2), map[byte][]byte{optRequested: addrBytes(a), optServer: addrBytes(self)}))
+	if len(s.declined) != 0 {
+		t.Fatalf("an address declined by a device that never had it is kept away: %v", s.declined)
+	}
+	// A renews, by unicast with its address in ciaddr and by broadcast.
+	*now = now.Add(DefaultLease / 2)
+	renew := msg(Request, mac(1), nil)
+	renew.CIAddr = a
+	if r := s.handle(renew); r == nil || r.msg.Type() != Ack || r.msg.YIAddr != a {
+		t.Fatalf("A's renewal after B's decline: %+v", r)
+	}
+	if r := req(1, a); r.msg.Type() != Ack {
+		t.Fatalf("A's request after B's decline: %+v", r.msg)
+	}
+	// B gave up its own lease by declining, but its address is not kept
+	// away either, and B is not forgotten: it gets the address back.
+	if ls := s.Leases(); len(ls) != 2 || ls[1].IP != b || ls[1].Active(s.now()) {
+		t.Fatalf("leases after B's decline: %+v", ls)
+	}
+	if o := s.handle(msg(Discover, mac(2), nil)); o == nil || o.msg.YIAddr != b {
+		t.Fatalf("B was offered %+v", o)
+	}
+
+	// Even if an address is kept away, the device that holds it by a lease
+	// keeps renewing it.
+	s.declined[a] = now.Add(declineHold)
+	if r := s.handle(renew); r == nil || r.msg.Type() != Ack {
+		t.Fatalf("the holder of a declined address was refused: %+v", r)
+	}
+	if r := req(3, a); r.msg.Type() != Nak {
+		t.Fatal("another device got it")
+	}
+}
+
+// An address a device was offered and found taken, before it ever held
+// it, is kept away from everyone for the hold, the device itself included.
+func TestDeclineOfOfferedAddress(t *testing.T) {
+	s, now := testServer(t, "")
+	bad := s.handle(msg(Discover, mac(2), nil)).msg.YIAddr
+	s.handle(msg(Decline, mac(2), map[byte][]byte{optRequested: addrBytes(bad), optServer: addrBytes(self)}))
+	if _, ok := s.declined[bad]; !ok {
+		t.Fatal("the declined offer is not kept away")
+	}
+	*now = now.Add(declineHold - time.Minute)
+	for n := byte(1); n <= 3; n++ {
+		if o := s.handle(msg(Discover, mac(n), map[byte][]byte{optRequested: addrBytes(bad)})); o == nil || o.msg.YIAddr == bad {
+			t.Fatalf("device %d was offered the declined address: %+v", n, o)
+		}
+		if r := s.handle(msg(Request, mac(n), map[byte][]byte{optRequested: addrBytes(bad)})); r.msg.Type() != Nak {
+			t.Fatalf("device %d got the declined address", n)
+		}
+	}
+	*now = now.Add(2 * time.Minute)
+	if r := s.handle(msg(Request, mac(4), map[byte][]byte{optRequested: addrBytes(bad)})); r.msg.Type() != Ack {
+		t.Fatal("the address is still away after the hold")
+	}
+}
+
+// Leases that ended long ago are forgotten while the server runs, not only
+// when it starts, and the file follows.
+func TestOldLeasesAreForgotten(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "leases.json")
+	s, now := testServer(t, path)
+	req := func(n byte, a string) {
+		t.Helper()
+		if r := s.handle(msg(Request, mac(n), map[byte][]byte{optRequested: addrBytes(ip(a))})); r.msg.Type() != Ack {
+			t.Fatalf("%s: %+v", a, r.msg)
+		}
+	}
+	req(1, "192.168.1.100")
+	*now = now.Add(keepFor - time.Hour)
+	req(2, "192.168.1.101")
+	if len(s.Leases()) != 2 {
+		t.Fatalf("forgotten too soon: %+v", s.Leases())
+	}
+	// A message that changes nothing else is enough.
+	*now = now.Add(DefaultLease + 2*time.Hour)
+	s.handle(msg(Inform, mac(9), nil))
+	if ls := s.Leases(); len(ls) != 1 || ls[0].IP != ip("192.168.1.101") {
+		t.Fatalf("kept: %+v", ls)
+	}
+	s2, err := New(Config{Iface: "x", Self: self, Prefix: lan, Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ls := s2.Leases(); len(ls) != 1 || ls[0].IP != ip("192.168.1.101") {
+		t.Fatalf("in the file: %+v", ls)
+	}
+}
+
+// A device's name is shown in terminals: nothing of it that does not print
+// gets through, and no more than a label's length.
+func TestHostnameIsCleaned(t *testing.T) {
+	for in, want := range map[string]string{
+		"tv":                            "tv",
+		"客厅的电视":                         "客厅的电视",
+		"\x1b]0;owned\x07\x1b[2Jtv\r\n": "]0;owned[2Jtv",
+		"a\x00b\tc\x7f\u009bd":          "abcd",
+		"x\u202egnp.exe":                "xgnp.exe",
+		"bad\xff\xfeutf":                "badutf",
+		"  spaced  ":                    "spaced",
+		strings.Repeat("a", 300):        strings.Repeat("a", 63),
+		strings.Repeat("电", 40):         strings.Repeat("电", 21),
+	} {
+		m := msg(Request, mac(1), map[byte][]byte{optHostname: []byte(in)})
+		if got := m.Hostname(); got != want {
+			t.Errorf("%q: %q, want %q", in, got, want)
+		}
+	}
+	// And so it is in the lease.
+	s, _ := testServer(t, "")
+	s.handle(msg(Request, mac(1), map[byte][]byte{optRequested: addrBytes(ip("192.168.1.100")), optHostname: []byte("\x1b[31mtv\x1b[0m")}))
+	if ls := s.Leases(); len(ls) != 1 || ls[0].Name != "[31mtv[0m" {
+		t.Fatalf("%+q", ls)
+	}
+}
+
+// Refresh runs before a message that may give an address, and not under the
+// server's lock: Leases does not wait for it.
+func TestRefreshIsOutsideTheLock(t *testing.T) {
+	s, _ := testServer(t, "")
+	calls, in, out := 0, make(chan struct{}), make(chan struct{})
+	s.cfg.Refresh = func() {
+		calls++
+		if calls == 1 {
+			close(in)
+			<-out
+		}
+	}
+	done := make(chan *reply)
+	go func() { done <- s.handle(msg(Discover, mac(1), nil)) }()
+	<-in
+	got := make(chan int)
+	go func() { got <- len(s.Leases()) }()
+	select {
+	case <-got:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Leases waits for Refresh")
+	}
+	close(out)
+	if r := <-done; r == nil || r.msg.Type() != Offer {
+		t.Fatalf("%+v", r)
+	}
+	s.handle(msg(Release, mac(1), nil))
+	s.handle(msg(Inform, mac(1), nil))
+	if calls != 1 {
+		t.Fatalf("Refresh ran %d times, want 1: only DISCOVER and REQUEST need it", calls)
 	}
 }
 

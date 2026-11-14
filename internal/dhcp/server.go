@@ -1,6 +1,7 @@
 package dhcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -32,6 +33,10 @@ type Config struct {
 	// Self is this computer on the LAN: the router and DNS of every lease.
 	Self   netip.Addr
 	Prefix netip.Prefix // the LAN
+	// Own, if set, is the hardware address of this computer on the LAN. Its
+	// own DHCP client is never answered: this computer does not take an
+	// address from its own server, which would name itself as its router.
+	Own net.HardwareAddr
 	// Avoid are addresses never handed out: the real router, at least.
 	Avoid []netip.Addr
 	// LeaseTime is how long a lease holds; DefaultLease when zero.
@@ -41,8 +46,13 @@ type Config struct {
 	// InUse, if set, says whether a device other than the one with the
 	// hardware address mac already answers at an address: one with a fixed
 	// address, which must not be given to another. It is called with the
-	// server's lock held, so it must not wait for the server.
+	// server's lock held, so it must not wait for the server, nor for
+	// anything slow: what it reads is brought up to date in Refresh.
 	InUse func(ip netip.Addr, mac string) bool
+	// Refresh, if set, is called without the server's lock before a message
+	// that may give out an address is handled. It may take its time (reading
+	// the system's ARP table): only this client's answer waits for it.
+	Refresh func()
 	// OnChange is called after a lease was given, renewed or given back.
 	OnChange func()
 }
@@ -177,7 +187,11 @@ func (s *Server) usable(ip netip.Addr, mac string) bool {
 	}
 	now := s.now()
 	if until, ok := s.declined[ip]; ok && now.Before(until) {
-		return false
+		// Kept away from everyone but the device that holds it by a lease
+		// of this server: its renewal is not refused on another's word.
+		if l := s.leases[mac]; l == nil || l.IP != ip || !l.Active(now) {
+			return false
+		}
 	}
 	for m, l := range s.leases {
 		if m != mac && l.IP == ip && l.Active(now) {
@@ -205,9 +219,17 @@ func (s *Server) taken(ip netip.Addr, mac string) bool {
 	return s.cfg.InUse != nil && s.cfg.InUse(ip, mac)
 }
 
-// prune forgets what has run out: offers nobody requested, and addresses
-// declined long ago. Under s.mu.
-func (s *Server) prune(now time.Time) {
+// prune forgets what has run out: offers nobody requested, addresses
+// declined long ago, and leases that ended so long ago that their devices
+// have no claim on the address any more. It says whether a lease went,
+// which is a change to write down. Under s.mu.
+func (s *Server) prune(now time.Time) (changed bool) {
+	for m, l := range s.leases {
+		if now.Sub(l.Expires) >= keepFor {
+			delete(s.leases, m)
+			changed = true
+		}
+	}
 	for m, o := range s.offers {
 		if !now.Before(o.until) {
 			delete(s.offers, m)
@@ -218,6 +240,7 @@ func (s *Server) prune(now time.Time) {
 			delete(s.declined, ip)
 		}
 	}
+	return changed
 }
 
 // pick chooses the address to offer mac: the one it had, the one it asks
@@ -258,14 +281,16 @@ type reply struct {
 
 // handle answers one message of a client, or returns nil for none.
 func (s *Server) handle(m *Message) *reply {
-	if m.Op != bootRequest || len(m.CHAddr) != 6 {
+	if m.Op != bootRequest || len(m.CHAddr) != 6 || bytes.Equal(m.CHAddr, s.cfg.Own) {
 		return nil
+	}
+	if t := m.Type(); (t == Discover || t == Request) && s.cfg.Refresh != nil {
+		s.cfg.Refresh()
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	mac, now := m.CHAddr.String(), s.now()
-	s.prune(now)
-	changed := false
+	changed := s.prune(now)
 	defer func() {
 		if changed {
 			s.save()
@@ -296,6 +321,13 @@ func (s *Server) handle(m *Message) *reply {
 		if !ip.IsValid() {
 			return nil
 		}
+		// This computer's own address is asked for by its own DHCP client,
+		// if by anyone: that one is left to whoever gave it the address. A
+		// refusal, which goes to everyone, would take the address from under
+		// the server itself.
+		if ip == s.cfg.Self {
+			return nil
+		}
 		// An address it holds from the router that handed them out before
 		// is confirmed too, as long as nobody else has it: that is what
 		// lets devices keep their addresses when this server takes over.
@@ -322,6 +354,7 @@ func (s *Server) handle(m *Message) *reply {
 		return s.answer(m, Ack, ip)
 
 	case Release, Decline:
+		o, hadOffer := s.offers[mac]
 		delete(s.offers, mac)
 		l := s.leases[mac]
 		if l != nil && l.Active(now) {
@@ -329,17 +362,24 @@ func (s *Server) handle(m *Message) *reply {
 			changed = true
 		}
 		if m.Type() == Decline {
-			// The device found someone at the address: it goes to nobody
-			// for a while, whether or not that someone is known here.
+			// The device found someone at the address it was given: that
+			// address goes to nobody for a while, whether or not that someone
+			// is known here. Only an address this server offered or leased to
+			// this very device: any other is the device's word about an
+			// address that is not its own, and would let one device keep
+			// every other from renewing.
 			bad := m.addrOpt(optRequested)
 			if !bad.IsValid() && l != nil {
 				bad = l.IP
 			}
-			if bad.IsValid() && s.cfg.Prefix.Contains(bad) {
+			leased := l != nil && l.IP == bad
+			if bad.IsValid() && (leased || (hadOffer && o.ip == bad)) {
 				s.declined[bad] = now.Add(declineHold)
 			}
-			delete(s.leases, mac)
-			changed = true
+			if leased {
+				delete(s.leases, mac) // not to be offered it again
+				changed = true
+			}
 		}
 		return nil
 

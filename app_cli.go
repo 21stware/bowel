@@ -251,7 +251,7 @@ func (a *App) cliTools() []mcp.Tool {
 		},
 		{
 			Name: "set_gateway_auto", Title: "Hand out the LAN's addresses", Destructive: true,
-			Description: "The gateway's second step. Enabled: bowel becomes the LAN's DHCP server, so every device uses this machine as its router and DNS by itself. It refuses while another DHCP server answers on the LAN (the router's must be turned off first; check_dhcp says who answers). Disabled: back to manual, where devices are pointed at the gateway one by one; devices that got their address here lose their way out until another DHCP server is on again.",
+			Description: "The gateway's second step. Enabled: bowel becomes the LAN's DHCP server, so every device uses this machine as its router and DNS by itself. It refuses while another DHCP server answers on the LAN (the router's must be turned off first; check_dhcp says who answers), and while this machine's own address comes from DHCP (.takeover.gateway.dhcp is true): it needs a fixed address set on the machine itself, which is the user's to do. Disabled: back to manual, where devices are pointed at the gateway one by one; devices that got their address here lose their way out until another DHCP server is on again.",
 			Input:       obj(map[string]any{"enabled": map[string]any{"type": "boolean"}}, "enabled"),
 			Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
 				var p struct{ Enabled bool }

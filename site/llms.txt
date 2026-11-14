@@ -36,7 +36,7 @@ bowel gateway devices --json        # each device: via "auto" or "manual", onlin
 bowel gateway manual                # back; the router's DHCP must be on again first
 ```
 
-A DHCP server in `.servers` has to be turned off in that router's admin page first. That is the user's to do: say which address it is, and stop. Afterwards `.takeover.gateway.auto.status` is `on`, or `error` with `.detail`. G needs a fixed address for this. On Linux it needs root.
+A DHCP server in `.servers` has to be turned off in that router's admin page first. That is the user's to do: say which address it is, and stop. Afterwards `.takeover.gateway.auto.status` is `on`, or `error` with `.detail`. G needs a fixed address for this, set on G itself: while `.takeover.gateway.dhcp` is true `bowel gateway auto` refuses, and setting the address is the user's to do. On Linux it needs root.
 
 Do not stop bowel, turn the gateway off or go back to manual as a test while automatic is on, or where the router's DHCP hands out G: the whole LAN goes offline. IPv4 only: a device with IPv6 can pass the gateway by.
 

@@ -31,7 +31,7 @@ Turning the gateway on is always manual. Automatic is one more decision, offered
 
 ## What you need
 
-- A computer that stays on, on the same LAN as the devices, by cable if possible. It should keep its address: give it a fixed one, or a DHCP reservation on the router. A changed address leaves every device pointing at nothing.
+- A computer that stays on, on the same LAN as the devices, by cable if possible. It should keep its address: give it a fixed one, or a DHCP reservation on the router. A changed address leaves every device pointing at nothing. For [automatic](#the-whole-lan-automatic) only a fixed address set on the computer itself will do: the router's DHCP is off then, and a reservation with it.
 - bowel with at least one Provider, and administrator rights once (macOS, Linux desktop) or root (Linux server).
 - IPv4 on the LAN. See [Limits](#limits) for IPv6.
 
@@ -127,7 +127,7 @@ bowel gateway manual   # back to manual
 What to know before the switch:
 
 - **Nobody is cut off by it.** A device keeps the address it has and asks bowel to confirm it when its old lease runs down; bowel confirms any address of the LAN that nobody else holds. Devices move over one by one, within the router's lease time (reconnect a device's Wi-Fi to move it at once). New devices get addresses from the upper part of the LAN (`.100` to `.249` of a /24).
-- **G needs a fixed address**, set on G itself with R as its router. G does not take an address from its own server.
+- **G needs a fixed address**, set on G itself (manually, in the system's network settings) with R as its router. A reservation on the router is not enough: the router's DHCP is about to be off, nobody would renew G's lease, and when it ran out the LAN would lose its router, DNS and DHCP at once. So bowel refuses to turn automatic on while G's address comes from DHCP (`"dhcp": true` in the gateway object) and says so; if the address becomes a leased one later, bowel stops handing out addresses, the line turns red with the reason, and it goes on by itself once the address is fixed again. G does not take an address from its own server: it answers neither its own DHCP client nor a request for its own address.
 - **While G is down, the LAN has no DHCP.** Devices keep their addresses for the rest of a lease (20 minutes) but have no way out, since their router is G. This is the price of automatic; a machine that stays on, with bowel as a service, is what makes it worth paying.
 - **Going back:** turn the router's DHCP on again, then `bowel gateway manual` (or *关闭* on the same line in the app). Devices return to the router within ten minutes. In the other order they are offline in between.
 - **Only on the LAN you turned it on for.** bowel remembers that LAN (its network, its router and the router's hardware address). On any other network, a laptop taken to an office say, it hands out nothing and says so; back on its own LAN it goes on. To use automatic on another LAN, turn it off and on again there.
@@ -204,6 +204,8 @@ The value forwarding had before is kept in `gateway-before.json` in the data fol
 | G is on Wi-Fi (`"wifi": true`) and devices are slow | every packet crosses the air twice | use a cable |
 | everything is direct | no Provider, or the mode is direct | `bowel providers list`, `bowel mode rule` |
 | `bowel gateway auto` says a server still hands out addresses | the router's DHCP is on, or a second router or mesh node has one | turn it off there, `bowel gateway check` until none answers |
+| `bowel gateway auto` says this computer gets its address from DHCP | G's address is leased (`"dhcp": true`); with the router's DHCP off it would run out | set a fixed address on G itself (same address, R as router and DNS), then `bowel gateway auto` |
+| automatic: "this LAN's router isn't known" | G has no default gateway set | set R as the router in G's network settings |
 | automatic: "needs to run as root" | Linux, bowel as an ordinary user | run the daemon as a system service |
 | automatic is on and a device has no address | it was off the network when the router's DHCP went, or its lease ended while G was down | reconnect it; check G is up |
 | automatic: "this isn't the LAN it was turned on for" | the computer is on another network, or the router was replaced | nothing to do elsewhere; on a new router, `bowel gateway manual` then `bowel gateway auto` |
@@ -239,7 +241,7 @@ Everything above is reachable from the command line; every reading command takes
 4. Read `.takeover.gateway.ip` (G) and `.router` (R). Warn if `.dhcp` is true (G's address may change), `.wifi` is true (slow), or `.firewall` is true (may block).
 5. Tell the user what to set on the device: router = G, DNS = G only. You cannot do this step from G.
 6. Verify from G: `bowel gateway devices --json` lists the device (`"via": "manual"`, `"online": true`) once it has used the gateway.
-7. Only if the user wants every device covered: `bowel gateway check --json`. A non-empty `.servers` names the DHCP server to turn off; that is the user's to do in the router's admin page, and you say so and stop. With `.servers` empty, `bowel gateway auto`; then `.takeover.gateway.auto.status` is `on`. `error` comes with `.detail`.
+7. Only if the user wants every device covered, and `.dhcp` is false (with a leased address `bowel gateway auto` refuses: a fixed address on G is the user's to set, so say so and stop): `bowel gateway check --json`. A non-empty `.servers` names the DHCP server to turn off; that is the user's to do in the router's admin page, and you say so and stop. With `.servers` empty, `bowel gateway auto`; then `.takeover.gateway.auto.status` is `on`. `error` comes with `.detail`.
 
 **To undo:** `bowel gateway off`, then the devices back to automatic.
 

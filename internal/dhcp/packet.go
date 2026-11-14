@@ -12,6 +12,9 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Message types (option 53).
@@ -85,8 +88,26 @@ func (m *Message) addrOpt(code byte) netip.Addr {
 // Server is the server a message names (option 54).
 func (m *Message) Server() netip.Addr { return m.addrOpt(optServer) }
 
-// Hostname is the name the client gives itself, if any.
-func (m *Message) Hostname() string { return string(m.Opts[optHostname]) }
+// maxHostname is the longest name kept of a client: a DNS label's length.
+const maxHostname = 63
+
+// Hostname is the name the client gives itself, if any, made safe to show:
+// it is any device's to choose and ends up in terminals and windows, so
+// only what prints is kept (no control characters, so no escape sequences,
+// and none of the invisible ones that reorder text), and not much of it.
+func (m *Message) Hostname() string {
+	var b strings.Builder
+	for _, r := range strings.ToValidUTF8(string(m.Opts[optHostname]), "") {
+		if !unicode.IsPrint(r) {
+			continue
+		}
+		if b.Len()+utf8.RuneLen(r) > maxHostname {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String())
+}
 
 // Broadcast says whether the client asked to be answered by broadcast.
 func (m *Message) Broadcast() bool { return m.Flags&flagBroadcast != 0 }

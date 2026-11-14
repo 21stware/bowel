@@ -57,11 +57,15 @@ var osDHCP = struct {
 //
 // mu is never held across a call into the server, and the server calls
 // back (InUse) while it holds its own lock: what it calls takes neighMu
-// only. So neither waits for the other.
+// only, which is never held while the system is asked for anything. So
+// neither waits for the other, nor the server for a slow ARP table.
 type gwAuto struct {
-	mu       sync.Mutex
-	srv      *dhcp.Server
-	cancel   context.CancelFunc
+	mu     sync.Mutex
+	srv    *dhcp.Server
+	cancel context.CancelFunc
+	// starts counts the servers started: a check that saw none when it
+	// began knows by it whether one answered while it listened.
+	starts   int
 	key      string       // the interface and addresses srv serves
 	err      error        // why it is wanted and does not serve
 	others   []netip.Addr // the other servers the last check found
@@ -77,9 +81,29 @@ type gwAuto struct {
 	starting bool
 	tried    time.Time
 
-	neighMu sync.Mutex
-	neighAt time.Time
-	neigh   map[netip.Addr]string
+	// The ARP table as last read: neighMu is for the copy kept here, and
+	// neighRead is held while the system is asked, one reader at a time.
+	neighRead sync.Mutex
+	neighMu   sync.Mutex
+	neighAt   time.Time
+	neigh     map[netip.Addr]string
+}
+
+// errLeased is why automatic is not for a computer whose own address comes
+// from DHCP: the router's DHCP has to be off for it, and then nobody renews
+// this computer's lease. When it ends the address is gone, and with it the
+// LAN's router, DNS and DHCP all at once.
+func errLeased() error {
+	return errors.New(i18n.T("这台电脑的地址是自动获取的（DHCP）。先在系统的网络设置里给它设一个手动的固定地址，再开启：路由器的 DHCP 关掉后，自动获取的地址到期就会丢，整个局域网跟着断网",
+		"This computer gets its address from DHCP. Give it a fixed (manual) address in the system's network settings first: with the router's DHCP off, a leased address is lost when the lease ends, and the whole LAN goes down with it"))
+}
+
+// errNoRouter is why automatic is not for a LAN whose router is not known:
+// the router is where every device's traffic leaves, the one address never
+// to hand out, and what tells this LAN from another with the same numbers.
+func errNoRouter() error {
+	return errors.New(i18n.T("找不到这个局域网的路由器（默认网关），没法分配地址：先在这台电脑的网络设置里填上路由器地址",
+		"This LAN's router (the default gateway) isn't known, so no addresses can be handed out: set the router's address in this computer's network settings first"))
 }
 
 // lanID names a LAN so that another one is told from it: its network, its
@@ -143,7 +167,7 @@ func (a *App) checkDHCP() ([]netip.Addr, error) {
 		return nil, errors.New(i18n.T("检测还没有结束", "The check hasn't finished yet"))
 	}
 	au.checking = true
-	serving := au.srv != nil
+	serving, starts := au.srv != nil, au.starts
 	au.mu.Unlock()
 	a.emit()
 
@@ -151,12 +175,16 @@ func (a *App) checkDHCP() ([]netip.Addr, error) {
 	var err error
 	n := a.gw.System().Network()
 	self, _, ok := osDHCP.lan(n)
+	me := self
 	switch {
 	case !osDHCP.supported:
 		err = errors.New(i18n.T("这个系统上还不能分配地址", "Handing out addresses isn't available on this system yet"))
 	case !ok:
 		err = errors.New(i18n.T("这台电脑没有连上局域网", "This computer isn't on a LAN"))
 	default:
+		// This computer's address is left out only while bowel's own server
+		// answers there: at any other time an answer from it is another
+		// program's server on this computer, which is one to report.
 		if !serving {
 			self = netip.Addr{}
 		}
@@ -168,6 +196,11 @@ func (a *App) checkDHCP() ([]netip.Addr, error) {
 		}
 	}
 	au.mu.Lock()
+	// A server of bowel's that started while the check listened answered it
+	// too: that one is not another server.
+	if !serving && (au.srv != nil || au.starts != starts) {
+		others = slices.DeleteFunc(others, func(x netip.Addr) bool { return x == me })
+	}
 	au.checking, au.checked, au.checkErr = false, time.Now(), err
 	if err == nil {
 		au.others = others
@@ -199,6 +232,16 @@ func (a *App) setGatewayAuto(on bool) error {
 		if !a.gatewayOn(a.settings.Get()) {
 			return errors.New(i18n.T("先打开网关模式", "Turn gateway mode on first"))
 		}
+		// Before anything is asked of the LAN: what about this computer
+		// rules it out whoever else answers.
+		if n := a.gw.System().Network(); n.IP != "" {
+			if n.DHCP {
+				return errLeased()
+			}
+			if n.Router == "" {
+				return errNoRouter()
+			}
+		}
 		others, err := a.checkDHCP()
 		if err != nil {
 			return err
@@ -214,6 +257,13 @@ func (a *App) setGatewayAuto(on bool) error {
 		self, lan, ok := osDHCP.lan(n)
 		if !ok {
 			return errors.New(i18n.T("这台电脑没有连上局域网", "This computer isn't on a LAN"))
+		}
+		// Once more, on the network it is about to be remembered for.
+		if n.DHCP {
+			return errLeased()
+		}
+		if n.Router == "" {
+			return errNoRouter()
 		}
 		id = a.lanID(n, lan)
 		a.auto.mu.Lock()
@@ -253,7 +303,9 @@ func lanKey(n gateway.Network, self netip.Addr, lan netip.Prefix) string {
 // network offers itself to nobody there), and each time before it starts
 // (at launch, after a pause, when this computer's address changed) the LAN
 // is asked again whether someone hands out addresses: while one answers,
-// bowel stays out and says so.
+// bowel stays out and says so. And this computer's own address must be a
+// fixed one: once it is found to come from DHCP the server stops, since it
+// would go down with the lease anyway and must not answer its own client.
 func (a *App) syncDHCP() {
 	s := a.settings.Get()
 	want := s.GatewayAuto && a.gatewayOn(s) && !a.isQuitting()
@@ -271,7 +323,7 @@ func (a *App) syncDHCP() {
 	}
 	au.mu.Lock()
 	defer au.mu.Unlock()
-	if au.srv != nil && (!want || key != au.key) {
+	if au.srv != nil && (!want || key != au.key || n.DHCP) {
 		au.cancel()
 		au.srv, au.cancel, au.key = nil, nil, ""
 	}
@@ -286,8 +338,16 @@ func (a *App) syncDHCP() {
 		au.err = errors.New(i18n.T("这台电脑没有连上局域网", "This computer isn't on a LAN"))
 		return
 	}
+	if n.Router == "" {
+		au.err = errNoRouter()
+		return
+	}
 	if !sameLAN(s.GatewayAutoLAN, id) {
 		au.err = errors.New(i18n.T("这不是开启时的那个局域网，bowel 在这里不分配地址。要在这里用，先关闭再重新开启", "This isn't the LAN it was turned on for, so bowel hands out no addresses here. To use it here, turn it off and on again"))
+		return
+	}
+	if n.DHCP {
+		au.err = errLeased()
 		return
 	}
 	if au.clear != key || time.Since(au.clearAt) > dhcpClear {
@@ -300,7 +360,10 @@ func (a *App) syncDHCP() {
 	}
 	au.clear = "" // good for this start only
 	cfg := dhcp.Config{Iface: n.Iface, Self: self, Prefix: lan, Path: filepath.Join(a.dataDir, "gateway-leases.json"),
-		InUse: a.addressInUse, OnChange: func() { a.updateDevices(); a.emit() }}
+		InUse: a.addressInUse, Refresh: func() { a.neighbours() }, OnChange: func() { a.updateDevices(); a.emit() }}
+	if ifc, err := net.InterfaceByName(n.Iface); err == nil {
+		cfg.Own = ifc.HardwareAddr
+	}
 	if r, err := netip.ParseAddr(n.Router); err == nil {
 		cfg.Avoid = []netip.Addr{r}
 	}
@@ -316,6 +379,7 @@ func (a *App) syncDHCP() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	au.srv, au.cancel, au.key, au.err = srv, cancel, key, nil
+	au.starts++
 	go func() {
 		if err := srv.Serve(ctx, conn); err != nil {
 			log.Println("gateway: handing out addresses stopped:", err)
@@ -367,22 +431,36 @@ func (a *App) stopDHCP() {
 }
 
 // addressInUse says whether a device other than mac's answers at ip, by
-// the system's ARP table. The server calls it with its lock held.
+// the ARP table as it was last read. The server calls it with its lock
+// held, so it asks the system nothing: the server has the table read
+// (Refresh, which is neighbours) before it takes its lock.
 func (a *App) addressInUse(ip netip.Addr, mac string) bool {
-	have, ok := a.neighbours()[ip]
+	au := &a.auto
+	au.neighMu.Lock()
+	have, ok := au.neigh[ip]
+	au.neighMu.Unlock()
 	return ok && have != mac
 }
 
-// neighbours is the ARP table, read at most every few seconds. It takes
-// neighMu and nothing else, so it may be called under any other lock.
+// neighbours is the ARP table, read at most every few seconds. Reading it
+// can take a while (macOS runs arp for it), so it is not to be called
+// under a lock that others wait for; while one caller reads, the others
+// wait for that reading.
 func (a *App) neighbours() map[netip.Addr]string {
 	au := &a.auto
+	au.neighRead.Lock()
+	defer au.neighRead.Unlock()
 	au.neighMu.Lock()
-	defer au.neighMu.Unlock()
-	if au.neighAt.IsZero() || time.Since(au.neighAt) >= 10*time.Second {
-		au.neigh, au.neighAt = osDHCP.neighbours(), time.Now()
+	m, fresh := au.neigh, !au.neighAt.IsZero() && time.Since(au.neighAt) < 10*time.Second
+	au.neighMu.Unlock()
+	if fresh {
+		return m
 	}
-	return au.neigh
+	m = osDHCP.neighbours()
+	au.neighMu.Lock()
+	au.neigh, au.neighAt = m, time.Now()
+	au.neighMu.Unlock()
+	return m
 }
 
 // leases are the server's, none when it does not run.

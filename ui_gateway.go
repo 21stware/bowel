@@ -122,8 +122,8 @@ func (u *UI) gatewayGuide(c *ui.Context, p *pal, toast func(string)) {
 		if g.DHCP || g.WiFi || g.Firewall {
 			ui.Column(c).Gap(5).Margin(4, 0, 0, 0).Children(func() {
 				if g.DHCP {
-					gatewayTip(c, p, p.warn, i18n.T("这台 Mac 的地址是路由器自动分配的，可能会变：在路由器里给它绑定固定地址（DHCP 静态分配）。",
-						"This Mac's address was assigned by the router and may change: reserve it for this Mac in the router (a DHCP reservation)."))
+					gatewayTip(c, p, p.warn, i18n.T("这台 Mac 的地址是自动获取的（DHCP），可能会变：在系统的网络设置里改成手动的固定地址。设为内网代理网关之前必须先改。",
+						"This Mac gets its address from DHCP, so it may change: set a fixed (manual) address in the system's network settings. It has to be fixed before this Mac can become the LAN's gateway for every device."))
 				}
 				if g.WiFi {
 					gatewayTip(c, p, p.warn, i18n.T("这台 Mac 走的是 Wi‑Fi：其他设备的流量都要经过它，改用网线会更快更稳。",

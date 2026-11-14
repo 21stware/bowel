@@ -70,7 +70,7 @@ func TestSettingsGateway(t *testing.T) {
 	tt := ui.NewTesterWith(u.settingsView, 760, 1500, ui.TesterOptions{})
 	tt.Advance(time.Second)
 	shot(t, tt, "gateway-settings")
-	for _, s := range []string{"网关模式", "192.168.31.28", "内网代理", "DHCP 服务器 192.168.31.1", "重新检测", "改用网线", "绑定固定地址"} {
+	for _, s := range []string{"网关模式", "192.168.31.28", "内网代理", "DHCP 服务器 192.168.31.1", "重新检测", "改用网线", "手动的固定地址"} {
 		if !tt.HasText(s) {
 			t.Errorf("no %q: %q", s, tt.Texts())
 		}
