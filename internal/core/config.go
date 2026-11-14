@@ -377,9 +377,6 @@ func BuildConfig(in Input) ([]byte, error) {
 		if len(o.Fallback) > 0 {
 			dns["fallback"] = o.Fallback
 		}
-		if len(o.ProxyNameservers) > 0 {
-			dns["proxy-server-nameserver"] = o.ProxyNameservers
-		}
 		// The system's own servers, unless bowel has set those to its
 		// placeholder for TUN: then the network's, which it kept.
 		local := []string{"system"}
@@ -434,6 +431,9 @@ func BuildConfig(in Input) ([]byte, error) {
 		}
 		directDNS(dns, o)
 		cfg["dns"] = dns
+	}
+	if len(o.ProxyNameservers) > 0 {
+		cfg["dns"].(map[string]any)["proxy-server-nameserver"] = o.ProxyNameservers
 	}
 	return yaml.Marshal(cfg)
 }

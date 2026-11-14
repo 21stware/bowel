@@ -67,16 +67,22 @@ type gwAuto struct {
 	// began knows by it whether one answered while it listened.
 	starts   int
 	key      string       // the interface and addresses srv serves
+	lan      string       // the router identity srv was started for
 	err      error        // why it is wanted and does not serve
-	others   []netip.Addr // the other servers the last check found
+	others   []netip.Addr // the other servers the last successful check found
 	checked  time.Time
-	checkErr error
+	check    dhcpCheck
 	checking bool
+	// epoch changes when automatic is requested or stopped, so a pending
+	// enable or resume cannot undo a later choice.
+	epoch    uint64
+	enabling bool // the current epoch's enable is still pending
 
 	// Before the server starts anywhere, the LAN is asked whether someone
 	// hands out addresses there already: clear is the LAN (key) a check
 	// just found free, and tried when a LAN was last asked for this.
 	clear    string
+	clearLAN string
 	clearAt  time.Time
 	starting bool
 	tried    time.Time
@@ -104,6 +110,10 @@ func errLeased() error {
 func errNoRouter() error {
 	return errors.New(i18n.T("找不到这个局域网的路由器（默认网关），没法分配地址：先在这台电脑的网络设置里填上路由器地址",
 		"This LAN's router (the default gateway) isn't known, so no addresses can be handed out: set the router's address in this computer's network settings first"))
+}
+
+func errOtherLAN() error {
+	return errors.New(i18n.T("这不是开启时的那个局域网，bowel 在这里不分配地址。要在这里用，先关闭再重新开启", "This isn't the LAN it was turned on for, so bowel hands out no addresses here. To use it here, turn it off and on again"))
 }
 
 // lanID names a LAN so that another one is told from it: its network, its
@@ -148,8 +158,21 @@ func lanPrefix(n gateway.Network) (self netip.Addr, lan netip.Prefix, ok bool) {
 	return
 }
 
+// dhcpCheck carries the network that was actually asked with its answer,
+// including when a caller joins a check already in progress.
+type dhcpCheck struct {
+	key, lan string
+	others   []netip.Addr
+	err      error
+}
+
 // checkDHCP asks the LAN who hands out addresses, and keeps the answer.
 func (a *App) checkDHCP() ([]netip.Addr, error) {
+	c := a.probeDHCP()
+	return c.others, c.err
+}
+
+func (a *App) probeDHCP() dhcpCheck {
 	au := &a.auto
 	au.mu.Lock()
 	if au.checking { // one at a time; the other's answer will do
@@ -158,13 +181,13 @@ func (a *App) checkDHCP() ([]netip.Addr, error) {
 			time.Sleep(100 * time.Millisecond)
 			au.mu.Lock()
 			done := !au.checking
-			others, err := au.others, au.checkErr
+			c := au.check
 			au.mu.Unlock()
 			if done {
-				return others, err
+				return c
 			}
 		}
-		return nil, errors.New(i18n.T("检测还没有结束", "The check hasn't finished yet"))
+		return dhcpCheck{err: errors.New(i18n.T("检测还没有结束", "The check hasn't finished yet"))}
 	}
 	au.checking = true
 	serving, starts := au.srv != nil, au.starts
@@ -174,7 +197,11 @@ func (a *App) checkDHCP() ([]netip.Addr, error) {
 	var others []netip.Addr
 	var err error
 	n := a.gw.System().Network()
-	self, _, ok := osDHCP.lan(n)
+	self, lan, ok := osDHCP.lan(n)
+	c := dhcpCheck{}
+	if ok {
+		c.key, c.lan = lanKey(n, self, lan), a.lanID(n, lan)
+	}
 	me := self
 	switch {
 	case !osDHCP.supported:
@@ -201,13 +228,14 @@ func (a *App) checkDHCP() ([]netip.Addr, error) {
 	if !serving && (au.srv != nil || au.starts != starts) {
 		others = slices.DeleteFunc(others, func(x netip.Addr) bool { return x == me })
 	}
-	au.checking, au.checked, au.checkErr = false, time.Now(), err
+	c.others, c.err = others, err
+	au.checking, au.checked, au.check = false, time.Now(), c
 	if err == nil {
 		au.others = others
 	}
 	au.mu.Unlock()
 	a.emit()
-	return others, err
+	return c
 }
 
 // dhcpWhy is an error of the DHCP sockets in the user's words.
@@ -228,6 +256,21 @@ func dhcpWhy(err error) string {
 func (a *App) setGatewayAuto(on bool) error {
 	done := a.begin("gateway:auto")
 	defer done()
+	au := &a.auto
+	au.mu.Lock()
+	au.epoch++
+	epoch := au.epoch
+	au.enabling = on
+	au.clear, au.clearLAN = "", ""
+	au.mu.Unlock()
+	defer func() {
+		au.mu.Lock()
+		if au.epoch == epoch {
+			au.enabling = false
+		}
+		au.mu.Unlock()
+	}()
+	var check dhcpCheck
 	if on {
 		if !a.gatewayOn(a.settings.Get()) {
 			return errors.New(i18n.T("先打开网关模式", "Turn gateway mode on first"))
@@ -242,12 +285,12 @@ func (a *App) setGatewayAuto(on bool) error {
 				return errNoRouter()
 			}
 		}
-		others, err := a.checkDHCP()
-		if err != nil {
-			return err
+		check = a.probeDHCP()
+		if check.err != nil {
+			return check.err
 		}
-		if len(others) > 0 {
-			return fmt.Errorf(i18n.T("%s 还在分配地址：先关闭它的 DHCP 服务，再重新检测", "%s still hands out addresses: turn its DHCP service off, then check again"), joinAddrs(others))
+		if len(check.others) > 0 {
+			return fmt.Errorf(i18n.T("%s 还在分配地址：先关闭它的 DHCP 服务，再重新检测", "%s still hands out addresses: turn its DHCP service off, then check again"), joinAddrs(check.others))
 		}
 	}
 	id := ""
@@ -266,12 +309,32 @@ func (a *App) setGatewayAuto(on bool) error {
 			return errNoRouter()
 		}
 		id = a.lanID(n, lan)
-		a.auto.mu.Lock()
-		a.auto.clear, a.auto.clearAt = lanKey(n, self, lan), time.Now()
-		a.auto.mu.Unlock()
+		if check.key != lanKey(n, self, lan) || !sameLAN(check.lan, id) {
+			return errOtherLAN()
+		}
 	}
-	if _, err := a.settings.Update(func(s *settings.Settings) { s.GatewayAuto, s.GatewayAutoLAN = on, id }); err != nil {
+	au.mu.Lock()
+	if au.epoch != epoch || on && a.isQuitting() {
+		au.mu.Unlock()
+		return context.Canceled
+	}
+	stopped := false
+	_, err := a.settings.Update(func(s *settings.Settings) {
+		if on && !a.gatewayOn(*s) {
+			stopped = true
+			return
+		}
+		s.GatewayAuto, s.GatewayAutoLAN = on, id
+	})
+	if err == nil && !stopped && on {
+		au.clear, au.clearLAN, au.clearAt = check.key, check.lan, time.Now()
+	}
+	au.mu.Unlock()
+	if err != nil {
 		return err
+	}
+	if stopped {
+		return context.Canceled
 	}
 	a.syncDHCP()
 	a.emit()
@@ -323,11 +386,24 @@ func (a *App) syncDHCP() {
 	}
 	au.mu.Lock()
 	defer au.mu.Unlock()
-	if au.srv != nil && (!want || key != au.key || n.DHCP) {
+	// Network reads can wait behind a stop. Decide from the settings now,
+	// under the same lock that the stop takes, not from the earlier copy.
+	s = a.settings.Get()
+	gatewayOn := a.gatewayOn(s) && !a.isQuitting()
+	want = s.GatewayAuto && gatewayOn
+	if au.srv != nil && (!want || key != au.key || n.DHCP || n.Router == "" || !sameLAN(au.lan, id) || !sameLAN(s.GatewayAutoLAN, id)) {
 		au.cancel()
-		au.srv, au.cancel, au.key = nil, nil, ""
+		au.srv, au.cancel, au.key, au.lan = nil, nil, "", ""
+		au.clear, au.clearLAN = "", ""
 	}
 	if !want {
+		// A config reload can reconcile manual mode while its initial
+		// enable is still probing. Only an actual stop cancels it.
+		if !gatewayOn {
+			au.epoch++
+			au.enabling = false
+		}
+		au.clear, au.clearLAN = "", ""
 		au.err = nil
 		return
 	}
@@ -343,14 +419,14 @@ func (a *App) syncDHCP() {
 		return
 	}
 	if !sameLAN(s.GatewayAutoLAN, id) {
-		au.err = errors.New(i18n.T("这不是开启时的那个局域网，bowel 在这里不分配地址。要在这里用，先关闭再重新开启", "This isn't the LAN it was turned on for, so bowel hands out no addresses here. To use it here, turn it off and on again"))
+		au.err = errOtherLAN()
 		return
 	}
 	if n.DHCP {
 		au.err = errLeased()
 		return
 	}
-	if au.clear != key || time.Since(au.clearAt) > dhcpClear {
+	if au.clear != key || !sameLAN(au.clearLAN, id) || time.Since(au.clearAt) > dhcpClear {
 		// Not known to be free: ask, and come back with the answer.
 		if !au.starting && time.Since(au.tried) > dhcpRetry {
 			au.starting, au.tried = true, time.Now()
@@ -378,14 +454,14 @@ func (a *App) syncDHCP() {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	au.srv, au.cancel, au.key, au.err = srv, cancel, key, nil
+	au.srv, au.cancel, au.key, au.lan, au.err = srv, cancel, key, id, nil
 	au.starts++
 	go func() {
 		if err := srv.Serve(ctx, conn); err != nil {
 			log.Println("gateway: handing out addresses stopped:", err)
 			au.mu.Lock()
 			if au.srv == srv {
-				au.srv, au.cancel, au.key = nil, nil, ""
+				au.srv, au.cancel, au.key, au.lan = nil, nil, "", ""
 				au.err = fmt.Errorf(i18n.T("地址分配意外停止：%s", "Handing out addresses stopped unexpectedly: %s"), err)
 			}
 			au.mu.Unlock()
@@ -399,17 +475,28 @@ func (a *App) syncDHCP() {
 // clearToServe asks the LAN whether someone hands out addresses, for the
 // server that is about to start on key, and has syncDHCP start it if not.
 func (a *App) clearToServe(key string) {
-	others, err := a.checkDHCP()
 	au := &a.auto
 	au.mu.Lock()
+	epoch := au.epoch
+	au.mu.Unlock()
+	check := a.probeDHCP()
+	au.mu.Lock()
 	au.starting = false
+	if au.epoch != epoch {
+		au.mu.Unlock()
+		a.emit()
+		return
+	}
+	au.clear, au.clearLAN = "", ""
 	switch {
-	case err != nil:
-		au.err = err
-	case len(others) > 0:
-		au.err = fmt.Errorf(i18n.T("%s 在分配地址，bowel 没有开始分配。关闭它的 DHCP 后会自动继续", "%s hands out addresses, so bowel didn't start to. It goes on by itself once that DHCP is off"), joinAddrs(others))
+	case check.err != nil:
+		au.err = check.err
+	case check.key != key || !sameLAN(a.settings.Get().GatewayAutoLAN, check.lan):
+		au.err = errOtherLAN()
+	case len(check.others) > 0:
+		au.err = fmt.Errorf(i18n.T("%s 在分配地址，bowel 没有开始分配。关闭它的 DHCP 后会自动继续", "%s hands out addresses, so bowel didn't start to. It goes on by itself once that DHCP is off"), joinAddrs(check.others))
 	default:
-		au.clear, au.clearAt = key, time.Now()
+		au.clear, au.clearLAN, au.clearAt = check.key, check.lan, time.Now()
 	}
 	clear := au.clear == key
 	au.mu.Unlock()
@@ -424,9 +511,12 @@ func (a *App) stopDHCP() {
 	au := &a.auto
 	au.mu.Lock()
 	defer au.mu.Unlock()
+	au.epoch++
+	au.enabling = false
+	au.clear, au.clearLAN = "", ""
 	if au.srv != nil {
 		au.cancel()
-		au.srv, au.cancel, au.key = nil, nil, ""
+		au.srv, au.cancel, au.key, au.lan = nil, nil, "", ""
 	}
 }
 
@@ -543,8 +633,8 @@ func (a *App) autoView(s settings.Settings, gatewayOn bool) AutoView {
 	for _, o := range others {
 		v.Servers = append(v.Servers, o.String())
 	}
-	if au.checkErr != nil {
-		v.CheckError = au.checkErr.Error()
+	if au.check.err != nil {
+		v.CheckError = au.check.err.Error()
 	}
 	// The server is asked with au.mu let go: it holds its own lock while
 	// it asks who answers at an address, which comes back to this side.

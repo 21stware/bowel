@@ -810,6 +810,18 @@ func (a *App) mcpServer() *mcp.Server {
 						return nil, err
 					}
 					st := a.settings.Get()
+					systemProxy, tun := st.SystemProxy, st.Tun
+					// Pause keeps the saved entries, but asking to turn one on
+					// must reach the setter that resumes it. An explicit off
+					// still clears the saved entry for the next full resume.
+					if st.Paused {
+						if p.SystemProxy != nil && *p.SystemProxy {
+							systemProxy = false
+						}
+						if p.Tun != nil && *p.Tun {
+							tun = false
+						}
+					}
 					var lines []string
 					note := func(k string, from, to bool) {
 						if from != to {
@@ -817,14 +829,14 @@ func (a *App) mcpServer() *mcp.Server {
 						}
 					}
 					if p.SystemProxy != nil {
-						note("systemProxy", st.SystemProxy, *p.SystemProxy)
+						note("systemProxy", systemProxy, *p.SystemProxy)
 					}
 					// TUN wanted and not had (its core did not start), or on
 					// without the rule that points the system's DNS at it:
 					// asking for it again is asking to try again.
 					retry := p.Tun != nil && *p.Tun && st.Tun && a.tunFailed()
 					if p.Tun != nil {
-						note("tun", st.Tun, *p.Tun)
+						note("tun", tun, *p.Tun)
 					}
 					if retry {
 						lines = append(lines, "tun: retry")
@@ -836,12 +848,12 @@ func (a *App) mcpServer() *mcp.Server {
 						return "Nothing to change.", nil
 					}
 					err := a.change(ctx, s, words{"更改接管", "Change the takeover"}, strings.Join(lines, "\n"), func() error {
-						if p.SystemProxy != nil && *p.SystemProxy != st.SystemProxy {
+						if p.SystemProxy != nil && *p.SystemProxy != systemProxy {
 							if err := a.setSystemProxy(*p.SystemProxy); err != nil {
 								return err
 							}
 						}
-						if p.Tun != nil && (*p.Tun != st.Tun || retry) {
+						if p.Tun != nil && (*p.Tun != tun || retry) {
 							if err := a.setTun(*p.Tun); err != nil {
 								return err
 							}
