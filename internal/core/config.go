@@ -33,6 +33,9 @@ const ProbeGroup = "MOHO-PROBE"
 type ProviderRef struct {
 	ID   string
 	Path string
+	// Hidden are nodes the user removed, by their names in the file: the
+	// core leaves them out.
+	Hidden []string
 }
 
 // RuleSetRef is a rule set whose file is there to be read.
@@ -100,6 +103,19 @@ func exactly(names []string) string {
 		quoted[i] = strings.ReplaceAll(regexp.QuoteMeta(n), "`", ".")
 	}
 	return "^(?:" + strings.Join(quoted, "|") + ")$"
+}
+
+// excludeFilter is what provider p leaves out: the entries that only carry
+// information, then the nodes the user removed. The core splits it on
+// backticks and leaves out what any part matches. A removed node matches
+// by its name with or without the suffix the provider's override adds, so
+// it is left out whichever of the two the core matches against.
+func excludeFilter(p ProviderRef) string {
+	if len(p.Hidden) == 0 {
+		return provider.InfoPattern
+	}
+	own := strings.TrimSuffix(exactly(p.Hidden), "$")
+	return provider.InfoPattern + "`" + own + "(?:" + regexp.QuoteMeta(NodeSep+p.ID) + ")?$"
 }
 
 // withTarget puts the target before a rule's trailing options:
@@ -240,8 +256,9 @@ func BuildConfig(in Input) ([]byte, error) {
 			"health-check": map[string]any{"enable": true, "url": in.TestURL, "interval": o.HealthInterval, "lazy": true},
 			"override":     map[string]any{"additional-suffix": NodeSep + p.ID},
 			// Entries that only say how much traffic is left and the like
-			// are no nodes (provider.InfoPattern).
-			"exclude-filter": provider.InfoPattern,
+			// are no nodes (provider.InfoPattern), and nor are the ones
+			// the user removed.
+			"exclude-filter": excludeFilter(p),
 		}
 	}
 	if len(providers) > 0 {

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -14,25 +15,32 @@ import (
 
 // Servers maps a provider's node names, as the provider's content has
 // them, to their servers' hosts. Nodes it can't read are absent, and so
-// are the entries that only carry information (IsInfo).
+// are the entries that only carry information (IsInfo) and the nodes the
+// user removed (Hidden).
 func (s *Store) Servers(id string) map[string]string {
 	b, err := os.ReadFile(s.Path(id))
 	if err != nil {
 		return nil
 	}
-	return parseServers(b)
+	out := parseServers(b)
+	for _, n := range s.hidden(id) {
+		delete(out, n)
+	}
+	return out
 }
 
 // Names are the names of provider id's nodes as its file has them, those
 // without a server of their own (direct, WireGuard's peers) too, but not
 // the entries that only carry information (IsInfo), which the core leaves
-// out as well.
+// out as well, nor the nodes the user removed (Hidden), which the core is
+// told to leave out.
 func (s *Store) Names(id string) []string {
 	b, err := os.ReadFile(s.Path(id))
 	if err != nil {
 		return nil
 	}
-	return parseNames(b)
+	hidden := s.hidden(id)
+	return slices.DeleteFunc(parseNames(b), func(n string) bool { return slices.Contains(hidden, n) })
 }
 
 func parseNames(data []byte) []string {

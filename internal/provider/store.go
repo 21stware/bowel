@@ -56,6 +56,12 @@ type Provider struct {
 	Usage      *Usage    `json:"usage,omitempty"`
 	// Error is the last update's failure, "" after a success.
 	Error string `json:"error,omitempty"`
+	// Hidden are the names of nodes the user removed, as the provider's
+	// content has them. They are left out each time the content is read,
+	// so a subscription that still lists one after an update doesn't bring
+	// it back; a name the content no longer has stays here, harmlessly,
+	// until it is restored.
+	Hidden []string `json:"hidden,omitempty"`
 }
 
 // Store keeps providers in a directory: index.json and one file each.
@@ -310,6 +316,30 @@ func (s *Store) Rename(id, name string) (Provider, error) {
 
 func (s *Store) SetAutoUpdate(id string, hours int) (Provider, error) {
 	return s.update(id, func(p *Provider) { p.AutoUpdate = max(0, hours) })
+}
+
+// Hide removes node name (as the content has it) from provider id, or with
+// hide false, brings it back.
+func (s *Store) Hide(id, name string, hide bool) (Provider, error) {
+	if name == "" {
+		return Provider{}, errors.New(i18n.T("节点名为空", "The node has no name"))
+	}
+	return s.update(id, func(p *Provider) {
+		p.Hidden = slices.DeleteFunc(p.Hidden, func(n string) bool { return n == name })
+		if hide {
+			p.Hidden = append(p.Hidden, name)
+			slices.Sort(p.Hidden)
+		}
+		if len(p.Hidden) == 0 {
+			p.Hidden = nil
+		}
+	})
+}
+
+// hidden is provider id's Hidden.
+func (s *Store) hidden(id string) []string {
+	p, _ := s.Get(id)
+	return p.Hidden
 }
 
 func (s *Store) Delete(id string) error {

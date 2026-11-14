@@ -358,6 +358,9 @@ type ProviderView struct {
 	Usage      *Usage    `json:"usage,omitempty"`
 	Error      string    `json:"error,omitempty"`
 	Nodes      int       `json:"nodes"`
+	// Hidden are the nodes the user removed, by their names in the
+	// provider's content; they come back with 恢复.
+	Hidden []string `json:"hidden,omitempty"`
 	// Warn: "quota" (over 90% used), "expire" (within 7 days), "".
 	Warn string `json:"warn,omitempty"`
 	// Routing is about the groups and rules its content brings, if any.
