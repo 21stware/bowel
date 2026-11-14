@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -311,5 +312,138 @@ func TestGatewayAutoEnableDoesNotReuseOtherLANProbe(t *testing.T) {
 				t.Fatal("the old network's probe approved the changed network")
 			}
 		})
+	}
+}
+
+// Any successful config reload reconciles the gateway. While automatic is
+// still being checked, that is not a request to cancel its initial enable.
+func TestGatewayAutoReconcileKeepsPendingEnable(t *testing.T) {
+	a, l, _ := autoApp(t)
+	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	l.set(func(l *lanFake) {
+		l.probing = func(netip.Addr) []netip.Addr { close(entered); <-release; return nil }
+	})
+	var enableErr error
+	go func() { defer close(done); enableErr = a.setGatewayAuto(true) }()
+	defer func() { unblock(); <-done }()
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("initial enable did not reach the probe")
+	}
+	a.syncGateway()
+	unblock()
+	<-done
+	if enableErr != nil || !a.serving() || !a.settings.Get().GatewayAuto {
+		t.Fatalf("reconciliation canceled enable: error=%v serving=%v automatic=%v", enableErr, a.serving(), a.settings.Get().GatewayAuto)
+	}
+}
+
+// The CLI must reach the cancellation even before the pending enable has
+// saved GatewayAuto. Exercise both commands through the actual transport.
+func TestGatewayAutoManualCLIStopsPendingEnable(t *testing.T) {
+	a, _, run := cliApp(t)
+	a.emitQueued = true
+	installed, dialogs := true, 0
+	fakeTun(t, &installed, &dialogs)
+	l := fakeLAN(t)
+	f := &gwFake{ready: true, net: gateway.Network{IP: "192.168.1.20", Iface: "en0", Router: "192.168.1.1"}}
+	a.gw = gateway.New(f, filepath.Join(a.dataDir, "gateway-before.json"))
+	if _, err := a.settings.Update(func(s *settings.Settings) {
+		s.Gateway, s.Tun, s.Paused, s.SystemProxy = true, true, false, false
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.stopDHCP)
+	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	l.set(func(l *lanFake) {
+		l.probing = func(netip.Addr) []netip.Addr { close(entered); <-release; return nil }
+	})
+	var enableCode int
+	go func() { defer close(done); enableCode, _, _ = run("", "gateway", "auto") }()
+	defer func() { unblock(); <-done }()
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("CLI enable did not reach the probe")
+	}
+	if code, out, errOut := run("", "gateway", "manual"); code != 0 {
+		t.Fatalf("manual failed: exit=%d stdout=%q stderr=%q", code, out, errOut)
+	}
+	unblock()
+	<-done
+	if a.serving() || a.settings.Get().GatewayAuto || enableCode == 0 {
+		t.Fatalf("manual was undone: serving=%v automatic=%v enable exit=%d", a.serving(), a.settings.Get().GatewayAuto, enableCode)
+	}
+}
+
+// Completion of a superseded request must not hide the newer enable from
+// a manual request. The UI's shared busy flag cannot identify its owner.
+func TestGatewayAutoManualCancelsNewestEnable(t *testing.T) {
+	a, _, run := cliApp(t)
+	a.emitQueued = true
+	installed, dialogs := true, 0
+	fakeTun(t, &installed, &dialogs)
+	l := fakeLAN(t)
+	f := &gwFake{ready: true, net: gateway.Network{IP: "192.168.1.20", Iface: "en0", Router: "192.168.1.1"}}
+	a.gw = gateway.New(f, filepath.Join(a.dataDir, "gateway-before.json"))
+	if _, err := a.settings.Update(func(s *settings.Settings) {
+		s.Gateway, s.Tun, s.Paused, s.SystemProxy = true, true, false, false
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.stopDHCP)
+	firstRead, releaseFirst := make(chan struct{}), make(chan struct{})
+	secondProbe, releaseSecond := make(chan struct{}), make(chan struct{})
+	firstDone, secondDone := make(chan struct{}), make(chan struct{})
+	var firstOnce, secondOnce sync.Once
+	unblockFirst := func() { firstOnce.Do(func() { close(releaseFirst) }) }
+	unblockSecond := func() { secondOnce.Do(func() { close(releaseSecond) }) }
+	readLAN := osDHCP.lan
+	var reads, probes atomic.Int32
+	osDHCP.lan = func(n gateway.Network) (netip.Addr, netip.Prefix, bool) {
+		if reads.Add(1) == 2 { // the first enable's post-probe LAN read
+			close(firstRead)
+			<-releaseFirst
+		}
+		return readLAN(n)
+	}
+	l.set(func(l *lanFake) {
+		l.probing = func(netip.Addr) []netip.Addr {
+			if probes.Add(1) == 2 {
+				close(secondProbe)
+				<-releaseSecond
+			}
+			return nil
+		}
+	})
+	wait := func(ch <-chan struct{}, reason string) {
+		t.Helper()
+		select {
+		case <-ch:
+		case <-time.After(3 * time.Second):
+			t.Fatal(reason)
+		}
+	}
+	var firstCode, secondCode int
+	go func() { defer close(firstDone); firstCode, _, _ = run("", "gateway", "auto") }()
+	defer func() { unblockFirst(); <-firstDone }()
+	wait(firstRead, "first enable did not reach its post-probe LAN read")
+	go func() { defer close(secondDone); secondCode, _, _ = run("", "gateway", "auto") }()
+	defer func() { unblockSecond(); <-secondDone }()
+	wait(secondProbe, "second enable did not reach its probe")
+	unblockFirst()
+	wait(firstDone, "superseded enable did not finish")
+	if code, out, errOut := run("", "gateway", "manual"); code != 0 {
+		t.Fatalf("manual failed: exit=%d stdout=%q stderr=%q", code, out, errOut)
+	}
+	unblockSecond()
+	wait(secondDone, "second enable did not finish")
+	if a.serving() || a.settings.Get().GatewayAuto || firstCode == 0 || secondCode == 0 {
+		t.Fatalf("manual lost to overlapping enables: serving=%v automatic=%v exits=%d/%d", a.serving(), a.settings.Get().GatewayAuto, firstCode, secondCode)
 	}
 }

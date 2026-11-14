@@ -75,7 +75,8 @@ type gwAuto struct {
 	checking bool
 	// epoch changes when automatic is requested or stopped, so a pending
 	// enable or resume cannot undo a later choice.
-	epoch uint64
+	epoch    uint64
+	enabling bool // the current epoch's enable is still pending
 
 	// Before the server starts anywhere, the LAN is asked whether someone
 	// hands out addresses there already: clear is the LAN (key) a check
@@ -259,8 +260,16 @@ func (a *App) setGatewayAuto(on bool) error {
 	au.mu.Lock()
 	au.epoch++
 	epoch := au.epoch
+	au.enabling = on
 	au.clear, au.clearLAN = "", ""
 	au.mu.Unlock()
+	defer func() {
+		au.mu.Lock()
+		if au.epoch == epoch {
+			au.enabling = false
+		}
+		au.mu.Unlock()
+	}()
 	var check dhcpCheck
 	if on {
 		if !a.gatewayOn(a.settings.Get()) {
@@ -380,14 +389,20 @@ func (a *App) syncDHCP() {
 	// Network reads can wait behind a stop. Decide from the settings now,
 	// under the same lock that the stop takes, not from the earlier copy.
 	s = a.settings.Get()
-	want = s.GatewayAuto && a.gatewayOn(s) && !a.isQuitting()
+	gatewayOn := a.gatewayOn(s) && !a.isQuitting()
+	want = s.GatewayAuto && gatewayOn
 	if au.srv != nil && (!want || key != au.key || n.DHCP || n.Router == "" || !sameLAN(au.lan, id) || !sameLAN(s.GatewayAutoLAN, id)) {
 		au.cancel()
 		au.srv, au.cancel, au.key, au.lan = nil, nil, "", ""
 		au.clear, au.clearLAN = "", ""
 	}
 	if !want {
-		au.epoch++
+		// A config reload can reconcile manual mode while its initial
+		// enable is still probing. Only an actual stop cancels it.
+		if !gatewayOn {
+			au.epoch++
+			au.enabling = false
+		}
 		au.clear, au.clearLAN = "", ""
 		au.err = nil
 		return
@@ -497,6 +512,7 @@ func (a *App) stopDHCP() {
 	au.mu.Lock()
 	defer au.mu.Unlock()
 	au.epoch++
+	au.enabling = false
 	au.clear, au.clearLAN = "", ""
 	if au.srv != nil {
 		au.cancel()
