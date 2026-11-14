@@ -39,7 +39,8 @@ func TestSiteShots(t *testing.T) {
 		}
 	}
 	render := func(view func(*ui.Context), w, h int, dark bool, settle func(*ui.Tester)) *ui.Tester {
-		tt := ui.NewTesterWith(view, w, h, ui.TesterOptions{Dark: dark})
+		// A still picture: what blinks holds on.
+		tt := ui.NewTesterWith(view, w, h, ui.TesterOptions{Dark: dark, Preferences: ui.Preferences{ReduceMotion: true}})
 		tt.SetScale(2)
 		tt.Advance(time.Second)
 		if settle != nil {

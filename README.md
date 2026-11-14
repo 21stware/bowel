@@ -49,7 +49,7 @@ Toggle system proxy takeover, switch proxy modes, and pick the node for traffic 
 <img src="site/shots/panel-en.webp" width="300" alt="Menu bar panel">
 
 ### Skins
-Thirteen skins that change the look of the whole interface.
+Fourteen skins that change the look of the whole interface.
 
 <table>
   <tr>
@@ -74,6 +74,7 @@ Thirteen skins that change the look of the whole interface.
   </tr>
   <tr>
     <td><img src="site/shots/skin-riso-en.webp" alt="Riso"><br><sub>Riso</sub></td>
+    <td><img src="site/shots/skin-mrrobot-en.webp" alt="Mr. Robot"><br><sub>Mr. Robot</sub></td>
   </tr>
 </table>
 
