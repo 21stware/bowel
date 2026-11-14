@@ -414,6 +414,77 @@ func (im *Imported) RemoteHosts(names []string) []string {
 	return out
 }
 
+// Without takes the nodes the user removed from this config's Provider
+// (#160) out of its routing too: out of its own proxies, out of every
+// group's members, and out of the rules that send traffic straight to one,
+// which go to REJECT instead: a removed node is no way out, and none is
+// put in its place. A group it was all of falls back as an empty group
+// does (runtimeGroups), so it doesn't quietly widen. The config's own
+// proxy-providers aren't touched: their nodes aren't the Provider's.
+func (im *Imported) Without(hidden []string) *Imported {
+	if im == nil || len(hidden) == 0 {
+		return im
+	}
+	gone := func(n string) bool { return slices.Contains(hidden, n) }
+	out := *im
+	out.Proxies = slices.DeleteFunc(slices.Clone(im.Proxies), func(p map[string]any) bool { return gone(nameOf(p)) })
+	out.Groups = make([]map[string]any, len(im.Groups))
+	for i, g := range im.Groups {
+		g = maps.Clone(g)
+		if list, ok := g["proxies"].([]any); ok {
+			kept := slices.DeleteFunc(slices.Clone(list), func(m any) bool { return gone(fmt.Sprint(m)) })
+			allProxies := on(g, "include-all") || on(g, "include-all-proxies")
+			allProviders := on(g, "include-all") || on(g, "include-all-providers")
+			if len(kept) == 0 && len(stringsOf(g["use"])) == 0 && !allProxies && !allProviders {
+				fallback, _ := g["empty-fallback"].(string)
+				if fallback == "" {
+					fallback = "COMPATIBLE"
+				}
+				kept = []any{fallback}
+			}
+			g["proxies"] = kept
+		}
+		out.Groups[i] = g
+	}
+	retarget := func(rules []string) []string {
+		res := make([]string, len(rules))
+		for i, line := range rules {
+			res[i] = line
+			if _, _, target := ruleParts(line); gone(target) {
+				res[i] = withRuleTarget(line, "REJECT")
+			}
+		}
+		return res
+	}
+	out.Rules = retarget(im.Rules)
+	if im.SubRules != nil {
+		out.SubRules = make(map[string][]string, len(im.SubRules))
+		for k, rules := range im.SubRules {
+			out.SubRules[k] = retarget(rules)
+		}
+	}
+	return &out
+}
+
+// withRuleTarget is line with its target, where ruleParts finds it,
+// replaced by target.
+func withRuleTarget(line, target string) string {
+	item := strings.Split(line, ",")
+	tp := strings.ToUpper(strings.TrimSpace(item[0]))
+	i := 2
+	switch tp {
+	case "MATCH":
+		i = 1
+	case "NOT", "OR", "AND", "SUB-RULE", "DOMAIN-REGEX", "PROCESS-NAME-REGEX", "PROCESS-PATH-REGEX":
+		i = len(item) - 1
+	}
+	if i >= len(item) {
+		return line
+	}
+	item[i] = target
+	return strings.Join(item, ",")
+}
+
 // runtimeGroups are the groups as they go to the core. `include-all` and its
 // kin mean every proxy and provider of the config, which would take in the
 // nodes of Moho's own providers and the developer networks' outbounds; so

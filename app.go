@@ -1817,6 +1817,8 @@ func (a *App) deleteProvider(id string) error {
 // The route groups that picked it by hand are left as they are: one whose
 // range or list it was all of shows as broken, as when a subscription drops
 // a node, and is whole again once the node is restored. pickedBy names them.
+// When the provider's own routing is in use, the node leaves that too
+// (core.Imported.Without).
 func (a *App) hideNode(node string, hide bool) (pickedBy []string, err error) {
 	i := strings.LastIndex(node, core.NodeSep)
 	if i < 0 {
@@ -1828,6 +1830,7 @@ func (a *App) hideNode(node string, hide bool) (pickedBy []string, err error) {
 	if _, err := a.providers.Hide(id, name, hide); err != nil {
 		return nil, err
 	}
+	a.dropImported() // the routing in use may be this provider's: read it again without the node
 	if hide {
 		pickedBy = a.pickedBy(node)
 	}

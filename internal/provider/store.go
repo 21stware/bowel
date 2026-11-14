@@ -319,20 +319,24 @@ func (s *Store) SetAutoUpdate(id string, hours int) (Provider, error) {
 }
 
 // Hide removes node name (as the content has it) from provider id, or with
-// hide false, brings it back.
+// hide false, brings it back. The list is replaced, never changed in place:
+// the Providers that List, Get and Snapshot have handed out share it.
 func (s *Store) Hide(id, name string, hide bool) (Provider, error) {
 	if name == "" {
 		return Provider{}, errors.New(i18n.T("节点名为空", "The node has no name"))
 	}
 	return s.update(id, func(p *Provider) {
-		p.Hidden = slices.DeleteFunc(p.Hidden, func(n string) bool { return n == name })
+		var next []string
+		for _, n := range p.Hidden {
+			if n != name {
+				next = append(next, n)
+			}
+		}
 		if hide {
-			p.Hidden = append(p.Hidden, name)
-			slices.Sort(p.Hidden)
+			next = append(next, name)
+			slices.Sort(next)
 		}
-		if len(p.Hidden) == 0 {
-			p.Hidden = nil
-		}
+		p.Hidden = next
 	})
 }
 

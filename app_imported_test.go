@@ -747,3 +747,32 @@ func TestImportedRelayRefused(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// TestImportedWithoutRemovedNode: a node removed from the Provider whose
+// routing is in use (#160) leaves that routing's groups as well, and comes
+// back to them when restored.
+func TestImportedWithoutRemovedNode(t *testing.T) {
+	a, id, _ := importedApp(t)
+	if err := a.setImportedRouting(id); err != nil {
+		t.Fatal(err)
+	}
+	a.refresh()
+	if _, err := a.hideNode("JP-01"+core.NodeSep+id, true); err != nil {
+		t.Fatal(err)
+	}
+	a.refresh()
+	px := coreProxies(t, a)
+	if got := px["Japan"].All; !slices.Equal(got, []string{"JP-02"}) {
+		t.Errorf("Japan without JP-01 = %v", got)
+	}
+	if _, ok := px["JP-01"]; ok {
+		t.Error("the core still has JP-01")
+	}
+	if _, err := a.hideNode("JP-01"+core.NodeSep+id, false); err != nil {
+		t.Fatal(err)
+	}
+	a.refresh()
+	if got := coreProxies(t, a)["Japan"].All; !slices.Equal(got, []string{"JP-01", "JP-02"}) {
+		t.Errorf("Japan restored = %v", got)
+	}
+}

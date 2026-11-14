@@ -107,15 +107,21 @@ func exactly(names []string) string {
 
 // excludeFilter is what provider p leaves out: the entries that only carry
 // information, then the nodes the user removed. The core splits it on
-// backticks and leaves out what any part matches. A removed node matches
-// by its name with or without the suffix the provider's override adds, so
-// it is left out whichever of the two the core matches against.
+// backticks and leaves out what any part matches; it matches the names as
+// the file has them, before the override adds the provider's suffix. Each
+// removed name matches literally and whole: a backtick is written \x60, not
+// as one (it would split the filter) nor as "." (it would match any
+// character), and the end is \z, as $ would also match before a final
+// newline.
 func excludeFilter(p ProviderRef) string {
 	if len(p.Hidden) == 0 {
 		return provider.InfoPattern
 	}
-	own := strings.TrimSuffix(exactly(p.Hidden), "$")
-	return provider.InfoPattern + "`" + own + "(?:" + regexp.QuoteMeta(NodeSep+p.ID) + ")?$"
+	quoted := make([]string, len(p.Hidden))
+	for i, n := range p.Hidden {
+		quoted[i] = strings.ReplaceAll(regexp.QuoteMeta(n), "`", `\x60`)
+	}
+	return provider.InfoPattern + "`^(?:" + strings.Join(quoted, "|") + `)\z`
 }
 
 // withTarget puts the target before a rule's trailing options:

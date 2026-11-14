@@ -49,3 +49,36 @@ func TestHiddenNodesSurviveUpdates(t *testing.T) {
 		t.Fatal("hiding on no provider")
 	}
 }
+
+// What List, Get and Snapshot handed out stays as it was when a node is
+// restored or removed: Hide replaces the list.
+func TestHideLeavesHandedOutProvidersAlone(t *testing.T) {
+	s, _ := Open(t.TempDir())
+	p, err := s.create(Provider{Kind: Link, Name: "x", Enabled: true}, []byte("trojan://p@h:443#a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"a", "b", "c"} {
+		if _, err := s.Hide(p.ID, n, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, _ := s.Snapshot()
+	got, _ := s.Get(p.ID)
+	listed := s.List()
+	if _, err := s.Hide(p.ID, "a", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Hide(p.ID, "d", true); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"a", "b", "c"}
+	for _, h := range [][]string{items[0].Hidden, got.Hidden, listed[0].Hidden} {
+		if !slices.Equal(h, want) {
+			t.Errorf("handed out = %q", h)
+		}
+	}
+	if now, _ := s.Get(p.ID); !slices.Equal(now.Hidden, []string{"b", "c", "d"}) {
+		t.Errorf("now = %q", now.Hidden)
+	}
+}

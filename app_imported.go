@@ -109,6 +109,9 @@ func (a *App) importedLocked(s settings.Settings) *core.Imported {
 		a.imp.err = err.Error()
 		return nil
 	}
+	if p, ok := a.providers.Get(key); ok {
+		im = im.Without(p.Hidden) // the nodes the user removed are gone from its routing too
+	}
 	a.imp.now = im
 	return im
 }
