@@ -11,6 +11,7 @@ package main
 
 import (
 	"math"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -224,6 +225,20 @@ var (
 	}
 )
 
+// 黑客军团: a terminal after dark. Next to 荧光屏's green tube it is a
+// modern one: near-black, cold gray type, the terminal's muted colors for
+// the routes, and one red, which is also what is under the pointer,
+// darkened.
+var mrRobotPal = pal{
+	dark:  true,
+	paper: ui.Hex("#0b0c0e"), paper2: ui.Hex("#121316"), card: ui.Hex("#16171a"), sheet: ui.Hex("#1e2024"),
+	ink: ui.Hex("#f2f2f2"), ink2: ui.Hex("#bcbcbc"), mute: ui.Hex("#8a8d94"), faint: ui.Hex("#4a4d54"),
+	hair: ui.RGBA(212, 212, 212, .15), hair2: ui.RGBA(212, 212, 212, .075), hover: ui.RGBA(224, 36, 43, .2),
+	signal: ui.Hex("#ff2e3b"), good: ui.Hex("#6f9e72"), warn: ui.Hex("#e6c35c"),
+	route: map[string]ui.Color{"default": ui.Hex("#7a9dd0"), "ai": ui.Hex("#b385b5"), "media": ui.Hex("#d9822b"), "dev": ui.Hex("#88c3c5"), "direct": ui.Hex("#6c7079")},
+	font:  faceMono, display: faceMono, round: 0, glow: ui.RGBA(224, 36, 43, .3), deco: decoMrRobot,
+}
+
 // skins are the looks to pick, in settings.Skins' order; the first is the
 // default.
 var skins = []skin{
@@ -253,6 +268,8 @@ var skins = []skin{
 		dark: &obsidianPal, accent: "#FF7A1A"},
 	{id: "riso", zh: "孔版", en: "Riso", noteZh: "孔版印刷：蓝墨、荧光粉与网点", noteEn: "Risograph: blue ink, fluorescent pink and halftone dots",
 		light: &risoPal, accent: "#FF48A0"},
+	{id: "mrrobot", zh: "黑客军团", en: "Mr. Robot", noteZh: "入夜的终端：近黑底、冷灰等宽字与一抹 fsociety 红", noteEn: "A terminal after dark: near-black, cold gray monospace and one fsociety red",
+		dark: &mrRobotPal, accent: "#E0242B"},
 }
 
 func skinByID(id string) *skin {
@@ -588,6 +605,46 @@ func decoObsidian(pt *ui.Painter, r ui.Rect, p *pal) {
 	pt.FillPathGradient(&b, ui.LinearGradient{From: white.Alpha(.03), To: white.Alpha(.005), Angle: 180})
 	pt.StrokePolyline([][2]float32{{r.X, r.Y + r.H*.45}, {r.X + r.W*.42, r.Y + r.H}}, 1, white.Alpha(.05))
 	glowAt(pt, r.X+r.W*.04, r.Y+r.H*1.04, max(r.W, r.H)*.42, ui.Hex("#ff7a1a"), .15)
+}
+
+// decoMrRobot: a terminal left on in a dark room. Faint scan lines, finer
+// than the tube's; the screen's cold light in the middle and the dark at
+// its edges; a red rule along the top that fades out, a red light from the
+// bottom right, and there the cursor's block, blinking as it waits.
+func decoMrRobot(pt *ui.Painter, r ui.Rect, p *pal) {
+	big := max(r.W, r.H)
+	red := ui.Hex("#e0242b")
+	glowAt(pt, r.X+r.W/2, r.Y+r.H*.45, big*.6, ui.Hex("#9aa4b8"), .035)
+	glowAt(pt, r.X+r.W, r.Y+r.H, big*.42, red, .09)
+	line := ui.RGBA(0, 0, 0, .13)
+	for y := r.Y; y < r.Y+r.H; y += 4 {
+		pt.Fill(ui.Rect{X: r.X, Y: y, W: r.W, H: 1}, line, 0)
+	}
+	vignette(pt, r, ui.Hex("#000000"), .36)
+	pt.FillGradient(ui.Rect{X: r.X, Y: r.Y, W: r.W * .62, H: 2}, ui.LinearGradient{From: red, To: red.Alpha(0), Angle: 90}, 0)
+	// The cursor is a character's size in a window, where it blinks, and
+	// smaller in a preview of one, where it holds still: a card in the
+	// settings is no reason to paint twice a second.
+	cw := min(7, r.W*.03)
+	if cw < 7 || cursorOn(pt) {
+		pt.Fill(ui.Rect{X: r.X + r.W - 2.2*cw, Y: r.Y + r.H - 3*cw, W: cw, H: 1.8 * cw}, red.Alpha(.9), 0)
+	}
+}
+
+// cursorBlink is how long a terminal's cursor shows, and how long it
+// hides.
+const cursorBlink = 530 * time.Millisecond
+
+// cursorOn says whether a blinking cursor shows in the frame being
+// painted, and asks for the frame it changes in. It stays on for a desktop
+// that asks for less motion.
+func cursorOn(pt *ui.Painter) bool {
+	if pt.Preferences().ReduceMotion {
+		return true
+	}
+	at := time.Duration(pt.Now().UnixNano()) % (2 * cursorBlink)
+	pt.After(cursorBlink - at%cursorBlink)
+	return at < cursorBlink
 }
 
 // decoRiso: halftone dots from the two bottom corners, pink and blue,

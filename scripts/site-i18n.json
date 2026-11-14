@@ -3,9 +3,9 @@
     "zh-Hant": "bowel：macOS、Windows、Linux、Android 上的 mihomo（Clash Meta）用戶端",
     "ja": "bowel：macOS・Windows・Linux・Android 向けの mihomo（Clash Meta）クライアント"
   },
-  "bowel 是免费的 mihomo（Clash Meta）代理客户端，支持 macOS、Windows、Linux 和 Android：导入订阅，管理节点、路由和规则，查看每条连接，十三种皮肤可选。": {
-    "zh-Hant": "bowel 是免費的 mihomo（Clash Meta）代理用戶端，支援 macOS、Windows、Linux 和 Android：匯入訂閱，管理節點、路由和規則，查看每條連線，十三種外觀主題可選。",
-    "ja": "bowel は macOS、Windows、Linux、Android で使える無料の mihomo（Clash Meta）プロキシクライアントです。サブスクリプションを読み込み、ノード、ルート、ルールを管理し、すべての接続を確認できます。スキンは 13 種類から選べます。"
+  "bowel 是免费的 mihomo（Clash Meta）代理客户端，支持 macOS、Windows、Linux 和 Android：导入订阅，管理节点、路由和规则，查看每条连接，十四种皮肤可选。": {
+    "zh-Hant": "bowel 是免費的 mihomo（Clash Meta）代理用戶端，支援 macOS、Windows、Linux 和 Android：匯入訂閱，管理節點、路由和規則，查看每條連線，十四種外觀主題可選。",
+    "ja": "bowel は macOS、Windows、Linux、Android で使える無料の mihomo（Clash Meta）プロキシクライアントです。サブスクリプションを読み込み、ノード、ルート、ルールを管理し、すべての接続を確認できます。スキンは 14 種類から選べます。"
   },
   "皮肤": {
     "zh-Hant": "外觀主題",
@@ -27,9 +27,9 @@
     "zh-Hant": "連接兩端世界",
     "ja": "ふたつの世界を<wbr>つなぐ"
   },
-  "管理节点、路由和规则，查看每条连接，还有十三种皮肤可选。": {
-    "zh-Hant": "管理節點、路由和規則，查看每條連線，還有十三種外觀主題可選。",
-    "ja": "ノード、ルート、ルールを管理し、すべての接続を確認できます。スキンは 13 種類から選べます。"
+  "管理节点、路由和规则，查看每条连接，还有十四种皮肤可选。": {
+    "zh-Hant": "管理節點、路由和規則，查看每條連線，還有十四種外觀主題可選。",
+    "ja": "ノード、ルート、ルールを管理し、すべての接続を確認できます。スキンは 14 種類から選べます。"
   },
   "下载 macOS 版": {
     "zh-Hant": "下載 macOS 版",
@@ -91,9 +91,9 @@
     "zh-Hant": "macOS、Windows、Linux 和 Android · 免費 · 截圖來自 macOS 版",
     "ja": "macOS・Windows・Linux・Android · 無料 · スクリーンショットは macOS 版"
   },
-  "十三种皮肤": {
-    "zh-Hant": "十三種外觀主題",
-    "ja": "13 種類のスキン"
+  "十四种皮肤": {
+    "zh-Hant": "十四種外觀主題",
+    "ja": "14 種類のスキン"
   },
   "配色、字体、圆角和质感一起变，底层功能完全一样。": {
     "zh-Hant": "配色、字體、圓角和質感一起變，底層功能完全一樣。",
@@ -151,6 +151,10 @@
     "zh-Hant": "孔版",
     "ja": "リソグラフ"
   },
+  "黑客军团": {
+    "zh-Hant": "駭客軍團",
+    "ja": "MR. ROBOT"
+  },
   "暖白纸面与墨色，克制安详": {
     "zh-Hant": "暖白紙面與墨色，克制安詳",
     "ja": "温かみのある白い紙に墨の色。控えめで落ち着いています"
@@ -202,6 +206,10 @@
   "孔版印刷：蓝墨、荧光粉与网点": {
     "zh-Hant": "孔版印刷：藍墨、螢光粉與網點",
     "ja": "孔版印刷：青インク、蛍光ピンクと網点"
+  },
+  "入夜的终端：近黑底、冷灰等宽字与一抹 fsociety 红": {
+    "zh-Hant": "入夜的終端機：近黑底、冷灰等寬字與一抹 fsociety 紅",
+    "ja": "夜更けの端末：黒に近い地、冷たい灰色の等幅文字、fsociety の赤をひとつ"
   },
   "路由": {
     "zh-Hant": "路由",
