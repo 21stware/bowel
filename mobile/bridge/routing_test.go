@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -338,4 +339,62 @@ func TestReloadKeepsTunDescriptor(t *testing.T) {
 	if fd := config(t, x)["tun"].(map[string]any)["file-descriptor"]; fmt.Sprint(fd) != "42" {
 		t.Fatalf("descriptor = %v, want 42", fd)
 	}
+}
+
+// A route group moves on the phone as it does on the desktop: it takes
+// another's place in the list, and of two equally specific rules the core
+// is given the one of the group listed first before the other's. The fixed
+// groups neither move nor give up their place.
+func TestMoveGroup(t *testing.T) {
+	x := testBridge(t)
+	ctx := context.Background()
+	want := func(ids ...string) {
+		t.Helper()
+		var got []string
+		for _, g := range x.routing().Groups {
+			got = append(got, g.ID)
+			if g.Movable == routes.Fixed(g.ID) {
+				t.Errorf("%s: movable = %v", g.ID, g.Movable)
+			}
+		}
+		if !slices.Equal(got, ids) {
+			t.Fatalf("groups %v, want %v", got, ids)
+		}
+	}
+	first := func(a, b string) {
+		t.Helper()
+		var rules []string
+		for _, r := range config(t, x)["rules"].([]any) {
+			rules = append(rules, r.(string))
+		}
+		at := func(rule string) int {
+			return slices.IndexFunc(rules, func(r string) bool { return strings.HasPrefix(r, rule+",") })
+		}
+		ia, ib := at(a), at(b)
+		if ia < 0 || ib < 0 || ia > ib {
+			t.Fatalf("%s at %d, %s at %d: the first should come first", a, ia, b, ib)
+		}
+	}
+	const ai, media = "DOMAIN-SUFFIX,chatgpt.com", "DOMAIN-SUFFIX,netflix.com" // as specific as each other
+	want(routes.Default, "ai", "media", "dev", "direct", routes.Reject)
+	first(ai, media)
+
+	if err := x.routeOp(ctx, callArgs{Op: "moveGroup", ID: "media", To: "ai"}); err != nil {
+		t.Fatal(err)
+	}
+	want(routes.Default, "media", "ai", "dev", "direct", routes.Reject)
+	first(media, ai)
+
+	if err := x.routeOp(ctx, callArgs{Op: "moveGroup", ID: "media", To: "dev"}); err != nil {
+		t.Fatal(err)
+	}
+	want(routes.Default, "ai", "dev", "media", "direct", routes.Reject)
+	first(ai, media)
+
+	for _, c := range [][2]string{{"direct", "ai"}, {"ai", "direct"}, {routes.Default, "ai"}, {"ai", routes.Reject}, {"ai", "nope"}} {
+		if err := x.routeOp(ctx, callArgs{Op: "moveGroup", ID: c[0], To: c[1]}); err != nil {
+			t.Errorf("%s to the place of %s: %v", c[0], c[1], err)
+		}
+	}
+	want(routes.Default, "ai", "dev", "media", "direct", routes.Reject)
 }
