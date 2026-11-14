@@ -203,6 +203,41 @@ func TestTUIPages(t *testing.T) {
 	}
 }
 
+// After a pause the switches are off, even though the entries stay saved.
+// The first click must ask to turn the entry on and send that request.
+func TestTUIPausedEntryResumes(t *testing.T) {
+	for _, tc := range []struct {
+		name, arg string
+		row       int
+	}{
+		{"System proxy", "systemProxy", 1},
+		{"TUN", "tun", 2},
+	} {
+		t.Run(tc.arg, func(t *testing.T) {
+			ui, calls := screen(t)
+			ui.st.Takeover.On = false
+			ui.st.Takeover.System.Wanted = true
+			ui.st.Takeover.Tun.Wanted = true
+			ui.sel[tabHome] = tc.row
+			if ui.toggles()[tc.row].on {
+				t.Error("paused entry's switch is on")
+			}
+			keys(ui, "\r")
+			if ui.confirm == nil || !strings.Contains(text(ui), "Turn "+tc.name+" on?") {
+				t.Fatalf("first click does not offer to resume:\n%s", text(ui))
+			}
+			keys(ui, "y")
+			want := `set_takeover {"` + tc.arg + `":true}`
+			for _, call := range *calls {
+				if call == want {
+					return
+				}
+			}
+			t.Fatalf("no resume request %q: %v", want, *calls)
+		})
+	}
+}
+
 // TestTUIChanges: a change asks first and goes only on y; choosing a node,
 // adding and removing a rule call the tools the commands call.
 func TestTUIChanges(t *testing.T) {

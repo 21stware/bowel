@@ -191,6 +191,7 @@ type groupData struct {
 	Direct    bool            `json:"direct"`
 	Reject    bool            `json:"reject"`
 	Custom    bool            `json:"custom"`
+	Movable   bool            `json:"movable"` // not one of the fixed groups, which keep their place
 	Mode      string          `json:"mode"`
 	Regions   []string        `json:"regions"`
 	Providers []string        `json:"providers"`
@@ -273,7 +274,7 @@ func (x *bridge) routing() routingData {
 	}
 	slices.SortFunc(out.Regions, func(a, b regionData) int { return b.Count - a.Count })
 	for _, r := range all {
-		g := groupData{ID: r.ID, Name: routes.Title(r), Summary: routes.Describe(r), Direct: r.Direct, Reject: r.Reject, Custom: r.Custom,
+		g := groupData{ID: r.ID, Name: routes.Title(r), Summary: routes.Describe(r), Direct: r.Direct, Reject: r.Reject, Custom: r.Custom, Movable: !routes.Fixed(r.ID),
 			Mode: r.Policy.Mode, Regions: nonNil(r.Policy.Regions), Providers: nonNil(r.Policy.Providers), Order: nonNil(r.Policy.Order), Fixed: r.Policy.Fixed,
 			Services: []serviceData{}, Targets: []routes.Target{}, Sites: []siteDelay{}}
 		if !r.Direct && !r.Reject {
@@ -470,6 +471,8 @@ func (x *bridge) routeOp(ctx context.Context, a callArgs) error {
 			return errors.New(msg)
 		}
 		return x.change(ctx, func(s *settings.Settings) { s.Routing.RenameGroup(a.ID, a.Name) })
+	case "moveGroup":
+		return x.change(ctx, func(s *settings.Settings) { s.Routing.MoveGroup(a.ID, a.To) })
 	case "deleteGroup":
 		return x.change(ctx, func(s *settings.Settings) {
 			s.Routing.DeleteGroup(s.Rules, a.ID, a.To)

@@ -91,6 +91,50 @@ func TestBuildConfigKnowsItsNameservers(t *testing.T) {
 	}
 }
 
+// Explicit node-domain servers apply even when TUN and the built-in DNS
+// switch are off. Those paths still run a resolver for the nodes themselves.
+func TestBuildConfigProxyNameservers(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		tun, dns bool
+		gateway  bool
+		dev      devnet.Overlay
+		mode     string
+		listen   any
+	}{
+		{name: "default", mode: "normal"},
+		{name: "split", dev: devnet.Overlay{Policy: []devnet.Policy{{Pattern: "+.corp.example", Server: "192.0.2.53"}}}, mode: "normal"},
+		{name: "dns", dns: true, mode: "fake-ip"},
+		{name: "tun", tun: true, mode: "fake-ip", listen: "127.0.0.1:1053"},
+		{name: "gateway", tun: true, gateway: true, mode: "fake-ip", listen: "0.0.0.0:53"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := devInput("rule", tc.dev)
+			in.Tun, in.Gateway, in.Options.DNS = tc.tun, tc.gateway, tc.dns
+			in.Options.DNSMode = "fake-ip"
+			want := []string{"https://node-dns.example/dns-query", "192.0.2.54"}
+			in.Options.ProxyNameservers = want
+			dns := build(t, in)["dns"].(map[string]any)
+			if got := strs(dns["proxy-server-nameserver"]); !slices.Equal(got, want) {
+				t.Errorf("node-domain servers = %v, want %v", got, want)
+			}
+			if dns["enable"] != true || dns["enhanced-mode"] != tc.mode || dns["listen"] != tc.listen {
+				t.Errorf("resolver mode or listener changed: %v", dns)
+			}
+			if tc.name == "split" {
+				policy := dns["nameserver-policy"].(map[string]any)
+				if got := strs(policy["+.corp.example"]); !slices.Equal(got, []string{"192.0.2.53"}) {
+					t.Errorf("split DNS changed: %v", policy)
+				}
+			}
+			in.Options.ProxyNameservers = nil
+			if dns := build(t, in)["dns"].(map[string]any); dns["proxy-server-nameserver"] != nil {
+				t.Errorf("node-domain servers appeared without an explicit setting: %v", dns)
+			}
+		})
+	}
+}
+
 // Connections that go direct are resolved by the upstream servers unless
 // they are given servers of their own. On a network that reaches a site only
 // at the addresses its own DNS gives, the public servers' answer times out.
