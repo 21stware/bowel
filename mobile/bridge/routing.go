@@ -182,6 +182,8 @@ type serviceData struct {
 	Off     bool       `json:"off"`
 	Changed bool       `json:"changed"`
 	Rules   []ruleData `json:"rules"`
+	// Set is there for a rule set, whose rules are the source's and not in Rules.
+	Set *ruleSetData `json:"set,omitempty"`
 }
 
 type groupData struct {
@@ -286,6 +288,9 @@ func (x *bridge) routing() routingData {
 			for _, l := range sv.Rules {
 				d.Rules = append(d.Rules, ruleData{Text: l.Text, Kind: l.Kind, KindName: routes.KindName(l.Kind), Value: l.Value, Shown: l.Shown(), Builtin: l.Builtin, Off: l.Off})
 			}
+			if sv.Source != "" {
+				d.Set = x.ruleSetView(sv)
+			}
 			g.Services = append(g.Services, d)
 		}
 		out.Groups = append(out.Groups, g)
@@ -329,7 +334,7 @@ func (x *bridge) explain(input string) explainData {
 		return explainData{Rule: r.Text, Name: "Tailscale", Note: i18n.T("走内置 Tailscale：tailnet 的地址和 MagicDNS 名字在所有模式下都走它。", "Goes by the built-in Tailscale: the tailnet's addresses and MagicDNS names go by it in every mode.")}
 	}
 	all := x.routes()
-	id, rule, _, sure := routes.Explain(host, routes.Active(all, s.Rules), all)
+	id, rule, set, _, sure := routes.ExplainSets(host, routes.Active(all, s.Rules), all, x.ruleSets.Match)
 	if !sure {
 		for _, c := range slices.Backward(x.realConns()) {
 			if (c.Host == host || c.IP == host) && c.Route != "" {
@@ -346,7 +351,11 @@ func (x *bridge) explain(input string) explainData {
 		return explainData{Rule: rule}
 	}
 	out := explainData{Route: id, Name: routes.Title(r), Rule: rule}
-	if sv, ok := routes.FindRule(all, rule); ok {
+	sv, ok := routes.FindRule(all, rule)
+	if set != "" { // the rule is the list's own: its service is the set
+		sv, ok = routes.FindMatched(all, "RuleSet", routes.RuleSetProvider(set))
+	}
+	if ok {
 		out.Service, out.ServiceID = routes.ServiceTitle(sv), sv.ID
 	}
 	x.mu.Lock()
@@ -494,7 +503,7 @@ func (x *bridge) routeOp(ctx context.Context, a callArgs) error {
 	case "splitService":
 		return x.change(ctx, func(s *settings.Settings) { s.Routing.SplitService(s.Rules, a.ID) })
 	case "removeService":
-		return x.change(ctx, func(s *settings.Settings) { s.Rules = s.Routing.RemoveService(s.Rules, a.ID) })
+		return x.removeService(ctx, a.ID)
 	case "addRule", "moveRule":
 		r, err := routes.ParseRule(a.Kind, a.Text, a.Route)
 		if err != nil {
@@ -559,11 +568,13 @@ func (x *bridge) setRule(ctx context.Context, r routes.UserRule, removed bool) e
 	if removed {
 		keep = ""
 	}
-	x.reroute(ctx, r, keep)
+	x.rerouteBy(ctx, r.Matches, keep)
 	return nil
 }
 
-func (x *bridge) reroute(ctx context.Context, r routes.UserRule, keep string) {
+// rerouteBy closes the open connections that match and go elsewhere than the
+// route keep, so that a change of rules shows at once.
+func (x *bridge) rerouteBy(ctx context.Context, match func(host, ip string) bool, keep string) {
 	c, err := x.core()
 	if err != nil {
 		return
@@ -581,7 +592,7 @@ func (x *bridge) reroute(ctx context.Context, r routes.UserRule, keep string) {
 		if host == "" {
 			host = cn.Metadata.SniffHost
 		}
-		if !r.Matches(host, cn.Metadata.DestinationIP) {
+		if !match(host, cn.Metadata.DestinationIP) {
 			continue
 		}
 		group := ""

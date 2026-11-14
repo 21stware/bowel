@@ -52,13 +52,17 @@ var commaPayload = map[string]bool{"AND": true, "OR": true, "NOT": true,
 	"DOMAIN-REGEX": true, "PROCESS-NAME-REGEX": true, "PROCESS-PATH-REGEX": true}
 
 var typed = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]*,`)
+var nestedDependency = regexp.MustCompile(`(?i)\(\s*(RULE-SET|SUB-RULE|MATCH)\s*[,)]`)
 
 // Parse reads a mihomo YAML rule-provider or a text list (Clash classical,
 // Surge). A line the core could not use is left out and counted, and only a
-// list with nothing usable is an error.
+// list with nothing usable is an error. A whole config is a *ConfigError.
 func Parse(data []byte) (Set, error) {
 	if bytes.IndexByte(data, 0) >= 0 || !utf8.Valid(data) {
 		return Set{}, errors.New(i18n.T("暂不支持 .mrs 二进制格式，请用 .yaml 或 .list 版本", "Binary .mrs lists aren't supported yet. Use the .yaml or .list version"))
+	}
+	if c, ok := readConfig(data); ok {
+		return Set{}, c.err()
 	}
 	lines, isYAML := payload(data)
 	var classical, domains, cidrs []string
@@ -124,6 +128,9 @@ func classicalRule(s string) (string, bool) {
 	if !supported[kind] {
 		return "", false
 	}
+	if (kind == "AND" || kind == "OR" || kind == "NOT") && nestedDependency.MatchString(rest) {
+		return "", false
+	}
 	if commaPayload[kind] {
 		return kind + "," + strings.TrimSpace(rest), strings.TrimSpace(rest) != ""
 	}
@@ -144,8 +151,10 @@ func classicalRule(s string) (string, bool) {
 		}
 	}
 	r := kind + "," + value
-	if slices.Contains(fields[1:], "no-resolve") {
-		r += ",no-resolve"
+	for _, option := range []string{"no-resolve", "src"} {
+		if slices.Contains(fields[1:], option) {
+			r += "," + option
+		}
 	}
 	return r, true
 }
@@ -239,7 +248,9 @@ func newMatcher(s Set) *matcher {
 				m.keywords = append(m.keywords, [2]string{value, r})
 				show(r, routes.KindKeyword, value)
 			case "IP-CIDR", "IP-CIDR6":
-				addNet(value, r)
+				if !slices.Contains(strings.Split(rest, ",")[1:], "src") {
+					addNet(value, r)
+				}
 			}
 		}
 	}

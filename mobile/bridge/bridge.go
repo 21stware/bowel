@@ -28,6 +28,7 @@ import (
 	"github.com/oboo/moho/internal/monitor"
 	"github.com/oboo/moho/internal/provider"
 	"github.com/oboo/moho/internal/routes"
+	"github.com/oboo/moho/internal/ruleset"
 	"github.com/oboo/moho/internal/settings"
 	"gopkg.in/yaml.v3"
 )
@@ -52,29 +53,34 @@ type bridge struct {
 	mon   *monitor.Monitor
 	loc   *locate.Locator
 
+	ruleSets *ruleset.Store
+
 	locating atomic.Bool
 
 	setMu sync.Mutex // one change of the config at a time
 
-	mu         sync.Mutex
-	routesNow  []routes.Route
-	routesAt   uint64
-	vpn        string // off, connecting, on, disconnecting, error
-	vpnErr     string
-	version    string // the core's, once it has said
-	wantConns  bool
-	client     *mihomo.Client
-	cancel     context.CancelFunc
-	proxies    map[string]mihomo.Proxy
-	provNodes  map[string][]string
-	lastNode   map[string]string    // route id → the node it was last on
-	probedAt   map[string]time.Time // when each node was last probed
-	youProbed  time.Time            // when the phone's own place was last asked for
-	traffic    *routeTraffic        // per-route bytes by day
-	rangesSent time.Time            // when the 7 and 30 day totals last went out
-	switched   *switchNote
-	sites      map[string]siteResult
-	updating   bool // the automatic Provider update is running
+	mu          sync.Mutex
+	routesNow   []routes.Route
+	routesAt    uint64
+	vpn         string // off, connecting, on, disconnecting, error
+	vpnErr      string
+	version     string // the core's, once it has said
+	wantConns   bool
+	client      *mihomo.Client
+	cancel      context.CancelFunc
+	proxies     map[string]mihomo.Proxy
+	provNodes   map[string][]string
+	lastNode    map[string]string    // route id → the node it was last on
+	probedAt    map[string]time.Time // when each node was last probed
+	youProbed   time.Time            // when the phone's own place was last asked for
+	traffic     *routeTraffic        // per-route bytes by day
+	rangesSent  time.Time            // when the 7 and 30 day totals last went out
+	switched    *switchNote
+	sites       map[string]siteResult
+	updating    bool                 // the automatic Provider update is running
+	checked     *ruleset.Checked     // the rule set 导入规则集 last showed
+	checkedFrom string               // full fetch location, including the picked file's folder
+	setTried    map[string]time.Time // when each rule set's download was last tried
 
 	shareDay   string           // the day routeBytes counts
 	routeBytes map[string]int64 // today's bytes per route id
@@ -117,6 +123,9 @@ func Start(dir string, sink Sink) error {
 	nb.mon.SkipGroup = core.ProbeGroup
 	nb.loc = locate.New(filepath.Join(dir, "locations.json"))
 	nb.loc.Login = nb.probeLogin
+	if err := nb.openRuleSets(); err != nil {
+		return err
+	}
 	b = nb
 	go nb.loop()
 	return nil
@@ -333,12 +342,13 @@ func (x *bridge) realConns() []connData {
 	list := x.mon.Conns()
 	out := make([]connData, 0, len(list))
 	byGroup := map[string]string{}
-	for _, r := range x.routes() {
+	all := x.routes()
+	for _, r := range all {
 		byGroup[routes.Group(r)] = r.ID
 	}
 	for _, c := range list {
 		cv := connData{ID: c.ID, Host: c.Host, Status: c.Status, DownRate: c.DownRate, UpRate: c.UpRate, Start: c.Start.UnixMilli(),
-			Rule: ruleText(c.Rule, c.Payload), RuleType: c.Rule, Payload: c.Payload, IP: c.IP, Port: c.Port, Net: strings.ToUpper(c.Network), Down: c.Down, Up: c.Up, Err: c.Error}
+			Rule: ruleWords(all, c.Rule, c.Payload), RuleType: c.Rule, Payload: c.Payload, IP: c.IP, Port: c.Port, Net: strings.ToUpper(c.Network), Down: c.Down, Up: c.Up, Err: c.Error}
 		if !c.End.IsZero() {
 			cv.End = c.End.UnixMilli()
 		}
@@ -430,6 +440,20 @@ func Call(method, payload string) (string, error) {
 		return encode(x.routing())
 	case "routeOp":
 		return "null", x.routeOp(ctx, args)
+	case "checkRuleSet":
+		d, err := x.checkRuleSet(ctx, args)
+		if err != nil {
+			return "", err
+		}
+		return encode(d)
+	case "importRuleSet":
+		id, err := x.importRuleSet(ctx, args)
+		if err != nil {
+			return "", err
+		}
+		return encode(map[string]string{"id": id})
+	case "updateRuleSet":
+		return "null", x.updateRuleSet(ctx, args.ID)
 	case "explain":
 		return encode(x.explain(args.Host))
 	case "parseRule":
@@ -592,8 +616,9 @@ func (x *bridge) applyConfig(ctx context.Context) error {
 	return nil
 }
 
-// autoUpdate refreshes the subscriptions that are due. The app only runs
-// while it is open, so what fell due meanwhile is done on the next opening.
+// autoUpdate refreshes the subscriptions and the rule sets that are due. The
+// app only runs while it is open, so what fell due meanwhile is done on the
+// next opening.
 func (x *bridge) autoUpdate() {
 	x.mu.Lock()
 	busy := x.updating
@@ -607,16 +632,15 @@ func (x *bridge) autoUpdate() {
 		x.updating = false
 		x.mu.Unlock()
 	}()
-	ids := x.store.Due(time.Now())
-	if len(ids) == 0 {
-		return
+	if ids := x.store.Due(time.Now()); len(ids) > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		for _, id := range ids {
+			_, _ = x.store.Update(ctx, x.httpClient(), id)
+		}
+		_ = x.applyConfig(ctx)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	for _, id := range ids {
-		_, _ = x.store.Update(ctx, x.httpClient(), id)
-	}
-	_ = x.applyConfig(ctx)
+	x.updateRuleSets(time.Now())
 }
 
 func (x *bridge) addProvider(ctx context.Context, input string) error {
@@ -652,7 +676,7 @@ func (x *bridge) writeConfig() error {
 		opts.IPv6 = core.IPv6On // nothing here reads the network: as it always was
 	}
 	raw, err := core.BuildConfig(core.Input{
-		Providers: refs, Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders,
+		Providers: refs, Routes: all, UserRules: routes.Active(all, s.Rules), RuleSets: x.ruleSetRefs(s), Scopes: scopes, Orders: orders,
 		Mode: s.Mode, Tun: true, LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: probePort, Options: opts,
 		Dev: tailnetOverlay(s.Tailnet),
 	})
@@ -859,6 +883,17 @@ func (x *bridge) logs() []logData {
 		out = append(out, logData{Time: l.Time.UnixMilli(), Level: level, Text: l.Text})
 	}
 	return out
+}
+
+// ruleWords is ruleText, with a rule set by its name: the core only knows
+// the file's.
+func ruleWords(all []routes.Route, kind, payload string) string {
+	if kind == "RuleSet" {
+		if sv, ok := routes.FindMatched(all, kind, payload); ok {
+			return i18n.T("规则集 ", "Rule set ") + routes.ServiceTitle(sv)
+		}
+	}
+	return ruleText(kind, payload)
 }
 
 // ruleText says in words which rule matched a connection.

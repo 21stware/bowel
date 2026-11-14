@@ -33,6 +33,9 @@ func testBridge(t *testing.T) *bridge {
 		t.Fatal(err)
 	}
 	x := &bridge{dir: dir, store: store, set: set, loc: locate.New(""), sink: discard{}, vpn: "off", lastNode: map[string]string{}}
+	if err := x.openRuleSets(); err != nil {
+		t.Fatal(err)
+	}
 	file := filepath.Join(dir, "nodes.yaml")
 	if err := os.WriteFile(file, []byte(nodesYAML), 0o600); err != nil {
 		t.Fatal(err)
