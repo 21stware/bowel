@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 
 import '../app/i18n.dart';
@@ -61,6 +63,16 @@ String _delayWord(RouteCfg? rc) => rc == null || rc.direct || rc.broken != null 
 
 /// What a service still sends: nothing while it is off.
 List<Map> _live(Map s) => s['off'] == true ? const [] : [for (final r in _list(s, 'rules')) if (r['off'] != true) r];
+
+/// How many rules a service sends by. A rule set's are in its own file, not
+/// in `rules`.
+int _liveCount(Map s) => s['off'] == true ? 0 : ((s['set'] as Map?)?['count'] as int? ?? _live(s).length);
+
+/// A rule set's size: 12 条规则，跳过 3 条不支持的.
+String _setCount(int n, int skipped) => '${tr('{0} 条规则', n == 1 ? '{0} rule' : '{0} rules', [n])}${skipped > 0 ? tr('，跳过 {0} 条不支持的', ', {0} unsupported skipped', [skipped]) : ''}';
+
+/// What 添加服务 answers with for 导入规则集; no service has this id.
+const _importSetOption = '+set';
 
 /// A small icon button in a row: move up, move down, remove. Without `onTap`
 /// it is faint and does nothing.
@@ -166,7 +178,7 @@ class _RoutesPageState extends State<RoutesPage> {
         for (final g in all) {
           for (final s in _list(g, 'services')) {
             if (s['mine'] != true && s['off'] != true) services++;
-            rules += _live(s).length;
+            rules += _liveCount(s);
           }
         }
         return SubPage(
@@ -258,6 +270,7 @@ class _GroupPageState extends State<GroupPage> {
   final _serviceKeys = <String, GlobalKey>{};
   String? _scrollTo;
   bool _sitesBusy = false;
+  final _updating = <String>{}; // rule sets being fetched again
 
   AppState get app => widget.app;
   String get id => widget.id;
@@ -505,7 +518,32 @@ class _GroupPageState extends State<GroupPage> {
   }
 
   void _addRule(Map s) {
-    app.showSheet((_) => _RuleSheet(app: app, route: id, service: s['id'] as String, serviceName: s['name'] as String? ?? ''));
+    app.showSheet((_) => _RuleSheet(app: app, route: id, service: s['id'] as String, serviceName: s['name'] as String? ?? '', onImportSet: _importSet));
+  }
+
+  /// Opens 导入规则集 for this group, with `link` already in it.
+  void _importSet([String link = '']) {
+    final nav = Navigator.of(context);
+    void open(String group, String service) {
+      if (!mounted) return;
+      if (group == id) {
+        setState(() => _show(service));
+      } else {
+        nav.push(routeOf(GroupPage(app: app, id: group, service: service)));
+      }
+    }
+
+    app.showSheet((_) => _SetSheet(app: app, route: id, routeName: _g?['name'] as String? ?? id, link: link, onDone: (service) => open(id, service), onView: open));
+  }
+
+  Future<void> _updateSet(String sid) async {
+    setState(() => _updating.add(sid));
+    final error = await app.updateRuleSet(sid);
+    if (!mounted) return;
+    setState(() => _updating.remove(sid));
+    // A download that failed shows on the row; anything else has no place there.
+    final set = _list(_g, 'services').where((s) => s['id'] == sid).firstOrNull?['set'] as Map?;
+    if (error != null && (set?['error'] as String? ?? '').isEmpty) app.say(error, ms: 4000);
   }
 
   void _addService(Map g) {
@@ -518,10 +556,15 @@ class _GroupPageState extends State<GroupPage> {
     ];
     pickSheet<String>(app, tr('添加服务', 'Add a service'), [
       PickOption('', tr('新建服务', 'New service'), leading: Builder(builder: (c) => Ic('plus', size: 18, color: Skin.of(c).ink2))),
+      PickOption(_importSetOption, tr('导入规则集', 'Import rule set'), sub: tr('用链接或文件里的规则', 'Rules from a link or a file'), leading: Builder(builder: (c) => Ic('file', size: 18, color: Skin.of(c).ink2))),
       ...others,
     ], (sid) async {
       if (sid.isEmpty) {
         _newService();
+        return;
+      }
+      if (sid == _importSetOption) {
+        _importSet();
         return;
       }
       if (await app.routeOp('moveService', {'id': sid, 'to': id}) && nav.mounted && mounted) setState(() => _show(sid));
@@ -578,7 +621,8 @@ class _GroupPageState extends State<GroupPage> {
     }
   }
 
-  Widget _ruleRow(Look l, Map s, Map r) {
+  /// `fixed` is a rule of a rule set: its source keeps it, so it only shows.
+  Widget _ruleRow(Look l, Map s, Map r, {bool fixed = false}) {
     final builtin = r['builtin'] == true, off = r['off'] == true || s['off'] == true;
     return Container(
       constraints: const BoxConstraints(minHeight: 44),
@@ -590,7 +634,9 @@ class _GroupPageState extends State<GroupPage> {
             Text(r['kindName'] as String? ?? '', style: l.text(12, color: l.mute, lh: 16)),
           ]),
         ),
-        if (builtin)
+        if (fixed)
+          const SizedBox.shrink()
+        else if (builtin)
           Toggle(on: r['off'] != true, scale: .7, label: r['shown'] as String?, onTap: () => app.routeOp('toggleRule', {'id': s['id'], 'text': r['text']}))
         else
           _small('x', tr('删除规则', 'Delete rule'), () => app.routeOp('removeRule', {'kind': r['kind'], 'text': r['value'], 'route': id})),
@@ -598,7 +644,52 @@ class _GroupPageState extends State<GroupPage> {
     );
   }
 
+  /// A rule set under its name: how many rules, how fresh, and from where.
+  String _setSub(Map s, Map set) {
+    final local = set['local'] == true;
+    if (s['off'] == true) return tr('已停用，这些规则不再生效', 'Off: these rules no longer apply');
+    if (set['have'] != true) return local ? tr('本地副本不见了，请重新导入', 'The saved copy is gone. Import it again') : tr('本地副本不见了，点开后更新', 'The saved copy is gone. Open it and update');
+    if ((set['error'] as String? ?? '').isNotEmpty) return tr('更新失败，继续使用上次的规则', 'Update failed; still using the last rules');
+    final when = local ? tr('本地文件', 'Local file') : app.updatedText(set['updatedAt'] as int? ?? 0);
+    return '${_setCount(set['count'] as int? ?? 0, 0)} · $when · ${set['where']}';
+  }
+
+  /// An open rule set: how its source is doing, and a taste of what it holds.
+  /// The rules are the source's, so none is added or deleted here.
+  Widget _setBody(Look l, Map g, Map s, Map set) {
+    final sid = s['id'] as String;
+    final have = set['have'] == true, local = set['local'] == true, busy = _updating.contains(sid);
+    final count = set['count'] as int? ?? 0, skipped = set['skipped'] as int? ?? 0;
+    final error = set['error'] as String? ?? '', target = set['target'] as String? ?? '';
+    final preview = _list(set, 'preview');
+    final small = l.text(12.5, color: l.mute, lh: 17), wrong = l.text(12.5, color: l.signalT, lh: 17);
+    final Widget status;
+    if (busy) {
+      status = Shim(active: true, child: Text(tr('正在更新…', 'Updating…'), style: small));
+    } else if (!have) {
+      status = Text(local ? tr('本地副本不见了，请重新导入', 'The saved copy is gone. Import it again') : tr('本地副本不见了，点更新重新获取', 'The saved copy is gone. Update to fetch it again'), style: wrong);
+    } else if (error.isNotEmpty) {
+      status = Text(tr('更新失败，继续使用上次的 {0} 条规则：{1}', 'Update failed; still using the last {0} rules: {1}', [count, error]), style: wrong);
+    } else {
+      status = Text(local ? tr('本地文件，不自动更新', "Local file, doesn't update by itself") : tr('每天自动更新', 'Updates daily'), style: small);
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      status,
+      if (target.isNotEmpty) Text(tr('取自一份完整配置里发往「{0}」的规则。', 'The rules a whole config sends to {0}.', [target]), style: small),
+      if (skipped > 0) Text(tr('有 {0} 条规则不支持，已跳过。', skipped == 1 ? '{0} unsupported rule was skipped.' : '{0} unsupported rules were skipped.', [skipped]), style: small),
+      for (final r in preview) _ruleRow(l, s, r, fixed: true),
+      if (count > preview.length) Padding(padding: const EdgeInsets.only(top: 4), child: Text(tr('还有 {0} 条，由来源维护，这里不能单独改。', "{0} more, kept by the source; they can't be edited here.", [count - preview.length]), style: small)),
+      const SizedBox(height: 6),
+      Row(children: [
+        if (!local) ...[Btn(tr('更新', 'Update'), minH: 36, fontSize: 13, onTap: busy ? null : () => _updateSet(sid)), const SizedBox(width: 6)],
+        Btn(tr('更多', 'More'), minH: 36, fontSize: 13, padH: 0, kind: BtnKind.plain, onTap: () => _serviceMenu(g, s)),
+      ]),
+    ]);
+  }
+
   String _serviceSub(Map s) {
+    final set = s['set'] as Map?;
+    if (set != null) return _setSub(s, set);
     if (s['off'] == true) return tr('已停用，这些流量回到「其他流量」', 'Off: its traffic goes back to Other');
     final live = _live(s);
     if (live.isEmpty) return tr('还没有规则', 'No rules yet');
@@ -612,7 +703,12 @@ class _GroupPageState extends State<GroupPage> {
     final open = _openServices.contains(sid);
     final rules = _list(s, 'rules');
     final off = s['off'] == true, mine = s['mine'] == true;
-    final tag = mine ? null : (s['builtin'] == true ? (s['changed'] == true ? '${tr('内置', 'Built-in')} · ${tr('已改动', 'Changed')}' : tr('内置', 'Built-in')) : tr('自定义', 'Custom'));
+    final set = s['set'] as Map?;
+    final tag = mine
+        ? null
+        : set != null
+            ? tr('规则集', 'Rule set')
+            : (s['builtin'] == true ? (s['changed'] == true ? '${tr('内置', 'Built-in')} · ${tr('已改动', 'Changed')}' : tr('内置', 'Built-in')) : tr('自定义', 'Custom'));
     return Column(key: _serviceKeys.putIfAbsent(sid, GlobalKey.new), crossAxisAlignment: CrossAxisAlignment.start, children: [
       hairBottom(
         l,
@@ -646,7 +742,7 @@ class _GroupPageState extends State<GroupPage> {
         open: open,
         builder: (context) => Padding(
           padding: const EdgeInsets.fromLTRB(21, 4, 0, 10),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child: set != null ? _setBody(l, g, s, set) : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             if (mine) Padding(padding: const EdgeInsets.only(bottom: 4), child: Text(tr('在活动页点开一条连接，选「让它走…」加的规则放在这里。', 'Rules made with Send via… in Activity land here.'), style: l.text(12.5, color: l.mute, lh: 17))),
             if (rules.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Text(tr('还没有规则，在下面加一条。', 'No rules yet. Add one below.'), style: l.text(13, color: l.faint, lh: 18))),
             for (final r in rules) _ruleRow(l, s, r),
@@ -704,7 +800,7 @@ class _GroupPageState extends State<GroupPage> {
   String _countLine(Map g) {
     final services = _list(g, 'services');
     final named = services.where((s) => s['mine'] != true && s['off'] != true).length;
-    final live = services.fold(0, (n, s) => n + _live(s).length);
+    final live = services.fold(0, (n, s) => n + _liveCount(s));
     final pct = ((app.todayShare[id] ?? 0) * 100).round();
     if (g['reject'] == true) return tr('{0} 个服务 · {1} 条规则', '{0} services · {1} rules', [named, live]);
     if (id == 'default') return tr('今日 {0}% 的流量', "{0}% of today's traffic", [pct]);
@@ -751,9 +847,12 @@ class _GroupPageState extends State<GroupPage> {
 /// Adds a rule to a service: the kind can be left to be worked out, and what
 /// will be added shows as it's typed. It stays up when the rule is refused.
 class _RuleSheet extends StatefulWidget {
-  const _RuleSheet({required this.app, required this.route, required this.service, required this.serviceName});
+  const _RuleSheet({required this.app, required this.route, required this.service, required this.serviceName, required this.onImportSet});
   final AppState app;
   final String route, service, serviceName;
+
+  /// Opens 导入规则集 with the link that was typed here.
+  final void Function(String link) onImportSet;
 
   @override
   State<_RuleSheet> createState() => _RuleSheetState();
@@ -766,6 +865,9 @@ class _RuleSheetState extends State<_RuleSheet> {
   String? _error, _conflict;
   bool _busy = false;
   int _asked = 0;
+
+  /// A link to a rule file. As a rule it would only give its domain.
+  static final _setLink = RegExp(r'^https?://[^/\s]+/\S*\.(ya?ml|list|txt|mrs|conf)(\?\S*)?$', caseSensitive: false);
 
   Map<String, Object?> get _args => {'kind': _kind, 'text': _c.text.trim(), 'route': widget.route, 'service': widget.service};
 
@@ -832,11 +934,22 @@ class _RuleSheetState extends State<_RuleSheet> {
           ),
         );
     final conflict = _conflict;
+    final link = _c.text.trim();
+    final uri = Uri.tryParse(link);
     return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text(tr('添加规则', 'Add rule'), style: l.text(15, weight: 700, lh: 21)),
       Text(widget.serviceName, maxLines: 1, overflow: TextOverflow.ellipsis, style: l.text(12.5, color: l.mute, lh: 17)),
       const SizedBox(height: 8),
-      if (conflict != null)
+      if (conflict == null && uri != null && _setLink.hasMatch(link))
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(tr('这像是规则集的链接。添加规则只会加上域名 {0}，不会用里面的规则。', "This looks like a rule set's link. Add rule only adds the domain {0}, not the rules inside.", [_preview?['value'] ?? uri.host]), style: l.text(13, color: l.warnT, lh: 18)),
+            const SizedBox(height: 6),
+            Btn(tr('导入规则集', 'Import rule set'), minH: 36, padH: 10, fontSize: 13, onTap: _busy ? null : () => widget.onImportSet(link)),
+          ]),
+        )
+      else if (conflict != null)
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Row(children: [
@@ -869,6 +982,250 @@ class _RuleSheetState extends State<_RuleSheet> {
       ),
       const SizedBox(height: 10),
       Btn(tr('添加', 'Add'), kind: BtnKind.accent, expand: true, minH: 44, onTap: _busy ? null : _save),
+    ]);
+  }
+}
+
+/// Imports a rule set into a group. A link or a picked file is fetched and
+/// checked as soon as it is given, and only what was shown can be imported: a
+/// list's rules, or the rules a whole config sends to one of its targets.
+class _SetSheet extends StatefulWidget {
+  const _SetSheet({required this.app, required this.route, required this.routeName, required this.link, required this.onDone, required this.onView});
+  final AppState app;
+  final String route, routeName, link;
+
+  /// The service the set became.
+  final void Function(String service) onDone;
+
+  /// Where a link that is already imported lives.
+  final void Function(String group, String service) onView;
+
+  @override
+  State<_SetSheet> createState() => _SetSheetState();
+}
+
+class _SetSheetState extends State<_SetSheet> {
+  late final _c = TextEditingController(text: widget.link);
+  Timer? _wait;
+  String? _path; // a picked file, in place of the link
+  String _target = ''; // the one chosen of a whole config's
+  List<Map> _targets = const [];
+  int _left = 0; // rules of a whole config that can't be imported
+  Map? _out; // the source as checked; without it nothing is imported
+  String? _error;
+  bool _checking = false, _busy = false;
+  int _asked = 0;
+
+  Map<String, Object?> get _args => {'input': _path == null ? _c.text.trim() : '', 'path': _path ?? '', 'text': _target, 'route': widget.route};
+
+  bool get _ready => !_checking && !_busy && _out != null && _out!['dup'] == null && (_out!['count'] as int? ?? 0) > 0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.link.isEmpty) return;
+    _checking = true;
+    _check();
+  }
+
+  @override
+  void dispose() {
+    _wait?.cancel();
+    _c.dispose();
+    super.dispose();
+  }
+
+  /// Forgets what was checked: the source is another one now.
+  void _reset() {
+    _wait?.cancel();
+    _asked++;
+    _target = '';
+    _targets = const [];
+    _left = 0;
+    _out = _error = null;
+    _checking = false;
+  }
+
+  void _typed() {
+    setState(() {
+      _reset();
+      _path = null;
+      if (_c.text.trim().isEmpty) return;
+      _checking = true;
+      _wait = Timer(const Duration(milliseconds: 400), _check);
+    });
+  }
+
+  Future<void> _pickFile() async {
+    final path = await widget.app.pickFile();
+    if (path == null || !mounted) return;
+    _c.clear();
+    setState(() {
+      _reset();
+      _path = path;
+      _checking = true;
+    });
+    _check();
+  }
+
+  void _pickTarget(String name) {
+    setState(() {
+      _target = name;
+      _out = _error = null;
+      _checking = true;
+    });
+    _check();
+  }
+
+  void _otherTarget() => setState(() {
+        _asked++;
+        _target = '';
+        _out = _error = null;
+        _checking = false;
+      });
+
+  Future<void> _check() async {
+    final ask = ++_asked;
+    setState(() => _checking = true);
+    final r = await widget.app.checkRuleSet(_args);
+    if (!mounted || ask != _asked) return;
+    final targets = _list(r.out, 'targets');
+    setState(() {
+      _checking = false;
+      _error = r.error;
+      _out = targets.isEmpty ? r.out : null;
+      if (targets.isNotEmpty) {
+        _targets = targets;
+        _left = r.out?['left'] as int? ?? 0;
+      }
+    });
+  }
+
+  Future<void> _save() async {
+    if (!_ready) return;
+    setState(() => _busy = true);
+    final r = await widget.app.importRuleSet(_args);
+    if (!mounted) return;
+    if (r.error == null) {
+      widget.app.closeSheet();
+      if (r.id != null) widget.onDone(r.id!);
+      return;
+    }
+    setState(() {
+      _busy = false;
+      _out = null;
+      _error = r.error;
+    });
+  }
+
+  /// A whole config: what it is, what of it can come in, and its targets.
+  Widget _targetList(Look l) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(
+        tr('这是一份完整配置，不是规则集。可以把其中发往一个目标的规则导入到「{0}」；它的节点、策略组和 DNS 不会带进来，不同目标之间的先后顺序也不保留。', "This is a whole config, not a rule set. The rules it sends to one target can be imported into {0}. Its nodes, groups and DNS are left out, and the order between targets isn't kept.", [widget.routeName]),
+        style: l.text(13, color: l.ink2, lh: 18),
+      ),
+      const SizedBox(height: 4),
+      for (final t in _targets)
+        Tap(
+          onTap: () => _pickTarget(t['name'] as String),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 48),
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: l.hair2))),
+            child: Row(children: [
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(t['name'] as String, maxLines: 2, overflow: TextOverflow.ellipsis, style: l.text(15, lh: 21)),
+                  Text(_setCount(t['count'] as int? ?? 0, t['skipped'] as int? ?? 0), style: l.text(12.5, color: l.mute, lh: 17)),
+                ]),
+              ),
+              Ic('chev', size: 15, color: l.mute),
+            ]),
+          ),
+        ),
+      if (_left > 0)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            tr('这份配置里共有 {0} 条规则不能导入：兜底规则、引用其他规则集的规则，或不支持的类型。', "{0} of its rules can't be imported: the final rule, rules that point to another rule set, or kinds that aren't supported.", [_left]),
+            style: l.text(13, color: l.mute, lh: 18),
+          ),
+        ),
+    ]);
+  }
+
+  /// A source that can be imported: its size, a taste of it, and where its
+  /// traffic will go.
+  Widget _checked(Look l, Map out) {
+    final count = _setCount(out['count'] as int? ?? 0, out['skipped'] as int? ?? 0);
+    final rules = _list(out, 'rules');
+    final more = (out['count'] as int? ?? 0) - rules.length;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(
+        _target.isEmpty ? tr('{0} · 来自 {1}', '{0} · from {1}', [count, out['where']]) : tr('「{0}」的 {1} · 来自 {2}', '{0}: {1} · from {2}', [_target, count, out['where']]),
+        style: l.text(13, weight: 600, color: l.ink2, lh: 18),
+      ),
+      const SizedBox(height: 2),
+      for (final r in rules)
+        Row(children: [
+          Expanded(child: Line1(r['shown'] as String? ?? '', l.text(14, lh: 24))),
+          const SizedBox(width: 10),
+          Text(r['kindName'] as String? ?? '', maxLines: 1, style: l.text(12.5, color: l.mute, lh: 17)),
+        ]),
+      if (more > 0) Text(tr('还有 {0} 条', '{0} more', [more]), style: l.text(13, color: l.mute, lh: 18)),
+      const SizedBox(height: 4),
+      Text(tr('命中的流量走「{0}」。优先级：你的规则 → 规则集 → 内置规则。', 'Matching traffic goes by {0}. Order: your rules → rule sets → built-in rules.', [widget.routeName]), style: l.text(13, color: l.ink2, lh: 18)),
+    ]);
+  }
+
+  Widget _status(Look l) {
+    final hint = l.text(13, color: l.mute, lh: 18);
+    final out = _out;
+    if (_checking) return Shim(active: true, child: Text(tr('正在下载并检查…', 'Downloading and checking…'), style: hint));
+    if (_error != null) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(_error!, style: l.text(13, color: l.signalT, lh: 18)),
+        Btn(tr('重试', 'Retry'), minH: 36, padH: 0, fontSize: 13, kind: BtnKind.plain, onTap: _busy ? null : _check),
+      ]);
+    }
+    if (out == null) return _targets.isNotEmpty ? _targetList(l) : Text(tr('粘贴规则集链接，或选择本地 .yaml / .list 文件。', 'Paste a link to a rule set, or choose a local .yaml or .list file.'), style: hint);
+    final dup = out['dup'] as Map?;
+    if (dup == null) return _checked(l, out);
+    return Row(children: [
+      Expanded(child: Text(tr('已经导入到「{0}」了', 'Already imported to {0}', [dup['groupName']]), style: l.text(13, color: l.ink2, lh: 18))),
+      const SizedBox(width: 8),
+      Btn(tr('查看', 'View'), minH: 36, padH: 10, fontSize: 13, onTap: () {
+        widget.app.closeSheet();
+        widget.onView(dup['group'] as String, dup['service'] as String);
+      }),
+    ]);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = Skin.of(context);
+    return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Text(tr('导入规则集', 'Import rule set'), style: l.text(15, weight: 700, lh: 21)),
+      Text(widget.routeName, maxLines: 1, overflow: TextOverflow.ellipsis, style: l.text(12.5, color: l.mute, lh: 17)),
+      const SizedBox(height: 8),
+      Flexible(child: SingleChildScrollView(padding: const EdgeInsets.only(bottom: 8), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        _status(l),
+        if (_targets.isNotEmpty && _target.isNotEmpty)
+          Align(alignment: Alignment.centerLeft, child: Btn(tr('选其他目标', 'Choose another target'), minH: 36, padH: 0, fontSize: 13, kind: BtnKind.plain, onTap: _busy ? null : _otherTarget)),
+      ]))),
+      Container(
+        constraints: const BoxConstraints(minHeight: 44),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        decoration: BoxDecoration(color: l.paper2, borderRadius: l.br(11)),
+        child: BareField(hint: tr('规则集链接', 'Rule set link'), controller: _c, autofocus: widget.link.isEmpty, keyboardType: TextInputType.url, onChanged: (_) => _typed(), onSubmitted: (_) => _save()),
+      ),
+      const SizedBox(height: 10),
+      Row(children: [
+        Btn(tr('选择文件', 'Choose file'), minH: 44, onTap: _busy ? null : _pickFile),
+        const SizedBox(width: 8),
+        Expanded(child: Opacity(opacity: _ready ? 1 : .4, child: Btn(tr('导入', 'Import'), kind: BtnKind.accent, expand: true, minH: 44, onTap: _ready ? _save : null))),
+      ]),
     ]);
   }
 }

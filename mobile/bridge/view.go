@@ -213,7 +213,7 @@ func (x *bridge) view() viewData {
 		}
 	}
 	for _, r := range all {
-		rv := routeData{ID: r.ID, Name: routes.Title(r), Color: routeColor(r.Color), Direct: r.Direct, Reject: r.Reject, Policy: r.Policy.Mode, Rules: routeRules(r), Detail: routes.Describe(r)}
+		rv := routeData{ID: r.ID, Name: routes.Title(r), Color: routeColor(r.Color), Direct: r.Direct, Reject: r.Reject, Policy: r.Policy.Mode, Rules: x.routeRules(r), Detail: routes.Describe(r)}
 		v.RuleCount += rv.Rules
 		if !r.Direct && !r.Reject {
 			rv.Broken = brokenWhy(r.Policy, v.Nodes)
@@ -319,10 +319,17 @@ func brokenWhy(q routes.Policy, nodes []nodeData) string {
 }
 
 // routeRules is how many live rules send traffic to r, its user's included.
-func routeRules(r routes.Route) int {
+func (x *bridge) routeRules(r routes.Route) int {
 	n := 0
 	for _, s := range r.Services {
-		if !s.Off {
+		if s.Off {
+			continue
+		}
+		if s.Source != "" {
+			if m, ok := x.ruleSets.Get(s.ID); ok {
+				n += m.Count
+			}
+		} else {
 			n += len(s.Live())
 		}
 	}
