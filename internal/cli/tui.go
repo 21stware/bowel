@@ -349,9 +349,9 @@ func (t *tui) toggles() []toggle {
 	return []toggle{
 		{i18n.T("接管", "Takeover"), tk.On, plain(tk.On), i18n.T("总开关：关闭后系统代理恢复原样", "The main switch"),
 			"set_takeover", func(on bool) map[string]any { return map[string]any{"enabled": on} }},
-		{i18n.T("系统代理", "System proxy"), tk.System.Wanted, state(tk.System), i18n.T("遵循系统代理的应用走 bowel", "For apps that follow the system proxy"),
+		{i18n.T("系统代理", "System proxy"), tk.On && tk.System.Wanted, state(tk.System), i18n.T("遵循系统代理的应用走 bowel", "For apps that follow the system proxy"),
 			"set_takeover", func(on bool) map[string]any { return map[string]any{"systemProxy": on} }},
-		{"TUN", tk.Tun.Wanted, state(tk.Tun), i18n.T("接管全部流量，包括不理会系统代理的应用；首次需要管理员授权", "All traffic; asks for an administrator once"),
+		{"TUN", tk.On && tk.Tun.Wanted, state(tk.Tun), i18n.T("接管全部流量，包括不理会系统代理的应用；首次需要管理员授权", "All traffic; asks for an administrator once"),
 			"set_takeover", func(on bool) map[string]any { return map[string]any{"tun": on} }},
 		{i18n.T("网关模式", "Gateway mode"), tk.Gateway.Wanted, state(tk.Gateway.entry), i18n.T("让局域网其他设备经这台电脑上网", "Other LAN devices go out through this computer"),
 			"set_gateway", func(on bool) map[string]any { return map[string]any{"enabled": on} }},
