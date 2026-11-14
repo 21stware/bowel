@@ -104,3 +104,42 @@ rules:
 		t.Error("nothing removed should be the same routing")
 	}
 }
+
+// A node removed from a local file Provider that the config's `type: file`
+// proxy-provider reads is left out of that provider as well, next to the
+// config's own exclude-filter; other providers and the parsed config stay.
+func TestImportedWithoutInFile(t *testing.T) {
+	im, err := ParseImported([]byte(`proxy-providers:
+  nodes: {type: file, path: ./x.yaml, exclude-filter: "info"}
+  other: {type: file, path: ./y.yaml}
+proxy-groups:
+  - {name: G, type: select, use: [nodes, other]}
+rules:
+  - MATCH,G
+`), func(name string) []string { return []string{"/store/" + name + ".txt"} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := im.WithoutInFile("/store/nodes.txt", []string{"N`2"})
+	got, _ := out.ProxyProviders["nodes"]["exclude-filter"].(string)
+	parts := strings.Split(got, "`")
+	if len(parts) != 2 || parts[0] != "info" {
+		t.Fatalf("exclude-filter = %q", got)
+	}
+	re := regexp2.MustCompile(parts[1], regexp2.None)
+	if ok, _ := re.MatchString("N`2"); !ok {
+		t.Error("N`2 is not left out")
+	}
+	if ok, _ := re.MatchString("N`20"); ok {
+		t.Error("N`20 is left out")
+	}
+	if _, ok := out.ProxyProviders["other"]["exclude-filter"]; ok {
+		t.Error("another provider was changed")
+	}
+	if im.ProxyProviders["nodes"]["exclude-filter"] != "info" {
+		t.Error("the parsed config was changed")
+	}
+	if im.WithoutInFile("/store/none.txt", []string{"N"}) != im || im.WithoutInFile("/store/nodes.txt", nil) != im {
+		t.Error("nothing to leave out should be the same routing")
+	}
+}

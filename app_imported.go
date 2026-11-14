@@ -112,6 +112,12 @@ func (a *App) importedLocked(s settings.Settings) *core.Imported {
 	if p, ok := a.providers.Get(key); ok {
 		im = im.Without(p.Hidden) // the nodes the user removed are gone from its routing too
 	}
+	// and so are those removed from the local files its proxy-providers read
+	for _, p := range a.providers.List() {
+		if p.Kind == provider.File && p.Enabled && p.ID != key {
+			im = im.WithoutInFile(a.providers.Path(p.ID), p.Hidden)
+		}
+	}
 	a.imp.now = im
 	return im
 }

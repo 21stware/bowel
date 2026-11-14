@@ -598,6 +598,21 @@ func TestImportedLocalFileProvider(t *testing.T) {
 		t.Errorf("G after the reload = %v", got)
 	}
 
+	// A node removed from the file's Provider (#160) leaves the config's
+	// groups that read the file too, and comes back when restored.
+	if _, err := a.hideNode("N2"+core.NodeSep+local.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := coreProxies(t, a)["G"].All; !slices.Equal(got, []string{"N1"}) {
+		t.Errorf("G without N2 = %v", got)
+	}
+	if _, err := a.hideNode("N2"+core.NodeSep+local.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := coreProxies(t, a)["G"].All; !slices.Equal(got, []string{"N1", "N2"}) {
+		t.Errorf("G restored = %v", got)
+	}
+
 	// An update that needs a file there is none for is not applied.
 	more := strings.Replace(issue75Config, "use: [nodes]", "use: [nodes, more]", 1)
 	more = "proxies:\n" + strings.Replace(more, "proxy-groups:", "  more: {type: file, path: ./more.yaml}\nproxy-groups:", 1)

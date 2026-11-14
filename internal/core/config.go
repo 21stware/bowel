@@ -117,11 +117,17 @@ func excludeFilter(p ProviderRef) string {
 	if len(p.Hidden) == 0 {
 		return provider.InfoPattern
 	}
-	quoted := make([]string, len(p.Hidden))
-	for i, n := range p.Hidden {
+	return provider.InfoPattern + "`" + hiddenPattern(p.Hidden)
+}
+
+// hiddenPattern is one part of an exclude-filter that matches each of names
+// literally and whole (excludeFilter says how).
+func hiddenPattern(names []string) string {
+	quoted := make([]string, len(names))
+	for i, n := range names {
 		quoted[i] = strings.ReplaceAll(regexp.QuoteMeta(n), "`", `\x60`)
 	}
-	return provider.InfoPattern + "`^(?:" + strings.Join(quoted, "|") + `)\z`
+	return "^(?:" + strings.Join(quoted, "|") + `)\z`
 }
 
 // withTarget puts the target before a rule's trailing options:

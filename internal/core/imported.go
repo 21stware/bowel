@@ -466,6 +466,39 @@ func (im *Imported) Without(hidden []string) *Imported {
 	return &out
 }
 
+// WithoutInFile leaves hidden out of the config's `type: file`
+// proxy-providers that read path: a local file Provider of Moho's that the
+// config uses by name (ParseImported's local), whose removed nodes would
+// otherwise come back through it. They join the provider's own
+// exclude-filter as another backtick-separated part.
+func (im *Imported) WithoutInFile(path string, hidden []string) *Imported {
+	if im == nil || len(hidden) == 0 {
+		return im
+	}
+	var out *Imported
+	for name, p := range im.ProxyProviders {
+		if !strings.EqualFold(fmt.Sprint(p["type"]), "file") || fmt.Sprint(p["path"]) != path {
+			continue
+		}
+		if out == nil {
+			c := *im
+			c.ProxyProviders = maps.Clone(im.ProxyProviders)
+			out = &c
+		}
+		q := maps.Clone(p)
+		f := hiddenPattern(hidden)
+		if old, _ := q["exclude-filter"].(string); old != "" {
+			f = old + "`" + f
+		}
+		q["exclude-filter"] = f
+		out.ProxyProviders[name] = q
+	}
+	if out == nil {
+		return im
+	}
+	return out
+}
+
 // withRuleTarget is line with its target, where ruleParts finds it,
 // replaced by target.
 func withRuleTarget(line, target string) string {
