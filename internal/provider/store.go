@@ -175,9 +175,20 @@ func (s *Store) Add(ctx context.Context, client *http.Client, input string) (Pro
 		if err := noNodes(data); err != nil {
 			return Provider{}, err
 		}
-		p.Name = i18n.T("粘贴的配置", "Pasted config")
+		p.Name = s.unusedName(i18n.T("粘贴的配置", "Pasted config"))
 	}
 	return s.create(p, data)
+}
+
+// unusedName is name, or name with the first number from 2 on that no
+// provider is called yet. For a name that isn't taken from what is added:
+// every one of the kind would get the same otherwise.
+func (s *Store) unusedName(name string) string {
+	out := name
+	for n := 2; slices.ContainsFunc(s.List(), func(p Provider) bool { return p.Name == out }); n++ {
+		out = fmt.Sprintf("%s %d", name, n)
+	}
+	return out
 }
 
 // AddFile copies a local file in.
