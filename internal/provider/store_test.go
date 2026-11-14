@@ -254,3 +254,38 @@ func TestConfigWithoutNodes(t *testing.T) {
 		}
 	}
 }
+
+// A pasted config has no name of its own, so each gets the same words. The
+// second and later ones are numbered, or two rows would read alike and
+// what names a config's routing would not say which one it means. A number
+// freed by a rename or a removal is used again.
+func TestPastedConfigNames(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	paste := func() Provider {
+		t.Helper()
+		p, err := s.Add(context.Background(), nil, "proxies:\n  - {name: a, type: direct}\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	first, second, third := paste(), paste(), paste()
+	if first.Name != "粘贴的配置" || second.Name != "粘贴的配置 2" || third.Name != "粘贴的配置 3" {
+		t.Errorf("names = %q, %q, %q", first.Name, second.Name, third.Name)
+	}
+	if _, err := s.Rename(second.ID, "家里"); err != nil {
+		t.Fatal(err)
+	}
+	if p := paste(); p.Name != "粘贴的配置 2" {
+		t.Errorf("after a rename: %q", p.Name)
+	}
+	if err := s.Delete(first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if p := paste(); p.Name != "粘贴的配置" {
+		t.Errorf("after the first is removed: %q", p.Name)
+	}
+}
