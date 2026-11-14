@@ -43,10 +43,17 @@ type Checked struct {
 	Set    Set
 }
 
-// Name is what to call a set from its source: the file's name.
+// Preview is the first few rules of the set that people can read.
+func (c *Checked) Preview() []routes.Rule { return newMatcher(c.Set).preview }
+
+// Name is what to call a set from its source: the file's name, or the
+// target whose rules were taken from a whole config.
 func (c *Checked) Name() string {
-	base := c.Source
-	if u, err := url.Parse(c.Source); err == nil && u.Path != "" {
+	base, target := Target(c.Source)
+	if target != "" {
+		return target
+	}
+	if u, err := url.Parse(base); err == nil && u.Path != "" {
 		base = u.Path
 	}
 	base = strings.TrimSuffix(base, "/")
@@ -182,6 +189,7 @@ func expand(path string) string {
 // Check says what is wrong with a source as typed, if anything can be told
 // without fetching it.
 func Check(source string) error {
+	source, _ = Target(source)
 	if Local(source) {
 		if strings.HasPrefix(source, "~/") || filepath.IsAbs(source) {
 			return nil
@@ -197,11 +205,17 @@ func Fetch(ctx context.Context, client *http.Client, source string) (*Checked, e
 	if err := Check(source); err != nil {
 		return nil, err
 	}
-	data, err := read(ctx, client, source)
+	location, target := Target(source)
+	data, err := read(ctx, client, location)
 	if err != nil {
 		return nil, err
 	}
-	set, err := Parse(data)
+	var set Set
+	if target == "" {
+		set, err = Parse(data)
+	} else {
+		set, err = parseTarget(data, target)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -271,6 +285,28 @@ func (s *Store) Save(id string, c *Checked) error {
 	defer s.mu.Unlock()
 	s.meta[id] = Meta{Behavior: c.Set.Behavior, Count: len(c.Set.Rules), Skipped: c.Set.Skipped, UpdatedAt: time.Now()}
 	s.matchers[id] = newMatcher(c.Set)
+	return s.saveLocked()
+}
+
+// Restore puts back one set from Snapshot after the core refused an update.
+// A nil file removes a set that had no previous copy.
+func (s *Store) Restore(id string, meta Meta, file []byte) error {
+	if file == nil {
+		s.Delete(id)
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tmp := s.Path(id) + ".tmp"
+	if err := os.WriteFile(tmp, file, 0o600); err != nil {
+		return err
+	}
+	defer os.Remove(tmp)
+	if err := os.Rename(tmp, s.Path(id)); err != nil {
+		return err
+	}
+	s.meta[id] = meta
+	delete(s.matchers, id)
 	return s.saveLocked()
 }
 
