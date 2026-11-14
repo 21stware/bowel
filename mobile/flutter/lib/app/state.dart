@@ -390,6 +390,44 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Looks at a rule-set source: a link or a picked file, and for a whole
+  /// config the target chosen. Nothing is saved; a failure is for the sheet.
+  Future<({Map? out, String? error})> checkRuleSet(Map<String, Object?> args) async {
+    try {
+      final out = await Core.instance.call('checkRuleSet', args);
+      return (out: out is Map ? out : null, error: null);
+    } catch (e) {
+      return (out: null, error: Core.message(e));
+    }
+  }
+
+  /// Makes the source a service of `args['route']`, and returns its id.
+  Future<({String? id, String? error})> importRuleSet(Map<String, Object?> args) async {
+    try {
+      final out = await Core.instance.call('importRuleSet', args);
+      await refreshRouting();
+      return (id: out is Map ? out['id'] as String? : null, error: null);
+    } catch (e) {
+      return (id: null, error: Core.message(e));
+    }
+  }
+
+  /// Fetches a rule set again, and returns what went wrong. A download that
+  /// failed also stays on the set's row, with the rules it had.
+  Future<String?> updateRuleSet(String id) async {
+    String? error;
+    try {
+      await Core.instance.call('updateRuleSet', {'id': id});
+    } catch (e) {
+      error = Core.message(e);
+    }
+    await refreshRouting();
+    return error;
+  }
+
+  /// A file the user picks, as a path the core can read; null when none was.
+  Future<String?> pickFile() => _pick(Shell.instance.pickFile);
+
   /// Where a connection's rule lives. Null when it's in no service.
   Future<({String group, String service})?> ruleHome(String ruleType, String payload) async {
     try {
@@ -806,7 +844,7 @@ class AppState extends ChangeNotifier {
       used: total > 0 ? (used * 100 / total).round().clamp(0, 100) : null,
       usage: total > 0 ? tr('已用 {0} / {1}', '{0} of {1} used', [sizeText(used), sizeText(total)]) : null,
       expires: expire > 0 ? tr('{0} 到期', 'Expires {0}', [DateTime.fromMillisecondsSinceEpoch(expire * 1000).toString().substring(0, 10)]) : null,
-      updated: _updatedText(p['updated'] as int? ?? 0),
+      updated: updatedText(p['updated'] as int? ?? 0),
       tones: [for (final n in own) latTone(n.delay)],
       warn: (p['error'] as String?) ?? warnKind,
       enabled: enabled,
@@ -818,7 +856,8 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  String _updatedText(int ms) {
+  /// How long ago something was fetched: 2 小时前更新.
+  String updatedText(int ms) {
     if (ms <= 0) return '';
     final ago = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ms));
     if (ago.inMinutes < 1) return tr('刚刚更新', 'Updated just now');
