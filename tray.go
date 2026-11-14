@@ -35,7 +35,7 @@ import (
 const traySpeedEvery = 2 * time.Second
 
 func (a *App) setupTray() {
-	tray, err := mygo.NewTray(mygo.TrayOptions{ID: "moho", Icon: trayIcon(false), IconIsTemplate: true, ToolTip: trayName})
+	tray, err := mygo.NewTray(mygo.TrayOptions{ID: "moho", Icon: trayIcon(false, trayWhite(runtime.GOOS, taskbarLight())), IconIsTemplate: true, ToolTip: trayName})
 	if err != nil {
 		log.Println("tray:", err)
 		return
@@ -111,6 +111,7 @@ func (a *App) togglePanel() {
 var trayOn = struct {
 	sync.Mutex
 	set, on    bool
+	white      bool // the ink it was drawn in
 	title, tip string
 	// nodes: the Linux menu last set offers the nodes.
 	nodes bool
@@ -126,14 +127,7 @@ func (a *App) refreshTray(s Snapshot) {
 	if tray == nil {
 		return
 	}
-	on := s.Takeover.On
-	trayOn.Lock()
-	changed := !trayOn.set || trayOn.on != on
-	trayOn.set, trayOn.on = true, on
-	trayOn.Unlock()
-	if changed {
-		_ = tray.SetIcon(trayIcon(on), true)
-	}
+	trayDraw(tray, s.Takeover.On, trayWhite(runtime.GOOS, taskbarLight()))
 	if runtime.GOOS == "linux" {
 		a.setTrayMenu(tray, s)
 	}
@@ -152,6 +146,16 @@ func (a *App) trayTick() {
 	a.mu.Unlock()
 	if tray != nil {
 		a.traySpeed(tray)
+		// The taskbar follows the Windows mode, which the user can switch
+		// while bowel runs: redraw the icon in the ink it now needs.
+		if runtime.GOOS == "windows" {
+			trayOn.Lock()
+			on, set := trayOn.on, trayOn.set
+			trayOn.Unlock()
+			if set {
+				trayDraw(tray, on, trayWhite(runtime.GOOS, taskbarLight()))
+			}
+		}
 		// The Linux menu is built from the snapshot, which traffic does not
 		// change: rebuild it when traffic through the port comes or goes
 		// while not taken over, as that is what offers the nodes.
@@ -380,9 +384,37 @@ func (a *App) logErr(err error) {
 	}
 }
 
-// trayIcon draws the template icon, 36×36 px: the logo's squiggle in one
-// ink, full when on and faded when off. That is all it tells.
-func trayIcon(on bool) []byte {
+// trayDraw sets the icon, if it is not already the one for on in this ink.
+func trayDraw(tray *mygo.Tray, on, white bool) {
+	trayOn.Lock()
+	changed := !trayOn.set || trayOn.on != on || trayOn.white != white
+	trayOn.set, trayOn.on, trayOn.white = true, on, white
+	trayOn.Unlock()
+	if changed {
+		_ = tray.SetIcon(trayIcon(on, white), true)
+	}
+}
+
+// trayWhite is whether the icon is drawn in white ink. macOS takes it as a
+// template and recolours it for the menu bar, so it stays black there. A
+// StatusNotifierItem host on Linux and the Windows notification area show
+// the pixels as they are (#161): GNOME's top bar is dark in light and dark
+// themes alike, as are most Linux panels, so white there; Windows follows
+// the taskbar's own theme.
+func trayWhite(goos string, taskbarLight bool) bool {
+	switch goos {
+	case "darwin":
+		return false
+	case "windows":
+		return !taskbarLight
+	default:
+		return true
+	}
+}
+
+// trayIcon draws the icon, 36×36 px: the logo's squiggle in one ink, black
+// or white, full when on and faded when off. That is all it tells.
+func trayIcon(on, white bool) []byte {
 	const n = 36
 	cov := make([]float64, n*n)
 	// The squiggle and its stroke span 194 of the logo's 200 units; fill 34 px.
@@ -393,11 +425,15 @@ func trayIcon(on bool) []byte {
 	if !on {
 		ink = .4
 	}
+	var rgb uint8
+	if white {
+		rgb = 255
+	}
 	img := image.NewNRGBA(image.Rect(0, 0, n, n))
 	for y := 0; y < n; y++ {
 		for x := 0; x < n; x++ {
 			if c := cov[y*n+x] * ink; c > 0 {
-				img.SetNRGBA(x, y, color.NRGBA{A: uint8(math.Min(1, c) * 255)})
+				img.SetNRGBA(x, y, color.NRGBA{R: rgb, G: rgb, B: rgb, A: uint8(math.Min(1, c) * 255)})
 			}
 		}
 	}
