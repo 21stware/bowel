@@ -92,6 +92,11 @@ type Manager struct {
 	// to no one: its log is read from the controller instead.
 	Spawn func(bin string) (Process, error)
 
+	// applyMu makes Apply one at a time: two at once share the file the
+	// next config is written to, and one would rename it from under the
+	// other (a command that arrives while the first config is applied).
+	applyMu sync.Mutex
+
 	mu        sync.Mutex
 	cmd       Process
 	exited    chan struct{}
@@ -282,6 +287,8 @@ func (m *Manager) Check(cfg []byte) error {
 // reload is not plainly accepted (refused, or no answer in time), Test
 // says whether the config is at fault.
 func (m *Manager) Apply(cfg []byte) error {
+	m.applyMu.Lock()
+	defer m.applyMu.Unlock()
 	var t ApplyTiming
 	defer func() {
 		m.mu.Lock()

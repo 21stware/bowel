@@ -2066,7 +2066,7 @@ func (u *UI) takeoverNormal(c *ui.Context, p *pal) {
 			u.entryWord(c, p, "sys", i18n.T("系统代理", "System proxy"), u.snap.Takeover.System)
 			ui.Box(c).Height(1).BorderStyle(ui.BorderDashed).BorderWidth(1, 0, 0, 0).BorderColor(p.hair)
 			u.entryWord(c, p, "tun", "TUN", u.snap.Takeover.Tun)
-			if u.snap.Takeover.Gateway.Wanted {
+			if gatewaySupported() {
 				ui.Box(c).Height(1).BorderStyle(ui.BorderDashed).BorderWidth(1, 0, 0, 0).BorderColor(p.hair)
 				u.gatewayWord(c, p)
 			}
@@ -2074,17 +2074,22 @@ func (u *UI) takeoverNormal(c *ui.Context, p *pal) {
 	})
 }
 
-// gatewayWord is the gateway's line on the board, under the entries. Not
-// a switch: a click opens the takeover, where its guide is.
+// gatewayWord is the gateway's line on the board, under the entries. It
+// has no switch: it says in a word where the gateway stands (off, manual,
+// automatic), and a click opens the takeover, where it is set up. When
+// something is wrong, what is wrong stands in the word's place.
 func (u *UI) gatewayWord(c *ui.Context, p *pal) {
 	t := u.snap.Takeover
 	ui.Row(c).Wrap().Justify(ui.Start).Padding(6, 0).GapX(12).GapY(2).AlignItems(ui.Baseline).Children(func() {
 		col := p.faint
-		if t.On {
+		if t.On && t.Gateway.Wanted {
 			col = p.ink
 		}
 		dispIn(ui.Text(c, i18n.T("网关", "Gateway")), p, col).FontSize(20).FontWeight(600).TextColor(col).NoWrap().Shrink(0).Grow(1)
 		dot, text := u.gatewayStatus(p)
+		if !t.Gateway.Wanted || dot == p.good {
+			text = gatewayStep(t.Gateway)
+		}
 		ui.Row(c).Gap(6).Shrink(1).MinWidth(0).AlignItems(ui.Center).Children(func() {
 			ui.Box(c).Size(6, 6).Radius(p.r(3)).Background(dot).Shrink(0)
 			tcol := p.mute
@@ -2225,23 +2230,13 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 		}
 		section(c, p, i18n.T("网关", "Gateway"), i18n.T("局域网里的其他设备，把这台 Mac 当网关", "Other devices on the LAN, through this Mac as their gateway"), func() {
 			_, status := u.gatewayStatus(p)
-			addr := i18n.T("没有局域网地址", "No LAN address")
-			if g := t.Gateway; g.IP != "" {
-				link := i18n.T("有线", "Wired")
-				if g.WiFi {
-					link = "Wi‑Fi"
-				}
-				addr = fmt.Sprintf("%s · %s %s", g.IP, g.Iface, link)
-			}
 			rows := [][2]string{{i18n.T("状态", "Status"), status}}
-			if t.Gateway.Wanted {
-				rows = append(rows, [2]string{i18n.T("本机地址", "This Mac"), addr})
-			} else {
+			if !t.Gateway.Wanted {
 				rows = append(rows, [2]string{i18n.T("作用", "What it does"), gatewayDesc()})
 			}
 			kv(c, p, rows)
 			if u.gatewayShownOn() {
-				ui.Column(c).Margin(12, 0, 0, 0).Children(func() { u.gatewayGuide(c, p, u.toast) })
+				ui.Column(c).Margin(5, 0, 0, 0).Children(func() { u.gatewayGuide(c, p, u.toast) })
 			}
 		}, func() { u.gatewaySwitch(c, "gateway", u.toast) })
 	})

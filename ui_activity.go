@@ -48,6 +48,13 @@ var actLevels = []struct{ id, zh, en, tag string }{
 
 type activityUI struct {
 	logTab bool // the logs tab, else connections
+	devTab bool // the devices tab: who uses the gateway
+
+	// Devices: the query, the filter (all, online, offline) and the one
+	// whose comings and goings show.
+	devQ    string
+	devSt   int
+	devOpen string
 
 	// Connections: the query and the filters.
 	q      string
@@ -93,7 +100,10 @@ func (a *activityUI) filterApp(app string) {
 }
 
 // showLogs opens the page on its logs.
-func (a *activityUI) showLogs() { a.logTab = true }
+func (a *activityUI) showLogs() { a.logTab, a.devTab = true, false }
+
+// showDevices opens the page on the devices that use the gateway.
+func (a *activityUI) showDevices() { a.logTab, a.devTab = false, true }
 
 // ---- Data ----
 
@@ -394,7 +404,10 @@ func (u *UI) activityPage(c *ui.Context, p *pal) {
 		if u.tick.AppsUnknown {
 			ui.Text(c, appsUnknownNote()).FontSize(12).TextColor(p.signal).Padding(0, 26, 10, 26)
 		}
-		if a.logTab {
+		if a.devTab {
+			u.actDevBar(c, p)
+			u.actDevList(c, p)
+		} else if a.logTab {
 			u.actLogBar(c, p)
 			u.actLogList(c, p)
 		} else {
@@ -411,15 +424,31 @@ func (u *UI) actHead(c *ui.Context, p *pal) {
 		n = u.tick.Active // before the first fetch, taken over or not
 	}
 	title := fmt.Sprintf(i18n.T("%d 个连接", "%d connections"), n)
+	if a.devTab {
+		on := 0
+		for _, d := range u.snap.Devices {
+			if d.Online {
+				on++
+			}
+		}
+		title = fmt.Sprintf(i18n.T("%d 台设备在线", "%d devices online"), on)
+	}
 	sub := fmt.Sprintf(i18n.T("↓ %s · ↑ %s · 今日 %s", "↓ %s · ↑ %s · Today %s"), fmtRate(u.tick.Down), fmtRate(u.tick.Up), fmtBytes(u.tick.TodayDown+u.tick.TodayUp))
 	pageHead(c, p, i18n.T("日志", "Log"), title, sub, false, func() {
 		ui.Row(c).Gap(18).Padding(0, 0, 4, 0).Children(func() {
-			for _, tab := range []struct {
+			tabs := []struct {
 				key, label string
-				logs       bool
-			}{{"conns", i18n.T("连接", "Connections"), false}, {"corelog", i18n.T("内核日志", "Core log"), true}} {
-				on := a.logTab == tab.logs
-				b := ui.ButtonBase(c.Key(tab.key)).Padding(7, 0, 3, 0).Margin(-7, 0, 0, 0).BorderWidth(0, 0, 1.5, 0).BorderColor(ui.Color{}).OnClick(func() { a.logTab = tab.logs })
+				logs, devs bool
+			}{{"conns", i18n.T("连接", "Connections"), false, false}, {"corelog", i18n.T("内核日志", "Core log"), true, false}}
+			if gatewaySupported() {
+				tabs = append(tabs, struct {
+					key, label string
+					logs, devs bool
+				}{"devices", i18n.T("设备", "Devices"), false, true})
+			}
+			for _, tab := range tabs {
+				on := a.logTab == tab.logs && a.devTab == tab.devs
+				b := ui.ButtonBase(c.Key(tab.key)).Padding(7, 0, 3, 0).Margin(-7, 0, 0, 0).BorderWidth(0, 0, 1.5, 0).BorderColor(ui.Color{}).OnClick(func() { a.logTab, a.devTab = tab.logs, tab.devs })
 				col, w := p.mute, 500
 				if on {
 					b.BorderColor(p.ink)
@@ -1014,5 +1043,150 @@ func (u *UI) actLogList(c *ui.Context, p *pal) {
 			msg = i18n.T("没有符合条件的日志", "No matching logs")
 		}
 		ui.Text(c, msg).FontSize(12.5).TextColor(p.mute).Padding(40, 0).TextAlign(ui.Center).FillWidth()
+	})
+}
+
+// ---- Devices: who uses the gateway ----
+
+// actDevices are the devices the query and the filter leave.
+func (u *UI) actDevices() []DeviceView {
+	a := &u.act
+	q := strings.ToLower(strings.TrimSpace(a.devQ))
+	var out []DeviceView
+	for _, d := range u.snap.Devices {
+		if (a.devSt == 1 && !d.Online) || (a.devSt == 2 && d.Online) {
+			continue
+		}
+		if q != "" && !strings.Contains(strings.ToLower(deviceTitle(d)+" "+d.IP+" "+d.MAC), q) {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+func (u *UI) actDevBar(c *ui.Context, p *pal) {
+	a := &u.act
+	ui.Row(c).Gap(14).Padding(6, 26, 10, 26).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair).Children(func() {
+		ui.SearchField(c.Key("dq"), &a.devQ).Placeholder(i18n.T("搜索设备或地址", "Search devices or addresses")).Label(i18n.T("搜索设备或地址", "Search devices or addresses")).Grow(1)
+		actSeg(c.Key("dev-st"), p, &a.devSt, []string{i18n.T("全部", "All"), i18n.T("在线", "Online"), i18n.T("离线", "Offline")})
+	})
+}
+
+// actDevCols are the widths of the columns after the name, which takes
+// what is left: address, how it came, what it does now, traffic.
+var actDevCols = [4]float32{130, 64, 190, 150}
+
+func (u *UI) actDevList(c *ui.Context, p *pal) {
+	a := &u.act
+	g := u.snap.Takeover.Gateway
+	devs := u.actDevices()
+	ui.Scroll(c.Key("devices")).Grow(1).Padding(0, 26, 16, 26).Children(func() {
+		if len(devs) == 0 {
+			msg := i18n.T("没有符合条件的设备", "No matching devices")
+			switch {
+			case !g.Wanted:
+				msg = i18n.T("网关没有打开。在「代理」页的「接管」里打开后，经过这台电脑的设备会列在这里。", "The gateway is off. Turn it on under Takeover on the Proxy page, and the devices that go through this computer are listed here.")
+			case len(u.snap.Devices) == 0:
+				msg = i18n.T("还没有设备经过这里", "No device has come through yet")
+			}
+			ui.Text(c, msg).FontSize(12.5).TextColor(p.mute).Padding(40, 0).TextAlign(ui.Center).FillWidth()
+			return
+		}
+		head := func(s string, w float32) {
+			t := ui.Text(c, s).FontSize(10.5).FontWeight(600).LetterSpacing(.8).TextColor(p.mute).NoWrap()
+			if w > 0 {
+				t.Width(w).Shrink(0)
+			} else {
+				t.Grow(1).Basis(0).MinWidth(0)
+			}
+		}
+		ui.Row(c).Gap(12).Padding(9, 4, 7, 4).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
+			ui.Box(c).Width(7).Shrink(0)
+			head(i18n.T("设备", "Device"), 0)
+			head(i18n.T("地址", "Address"), actDevCols[0])
+			head(i18n.T("接入", "Via"), actDevCols[1])
+			head(i18n.T("现在", "Now"), actDevCols[2])
+			head(i18n.T("流量", "Traffic"), actDevCols[3])
+			ui.Box(c).Width(10).Shrink(0)
+		})
+		for _, d := range devs {
+			open := a.devOpen == d.IP
+			row := ui.ButtonBase(c.Key("dev-"+d.IP)).Padding(9, 4).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).OnClick(func() {
+				if open {
+					a.devOpen = ""
+				} else {
+					a.devOpen = d.IP
+				}
+			})
+			if row.Hovered() || open {
+				row.Background(p.hover)
+			}
+			row.Children(func() {
+				ui.Row(c).Gap(12).AlignItems(ui.Center).FillWidth().Children(func() {
+					dot, name := p.faint, p.mute
+					if d.Online {
+						dot, name = p.good, p.ink
+					}
+					ui.Box(c).Size(7, 7).Radius(p.r(3.5)).Background(dot).Shrink(0)
+					dispIn(ui.Text(c, deviceTitle(d)), p, name).FontSize(15).FontWeight(600).TextColor(name).Grow(1).Basis(0).MinWidth(0).MaxLines(1).Ellipsis("…")
+					ui.Text(c, d.IP).Font(actMono).FontSize(11.5).FontFeatures("tnum").TextColor(p.ink2).Width(actDevCols[0]).Shrink(0).NoWrap()
+					via := i18n.T("手动", "Manual")
+					if d.Via == "auto" {
+						via = i18n.T("自动", "Automatic")
+					}
+					ui.Text(c, via).FontSize(12).TextColor(p.ink2).Width(actDevCols[1]).Shrink(0).NoWrap()
+					ui.Text(c, deviceNow(d)).FontSize(12).TextColor(p.mute).Width(actDevCols[2]).Shrink(0).MaxLines(1).Ellipsis("…")
+					traffic := "—"
+					if d.Down+d.Up > 0 {
+						traffic = "↓ " + fmtBytes(d.Down) + "  ↑ " + fmtBytes(d.Up)
+					}
+					ui.Text(c, traffic).FontSize(12).FontFeatures("tnum").TextColor(p.ink2).Width(actDevCols[3]).Shrink(0).NoWrap()
+					chevron(c, p.mute, open)
+				})
+			})
+			if open {
+				u.actDevEvents(c, p, d)
+			}
+		}
+	})
+}
+
+// deviceNow is what a device does now, or since when it is gone.
+func deviceNow(d DeviceView) string {
+	switch {
+	case d.Online && d.Conns > 0:
+		return fmt.Sprintf(i18n.T("%d 个连接", "%d connections"), d.Conns)
+	case d.Online:
+		return i18n.T("没有连接", "No connections")
+	case d.Seen.IsZero():
+		return i18n.T("离线", "Offline")
+	}
+	return i18n.T("离线 · ", "Offline · ") + ago(d.Seen)
+}
+
+// actDevEvents is when a device came and went, newest first.
+func (u *UI) actDevEvents(c *ui.Context, p *pal, d DeviceView) {
+	ui.Column(c.Key("dev-ev-"+d.IP)).Gap(3).Padding(9, 18, 12, 23).Background(p.paper2).BorderWidth(0, 0, 1, 0).BorderColor(p.hair).Children(func() {
+		if d.MAC != "" {
+			ui.Text(c, d.MAC).Font(actMono).FontSize(11).TextColor(p.faint).Selectable().Margin(0, 0, 3, 0)
+		}
+		if len(d.Events) == 0 {
+			ui.Text(c, i18n.T("还没有记录", "Nothing recorded yet")).FontSize(11.5).TextColor(p.mute)
+		}
+		for i, e := range d.Events {
+			word, col, note := i18n.T("离线", "Offline"), p.mute, ""
+			if e.Kind == "on" {
+				word, col = i18n.T("上线", "Online"), p.good
+				if e.Note == "first" {
+					note = i18n.T("第一次经过这里", "First time through here")
+				}
+			}
+			ui.Row(c.Key(i)).Gap(12).Children(func() {
+				ui.Text(c, e.At.Local().Format("01-02 15:04")).Font(actMono).FontSize(11.5).FontFeatures("tnum").TextColor(p.faint).Width(96).Shrink(0)
+				ui.Text(c, word).Font(actMono).FontSize(11.5).FontWeight(700).TextColor(col).Width(52).Shrink(0)
+				ui.Text(c, note).Font(actMono).FontSize(11.5).TextColor(p.ink2).Grow(1).MinWidth(0)
+			})
+		}
 	})
 }

@@ -127,6 +127,7 @@ func (a *App) shutdown() {
 // quitGateway ends the gateway: other devices lose the network now,
 // forwarding goes back as it was, and the Mac may sleep again.
 func (a *App) quitGateway(context.Context) {
+	a.stopDHCP()
 	if err := a.gw.Disable(); err != nil {
 		log.Println("gateway:", err)
 	}

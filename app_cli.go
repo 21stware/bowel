@@ -250,6 +250,51 @@ func (a *App) cliTools() []mcp.Tool {
 			},
 		},
 		{
+			Name: "set_gateway_auto", Title: "Hand out the LAN's addresses", Destructive: true,
+			Description: "The gateway's second step. Enabled: bowel becomes the LAN's DHCP server, so every device uses this machine as its router and DNS by itself. It refuses while another DHCP server answers on the LAN (the router's must be turned off first; check_dhcp says who answers), and while this machine's own address comes from DHCP (.takeover.gateway.dhcp is true): it needs a fixed address set on the machine itself, which is the user's to do. Disabled: back to manual, where devices are pointed at the gateway one by one; devices that got their address here lose their way out until another DHCP server is on again.",
+			Input:       obj(map[string]any{"enabled": map[string]any{"type": "boolean"}}, "enabled"),
+			Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
+				var p struct{ Enabled bool }
+				if err := mcp.Args(raw, &p); err != nil {
+					return nil, err
+				}
+				old := a.settings.Get().GatewayAuto
+				if old != p.Enabled {
+					err := a.change(ctx, s, words{"更改网关的地址分配", "Change the gateway's handing out of addresses"}, fmt.Sprintf("gatewayAuto: %v → %v", old, p.Enabled),
+						func() error { return a.setGatewayAuto(p.Enabled) })
+					if err != nil {
+						return nil, err
+					}
+				}
+				return map[string]any{"changed": old != p.Enabled, "gateway": a.snapshot().Takeover.Gateway}, nil
+			},
+		},
+		{
+			Name: "check_dhcp", Title: "Check the LAN for DHCP servers",
+			Description: "Asks the LAN who hands out addresses, as a device that just joined would (it takes none), and returns the servers that answered. Takes a few seconds. An empty list means bowel may become the DHCP server (set_gateway_auto).",
+			Input:       obj(map[string]any{}),
+			Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
+				if _, err := a.checkDHCP(); err != nil {
+					return nil, err
+				}
+				g := a.snapshot().Takeover.Gateway
+				return map[string]any{"servers": g.Auto.Servers, "gateway": g}, nil
+			},
+		},
+		{
+			Name: "list_devices", Title: "List the devices that use the gateway", ReadOnly: true,
+			Description: "The other devices on the LAN that go out through this machine: address, name, whether each got its address from bowel (auto) or was pointed here by hand (manual), whether it is online, its open connections and when it came and went.",
+			Input:       obj(map[string]any{}),
+			Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
+				snap := a.snapshot()
+				devs := snap.Devices
+				if devs == nil {
+					devs = []DeviceView{}
+				}
+				return map[string]any{"devices": devs, "gateway": snap.Takeover.Gateway}, nil
+			},
+		},
+		{
 			Name: "tail_logs", Title: "Follow the core's logs", ReadOnly: true,
 			Description: "The core's log lines after the one numbered after, oldest first, and the number to ask with next. With after 0, the last limit lines.",
 			Input: obj(map[string]any{

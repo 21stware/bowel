@@ -197,3 +197,24 @@ func TestGatewayView(t *testing.T) {
 		t.Errorf("on: %+v", g)
 	}
 }
+
+// Turning the gateway on takes TUN and the takeover with it. From a paused
+// takeover the system proxy stays off, so that a server with no desktop
+// shows no error for a proxy it can't set; one that was on stays on.
+func TestWantGateway(t *testing.T) {
+	s := settings.Defaults // paused, with the system proxy remembered
+	wantGateway(&s, true)
+	if !s.Gateway || !s.Tun || s.Paused || s.SystemProxy {
+		t.Fatalf("from paused: %+v", s)
+	}
+	s = settings.Defaults
+	s.Paused = false // the system proxy is in use
+	wantGateway(&s, true)
+	if !s.Gateway || !s.Tun || s.Paused || !s.SystemProxy {
+		t.Fatalf("with the system proxy on: %+v", s)
+	}
+	wantGateway(&s, false)
+	if s.Gateway || !s.Tun || s.Paused || !s.SystemProxy {
+		t.Fatalf("off: %+v", s)
+	}
+}
