@@ -127,6 +127,12 @@ func tree() *Command {
 			}},
 			{Name: "tui", Aliases: []string{"ui"}, Short: words{"全屏界面：在终端里查看状态、选节点、看连接和日志、管理规则和 Provider", "The full-screen interface: the state, nodes, connections, logs, rules and Providers in a terminal"},
 				Examples: []string{"bowel tui", "ssh server -t bowel tui"}, Run: runTUI},
+			{Name: "bar", Short: words{"给状态栏（waybar、polybar 等）每秒输出一行：当前网速，提示里有状态和节点", "A line a second for a status bar (waybar, polybar and the like): the speeds now, with the state and the nodes in the tooltip"},
+				Flags: []Flag{
+					{Name: "format", Kind: "string", Choices: barFormats, Help: words{"输出格式：waybar（JSON，默认）或 text（纯文字）", "What to print: waybar (JSON, the default) or text (plain)"}},
+					{Name: "once", Kind: "bool", Help: words{"只输出一行就退出，给按间隔运行命令的状态栏用", "Print one line and end, for bars that run the command on an interval"}},
+				},
+				Examples: []string{"bowel bar", "bowel bar --format text --once"}, Run: runBar},
 			{Name: "daemon", Raw: true, Short: words{"无窗口运行 bowel（前台运行，适合 systemd、launchd 和 SSH）", "Run bowel without a window (in the foreground; for systemd, launchd and SSH)"},
 				Examples: []string{"bowel daemon", "BOWEL_DATA_DIR=/var/lib/bowel bowel daemon"}, Run: local("daemon")},
 			{Name: "stop", Short: words{"退出运行中的 bowel（应用或 daemon）", "Quit the running bowel (the app or the daemon)"}, Examples: []string{"bowel stop"}, Run: runStop},
