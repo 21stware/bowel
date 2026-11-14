@@ -57,6 +57,7 @@ Map _group(String id, String name, List<Map> services, {bool direct = false, boo
       'direct': direct,
       'reject': reject,
       'custom': false,
+      'movable': !const {'default', 'direct', 'reject'}.contains(id),
       'mode': mode,
       'regions': <String>[],
       'providers': <String>[],
@@ -322,6 +323,35 @@ void main() {
     await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai')));
     await _settle(tester);
     expect(find.bySemanticsLabel('更多'), findsOneWidget);
+  });
+
+  testWidgets('a route group moves up and down the list, the fixed ones stay', (tester) async {
+    final app = _app();
+    await tester.pumpWidget(_host(app, RoutesPage(app: app)));
+    await _settle(tester);
+    // default, direct and reject keep their place: only ai and solo move.
+    expect(find.bySemanticsLabel('上移'), findsNWidgets(2));
+    expect(find.bySemanticsLabel('下移'), findsNWidgets(2));
+    await tester.tap(find.bySemanticsLabel('下移').first);
+    await _settle(tester);
+    expect(_ops.single, allOf(containsPair('op', 'moveGroup'), containsPair('id', 'ai'), containsPair('to', 'solo')));
+    _ops.clear();
+    await tester.tap(find.bySemanticsLabel('上移').last);
+    await _settle(tester);
+    expect(_ops.single, allOf(containsPair('op', 'moveGroup'), containsPair('id', 'solo'), containsPair('to', 'ai')));
+    expect(find.byType(GroupPage), findsNothing);
+  });
+
+  testWidgets('the first group that can move has nowhere to go up, the last nowhere down', (tester) async {
+    final app = _app();
+    await tester.pumpWidget(_host(app, RoutesPage(app: app)));
+    await _settle(tester);
+    await tester.tap(find.bySemanticsLabel('上移').first);
+    await tester.tap(find.bySemanticsLabel('下移').last);
+    await _settle(tester);
+    expect(_ops, isEmpty);
+    // A press on an arrow that does nothing doesn't open the group either.
+    expect(find.byType(GroupPage), findsNothing);
   });
 
   testWidgets('a group with one service does not offer to split it', (tester) async {

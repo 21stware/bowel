@@ -74,7 +74,17 @@ String _setCount(int n, int skipped) => '${tr('{0} 条规则', n == 1 ? '{0} rul
 /// What 添加服务 answers with for 导入规则集; no service has this id.
 const _importSetOption = '+set';
 
-/// 路由组: which groups there are, and where an address would go.
+/// A small icon button in a row: move up, move down, remove. Without `onTap`
+/// it is faint and does nothing.
+Widget _small(String icon, String label, VoidCallback? onTap) {
+  return Builder(builder: (context) {
+    final l = Skin.of(context);
+    return Tap(onTap: onTap, label: label, child: SizedBox(width: 38, height: 44, child: Center(child: Ic(icon, size: 18, color: onTap == null ? l.faint : l.ink2))));
+  });
+}
+
+/// 路由组: which groups there are and in what order, and where an address
+/// would go.
 class RoutesPage extends StatefulWidget {
   const RoutesPage({super.key, required this.app});
   final AppState app;
@@ -162,6 +172,8 @@ class _RoutesPageState extends State<RoutesPage> {
       builder: (context, _) {
         final l = Skin.of(context);
         final all = _groups(app);
+        // The fixed groups keep their place, so a group moves among the rest.
+        final movable = [for (final g in all) if (g['movable'] == true) g['id'] as String];
         var services = 0, rules = 0;
         for (final g in all) {
           for (final s in _list(g, 'services')) {
@@ -187,7 +199,7 @@ class _RoutesPageState extends State<RoutesPage> {
             for (final g in all)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _groupRow(context, l, app, g),
+                child: _groupRow(context, l, app, g, movable),
               ),
           ],
         );
@@ -195,8 +207,10 @@ class _RoutesPageState extends State<RoutesPage> {
     );
   }
 
-  Widget _groupRow(BuildContext context, Look l, AppState app, Map g) {
+  Widget _groupRow(BuildContext context, Look l, AppState app, Map g, List<String> movable) {
     final id = g['id'] as String;
+    final at = movable.indexOf(id);
+    void move(int to) => app.routeOp('moveGroup', {'id': id, 'to': movable[to]});
     final rc = _cfgOf(app, id);
     final direct = g['direct'] == true;
     final count = _list(g, 'services').where((s) => s['mine'] != true && s['off'] != true).length;
@@ -225,6 +239,11 @@ class _RoutesPageState extends State<RoutesPage> {
               ]),
             ),
             if (!direct) ...[const SizedBox(width: 10), Text(_delayWord(rc), maxLines: 1, style: l.text(12.5, color: l.mute, lh: 17))],
+            if (at >= 0) ...[
+              _small('up', tr('上移', 'Move up'), at == 0 ? null : () => move(at - 1)),
+              _small('down', tr('下移', 'Move down'), at == movable.length - 1 ? null : () => move(at + 1)),
+            ] else
+              const SizedBox(width: 76),
             const SizedBox(width: 4),
             Ic('chev', size: 15, color: l.mute),
           ]),
@@ -439,13 +458,6 @@ class _GroupPageState extends State<GroupPage> {
       }
     }
     return section(l, tr('节点策略', 'Node strategy'), kids, top: 8);
-  }
-
-  Widget _small(String icon, String label, VoidCallback? onTap) {
-    return Builder(builder: (context) {
-      final l = Skin.of(context);
-      return Tap(onTap: onTap, label: label, child: SizedBox(width: 38, height: 44, child: Center(child: Ic(icon, size: 18, color: onTap == null ? l.faint : l.ink2))));
-    });
   }
 
   void _saveTargets(List<Map> list) {
