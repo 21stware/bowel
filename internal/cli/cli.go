@@ -52,6 +52,9 @@ type Env struct {
 	Poll    time.Duration
 }
 
+// defaultPoll is how often the commands that go on ask, unless set.
+const defaultPoll = 700 * time.Millisecond
+
 // words are a few words in Chinese and English, put in the interface's
 // language when they are shown (the other languages are i18n's tables).
 type words struct{ zh, en string }
@@ -188,7 +191,7 @@ func Run(env Env) int {
 		env.Context = context.Background()
 	}
 	if env.Poll == 0 {
-		env.Poll = 700 * time.Millisecond
+		env.Poll = defaultPoll
 	}
 	root := tree()
 	c := &Ctx{env: env, root: root, out: env.Stdout, errw: env.Stderr, flags: map[string]string{}}
