@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"image/color"
+	"image/png"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -138,5 +141,60 @@ func TestTraySpeedSetting(t *testing.T) {
 	a.winShown.Store(true)
 	if got := a.pollEvery(); got != time.Second {
 		t.Errorf("polls every %v with the window shown", got)
+	}
+}
+
+// The icon is black only where the system recolours it (macOS's template);
+// GNOME's dark top bar showed the black one as nothing (#161).
+func TestTrayWhite(t *testing.T) {
+	for _, c := range []struct {
+		goos  string
+		light bool
+		want  bool
+	}{
+		{"darwin", false, false},
+		{"darwin", true, false},
+		{"linux", false, true},
+		{"linux", true, true},
+		{"freebsd", false, true},
+		{"windows", false, true},
+		{"windows", true, false},
+	} {
+		if got := trayWhite(c.goos, c.light); got != c.want {
+			t.Errorf("trayWhite(%q, taskbar light %v) = %v, want %v", c.goos, c.light, got, c.want)
+		}
+	}
+}
+
+// The ink is the colour of every pixel drawn; off fades it, not darkens it.
+func TestTrayIconInk(t *testing.T) {
+	for _, white := range []bool{false, true} {
+		var want uint8
+		if white {
+			want = 255
+		}
+		for _, on := range []bool{false, true} {
+			img, err := png.Decode(bytes.NewReader(trayIcon(on, white)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var maxA uint8
+			b := img.Bounds()
+			for y := b.Min.Y; y < b.Max.Y; y++ {
+				for x := b.Min.X; x < b.Max.X; x++ {
+					c := color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA)
+					if c.A == 0 {
+						continue
+					}
+					if c.R != want || c.G != want || c.B != want {
+						t.Fatalf("white %v on %v: pixel (%d,%d) is %v", white, on, x, y, c)
+					}
+					maxA = max(maxA, c.A)
+				}
+			}
+			if on && maxA != 255 || !on && (maxA == 0 || maxA > 110) {
+				t.Errorf("white %v on %v: strongest alpha %d", white, on, maxA)
+			}
+		}
 	}
 }

@@ -9,16 +9,19 @@ import (
 	"testing"
 )
 
-// TestLogoIcons writes the tray's two icons to $MOHO_ICONS when MOHO_ICONS is
-// set: go test -run LogoIcons. The app icon itself is assets/icon/AppIcon.icon.
+// TestLogoIcons writes the tray's icons, in black and white ink, to
+// $MOHO_ICONS when MOHO_ICONS is set: go test -run LogoIcons. The app icon
+// itself is assets/icon/AppIcon.icon.
 func TestLogoIcons(t *testing.T) {
 	dir := os.Getenv("MOHO_ICONS")
 	if dir == "" {
 		t.Skip("MOHO_ICONS not set")
 	}
 	for on, name := range map[bool]string{false: "off", true: "on"} {
-		if err := os.WriteFile(filepath.Join(dir, "tray-"+name+".png"), trayIcon(on), 0o644); err != nil {
-			t.Fatal(err)
+		for white, ink := range map[bool]string{false: "", true: "-white"} {
+			if err := os.WriteFile(filepath.Join(dir, "tray-"+name+ink+".png"), trayIcon(on, white), 0o644); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 }
