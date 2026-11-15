@@ -323,7 +323,11 @@ func sideItem(c *ui.Context, p *pal, id string, icon *ui.SVG, label string, on b
 // settingsSidebar lists the sections, under the window's controls, with
 // the core's version and state at its foot.
 func (u *UI) settingsSidebar(c *ui.Context, p *pal) {
-	ui.Column(c).Width(196).Shrink(0).Background(p.paper2).BorderWidth(0, 1, 0, 0).BorderColor(p.hair2).Children(func() {
+	w := float32(196)
+	if p.mono() {
+		w = 220 // "Developer networks" in a monospace
+	}
+	ui.Column(c).Width(w).Shrink(0).Background(p.paper2).BorderWidth(0, 1, 0, 0).BorderColor(p.hair2).Children(func() {
 		ui.Row(c).Height(max(c.TitleBar().Height, 50)).Shrink(0).DragWindow()
 		ui.Row(c).Shrink(0).Padding(0, 10, 10, 10).Children(func() {
 			ui.SearchField(c.Key("find"), &u.set.query).Bind(&u.set.findH).

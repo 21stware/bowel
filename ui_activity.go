@@ -576,7 +576,9 @@ func (u *UI) actQueryBar(c *ui.Context, p *pal) {
 			actSeg(c.Key("status"), p, &a.status, []string{
 				fmt.Sprintf(i18n.T("活跃 %d", "Active %d"), a.count("active")), fmt.Sprintf(i18n.T("已关闭 %d", "Closed %d"), a.count("closed")),
 				fmt.Sprintf(i18n.T("失败 %d", "Failed %d"), a.count("failed")), fmt.Sprintf(i18n.T("已拦截 %d", "Blocked %d"), a.count("blocked")), i18n.T("全部", "All")})
-			ui.Row(c).Gap(14).AlignItems(ui.Center).Shrink(1).MinWidth(0).ClipX().Children(func() {
+			// The routes' filters go to a second line sooner than be cut
+			// off: a monospace face, capitals or English leave them no room.
+			ui.Row(c).Wrap().GapX(14).GapY(2).AlignItems(ui.Center).Shrink(1).MinWidth(0).ClipX().Children(func() {
 				chip := func(id, label string, mark bool) {
 					on := a.route == id
 					b := p.named(ui.ButtonBase(c.Key("route:"+id)).Row().Gap(5).Padding(6, 0).Margin(-6, 0).AlignItems(ui.Center).OnClick(func() { a.route = id }), label)

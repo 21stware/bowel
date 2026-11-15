@@ -891,13 +891,27 @@ func (u *UI) provEmpty(c *ui.Context, p *pal) {
 		disp(ui.Text(c, i18n.T("还没有节点来源", "No node sources yet")), p).FontSize(26).FontWeight(700).TextColor(p.ink)
 		ui.Text(c, i18n.T("粘贴到上面，回车添加。", "Paste one above and press Enter to add it.")).FontSize(13).TextColor(p.mute)
 		ui.Column(c).Margin(18, 0, 0, 0).Children(func() {
-			for _, k := range [][3]string{
+			kinds := [][3]string{
 				{i18n.T("订阅", "Subscription"), i18n.T("机场的订阅链接，自动更新", "A service's subscription link, updated automatically"), "https://sub.example.com/api/v1/client/subscribe?token=…"},
 				{i18n.T("节点链接", "Node links"), i18n.T("一行一个", "One per line"), i18n.T("trojan://password@hk.example.com:443#香港 01", "trojan://password@hk.example.com:443#Hong Kong 01")},
 				{i18n.T("本地文件", "Local file"), i18n.T("Clash 配置，点「选择文件…」", "A Clash config; click “Choose file…”"), "~/Downloads/clash.yaml"},
-			} {
+			}
+			// One column for the three words: in a monospace "Subscription"
+			// is wider than the 110 the others' faces need, and breaks.
+			kw := float32(110)
+			if p.mono() {
+				face := p.display
+				if face == "" {
+					face = p.font
+				}
+				for _, k := range kinds {
+					w, _ := c.MeasureText(0, ui.Span{Text: k[0], Font: face, Size: 18, Weight: 700})
+					kw = max(kw, w+3)
+				}
+			}
+			for _, k := range kinds {
 				ui.Row(c).Gap(18).Padding(14, 0).BorderWidth(1, 0, 0, 0).BorderColor(p.hair2).AlignItems(ui.Start).Children(func() {
-					disp(ui.Text(c, k[0]), p).FontSize(18).FontWeight(700).TextColor(p.ink).Width(110)
+					disp(ui.Text(c, k[0]), p).FontSize(18).FontWeight(700).TextColor(p.ink).Width(kw).Shrink(0)
 					ui.Column(c).Gap(6).Grow(1).Basis(0).Children(func() {
 						ui.Text(c, k[1]).FontSize(12.5).TextColor(p.ink2)
 						ui.Text(c, k[2]).Font("SF Mono, Menlo").FontSize(11.5).TextColor(p.mute)

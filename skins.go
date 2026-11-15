@@ -401,6 +401,10 @@ func dispIn(e ui.Element, p *pal, col ui.Color) ui.Element {
 	return disp(e, p)
 }
 
+// mono says whether p sets its text in a monospace face, which is wider
+// than the faces the layout was drawn for: what holds a fixed width asks.
+func (p *pal) mono() bool { return p.font == faceMono || p.font == facePlex }
+
 // lit is what is filled with the accent, glowing in a skin that glows,
 // unless it has a terminal's manners: there only the big type glows.
 func lit(e ui.Element, p *pal) ui.Element {

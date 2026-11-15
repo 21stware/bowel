@@ -594,7 +594,13 @@ func shimmer(e ui.Element, on bool, p *pal) ui.Element {
 
 // pill is the prototype's round button: the accent, or a hairline ghost.
 func pill(c *ui.Context, p *pal, label string, primary bool) ui.Element {
-	b := p.named(ui.ButtonBase(c).Padding(7, 14).Radius(p.r(999)), label)
+	// Capitals are wider: a little smaller and closer, the three under
+	// the exit's name stay inside their cell.
+	size, padX := float32(12.5), float32(14)
+	if p.cap(label) != label {
+		size, padX = 11.5, 11
+	}
+	b := p.named(ui.ButtonBase(c).Padding(7, padX).Radius(p.r(999)), label)
 	if primary {
 		lit(b.Background(p.accent), p)
 	} else {
@@ -605,7 +611,7 @@ func pill(c *ui.Context, p *pal, label string, primary bool) ui.Element {
 		if primary {
 			col = p.onAccent
 		}
-		p.lab(ui.Text(c, p.cap(label))).FontSize(12.5).FontWeight(600).TextColor(col)
+		p.lab(ui.Text(c, p.cap(label))).FontSize(size).FontWeight(600).TextColor(col)
 	})
 }
 

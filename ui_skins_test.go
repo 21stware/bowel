@@ -715,6 +715,74 @@ func TestMapMarkers(t *testing.T) {
 	}
 }
 
+// TestMonoSkinsFit: a monospace face is wider than the one the layout
+// was drawn for, and capitals wider again. In the skins that have them
+// the settings' sidebar still holds "Developer networks", the empty
+// provider page's "Subscription" stays on one line, the three buttons
+// under the exit's name stay inside their cell, and the log's route
+// filters go to a second line sooner than be cut off.
+func TestMonoSkinsFit(t *testing.T) {
+	defer i18n.Set("zh")
+	for _, id := range []string{"phosphor", "mrrobot", "machine", "samaritan"} {
+		i18n.Set("en")
+		u, dark := skinned(fixtureUI(), id)
+		p := palOf(id, dark)
+		opts := ui.TesterOptions{Dark: dark}
+
+		tt := ui.NewTesterWith(u.settingsView, 760, 760, opts)
+		tt.Advance(time.Second)
+		r, ok := tt.Find("Developer networks")
+		if !ok {
+			t.Fatalf("%s: no Developer networks among %q", id, tt.Texts())
+		}
+		if need, _ := ui.ShapeText("Developer networks", ui.Font{Family: p.font, Size: 13, Weight: 400}, 0).Size(); need > r.W+1 {
+			t.Errorf("%s: Developer networks needs %.0f and the sidebar gives it %.0f", id, need, r.W)
+		}
+
+		u, _ = skinned(providersUIFixture(), id)
+		u.snap.Providers, u.snap.Nodes = nil, nil
+		tt = ui.NewTesterWith(u.view, 1060, 760, opts)
+		tt.Advance(time.Second)
+		if r, ok = tt.Find("Subscription"); !ok {
+			t.Fatalf("%s: no Subscription among %q", id, tt.Texts())
+		}
+		if r.H > 32 {
+			t.Errorf("%s: Subscription is %.0f high, broken over two lines", id, r.H)
+		}
+
+		u, _ = skinned(fixtureUI(), id)
+		tt = ui.NewTesterWith(u.view, 1060, 760, opts)
+		tt.Advance(time.Second)
+		// The last of the three buttons; the mode's word is drawn larger.
+		direct := ui.Rect{}
+		for _, at := range []string{p.cap("Direct")} {
+			if r, ok = tt.Find(at); ok && r.H < 24 {
+				direct = r
+			}
+		}
+		// The cell is 400 wide and padded by 26; the button by 10 or more.
+		if direct.W == 0 || direct.X+direct.W+10 > 374+1 {
+			t.Errorf("%s: the Direct button's word ends at %.0f, past its cell's padding", id, direct.X+direct.W)
+		}
+
+		// English has the longer words before the filters; the routes'
+		// names are the fixture's in either.
+		for _, lang := range []string{"en", "zh"} {
+			i18n.Set(lang)
+			u, _ = skinned(actUI(), id)
+			tt = ui.NewTesterWith(u.view, 1060, 760, opts)
+			tt.Advance(time.Second)
+			// Find gives what shows of a text: two characters at 12 are
+			// 24 wide, and less is a filter cut off.
+			for _, name := range []string{"直连", "拦截"} {
+				if chip, ok := tt.Find(name); !ok || chip.W < 23 {
+					t.Errorf("%s, %s: the route filter %s shows %.0f wide", id, lang, name, chip.W)
+				}
+			}
+		}
+	}
+}
+
 func TestSkinShots(t *testing.T) {
 	if testing.Short() {
 		t.Skip()
