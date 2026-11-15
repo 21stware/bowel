@@ -13,6 +13,21 @@ import 'sheet.dart';
 
 List<Map> _groups(AppState app) => ((app.routing?['groups'] as List?) ?? const []).cast<Map>();
 List<Map> _list(Map? m, String key) => ((m?[key] as List?) ?? const []).cast<Map>();
+
+/// Whether a rule of the user's can be edited here: one of the kinds the
+/// phone offers. An application's, brought over from a desktop, only goes.
+bool _editable(AppState app, Map r) => _list(app.routing, 'kinds').any((k) => k['id'] == r['kind']);
+
+/// Opens the rule sheet on rule `r` of service `s` in group `route`.
+void _editRule(AppState app, String route, Map s, Map r) {
+  app.showSheet((_) => _RuleSheet(
+        app: app,
+        route: route,
+        service: s['id'] as String,
+        serviceName: s['name'] as String? ?? '',
+        old: {'kind': r['kind'], 'value': r['value'], 'route': route, 'service': s['mine'] == true ? '' : s['id']},
+      ));
+}
 List<String> _strs(Map m, String key) => ((m[key] as List?) ?? const []).cast<String>();
 
 RouteCfg? _cfgOf(AppState app, String id) => app.ruleTargets.where((r) => r.id == id).firstOrNull;
@@ -644,15 +659,18 @@ class _GroupPageState extends State<GroupPage> {
   /// `fixed` is a rule of a rule set: its source keeps it, so it only shows.
   Widget _ruleRow(Look l, Map s, Map r, {bool fixed = false}) {
     final builtin = r['builtin'] == true, off = r['off'] == true || s['off'] == true;
+    final label = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Line1(r['shown'] as String? ?? '', l.text(14, color: off ? l.mute : l.ink, lh: 20)),
+      Text(r['kindName'] as String? ?? '', style: l.text(12, color: l.mute, lh: 16)),
+    ]);
     return Container(
       constraints: const BoxConstraints(minHeight: 44),
       padding: const EdgeInsets.only(left: 2),
       child: Row(children: [
         Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Line1(r['shown'] as String? ?? '', l.text(14, color: off ? l.mute : l.ink, lh: 20)),
-            Text(r['kindName'] as String? ?? '', style: l.text(12, color: l.mute, lh: 16)),
-          ]),
+          child: fixed || builtin || !_editable(app, r)
+              ? label
+              : Tap(label: tr('编辑规则', 'Edit rule'), onTap: () => _editRule(app, id, s, r), child: SizedBox(width: double.infinity, child: label)),
         ),
         if (fixed)
           const SizedBox.shrink()
@@ -870,15 +888,19 @@ class _GroupPageState extends State<GroupPage> {
   }
 }
 
-/// Adds a rule to a service: the kind can be left to be worked out, and what
-/// will be added shows as it's typed. It stays up when the rule is refused.
+/// Adds a rule to a service, or edits one of the user's: the kind can be left
+/// to be worked out, and what will be added shows as it's typed. Editing, it
+/// also picks the group the rule goes by. It stays up when the rule is refused.
 class _RuleSheet extends StatefulWidget {
-  const _RuleSheet({required this.app, required this.route, required this.service, required this.serviceName, required this.onImportSet});
+  const _RuleSheet({required this.app, required this.route, required this.service, required this.serviceName, this.onImportSet, this.old});
   final AppState app;
   final String route, service, serviceName;
 
   /// Opens 导入规则集 with the link that was typed here.
-  final void Function(String link) onImportSet;
+  final void Function(String link)? onImportSet;
+
+  /// The rule being edited, as the bridge stores it; null to add one.
+  final Map<String, Object?>? old;
 
   @override
   State<_RuleSheet> createState() => _RuleSheetState();
@@ -887,15 +909,30 @@ class _RuleSheet extends StatefulWidget {
 class _RuleSheetState extends State<_RuleSheet> {
   final _c = TextEditingController();
   String _kind = ''; // worked out from what's typed
+  late String _route = widget.route; // where an edited rule goes
+  bool _picking = false; // the groups show in place of the field
   Map? _preview;
   String? _error, _conflict;
   bool _busy = false;
   int _asked = 0;
 
+  bool get _editing => widget.old != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final old = widget.old;
+    if (old != null) {
+      _kind = old['kind'] as String? ?? '';
+      _c.text = old['value'] as String? ?? '';
+      _changed();
+    }
+  }
+
   /// A link to a rule file. As a rule it would only give its domain.
   static final _setLink = RegExp(r'^https?://[^/\s]+/\S*\.(ya?ml|list|txt|mrs|conf)(\?\S*)?$', caseSensitive: false);
 
-  Map<String, Object?> get _args => {'kind': _kind, 'text': _c.text.trim(), 'route': widget.route, 'service': widget.service};
+  Map<String, Object?> get _args => _editing ? {'old': widget.old, 'kind': _kind, 'text': _c.text.trim(), 'route': _route} : {'kind': _kind, 'text': _c.text.trim(), 'route': widget.route, 'service': widget.service};
 
   @override
   void dispose() {
@@ -924,7 +961,7 @@ class _RuleSheetState extends State<_RuleSheet> {
   Future<void> _save() async {
     if (_busy || _c.text.trim().isEmpty) return;
     setState(() => _busy = true);
-    final out = await widget.app.addServiceRule(_args);
+    final out = await (_editing ? widget.app.editServiceRule(_args) : widget.app.addServiceRule(_args));
     if (!mounted) return;
     if (out.conflict == null && out.error == null) {
       widget.app.closeSheet();
@@ -935,6 +972,63 @@ class _RuleSheetState extends State<_RuleSheet> {
       _conflict = out.conflict;
       _error = out.error;
     });
+  }
+
+  /// 走: the group an edited rule goes by, picked in the sheet so that what
+  /// was typed stays.
+  List<Widget> _via(Look l) {
+    final groups = _groups(widget.app);
+    final at = groups.where((g) => g['id'] == _route).firstOrNull;
+    Widget row(String id, String name, {Widget? trailing, required VoidCallback onTap}) => Tap(
+          label: name,
+          onTap: onTap,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 44),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(children: [
+              Square(l.route(id)),
+              const SizedBox(width: 10),
+              Expanded(child: Line1(name, l.text(14, color: l.ink, lh: 20))),
+              ?trailing,
+            ]),
+          ),
+        );
+    return [
+      const SizedBox(height: 8),
+      Tap(
+        label: tr('走', 'Via'),
+        onTap: () => setState(() => _picking = !_picking),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(color: l.paper2, borderRadius: l.br(11)),
+          child: Row(children: [
+            Text(tr('走', 'Via'), style: l.text(14, color: l.mute, lh: 20)),
+            const SizedBox(width: 12),
+            const Spacer(),
+            Square(l.route(_route)),
+            const SizedBox(width: 8),
+            Flexible(child: Line1(at?['name'] as String? ?? _route, l.text(14, color: l.ink, lh: 20))),
+            const SizedBox(width: 4),
+            AnimatedRotation(turns: _picking ? .25 : 0, duration: const Duration(milliseconds: 200), curve: easeCard, child: Ic('chev', size: 15, color: l.mute)),
+          ]),
+        ),
+      ),
+      if (_picking)
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 220),
+          child: ListView(shrinkWrap: true, padding: const EdgeInsets.only(top: 4), children: [
+            for (final g in groups)
+              row(g['id'] as String, g['name'] as String? ?? '',
+                  trailing: g['id'] == _route ? Ic('check', size: 16, color: l.ink2) : null,
+                  onTap: () => setState(() {
+                        _route = g['id'] as String;
+                        _picking = false;
+                        _conflict = _error = null;
+                      })),
+          ]),
+        ),
+    ];
   }
 
   Future<void> _move() async {
@@ -963,16 +1057,16 @@ class _RuleSheetState extends State<_RuleSheet> {
     final link = _c.text.trim();
     final uri = Uri.tryParse(link);
     return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text(tr('添加规则', 'Add rule'), style: l.text(15, weight: 700, lh: 21)),
+      Text(_editing ? tr('编辑规则', 'Edit rule') : tr('添加规则', 'Add rule'), style: l.text(15, weight: 700, lh: 21)),
       Text(widget.serviceName, maxLines: 1, overflow: TextOverflow.ellipsis, style: l.text(12.5, color: l.mute, lh: 17)),
       const SizedBox(height: 8),
-      if (conflict == null && uri != null && _setLink.hasMatch(link))
+      if (conflict == null && !_editing && uri != null && _setLink.hasMatch(link))
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(tr('这像是规则集的链接。添加规则只会加上域名 {0}，不会用里面的规则。', "This looks like a rule set's link. Add rule only adds the domain {0}, not the rules inside.", [_preview?['value'] ?? uri.host]), style: l.text(13, color: l.warnT, lh: 18)),
             const SizedBox(height: 6),
-            Btn(tr('导入规则集', 'Import rule set'), minH: 36, padH: 10, fontSize: 13, onTap: _busy ? null : () => widget.onImportSet(link)),
+            Btn(tr('导入规则集', 'Import rule set'), minH: 36, padH: 10, fontSize: 13, onTap: _busy ? null : () => widget.onImportSet?.call(link)),
           ]),
         )
       else if (conflict != null)
@@ -980,15 +1074,22 @@ class _RuleSheetState extends State<_RuleSheet> {
           padding: const EdgeInsets.only(bottom: 8),
           child: Row(children: [
             Expanded(child: Text(tr('{0} 已经在 {1} 里，一条规则只能属于一个服务。', '{0} is already in {1}; a rule belongs to one service.', [_preview?['value'] ?? _c.text.trim(), conflict]), style: l.text(13, color: l.warnT, lh: 18))),
-            const SizedBox(width: 8),
-            Btn(tr('移过来', 'Move here'), minH: 36, padH: 10, fontSize: 13, onTap: _busy ? null : _move),
+            if (!_editing) ...[
+              const SizedBox(width: 8),
+              Btn(tr('移过来', 'Move here'), minH: 36, padH: 10, fontSize: 13, onTap: _busy ? null : _move),
+            ],
           ]),
         )
       else
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
-            _error ?? (_preview != null ? tr('添加后：{0} · {1}', 'Will add: {0} · {1}', [_preview!['value'], _preview!['kindName']]) : tr('粘贴链接也可以，会自动提取域名。', 'A pasted link works too: the domain is taken from it.')),
+            _error ??
+                (_preview == null
+                    ? tr('粘贴链接也可以，会自动提取域名。', 'A pasted link works too: the domain is taken from it.')
+                    : _editing
+                        ? tr('保存后：{0} · {1}', 'Will save: {0} · {1}', [_preview!['value'], _preview!['kindName']])
+                        : tr('添加后：{0} · {1}', 'Will add: {0} · {1}', [_preview!['value'], _preview!['kindName']])),
             style: l.text(13, color: _error != null ? l.signalT : (_preview != null ? l.ink2 : l.mute), lh: 18),
           ),
         ),
@@ -1004,10 +1105,11 @@ class _RuleSheetState extends State<_RuleSheet> {
         constraints: const BoxConstraints(minHeight: 44),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
         decoration: BoxDecoration(color: l.paper2, borderRadius: l.br(11)),
-        child: BareField(hint: tr('域名、IP 或链接', 'A domain, IP or link'), controller: _c, autofocus: true, keyboardType: TextInputType.url, onChanged: (_) => _changed(), onSubmitted: (_) => _save()),
+        child: BareField(hint: tr('域名、IP 或链接', 'A domain, IP or link'), controller: _c, autofocus: !_editing, keyboardType: TextInputType.url, onChanged: (_) => _changed(), onSubmitted: (_) => _save()),
       ),
+      if (_editing) ..._via(l),
       const SizedBox(height: 10),
-      Btn(tr('添加', 'Add'), kind: BtnKind.accent, expand: true, minH: 44, onTap: _busy ? null : _save),
+      Btn(_editing ? tr('保存', 'Save') : tr('添加', 'Add'), kind: BtnKind.accent, expand: true, minH: 44, onTap: _busy ? null : _save),
     ]);
   }
 }
@@ -1292,7 +1394,13 @@ class _MyRulesPageState extends State<MyRulesPage> {
                   child: Row(children: [
                     Square(l.route(g['id'] as String)),
                     const SizedBox(width: 10),
-                    Expanded(child: rowLabel(l, r['shown'] as String? ?? '', '${r['kindName']} · ${g['name']}${s['mine'] == true ? '' : ' · ${s['name']}'}')),
+                    Expanded(
+                      child: Builder(builder: (_) {
+                        final label = rowLabel(l, r['shown'] as String? ?? '', '${r['kindName']} · ${g['name']}${s['mine'] == true ? '' : ' · ${s['name']}'}');
+                        if (!_editable(app, r)) return label;
+                        return Tap(label: tr('编辑规则', 'Edit rule'), onTap: () => _editRule(app, g['id'] as String, s, r), child: SizedBox(width: double.infinity, child: label));
+                      }),
+                    ),
                     Tap(
                       label: tr('删除规则', 'Delete rule'),
                       onTap: () => confirmSheet(app, tr('删除这条规则', 'Delete this rule'), tr('删除', 'Delete'), () => app.routeOp('removeRule', {'kind': r['kind'], 'text': r['value'], 'route': g['id']}), body: r['shown'] as String?),

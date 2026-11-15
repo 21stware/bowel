@@ -165,7 +165,7 @@ void _fakeCore() {
         if (_updateFails != null) throw PlatformException(code: 'x', message: _updateFails);
         return 'null';
       case 'routeOp':
-        if (args['op'] == 'addRule' && _refuseWith != null) throw PlatformException(code: 'x', message: _refuseWith);
+        if ((args['op'] == 'addRule' || args['op'] == 'editRule') && _refuseWith != null) throw PlatformException(code: 'x', message: _refuseWith);
         _ops.add(args);
         return 'null';
     }
@@ -318,6 +318,90 @@ void main() {
     expect(_ops.single['op'], 'moveRule');
     expect(app.sheet, isNull);
   });
+
+  testWidgets('a rule of the user\'s opens in the sheet to be edited, and keeps its group', (tester) async {
+    final app = _app();
+    await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai', service: 'work')));
+    await _settle(tester);
+    await tester.tap(find.text('work.example.com'));
+    await _settle(tester);
+    expect(find.text('编辑规则'), findsOneWidget);
+    expect(tester.widget<EditableText>(find.byType(EditableText)).controller.text, 'work.example.com');
+    await tester.enterText(find.byType(EditableText), 'chat.example.com');
+    await _settle(tester);
+    expect(find.text('保存后：chat.example.com · 域名后缀'), findsOneWidget);
+    await tester.tap(find.text('保存'));
+    await _settle(tester);
+    final op = _ops.single;
+    expect(op['op'], 'editRule');
+    expect(op['old'], {'kind': 'suffix', 'value': 'work.example.com', 'route': 'ai', 'service': 'work'});
+    expect([op['kind'], op['text'], op['route']], ['suffix', 'chat.example.com', 'ai']);
+    expect(app.sheet, isNull);
+  });
+
+  testWidgets('a built-in rule does not open to be edited', (tester) async {
+    final app = _app();
+    await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai', service: 'openai')));
+    await _settle(tester);
+    await tester.tap(find.text('openai.com'));
+    await _settle(tester);
+    expect(app.sheet, isNull);
+  });
+
+  testWidgets('the edit sheet picks another group in place, and a refusal offers no move', (tester) async {
+    _refuseWith = 'conflict:OpenAI';
+    final app = _app();
+    await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai', service: 'work')));
+    await _settle(tester);
+    await tester.tap(find.text('work.example.com'));
+    await _settle(tester);
+    await tester.tap(find.text('走'));
+    await _settle(tester);
+    await tester.tap(find.text('直连').last);
+    await _settle(tester);
+    expect(find.text('编辑规则'), findsOneWidget);
+    expect(tester.widget<EditableText>(find.byType(EditableText)).controller.text, 'work.example.com');
+    await tester.tap(find.text('保存'));
+    await _settle(tester);
+    expect(app.sheet, isNotNull);
+    expect(find.text('work.example.com 已经在 OpenAI 里，一条规则只能属于一个服务。'), findsOneWidget);
+    expect(find.text('移过来'), findsNothing);
+    expect(_ops, isEmpty);
+    _refuseWith = null;
+    await tester.tap(find.text('保存'));
+    await _settle(tester);
+    expect(_ops.single['route'], 'direct');
+    expect(app.sheet, isNull);
+  });
+
+  testWidgets('我的规则 opens a rule to be edited', (tester) async {
+    final app = _app();
+    await tester.pumpWidget(_host(app, MyRulesPage(app: app)));
+    await _settle(tester);
+    await tester.tap(find.text('only.example.com'));
+    await _settle(tester);
+    expect(find.text('编辑规则'), findsOneWidget);
+    await tester.tap(find.text('保存'));
+    await _settle(tester);
+    expect(_ops.single['old'], {'kind': 'suffix', 'value': 'only.example.com', 'route': 'solo', 'service': 'only'});
+    expect(_ops.single['route'], 'solo');
+  });
+
+  for (final lang in ['zh', 'en', 'ja', 'zh-Hant']) {
+    testWidgets('$lang: the edit sheet fits a narrow phone', (tester) async {
+      language = lang;
+      tester.view.physicalSize = const Size(360, 760);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final app = _app();
+      await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai', service: 'work')));
+      await _settle(tester);
+      await tester.tap(find.text('work.example.com'));
+      await _settle(tester);
+      expect(app.sheet, isNotNull);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('only the groups that can change have a rename and delete menu', (tester) async {
     final app = _app();
