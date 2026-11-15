@@ -282,7 +282,7 @@ func (u *UI) provAddBtn(c *ui.Context, p *pal, click func()) {
 		b.Opacity(.35)
 	}
 	b.OnClick(click).Children(func() {
-		shimmer(ui.Text(c, label).FontSize(12.5).FontWeight(600).TextColor(fg), adding, p).TextColor(fg)
+		shimmer(p.lab(ui.Text(c, p.cap(label))).FontSize(12.5).FontWeight(600).TextColor(fg), adding, p).TextColor(fg)
 	})
 }
 

@@ -448,7 +448,7 @@ func (u *UI) actHead(c *ui.Context, p *pal) {
 			}
 			for _, tab := range tabs {
 				on := a.logTab == tab.logs && a.devTab == tab.devs
-				b := ui.ButtonBase(c.Key(tab.key)).Padding(7, 0, 3, 0).Margin(-7, 0, 0, 0).BorderWidth(0, 0, 1.5, 0).BorderColor(ui.Color{}).OnClick(func() { a.logTab, a.devTab = tab.logs, tab.devs })
+				b := p.named(ui.ButtonBase(c.Key(tab.key)).Padding(7, 0, 3, 0).Margin(-7, 0, 0, 0).BorderWidth(0, 0, 1.5, 0).BorderColor(ui.Color{}), tab.label).OnClick(func() { a.logTab, a.devTab = tab.logs, tab.devs })
 				col, w := p.mute, 500
 				if on {
 					b.BorderColor(p.ink)
@@ -456,7 +456,7 @@ func (u *UI) actHead(c *ui.Context, p *pal) {
 				} else if b.Hovered() {
 					col = p.ink2
 				}
-				b.Children(func() { ui.Text(c, tab.label).FontSize(13).FontWeight(w).TextColor(col) })
+				b.Children(func() { p.lab(ui.Text(c, p.cap(tab.label))).FontSize(13).FontWeight(w).TextColor(col) })
 			}
 		})
 	})
@@ -485,13 +485,13 @@ func actSeg(c *ui.Context, p *pal, sel *int, labels []string) ui.Element {
 	seg := ui.SegmentedBase(c, sel, len(labels))
 	seg.Track.Padding(2).Radius(p.r(8)).Background(p.hair2).Gap(0).Children(func() {
 		for i, l := range labels {
-			s := seg.Segment(i).Padding(3, 11).Radius(p.r(6))
+			s := p.named(seg.Segment(i).Padding(3, 11).Radius(p.r(6)), l)
 			col, w := p.ink2, 500
 			if i == *sel {
 				s.Background(p.card).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, .12))
 				col, w = p.ink, 600
 			}
-			s.Children(func() { ui.Text(c, l).FontSize(12).FontWeight(w).TextColor(col).NoWrap() })
+			s.Children(func() { p.lab(ui.Text(c, p.cap(l))).FontSize(12).FontWeight(w).TextColor(col).NoWrap() })
 		}
 	})
 	return seg.Track
@@ -505,7 +505,7 @@ func actSelect(c *ui.Context, p *pal, sel *string, options []string, label strin
 		s.Trigger.BorderColor(p.ink)
 	}
 	s.Trigger.Children(func() {
-		ui.Text(c, *sel).FontSize(12).TextColor(p.ink).NoWrap()
+		p.lab(ui.Text(c, p.cap(*sel))).FontSize(12).TextColor(p.ink).NoWrap()
 		chevron(c, p.mute, false)
 	})
 	s.Popup(func(panel ui.Element) {
@@ -546,7 +546,7 @@ func (u *UI) actQueryBar(c *ui.Context, p *pal) {
 			if armed {
 				label = fmt.Sprintf(i18n.T("确认断开 %d 个？", "Close %d? Click again"), len(live))
 			}
-			b := ui.ButtonBase(c.Key("closeall")).Padding(5, 11).Radius(p.r(7)).Disabled(len(live) == 0 && !armed)
+			b := p.named(ui.ButtonBase(c.Key("closeall")).Padding(5, 11).Radius(p.r(7)).Disabled(len(live) == 0 && !armed), label)
 			col := p.signal
 			switch {
 			case armed:
@@ -567,7 +567,7 @@ func (u *UI) actQueryBar(c *ui.Context, p *pal) {
 					return
 				}
 				a.armedAt, a.armedSig = c.Now(), a.sig()
-			}).Children(func() { ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(col).NoWrap() })
+			}).Children(func() { p.lab(ui.Text(c, p.cap(label))).FontSize(12).FontWeight(500).TextColor(col).NoWrap() })
 		})
 		ui.Row(c).Gap(16).Padding(2, 0, 10, 0).AlignItems(ui.Center).Children(func() {
 			actSeg(c.Key("status"), p, &a.status, []string{
@@ -576,7 +576,7 @@ func (u *UI) actQueryBar(c *ui.Context, p *pal) {
 			ui.Row(c).Gap(14).AlignItems(ui.Center).Shrink(1).MinWidth(0).ClipX().Children(func() {
 				chip := func(id, label string, mark bool) {
 					on := a.route == id
-					b := ui.ButtonBase(c.Key("route:"+id)).Row().Gap(5).Padding(6, 0).Margin(-6, 0).AlignItems(ui.Center).OnClick(func() { a.route = id })
+					b := p.named(ui.ButtonBase(c.Key("route:"+id)).Row().Gap(5).Padding(6, 0).Margin(-6, 0).AlignItems(ui.Center).OnClick(func() { a.route = id }), label)
 					col, w := p.mute, 500
 					if on {
 						col, w = p.ink, 600
@@ -587,7 +587,7 @@ func (u *UI) actQueryBar(c *ui.Context, p *pal) {
 						if mark {
 							swatch(c, p.routeColor(id), 8)
 						}
-						ui.Text(c, label).FontSize(12).FontWeight(w).TextColor(col).NoWrap()
+						p.lab(ui.Text(c, p.cap(label))).FontSize(12).FontWeight(w).TextColor(col).NoWrap()
 					})
 				}
 				chip("", i18n.T("所有路由", "All routes"), false)
@@ -679,7 +679,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 	head.Children(func() {
 		for i, col := range actCols {
 			if col.sort == "" {
-				t := ui.Text(c, i18n.T(col.zh, col.en)).FontSize(10.5).FontWeight(600).LetterSpacing(.8).TextColor(p.mute).NoWrap().Ellipsis("…")
+				t := p.lab(ui.Text(c, p.cap(i18n.T(col.zh, col.en)))).FontSize(10.5).FontWeight(600).LetterSpacing(.8).TextColor(p.mute).NoWrap().Ellipsis("…")
 				actCell(t, i)
 				continue
 			}
@@ -689,7 +689,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 			if on {
 				label += map[bool]string{true: " ↑", false: " ↓"}[a.asc]
 			}
-			b := ui.ButtonBase(c.Key("sort:" + key)).Row().Justify(ui.End).OnClick(func() {
+			b := p.named(ui.ButtonBase(c.Key("sort:"+key)).Row().Justify(ui.End), label).OnClick(func() {
 				if on {
 					a.asc = !a.asc
 				} else {
@@ -701,7 +701,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 				if on {
 					colr = p.ink
 				}
-				ui.Text(c, label).FontSize(10.5).FontWeight(600).LetterSpacing(.8).TextColor(colr).NoWrap()
+				p.lab(ui.Text(c, p.cap(label))).FontSize(10.5).FontWeight(600).LetterSpacing(.8).TextColor(colr).NoWrap()
 			})
 		}
 	})
@@ -919,7 +919,9 @@ func (u *UI) actDetail(c *ui.Context, p *pal, cn Conn) {
 					if b.Hovered() {
 						b.BorderColor(p.signal)
 					}
-					b.Children(func() { ui.Text(c, i18n.T("断开", "Close")).FontSize(12).FontWeight(500).TextColor(p.signal) })
+					b.Children(func() {
+						p.lab(ui.Text(c, p.cap(i18n.T("断开", "Close")))).FontSize(12).FontWeight(500).TextColor(p.signal)
+					})
 				}
 				host := cn.Host
 				if host == "" {

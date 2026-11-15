@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -388,7 +389,7 @@ func (u *UI) titleBar(c *ui.Context, p *pal) {
 			for _, pg := range pages {
 				id := pg.id
 				on := u.page == id
-				b := ui.ButtonBase(c.Key(id)).Padding(4, 16).Radius(p.r(7))
+				b := p.named(ui.ButtonBase(c.Key(id)).Padding(4, 16).Radius(p.r(7)), i18n.T(pg.zh, pg.en))
 				if on {
 					lit(b.Background(p.accent), p)
 				}
@@ -398,7 +399,7 @@ func (u *UI) titleBar(c *ui.Context, p *pal) {
 						if on {
 							col = p.onAccent
 						}
-						ui.Text(c, i18n.T(pg.zh, pg.en)).FontSize(13).FontWeight(600).TextColor(col)
+						p.lab(ui.Text(c, p.cap(i18n.T(pg.zh, pg.en)))).FontSize(13).FontWeight(600).TextColor(col)
 						if id == "providers" && u.providerWarn() {
 							ui.Box(c).Size(5, 5).Radius(p.r(3)).Background(p.warn)
 						}
@@ -441,7 +442,7 @@ func (u *UI) stateColor(p *pal) ui.Color {
 func (u *UI) statePill(c *ui.Context, p *pal) {
 	ui.Row(c).Gap(6).Padding(4, 11).Radius(p.r(999)).Background(p.hair2).Children(func() {
 		ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(u.stateColor(p)).Transition(ui.ElementTransition{Colors: true})
-		ui.Text(c, stateName(u.snap.State)).FontSize(12).FontWeight(600).TextColor(p.ink2)
+		p.lab(ui.Text(c, p.cap(stateName(u.snap.State)))).FontSize(12).FontWeight(600).TextColor(p.ink2)
 	})
 }
 
@@ -542,7 +543,7 @@ func (u *UI) fixRoute(id string) {
 
 // kicker is the small spaced label above a section.
 func kicker(c *ui.Context, p *pal, s string) ui.Element {
-	return ui.Text(c, s).FontSize(10.5).FontWeight(600).LetterSpacing(1.5).TextColor(p.mute)
+	return p.lab(ui.Text(c, p.cap(s))).FontSize(10.5).FontWeight(600).LetterSpacing(1.5).TextColor(p.mute)
 }
 
 // pageHead is the head of a list page (日志, 提供商): kicker, big count
@@ -586,7 +587,7 @@ func shimmer(e ui.Element, on bool, p *pal) ui.Element {
 
 // pill is the prototype's round button: the accent, or a hairline ghost.
 func pill(c *ui.Context, p *pal, label string, primary bool) ui.Element {
-	b := ui.ButtonBase(c).Padding(7, 14).Radius(p.r(999))
+	b := p.named(ui.ButtonBase(c).Padding(7, 14).Radius(p.r(999)), label)
 	if primary {
 		lit(b.Background(p.accent), p)
 	} else {
@@ -597,18 +598,18 @@ func pill(c *ui.Context, p *pal, label string, primary bool) ui.Element {
 		if primary {
 			col = p.onAccent
 		}
-		ui.Text(c, label).FontSize(12.5).FontWeight(600).TextColor(col)
+		p.lab(ui.Text(c, p.cap(label))).FontSize(12.5).FontWeight(600).TextColor(col)
 	})
 }
 
 // btn is a small outlined button.
 func btn(c *ui.Context, p *pal, label string) ui.Element {
-	b := ui.ButtonBase(c).Padding(5, 11).Radius(p.r(7)).Border(1, p.hair)
+	b := p.named(ui.ButtonBase(c).Padding(5, 11).Radius(p.r(7)).Border(1, p.hair), label)
 	if b.Hovered() {
 		b.BorderColor(p.ink)
 	}
 	// A label never breaks: "ドメインをコピー" on two lines reads as two buttons.
-	return b.Children(func() { ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(p.ink).NoWrap() })
+	return b.Children(func() { p.lab(ui.Text(c, p.cap(label))).FontSize(12).FontWeight(500).TextColor(p.ink).NoWrap() })
 }
 
 // chevron is the mark of something that opens: a small drawn V, pointing
@@ -638,12 +639,12 @@ const (
 // btnChevron is btn with a chevron after its label: a button that opens
 // (down) or closes (up) what is under it.
 func btnChevron(c *ui.Context, p *pal, label string, up bool) ui.Element {
-	b := ui.ButtonBase(c).Row().Gap(5).AlignItems(ui.Center).Padding(5, 11).Radius(p.r(7)).Border(1, p.hair)
+	b := p.named(ui.ButtonBase(c).Row().Gap(5).AlignItems(ui.Center).Padding(5, 11).Radius(p.r(7)).Border(1, p.hair), label)
 	if b.Hovered() {
 		b.BorderColor(p.ink)
 	}
 	return b.Children(func() {
-		ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(p.ink).NoWrap()
+		p.lab(ui.Text(c, p.cap(label))).FontSize(12).FontWeight(500).TextColor(p.ink).NoWrap()
 		chevron(c, p.ink, up)
 	})
 }
@@ -946,10 +947,67 @@ func locTag(c *ui.Context, p *pal, src string) {
 	case "locating":
 		text, col = i18n.T("定位中", "Locating"), p.warn
 	}
+	tag(c, p, text, col)
+}
+
+// tag is a small label in col: tinted with it, or as the skin's tags
+// are, a solid block of it or a hairline box.
+func tag(c *ui.Context, p *pal, text string, col ui.Color) ui.Element {
 	// A tag never breaks: squeezed, its letters would stack one a line.
-	ui.Box(c).Padding(1, 6).Radius(p.r(4)).Background(col.Alpha(.12)).Shrink(0).Children(func() {
-		ui.Text(c, text).FontSize(10.5).FontWeight(600).TextColor(col).NoWrap()
+	b := ui.Box(c).Padding(1, 6).Radius(p.r(4)).Shrink(0)
+	fg := col
+	switch p.tags {
+	case "solid":
+		b.Background(col)
+		if fg = p.paper; contrast(p.ink, col) > contrast(fg, col) {
+			fg = p.ink
+		}
+	case "outline":
+		b.Border(1, col.Alpha(.6))
+	default:
+		b.Background(col.Alpha(.12))
+	}
+	b.Children(func() {
+		p.lab(ui.Text(c, p.cap(text))).FontSize(10.5).FontWeight(600).TextColor(fg).NoWrap()
 	})
+	return b
+}
+
+// cap is s as p's short labels say it: in capitals, where the skin sets
+// them and every letter of s is Latin. 代理, ログ and 香港 03 have no
+// capitals, and a label half in them reads worse than one left alone.
+// It is for labels only: a name or a sentence is not passed through it.
+func (p *pal) cap(s string) string {
+	if !p.caps {
+		return s
+	}
+	for _, r := range s {
+		if unicode.IsLetter(r) && !unicode.Is(unicode.Latin, r) {
+			return s
+		}
+	}
+	return strings.ToUpper(s)
+}
+
+// lab sets e, a short label, in p's label face, spaced a little where it
+// is in capitals. Set a letter spacing of the label's own after it.
+func (p *pal) lab(e ui.Element) ui.Element {
+	if p.label != "" {
+		e.Font(p.label)
+	}
+	if p.caps {
+		e.LetterSpacing(.6)
+	}
+	return e
+}
+
+// named gives b, a button whose label is drawn in capitals, the label as
+// written for assistive technology.
+func (p *pal) named(b ui.Element, label string) ui.Element {
+	if p.caps {
+		b.Label(label)
+	}
+	return b
 }
 
 var _ = math.Pi

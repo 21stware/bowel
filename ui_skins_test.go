@@ -8,6 +8,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/settings"
 )
 
@@ -468,6 +469,104 @@ func TestConsoleQuiet(t *testing.T) {
 	}
 	if skinByID("mrrobot").dark.console != true || skinByID("phosphor").dark.console {
 		t.Error("黑客军团 has a terminal's manners, 荧光屏 keeps its glow")
+	}
+}
+
+// TestCap: a skin that sets capitals says a short label in them when all
+// its letters are Latin, whatever digits and marks it has; Chinese and
+// Japanese, alone or mixed with Latin, stay as written, and so does
+// everything in a skin that does not set them.
+func TestCap(t *testing.T) {
+	p := &pal{caps: true}
+	for in, want := range map[string]string{
+		"Proxy": "PROXY", "Route · Exit": "ROUTE · EXIT", "Active 13": "ACTIVE 13", "▶ Resume": "▶ RESUME", "Adding…": "ADDING…",
+		"代理": "代理", "香港 03": "香港 03", "ログ": "ログ", "HK 香港": "HK 香港", "12 ms": "12 MS", "": "",
+	} {
+		if got := p.cap(in); got != want {
+			t.Errorf("cap(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := (&pal{}).cap("Proxy"); got != "Proxy" {
+		t.Errorf("without capitals, cap(Proxy) = %q", got)
+	}
+}
+
+// TestMachineCaps: The Machine says its tabs, buttons, kickers and state
+// in capitals in English and leaves Chinese alone; what a tab is called
+// to assistive technology keeps its case, and sentences and names are not
+// labels. A skin without capitals keeps "Proxy".
+func TestMachineCaps(t *testing.T) {
+	defer i18n.Set("zh")
+	u, dark := skinned(fixtureUI(), "machine")
+	tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: dark})
+	tt.Advance(time.Second)
+	for _, s := range []string{"代理", "日志", "提供商", "路由组"} {
+		if !tt.HasText(s) {
+			t.Errorf("no %s among %q", s, tt.Texts())
+		}
+	}
+	i18n.Set("en")
+	tt = ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: dark})
+	tt.Advance(time.Second)
+	// What is called Proxy for assistive technology is among the texts
+	// too, so look for the capitals whole.
+	for _, s := range []string{"PROXY", "LOG", "PROVIDER", "ROUTES", "SETTINGS"} {
+		if !slices.Contains(tt.Texts(), s) {
+			t.Errorf("no %s among %q", s, tt.Texts())
+		}
+	}
+	if _, ok := tt.AccessByRole(ui.RoleButton, "Proxy"); !ok {
+		t.Error("no button called Proxy for assistive technology")
+	}
+	if !hasTextPart(tt, "Shadowsocks") || hasTextPart(tt, "SHADOWSOCKS") {
+		t.Errorf("a sentence was put in capitals: %q", tt.Texts())
+	}
+	u, dark = skinned(fixtureUI(), "paper")
+	tt = ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: dark})
+	tt.Advance(time.Second)
+	if !slices.Contains(tt.Texts(), "Proxy") || slices.Contains(tt.Texts(), "PROXY") {
+		t.Errorf("纸墨 has no capitals: %q", tt.Texts())
+	}
+}
+
+// TestTagStyles: a small tag is tinted with its color, or as the skin
+// says a solid block of it with text that reads on it, or a hairline box
+// around nothing.
+func TestTagStyles(t *testing.T) {
+	for _, style := range []string{"", "solid", "outline"} {
+		p := *palOf("paper", false)
+		p.tags = style
+		col := p.signal
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			ui.Row(c).Padding(40).AlignItems(ui.Start).Background(p.paper).Children(func() { tag(c, &p, "实测", col) })
+		}, 200, 120, ui.TesterOptions{})
+		tt.Frame()
+		r, ok := tt.Find("实测")
+		if !ok {
+			t.Fatalf("%q: no tag among %q", style, tt.Texts())
+		}
+		y := int(r.Y + r.H/2)
+		in := int(r.X) - 2 // inside the tag's padding
+		edged := false     // a line of the color somewhere before the text
+		for x := int(r.X) - 9; x < int(r.X); x++ {
+			if !near(tt, x, y, p.paper, 60) && !near(tt, x, y, col, 12) {
+				edged = true
+			}
+		}
+		switch style {
+		case "":
+			if near(tt, in, y, p.paper, 3) || near(tt, in, y, col, 60) {
+				t.Errorf("tinted: inside is %v", tt.Image().At(in, y))
+			}
+		case "solid":
+			if !near(tt, in, y, col, 12) {
+				t.Errorf("solid: inside is %v, not %v", tt.Image().At(in, y), col)
+			}
+		case "outline":
+			if !near(tt, in, y, p.paper, 3) || !edged {
+				t.Errorf("outline: inside is %v, a line %v", tt.Image().At(in, y), edged)
+			}
+		}
 	}
 }
 
