@@ -4,7 +4,15 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
 	"testing"
+
+	"github.com/oboo/moho/internal/mihomo"
+	"gopkg.in/yaml.v3"
 )
 
 // releases stands in for the project's releases on GitHub: /latest redirects
@@ -111,5 +119,93 @@ func TestNewerVersion(t *testing.T) {
 		if got := newerVersion(c.latest, c.current); got != c.want {
 			t.Errorf("newerVersion(%q, %q) = %v, want %v", c.latest, c.current, got, c.want)
 		}
+	}
+}
+
+// The app is outside its own VPN: with the core up the check goes out through
+// the core's rules, as GitHub is often out of reach without a node, and
+// straight out when that way gives no answer.
+func TestUpdateThroughCore(t *testing.T) {
+	was := canSelfProxy
+	defer func() { canSelfProxy = was }()
+	x := testBridge(t)
+	type listener struct {
+		Name   string `yaml:"name"`
+		Listen string `yaml:"listen"`
+		Port   int    `yaml:"port"`
+		Proxy  string `yaml:"proxy"`
+		Users  []any  `yaml:"users"`
+	}
+	find := func() (listener, bool) {
+		t.Helper()
+		if err := x.writeConfig(); err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := os.ReadFile(filepath.Join(x.dir, "config.yaml"))
+		var cfg struct {
+			Listeners []listener `yaml:"listeners"`
+		}
+		if err := yaml.Unmarshal(raw, &cfg); err != nil {
+			t.Fatal(err)
+		}
+		i := slices.IndexFunc(cfg.Listeners, func(l listener) bool { return l.Name == selfListener })
+		if i < 0 {
+			return listener{}, false
+		}
+		return cfg.Listeners[i], true
+	}
+	proxies := func() []*url.URL {
+		t.Helper()
+		r, _ := http.NewRequest(http.MethodGet, "https://github.com/21stware/bowel/releases/latest", nil)
+		out := []*url.URL{}
+		for _, c := range x.updateClients() {
+			u, err := c.Transport.(*http.Transport).Proxy(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, u)
+		}
+		return out
+	}
+
+	canSelfProxy = false // iOS: the app's requests are in the tunnel already
+	if l, ok := find(); ok {
+		t.Errorf("a listener where the app needs none: %+v", l)
+	}
+	x.client = mihomo.NewUnix(filepath.Join(x.dir, "none.sock"))
+	if got := proxies(); len(got) != 1 || got[0] != nil {
+		t.Errorf("without the listener: %v, want one direct client", got)
+	}
+	x.client = nil
+
+	canSelfProxy = true
+	l, ok := find()
+	if !ok {
+		t.Fatalf("no %s listener", selfListener)
+	}
+	// No proxy of its own: the rules decide, as for any app's request. Any
+	// app on the phone can reach it, so it takes the probe's password.
+	if l.Listen != "127.0.0.1" || l.Port != selfPort || l.Proxy != "" || len(l.Users) != 1 {
+		t.Errorf("listener = %+v", l)
+	}
+	if got := proxies(); len(got) != 1 || got[0] != nil {
+		t.Errorf("VPN off: %v, want one direct client", got)
+	}
+
+	x.client = mihomo.NewUnix(filepath.Join(x.dir, "none.sock")) // the core is up
+	got := proxies()
+	if len(got) != 2 || got[0] == nil || got[1] != nil {
+		t.Fatalf("VPN on: %v, want the core, then direct", got)
+	}
+	pass, _ := x.probeLogin().Password()
+	if p, _ := got[0].User.Password(); got[0].Host != "127.0.0.1:"+strconv.Itoa(selfPort) || p != pass || pass == "" {
+		t.Errorf("proxy = %v", got[0])
+	}
+
+	// No core is listening in this test: the answer still comes, directly.
+	releases(t, "v0.4.5", true)
+	up, err := x.checkUpdate(context.Background(), "0.4.4")
+	if err != nil || up == nil || up.Version != "0.4.5" {
+		t.Errorf("fallback: %+v %v, want 0.4.5", up, err)
 	}
 }

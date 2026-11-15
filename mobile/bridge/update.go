@@ -9,7 +9,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"path"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -31,9 +33,58 @@ type updateData struct {
 	URL     string `json:"url"`
 }
 
+// canSelfProxy: only Android leaves the app out of its own VPN, so only there
+// do the app's requests need a way into the core. On iOS they are in the
+// tunnel already, and the store updates the app.
+var canSelfProxy = runtime.GOOS == "android"
+
+// selfPort is the core's listener for the app's own requests, which the rules
+// send out like any app's: GitHub is often out of reach without a node. Like
+// the probe listener it takes the probe's password (lockProbe).
+const selfPort = tailnetPort + 1
+
+// selfListener is the name of the listener on selfPort.
+const selfListener = "bowel-self"
+
+// addSelfListener adds the listener on selfPort.
+func addSelfListener(cfg map[string]any) {
+	if !canSelfProxy {
+		return
+	}
+	ls, _ := cfg["listeners"].([]any)
+	cfg["listeners"] = append(ls, map[string]any{"name": selfListener, "type": "mixed", "listen": "127.0.0.1", "port": selfPort})
+}
+
+// updateClients are the ways out to try in turn: through the core while it
+// runs, then directly, which is all there is with the VPN off and what is
+// left when the core gives no answer.
+func (x *bridge) updateClients() []*http.Client {
+	direct := http.DefaultTransport.(*http.Transport).Clone()
+	direct.Proxy = func(*http.Request) (*url.URL, error) { return nil, nil }
+	out := []*http.Client{{Transport: direct}}
+	if !canSelfProxy {
+		return out
+	}
+	login := x.probeLogin()
+	if c, _ := x.core(); c == nil || login == nil {
+		return out
+	}
+	via := &url.URL{Scheme: "http", User: login, Host: "127.0.0.1:" + strconv.Itoa(selfPort)}
+	core := http.DefaultTransport.(*http.Transport).Clone()
+	core.Proxy = func(*http.Request) (*url.URL, error) { return via, nil }
+	return append([]*http.Client{{Transport: core}}, out...)
+}
+
 // checkUpdate asks for the latest release; nil when current is it, or newer.
-func (x *bridge) checkUpdate(ctx context.Context, current string) (*updateData, error) {
-	return latestRelease(ctx, &http.Client{}, current)
+func (x *bridge) checkUpdate(ctx context.Context, current string) (up *updateData, err error) {
+	for _, c := range x.updateClients() {
+		up, err = latestRelease(ctx, c, current)
+		c.CloseIdleConnections()
+		if err == nil {
+			break
+		}
+	}
+	return up, err
 }
 
 func latestRelease(ctx context.Context, c *http.Client, current string) (*updateData, error) {

@@ -720,6 +720,7 @@ func (x *bridge) writeConfig() error {
 	}
 	delete(cfg, "mixed-port")
 	addTailnetListener(cfg, s.Tailnet)
+	addSelfListener(cfg)
 	if err := x.lockProbe(cfg); err != nil {
 		return err
 	}
