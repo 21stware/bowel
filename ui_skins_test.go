@@ -4,6 +4,7 @@ import (
 	"image"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -402,7 +403,46 @@ func TestFailTag(t *testing.T) {
 			t.Errorf("%s: beside 失败 is %v, a block %v", id, tt.Image().At(x, y), block)
 		}
 	}
+	// A tag like the others: in capitals where the skin's tags are.
+	defer i18n.Set("zh")
+	i18n.Set("en")
+	failed := func() *UI {
+		u := actUI()
+		u.act.status = slices.Index(actStatuses, "failed")
+		return u
+	}
+	if with, without := capWidths(failed, "Failed"); without[0] == 0 || with[0]-without[0] < capsWiden("Failed") {
+		t.Errorf("The Machine: Failed is %.1f wide and %.1f without capitals, not in capitals", with[0], without[0])
+	}
 }
+
+// capWidths is how wide the elements called names are in a view of The
+// Machine, as it is and with its capitals taken away. A text drawn in
+// capitals is listed by what it is called, so its capitals show only in
+// how wide it is.
+func capWidths(mk func() *UI, names ...string) (with, without []float32) {
+	p := skinByID("machine").pal(true)
+	defer func(c bool) { p.caps = c }(p.caps)
+	for _, caps := range []bool{true, false} {
+		p.caps = caps
+		u, dark := skinned(mk(), "machine")
+		tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: dark})
+		tt.Advance(time.Second)
+		for _, n := range names {
+			r, _ := tt.Find(n)
+			if caps {
+				with = append(with, r.W)
+			} else {
+				without = append(without, r.W)
+			}
+		}
+	}
+	return with, without
+}
+
+// capsWiden is the least that capitals widen s by: more than the spacing
+// a skin with capitals sets its labels with, which a name gets too.
+func capsWiden(s string) float32 { return .6*float32(len(s)) + 2 }
 
 // TestConsoleSidebar: in a skin with a terminal's manners the settings'
 // sidebar keeps its icons gray, where the toolkit draws them in the theme
@@ -513,15 +553,24 @@ func TestMachineCaps(t *testing.T) {
 		}
 	}
 	i18n.Set("en")
-	tt = ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: dark})
-	tt.Advance(time.Second)
-	// What is called Proxy for assistive technology is among the texts
-	// too, so look for the capitals whole.
-	for _, s := range []string{"PROXY", "LOG", "PROVIDER", "ROUTES", "SETTINGS"} {
-		if !slices.Contains(tt.Texts(), s) {
-			t.Errorf("no %s among %q", s, tt.Texts())
+	// labels are drawn in capitals; names, which the user gave, are not.
+	caps := func(mk func() *UI, labels, names []string) {
+		t.Helper()
+		with, without := capWidths(mk, append(slices.Clone(labels), names...)...)
+		for i, s := range append(slices.Clone(labels), names...) {
+			switch d := with[i] - without[i]; {
+			case without[i] == 0:
+				t.Errorf("nothing called %s", s)
+			case i < len(labels) && d < capsWiden(s):
+				t.Errorf("%s is %.1f wide and %.1f without capitals: not in capitals", s, with[i], without[i])
+			case i >= len(labels) && d >= capsWiden(s):
+				t.Errorf("%s is %.1f wide and %.1f without capitals: a name was put in capitals", s, with[i], without[i])
+			}
 		}
 	}
+	caps(fixtureUI, []string{"Proxy", "Log", "Provider", "Routes", "Settings"}, nil)
+	tt = ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: dark})
+	tt.Advance(time.Second)
 	if _, ok := tt.AccessByRole(ui.RoleButton, "Proxy"); !ok {
 		t.Error("no button called Proxy for assistive technology")
 	}
@@ -529,17 +578,22 @@ func TestMachineCaps(t *testing.T) {
 		t.Errorf("a sentence was put in capitals: %q", tt.Texts())
 	}
 	// The Provider page's small buttons are buttons like the others.
+	// Add is as wide as it is made, whatever it says.
+	caps(providersUIFixture, []string{"Update all", "Scan QR", "Update"}, nil)
 	u, _ = skinned(providersUIFixture(), "machine")
 	tt = ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: dark})
 	tt.Advance(time.Second)
-	for _, s := range []string{"UPDATE ALL", "SCAN QR", "UPDATE", "ADD"} {
-		if !slices.Contains(tt.Texts(), s) {
-			t.Errorf("no %s among %q", s, tt.Texts())
-		}
-	}
 	if _, ok := tt.AccessByRole(ui.RoleButton, "Update all"); !ok {
 		t.Error("no button called Update all for assistive technology")
 	}
+	// A route and an app are named by the user, not by the skin.
+	caps(func() *UI {
+		u := actUI()
+		u.snap.Routes = slices.Clone(u.snap.Routes)
+		u.snap.Routes[1].Name = "Netflix"
+		u.act.app = "curl"
+		return u
+	}, []string{"All routes"}, []string{"Netflix", "curl"})
 	u, dark = skinned(fixtureUI(), "paper")
 	tt = ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: dark})
 	tt.Advance(time.Second)
@@ -834,6 +888,54 @@ func TestSkinShots(t *testing.T) {
 			st := ui.NewTesterWith(u.settingsView, 760, 760, ui.TesterOptions{Dark: dark})
 			st.Advance(time.Second)
 			shot(t, st, "skin-"+k.id+"-settings"+suffix)
+		}
+	}
+}
+
+// TestCapsKeepNames: capitals are how a skin draws its labels, not what
+// they are called. On every page, in the settings and in the panel,
+// assistive technology gets each name as 纸墨 has it.
+func TestCapsKeepNames(t *testing.T) {
+	defer i18n.Set("zh")
+	i18n.Set("en")
+	main := func(u *UI) func(*ui.Context) { return u.view }
+	views := []struct {
+		name string
+		ui   func() *UI
+		view func(*UI) func(*ui.Context)
+		w, h int
+	}{
+		{"home", fixtureUI, main, 1060, 760},
+		{"log", actUI, main, 1060, 760},
+		{"log, failed", func() *UI { u := actUI(); u.act.status = slices.Index(actStatuses, "failed"); return u }, main, 1060, 760},
+		{"provider", providersUIFixture, main, 1060, 760},
+		{"routes", func() *UI { u := fixtureUI(); u.page = "routes"; return u }, main, 1060, 760},
+		{"settings", fixtureUI, func(u *UI) func(*ui.Context) { return u.settingsView }, 760, 1500},
+		{"panel", fixtureUI, func(u *UI) func(*ui.Context) { return u.panelView }, 320, 640},
+	}
+	for _, v := range views {
+		names := func(id string) map[string]bool {
+			u, dark := skinned(v.ui(), id)
+			tt := ui.NewTesterWith(v.view(u), v.w, v.h, ui.TesterOptions{Dark: dark, Preferences: ui.Preferences{ReduceMotion: true}})
+			tt.Advance(time.Second)
+			got := map[string]bool{}
+			for _, a := range tt.AccessAll() {
+				got[a.Name] = true
+			}
+			return got
+		}
+		plain, fold := names("paper"), map[string]bool{}
+		for n := range plain {
+			fold[strings.ToLower(n)] = true
+		}
+		for _, id := range []string{"machine", "samaritan"} {
+			for n := range names(id) {
+				// A name of the skin's own, as that it is dark only, is
+				// not one in capitals.
+				if !plain[n] && fold[strings.ToLower(n)] {
+					t.Errorf("%s, %s: called %q for assistive technology, which 纸墨 calls nothing", id, v.name, n)
+				}
+			}
 		}
 	}
 }

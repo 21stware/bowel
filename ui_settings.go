@@ -172,7 +172,7 @@ var gear = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewB
 // settingsButton is the title bar's last control: a gear and its name. It
 // opens the settings window.
 func (u *UI) settingsButton(c *ui.Context, p *pal) {
-	b := p.named(ui.ButtonBase(c.Key("settings")).Padding(4, 11).Radius(p.r(7)).Shrink(0).Tooltip(i18n.T("设置", "Settings")+" ⌘,"), i18n.T("设置", "Settings"))
+	b := ui.ButtonBase(c.Key("settings")).Padding(4, 11).Radius(p.r(7)).Shrink(0).Tooltip(i18n.T("设置", "Settings") + " ⌘,")
 	col := p.ink2
 	if b.Hovered() {
 		b.Background(p.hair2)
@@ -180,7 +180,7 @@ func (u *UI) settingsButton(c *ui.Context, p *pal) {
 	b.OnClick(u.openSettings).Children(func() {
 		ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, gear).Size(14, 14).TextColor(col)
-			p.lab(ui.Text(c, p.cap(i18n.T("设置", "Settings")))).FontSize(13).FontWeight(600).TextColor(col)
+			p.word(c, i18n.T("设置", "Settings")).FontSize(13).FontWeight(600).TextColor(col)
 		})
 	})
 }
@@ -1154,7 +1154,7 @@ func optHeading(c *ui.Context, p *pal, s string) {
 	if searching() {
 		return
 	}
-	p.lab(ui.Text(c, p.cap(s))).FontSize(11.5).FontWeight(700).TextColor(p.faint).Padding(20, 0, 2, 0)
+	p.word(c, s).FontSize(11.5).FontWeight(700).TextColor(p.faint).Padding(20, 0, 2, 0)
 }
 
 // optLabel is an option's name and what it does.

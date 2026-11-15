@@ -199,7 +199,7 @@ func (u *UI) provHead(c *ui.Context, p *pal) {
 					u.do(func() error { return u.app.updateAll(bg()) })
 				}
 			}).Children(func() {
-				shimmer(p.lab(ui.Text(c, p.cap(label))).FontSize(12).FontWeight(500).TextColor(p.ink), busy, p)
+				shimmer(p.word(c, label).FontSize(12).FontWeight(500).TextColor(p.ink), busy, p)
 			})
 		}
 	})
@@ -282,7 +282,7 @@ func (u *UI) provAddBtn(c *ui.Context, p *pal, click func()) {
 		b.Opacity(.35)
 	}
 	b.OnClick(click).Children(func() {
-		shimmer(p.lab(ui.Text(c, p.cap(label))).FontSize(12.5).FontWeight(600).TextColor(fg), adding, p).TextColor(fg)
+		shimmer(p.word(c, label).FontSize(12.5).FontWeight(600).TextColor(fg), adding, p).TextColor(fg)
 	})
 }
 
@@ -702,7 +702,7 @@ func (u *UI) provBtn(c *ui.Context, p *pal, label string, danger bool) ui.Elemen
 	case b.Hovered():
 		b.BorderColor(p.ink)
 	}
-	return b.Children(func() { p.lab(ui.Text(c, p.cap(label))).FontSize(12).FontWeight(500).TextColor(col).NoWrap() })
+	return b.Children(func() { p.word(c, label).FontSize(12).FontWeight(500).TextColor(col).NoWrap() })
 }
 
 // ---- A provider's nodes ----

@@ -350,7 +350,7 @@ func (u *UI) panelMode(c *ui.Context, p *pal) {
 							col = p.mute
 						}
 					}
-					p.lab(ui.Text(c, p.cap(panelModeWord(m)))).FontSize(12.5).FontWeight(w).TextColor(col)
+					p.word(c, panelModeWord(m)).FontSize(12.5).FontWeight(w).TextColor(col)
 				})
 			}
 		})

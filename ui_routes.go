@@ -198,7 +198,7 @@ func (u *UI) stratSeg(c *ui.Context, p *pal, rid string) {
 	ui.Row(c).Padding(2).Radius(p.r(8)).Background(p.hair2).Children(func() {
 		for _, mode := range routes.Modes {
 			on := cur == mode
-			b := p.named(ui.ButtonBase(c.Key(mode)).Padding(3, 11).Radius(p.r(6)), modeName(mode))
+			b := ui.ButtonBase(c.Key(mode)).Padding(3, 11).Radius(p.r(6))
 			if on && !p.brackets() {
 				b.Background(p.card).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, .12))
 			}
@@ -207,7 +207,7 @@ func (u *UI) stratSeg(c *ui.Context, p *pal, rid string) {
 				if on {
 					w = 600
 				}
-				p.lab(ui.Text(c, p.cap(modeName(mode)))).FontSize(12).FontWeight(w).TextColor(p.ink).NoWrap()
+				p.word(c, modeName(mode)).FontSize(12).FontWeight(w).TextColor(p.ink).NoWrap()
 			})
 		}
 	})
@@ -1096,7 +1096,7 @@ func (u *UI) serviceEditor(c *ui.Context, p *pal, all []routes.Route, r routes.R
 }
 
 func dangerBtn(c *ui.Context, p *pal, label string, armed bool) ui.Element {
-	b := p.named(ui.ButtonBase(c).Padding(5, 11).Radius(p.r(7)).Border(1, p.hair), label)
+	b := ui.ButtonBase(c).Padding(5, 11).Radius(p.r(7)).Border(1, p.hair)
 	col := p.signal
 	if armed {
 		b.Background(p.signal).BorderColor(p.signal)
@@ -1104,7 +1104,7 @@ func dangerBtn(c *ui.Context, p *pal, label string, armed bool) ui.Element {
 	} else if b.Hovered() {
 		b.BorderColor(p.signal)
 	}
-	return b.Children(func() { p.lab(ui.Text(c, p.cap(label))).FontSize(12).FontWeight(500).TextColor(col).NoWrap() })
+	return b.Children(func() { p.word(c, label).FontSize(12).FontWeight(500).TextColor(col).NoWrap() })
 }
 
 func (u *UI) serviceName(c *ui.Context, p *pal, all []routes.Route, s routes.Service) {

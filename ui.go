@@ -393,7 +393,7 @@ func (u *UI) titleBar(c *ui.Context, p *pal) {
 			for _, pg := range pages {
 				id := pg.id
 				on := u.page == id
-				b := p.named(ui.ButtonBase(c.Key(id)).Padding(4, 16).Radius(p.r(7)), i18n.T(pg.zh, pg.en))
+				b := ui.ButtonBase(c.Key(id)).Padding(4, 16).Radius(p.r(7))
 				if on && !p.brackets() {
 					lit(b.Background(p.accent), p)
 				}
@@ -406,7 +406,7 @@ func (u *UI) titleBar(c *ui.Context, p *pal) {
 						case on:
 							col = p.onAccent
 						}
-						p.lab(ui.Text(c, p.cap(i18n.T(pg.zh, pg.en)))).FontSize(13).FontWeight(600).TextColor(col)
+						p.word(c, i18n.T(pg.zh, pg.en)).FontSize(13).FontWeight(600).TextColor(col)
 						if id == "providers" && u.providerWarn() {
 							ui.Box(c).Size(5, 5).Radius(p.r(3)).Background(p.warn)
 						}
@@ -449,7 +449,7 @@ func (u *UI) stateColor(p *pal) ui.Color {
 func (u *UI) statePill(c *ui.Context, p *pal) {
 	ui.Row(c).Gap(6).Padding(4, 11).Radius(p.r(999)).Background(p.hair2).Children(func() {
 		ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(u.stateColor(p)).Transition(ui.ElementTransition{Colors: true})
-		p.lab(ui.Text(c, p.cap(stateName(u.snap.State)))).FontSize(12).FontWeight(600).TextColor(p.ink2)
+		p.word(c, stateName(u.snap.State)).FontSize(12).FontWeight(600).TextColor(p.ink2)
 	})
 }
 
@@ -550,7 +550,7 @@ func (u *UI) fixRoute(id string) {
 
 // kicker is the small spaced label above a section.
 func kicker(c *ui.Context, p *pal, s string) ui.Element {
-	return p.lab(ui.Text(c, p.cap(s))).FontSize(10.5).FontWeight(600).LetterSpacing(1.5).TextColor(p.mute)
+	return p.word(c, s).FontSize(10.5).FontWeight(600).LetterSpacing(1.5).TextColor(p.mute)
 }
 
 // pageHead is the head of a list page (日志, 提供商): kicker, big count
@@ -600,7 +600,7 @@ func pill(c *ui.Context, p *pal, label string, primary bool) ui.Element {
 	if (p.caps || p.mono()) && latin(label) {
 		size, padX = 11.5, 11
 	}
-	b := p.named(ui.ButtonBase(c).Padding(7, padX).Radius(p.r(999)), label)
+	b := ui.ButtonBase(c).Padding(7, padX).Radius(p.r(999))
 	if primary {
 		lit(b.Background(p.accent), p)
 	} else {
@@ -611,18 +611,18 @@ func pill(c *ui.Context, p *pal, label string, primary bool) ui.Element {
 		if primary {
 			col = p.onAccent
 		}
-		p.lab(ui.Text(c, p.cap(label))).FontSize(size).FontWeight(600).TextColor(col)
+		p.word(c, label).FontSize(size).FontWeight(600).TextColor(col)
 	})
 }
 
 // btn is a small outlined button.
 func btn(c *ui.Context, p *pal, label string) ui.Element {
-	b := p.named(ui.ButtonBase(c).Padding(5, 11).Radius(p.r(7)).Border(1, p.hair), label)
+	b := ui.ButtonBase(c).Padding(5, 11).Radius(p.r(7)).Border(1, p.hair)
 	if b.Hovered() {
 		b.BorderColor(p.ink)
 	}
 	// A label never breaks: "ドメインをコピー" on two lines reads as two buttons.
-	return b.Children(func() { p.lab(ui.Text(c, p.cap(label))).FontSize(12).FontWeight(500).TextColor(p.ink).NoWrap() })
+	return b.Children(func() { p.word(c, label).FontSize(12).FontWeight(500).TextColor(p.ink).NoWrap() })
 }
 
 // chevron is the mark of something that opens: a small drawn V, pointing
@@ -652,12 +652,12 @@ const (
 // btnChevron is btn with a chevron after its label: a button that opens
 // (down) or closes (up) what is under it.
 func btnChevron(c *ui.Context, p *pal, label string, up bool) ui.Element {
-	b := p.named(ui.ButtonBase(c).Row().Gap(5).AlignItems(ui.Center).Padding(5, 11).Radius(p.r(7)).Border(1, p.hair), label)
+	b := ui.ButtonBase(c).Row().Gap(5).AlignItems(ui.Center).Padding(5, 11).Radius(p.r(7)).Border(1, p.hair)
 	if b.Hovered() {
 		b.BorderColor(p.ink)
 	}
 	return b.Children(func() {
-		p.lab(ui.Text(c, p.cap(label))).FontSize(12).FontWeight(500).TextColor(p.ink).NoWrap()
+		p.word(c, label).FontSize(12).FontWeight(500).TextColor(p.ink).NoWrap()
 		chevron(c, p.ink, up)
 	})
 }
@@ -744,7 +744,7 @@ func failTag(c *ui.Context, p *pal, text string, size float32) ui.Element {
 	}
 	e := ui.Row(c).Padding(1, 5).Shrink(0).Background(p.signal)
 	e.Children(func() {
-		ui.Text(c, text).FontSize(size).FontWeight(700).TextColor(on).NoWrap()
+		p.word(c, text).FontSize(size).FontWeight(700).TextColor(on).NoWrap()
 	})
 	return e
 }
@@ -981,7 +981,7 @@ func tag(c *ui.Context, p *pal, text string, col ui.Color) ui.Element {
 		b.Background(col.Alpha(.12))
 	}
 	b.Children(func() {
-		p.lab(ui.Text(c, p.cap(text))).FontSize(10.5).FontWeight(600).TextColor(fg).NoWrap()
+		p.word(c, text).FontSize(10.5).FontWeight(600).TextColor(fg).NoWrap()
 	})
 	return b
 }
@@ -1007,6 +1007,17 @@ func latin(s string) bool {
 	return true
 }
 
+// word is s, a short label, as p draws its labels: in their face, and in
+// capitals where the skin sets them. Capitals are how it is drawn, not
+// what it is called: assistive technology gets it as written.
+func (p *pal) word(c *ui.Context, s string) ui.Element {
+	e := p.lab(ui.Text(c, p.cap(s)))
+	if p.cap(s) != s {
+		e.Label(s)
+	}
+	return e
+}
+
 // lab sets e, a short label, in p's label face, spaced a little where it
 // is in capitals. Set a letter spacing of the label's own after it.
 func (p *pal) lab(e ui.Element) ui.Element {
@@ -1026,15 +1037,6 @@ func (p *pal) labelFace() string {
 		return p.label
 	}
 	return p.font
-}
-
-// named gives b, a button whose label is drawn in capitals, the label as
-// written for assistive technology.
-func (p *pal) named(b ui.Element, label string) ui.Element {
-	if p.cap(label) != label {
-		b.Label(label)
-	}
-	return b
 }
 
 // brackets says whether p marks what is chosen with a box of brackets,
