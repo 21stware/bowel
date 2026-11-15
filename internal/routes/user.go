@@ -340,6 +340,31 @@ func Upsert(rules []UserRule, r UserRule) []UserRule {
 	return append([]UserRule{r}, out...)
 }
 
+// Edit puts next where the rule matching old's traffic is, dropping any
+// other rule that matches next's. On the same route it stays in old's
+// service; on another it goes to that group's 我添加的. With no such rule,
+// next comes first, as Upsert puts it.
+func Edit(rules []UserRule, old, next UserRule) []UserRule {
+	i := slices.IndexFunc(rules, old.Same)
+	if i < 0 {
+		return Upsert(rules, next)
+	}
+	next.Service = ""
+	if rules[i].Route == next.Route {
+		next.Service = rules[i].Service
+	}
+	out := make([]UserRule, 0, len(rules))
+	for j, r := range rules {
+		switch {
+		case j == i:
+			out = append(out, next)
+		case !r.Same(next):
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // Remove takes the rule matching r's traffic out of rules.
 func Remove(rules []UserRule, r UserRule) []UserRule {
 	return slices.DeleteFunc(slices.Clone(rules), r.Same)
