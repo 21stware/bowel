@@ -505,6 +505,10 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 				}
 				continue
 			}
+			if p.marker != "" {
+				skinMarker(pt, p, r, tx, ty, d.label, d.head, small)
+				continue
+			}
 			rad := float32(4)
 			if d.head {
 				rad = 6
@@ -540,11 +544,16 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 		if !on {
 			col = p.faint
 		}
-		pt.FillPath(you.Circle(ox, oy, 5), col)
+		if p.marker != "" {
+			// A skin with marks of its own has no round dots.
+			pt.Fill(ui.Rect{X: ox - 3, Y: oy - 3, W: 6, H: 6}, col, 0)
+		} else {
+			pt.FillPath(you.Circle(ox, oy, 5), col)
+		}
 		pulse := float32(math.Mod(float64(now)/60, 14))
 		var ring ui.Path
 		pt.StrokePath(ring.Circle(ox, oy, 8+pulse), 1, col.Alpha(max(0, .3-pulse/46)))
-		pt.RichText(ox+9, oy-22, 0, ui.Span{Text: i18n.T("你", "You"), Font: p.font, Size: 13, Weight: 700, Color: col})
+		pt.RichText(ox+9, oy-22, 0, ui.Span{Text: p.cap(i18n.T("你", "You")), Font: p.labelFace(), Size: 13, Weight: 700, Color: col})
 		switch {
 		case comets:
 			pt.AnimationFrameRate(60)
@@ -661,4 +670,56 @@ func itoa(n int) string {
 		b = append([]byte{'-'}, b...)
 	}
 	return string(b)
+}
+
+// skinMarker is an exit on the map in a skin with marks of its own, at
+// tx, ty: a box of brackets, or a cross with the exit's name in a frame.
+// The exit in use takes the theme color: its box and its name, or the
+// block its name stands on. r is the map, which the name stays inside.
+func skinMarker(pt *ui.Painter, p *pal, r ui.Rect, tx, ty float32, label string, head, small bool) {
+	side := float32(12)
+	if head {
+		side = 16
+	}
+	cross := p.marker == "cross"
+	if cross {
+		pt.Fill(ui.Rect{X: tx - 6, Y: ty - .5, W: 12, H: 1}, p.ink2, 0)
+		pt.Fill(ui.Rect{X: tx - .5, Y: ty - 6, W: 1, H: 12}, p.ink2, 0)
+	} else {
+		box := ui.Rect{X: tx - side/2, Y: ty - side/2, W: side, H: side}
+		col := p.ink
+		if head {
+			col = p.accentLine
+		}
+		pt.Fill(box, p.paper, 0)
+		bracketBox(pt, box, col, false)
+	}
+	if small && !head {
+		return
+	}
+	span := ui.Span{Text: p.cap(label), Font: p.labelFace(), Size: 11.5, Weight: 600, Color: p.ink}
+	if head {
+		span.Size, span.Weight = 13, 700
+	}
+	var padX, padY float32
+	if cross {
+		padX, padY = 6, 2
+	}
+	lw, lh := pt.MeasureText(0, span)
+	lx := tx + side/2 + 6 + padX
+	if lx+lw+padX > r.X+r.W-6 {
+		lx = tx - side/2 - 6 - padX - lw
+	}
+	frame := ui.Rect{X: lx - padX, Y: ty - lh/2 - padY, W: lw + 2*padX, H: lh + 2*padY}
+	switch {
+	case cross && head:
+		pt.Fill(frame, p.accent, 0)
+		span.Color = p.onAccent
+	case cross:
+		pt.Fill(frame, p.sheet, 0)
+		pt.Stroke(frame, p.hair, 0, 1)
+	case head:
+		span.Color = p.accentLine
+	}
+	pt.RichText(lx, ty-lh/2, 0, span)
 }

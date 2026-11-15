@@ -1008,6 +1008,15 @@ func (p *pal) lab(e ui.Element) ui.Element {
 	return e
 }
 
+// labelFace is the face of p's short labels, for what is painted, not laid
+// out.
+func (p *pal) labelFace() string {
+	if p.label != "" {
+		return p.label
+	}
+	return p.font
+}
+
 // named gives b, a button whose label is drawn in capitals, the label as
 // written for assistive technology.
 func (p *pal) named(b ui.Element, label string) ui.Element {

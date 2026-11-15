@@ -1,6 +1,7 @@
 package main
 
 import (
+	"image"
 	"runtime"
 	"slices"
 	"testing"
@@ -193,7 +194,13 @@ func TestSkinAbilitiesDefault(t *testing.T) {
 // near says whether the pixel of tt's frame at x, y is within d of col in
 // each channel.
 func near(tt *ui.Tester, x, y int, col ui.Color, d int) bool {
-	r, g, b, _ := tt.Image().At(x, y).RGBA()
+	return nearIn(tt.Image(), x, y, col, d)
+}
+
+// nearIn is near in a picture already taken: taking one for each pixel
+// of an area is slow.
+func nearIn(img image.Image, x, y int, col ui.Color, d int) bool {
+	r, g, b, _ := img.At(x, y).RGBA()
 	diff := func(a uint32, b uint8) bool { return int(a>>8)-int(b) <= d && int(b)-int(a>>8) <= d }
 	return diff(r, col.R) && diff(g, col.G) && diff(b, col.B)
 }
@@ -573,9 +580,10 @@ func TestTagStyles(t *testing.T) {
 // anyNear says whether a pixel of the rectangle from x0, y0 to x1, y1 is
 // within d of col.
 func anyNear(tt *ui.Tester, x0, y0, x1, y1 int, col ui.Color, d int) bool {
+	img := tt.Image()
 	for x := x0; x < x1; x++ {
 		for y := y0; y < y1; y++ {
-			if near(tt, x, y, col, d) {
+			if nearIn(img, x, y, col, d) {
 				return true
 			}
 		}
@@ -670,6 +678,40 @@ func TestBlockHero(t *testing.T) {
 		if x, y := int(r.X)-8, int(r.Y+r.H/2); !near(tt, x, y, p.accent, 30) {
 			t.Errorf("%s: the chosen tab is not filled: %v", id, tt.Image().At(x, y))
 		}
+	}
+}
+
+// TestMapMarkers: the map marks its exits as the skin says. A ring, as
+// ever, has none of the theme color; a box puts brackets in it round the
+// exit in use; a cross stands that exit's name on a block of it.
+func TestMapMarkers(t *testing.T) {
+	k := skinByID("paper")
+	defer func(m string) { k.light.marker = m }(k.light.marker)
+	count := func(marker string) int {
+		k.light.marker = marker
+		u, _ := skinned(fixtureUI(), "paper")
+		p := palOf("paper", false)
+		tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+		tt.Advance(time.Second)
+		img, n := tt.Image(), 0
+		for x := 402; x < 1058; x++ {
+			for y := 52; y < 376; y++ {
+				if nearIn(img, x, y, p.accentLine, 12) {
+					n++
+				}
+			}
+		}
+		return n
+	}
+	ring, box, cross := count(""), count("box"), count("cross")
+	if ring != 0 {
+		t.Errorf("rings: %d pixels of the theme color on the map", ring)
+	}
+	if box < 8 {
+		t.Errorf("boxes: %d pixels of the theme color, no brackets round the exit in use", box)
+	}
+	if cross < 150 || cross <= box {
+		t.Errorf("crosses: %d pixels of the theme color, no block under the exit in use (boxes: %d)", cross, box)
 	}
 }
 
