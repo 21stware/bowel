@@ -119,6 +119,20 @@ type pal struct {
 	round         float32
 	glow          ui.Color
 	deco          func(pt *ui.Painter, r ui.Rect, p *pal)
+	// What a skin may also change, each as every skin had it when left
+	// zero. pick is how what is chosen shows: "" filled or raised,
+	// "bracket" a dashed box with corner brackets and no fill, "block"
+	// filled, with the current exit's name on a block of the accent. tags
+	// is how a small tag is drawn: "" tinted, "solid", "outline". caps sets
+	// short Latin labels in capitals, and label is their face, "" for
+	// font. marker is how the map marks an exit: "" a ring, "box" a
+	// bracket box, "cross" a crosshair with a boxed name. console is a
+	// terminal's manners: a square switch, the sidebar's icons in gray,
+	// a primary button that can't be pressed as an outline, no halo
+	// around what is filled, and a failure as a solid tag.
+	pick, tags, marker string
+	caps, console      bool
+	label              string
 }
 
 var lightPal = pal{

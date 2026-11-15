@@ -119,7 +119,7 @@ var Appearances = []string{"system", "light", "dark"}
 
 // Skins are the choices of Skin; the interface (skins.go) draws each.
 var Skins = []string{"paper", "broadsheet", "phosphor", "neon", "blueprint", "sakura",
-	"shanshui", "celadon", "dunhuang", "dusk", "aurora", "obsidian", "riso", "mrrobot"}
+	"shanshui", "celadon", "dunhuang", "dusk", "aurora", "obsidian", "riso", "mrrobot", "machine", "samaritan"}
 
 // BorderStyles are the choices of Borders.
 var BorderStyles = []string{"straight", "twisted"}
