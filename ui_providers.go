@@ -199,7 +199,7 @@ func (u *UI) provHead(c *ui.Context, p *pal) {
 					u.do(func() error { return u.app.updateAll(bg()) })
 				}
 			}).Children(func() {
-				shimmer(ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(p.ink), busy, p)
+				shimmer(p.lab(ui.Text(c, p.cap(label))).FontSize(12).FontWeight(500).TextColor(p.ink), busy, p)
 			})
 		}
 	})
@@ -702,7 +702,7 @@ func (u *UI) provBtn(c *ui.Context, p *pal, label string, danger bool) ui.Elemen
 	case b.Hovered():
 		b.BorderColor(p.ink)
 	}
-	return b.Children(func() { ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(col).NoWrap() })
+	return b.Children(func() { p.lab(ui.Text(c, p.cap(label))).FontSize(12).FontWeight(500).TextColor(col).NoWrap() })
 }
 
 // ---- A provider's nodes ----

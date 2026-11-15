@@ -528,6 +528,18 @@ func TestMachineCaps(t *testing.T) {
 	if !hasTextPart(tt, "Shadowsocks") || hasTextPart(tt, "SHADOWSOCKS") {
 		t.Errorf("a sentence was put in capitals: %q", tt.Texts())
 	}
+	// The Provider page's small buttons are buttons like the others.
+	u, _ = skinned(providersUIFixture(), "machine")
+	tt = ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: dark})
+	tt.Advance(time.Second)
+	for _, s := range []string{"UPDATE ALL", "SCAN QR", "UPDATE", "ADD"} {
+		if !slices.Contains(tt.Texts(), s) {
+			t.Errorf("no %s among %q", s, tt.Texts())
+		}
+	}
+	if _, ok := tt.AccessByRole(ui.RoleButton, "Update all"); !ok {
+		t.Error("no button called Update all for assistive technology")
+	}
 	u, dark = skinned(fixtureUI(), "paper")
 	tt = ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: dark})
 	tt.Advance(time.Second)
