@@ -594,10 +594,10 @@ func shimmer(e ui.Element, on bool, p *pal) ui.Element {
 
 // pill is the prototype's round button: the accent, or a hairline ghost.
 func pill(c *ui.Context, p *pal, label string, primary bool) ui.Element {
-	// Capitals are wider: a little smaller and closer, the three under
-	// the exit's name stay inside their cell.
+	// Capitals are wider, and so is a monospace: a little smaller and
+	// closer, the three under the exit's name stay inside their cell.
 	size, padX := float32(12.5), float32(14)
-	if p.cap(label) != label {
+	if (p.caps || p.mono()) && latin(label) {
 		size, padX = 11.5, 11
 	}
 	b := p.named(ui.ButtonBase(c).Padding(7, padX).Radius(p.r(999)), label)
@@ -991,15 +991,20 @@ func tag(c *ui.Context, p *pal, text string, col ui.Color) ui.Element {
 // capitals, and a label half in them reads worse than one left alone.
 // It is for labels only: a name or a sentence is not passed through it.
 func (p *pal) cap(s string) string {
-	if !p.caps {
+	if !p.caps || !latin(s) {
 		return s
 	}
+	return strings.ToUpper(s)
+}
+
+// latin says whether every letter of s is a Latin one.
+func latin(s string) bool {
 	for _, r := range s {
 		if unicode.IsLetter(r) && !unicode.Is(unicode.Latin, r) {
-			return s
+			return false
 		}
 	}
-	return strings.ToUpper(s)
+	return true
 }
 
 // lab sets e, a short label, in p's label face, spaced a little where it

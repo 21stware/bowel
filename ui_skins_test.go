@@ -771,19 +771,26 @@ func TestMonoSkinsFit(t *testing.T) {
 			t.Errorf("%s: Subscription is %.0f high, broken over two lines", id, r.H)
 		}
 
-		u, _ = skinned(fixtureUI(), id)
-		tt = ui.NewTesterWith(u.view, 1060, 760, opts)
-		tt.Advance(time.Second)
-		// The last of the three buttons; the mode's word is drawn larger.
-		direct := ui.Rect{}
-		for _, at := range []string{p.cap("Direct")} {
-			if r, ok = tt.Find(at); ok && r.H < 24 {
-				direct = r
+		// How wide a face's letters come out is the system's font
+		// rendering and the display's scale: a Linux desktop drew these
+		// past the cell where another, and a Mac, did not.
+		for _, scale := range []float32{1, 2} {
+			u, _ = skinned(fixtureUI(), id)
+			tt = ui.NewTesterWith(u.view, 1060, 760, opts)
+			tt.SetScale(scale)
+			tt.Advance(time.Second)
+			// The last of the three buttons, the first thing called
+			// Direct: the button where its word is in capitals, or else
+			// the word, which the button pads by 11. The cell is 400 wide
+			// and padded by 26.
+			direct, ok := tt.Find("Direct")
+			end := direct.X + direct.W
+			if direct.H < 24 {
+				end += 11
 			}
-		}
-		// The cell is 400 wide and padded by 26; the button by 10 or more.
-		if direct.W == 0 || direct.X+direct.W+10 > 374+1 {
-			t.Errorf("%s: the Direct button's word ends at %.0f, past its cell's padding", id, direct.X+direct.W)
+			if !ok || end > 374+1 {
+				t.Errorf("%s at %v×: the Direct button ends at %.0f, past its cell's padding", id, scale, end)
+			}
 		}
 
 		// English has the longer words before the filters; the routes'
