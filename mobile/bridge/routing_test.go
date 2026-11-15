@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/locate"
 	"github.com/oboo/moho/internal/provider"
 	"github.com/oboo/moho/internal/routes"
@@ -400,4 +401,37 @@ func TestMoveGroup(t *testing.T) {
 		}
 	}
 	want(routes.Default, "ai", "dev", "media", "direct", routes.Reject)
+}
+
+func TestHideNode(t *testing.T) {
+	x := testBridge(t)
+	ctx := context.Background()
+	node := x.view().Nodes[0].Name
+	name, _, _ := strings.Cut(node, core.NodeSep)
+	if _, err := x.hideNode(ctx, node, true); err != nil {
+		t.Fatal(err)
+	}
+	v := x.view()
+	if len(v.Nodes) != 1 || v.Nodes[0].Name == node || v.Providers[0].Nodes != 1 {
+		t.Fatalf("hidden node still listed: %+v", v.Nodes)
+	}
+	if h := v.Providers[0].Hidden; len(h) != 1 || h[0] != name {
+		t.Fatalf("hidden = %v, want [%s]", h, name)
+	}
+	if err := x.prepareTunnel(); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(x.dir, "config.yaml"))
+	if !strings.Contains(string(raw), name) {
+		t.Fatalf("config's exclude-filter lacks %q:\n%s", name, raw)
+	}
+	if _, err := x.hideNode(ctx, node, false); err != nil {
+		t.Fatal(err)
+	}
+	if v := x.view(); len(v.Nodes) != 2 || len(v.Providers[0].Hidden) != 0 {
+		t.Fatalf("restored node missing: %+v", v.Providers[0])
+	}
+	if _, err := x.hideNode(ctx, "no separator", true); err == nil {
+		t.Fatal("a name with no provider was accepted")
+	}
 }

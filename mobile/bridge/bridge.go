@@ -416,6 +416,15 @@ func Call(method, payload string) (string, error) {
 		return "null", x.renameProvider(args.ID, args.Name)
 	case "deleteProvider":
 		return "null", x.deleteProvider(ctx, args.ID)
+	case "hideNode":
+		picked, err := x.hideNode(ctx, args.Node, true)
+		if err != nil {
+			return "", err
+		}
+		return encode(picked)
+	case "restoreNode": // by the Provider and the name its Hidden lists
+		_, err := x.hideNode(ctx, args.Name+core.NodeSep+args.ID, false)
+		return "null", err
 	case "setProviderEnabled":
 		return "null", x.setProviderEnabled(ctx, args.ID, args.On)
 	case "setAutoUpdate":
@@ -783,6 +792,31 @@ func (x *bridge) deleteProvider(ctx context.Context, id string) error {
 		return err
 	}
 	return x.applyConfig(ctx)
+}
+
+// hideNode removes node (its full name) from its provider, or with hide
+// false brings it back; it stays removed through the provider's updates, as
+// on the desktop (App.hideNode). With hide, it answers the titles of the
+// route groups that picked the node by hand, which are left as they are.
+func (x *bridge) hideNode(ctx context.Context, node string, hide bool) ([]string, error) {
+	i := strings.LastIndex(node, core.NodeSep)
+	if i < 0 {
+		return nil, fmt.Errorf(i18n.T("「%s」不是来自 Provider 的节点", "%s is no Provider's node"), node)
+	}
+	id, name := node[i+len(core.NodeSep):], node[:i]
+	if _, err := x.store.Hide(id, name, hide); err != nil {
+		return nil, err
+	}
+	picked := []string{}
+	if hide {
+		for _, r := range x.routes() {
+			q := r.Policy
+			if q.Fixed == node || slices.Contains(q.Order, node) || slices.Contains(q.Nodes, node) {
+				picked = append(picked, routes.Title(r))
+			}
+		}
+	}
+	return picked, x.applyConfig(ctx)
 }
 
 func (x *bridge) setProviderEnabled(ctx context.Context, id string, on bool) error {

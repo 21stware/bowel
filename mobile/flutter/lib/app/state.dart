@@ -568,6 +568,25 @@ class AppState extends ChangeNotifier {
     _send('deleteProvider', {'id': p.id});
   }
 
+  /// Removes node from its Provider. It stays out through the Provider's
+  /// updates and comes back from the Provider's list of removed nodes, so
+  /// this doesn't ask first.
+  void hideNode(Node n) async {
+    if (!_live) return;
+    final picked = await ask('hideNode', {'node': _coreNames[n.name] ?? n.name});
+    if (picked is! List) return;
+    var msg = tr('已移除 {0}，订阅更新后也不会回来', 'Removed {0}; it stays removed when the subscription updates', [n.name]);
+    if (picked.isNotEmpty) {
+      msg += tr('。手动选了它的路由组：{0}', '. Route groups that picked it by hand: {0}', [picked.join(tr('、', ', '))]);
+    }
+    _toast(msg, ms: picked.isEmpty ? 2600 : 5000);
+  }
+
+  /// Brings back the node p's content calls name.
+  void restoreNode(ProviderInfo p, String name) {
+    if (_live) _send('restoreNode', {'id': p.id, 'name': name});
+  }
+
   void setProviderEnabled(ProviderInfo p, bool on) {
     _send('setProviderEnabled', {'id': p.id, 'on': on});
   }
@@ -851,6 +870,7 @@ class AppState extends ChangeNotifier {
       autoUpdate: p['autoUpdate'] as int? ?? 0,
       source: p['source'] as String? ?? '',
       usedBy: (p['usedBy'] as List? ?? const []).cast<String>(),
+      hidden: (p['hidden'] as List? ?? const []).cast<String>(),
       subscription: p['kind'] == 'subscription',
       shareable: p['kind'] != 'file',
     );
