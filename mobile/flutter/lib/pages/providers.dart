@@ -223,8 +223,31 @@ Widget _tinyActs(Look l, AppState app, ProviderInfo p, {String? note}) {
   );
 }
 
+/// The nodes removed from p, each with 放回; nothing when there are none.
+Widget _removed(Look l, AppState app, ProviderInfo p) {
+  if (p.hidden.isEmpty) return const SizedBox.shrink();
+  return hairTop(
+    l,
+    Padding(
+      padding: const EdgeInsets.fromLTRB(45, 10, 12, 6),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(tr('已移除的节点 · {0}', 'Removed nodes · {0}', [p.hidden.length]), style: l.text(12, weight: 600, color: l.mute, lh: 17)),
+        for (final name in p.hidden)
+          Container(
+            constraints: const BoxConstraints(minHeight: 44),
+            child: Row(children: [
+              Expanded(child: Line1(name, l.text(14, color: l.mute, lh: 20))),
+              Btn(tr('放回', 'Restore'), kind: BtnKind.quiet, minH: 36, padH: 11, fontSize: 13, onTap: () => app.restoreNode(p, name)),
+            ]),
+          ),
+      ]),
+    ),
+  );
+}
+
 class _NodeRow extends StatelessWidget {
-  const _NodeRow({required this.n, required this.testing});
+  const _NodeRow({required this.app, required this.n, required this.testing});
+  final AppState app;
   final Node n;
   final bool testing;
 
@@ -233,22 +256,29 @@ class _NodeRow extends StatelessWidget {
     final l = Skin.of(context);
     return hairTop(
       l,
-      Container(
-        constraints: const BoxConstraints(minHeight: 44),
-        padding: const EdgeInsets.fromLTRB(45, 0, 16, 0),
-        child: Row(children: [
-          Expanded(child: Line1(n.name, l.text(14, lh: 20))),
-          const SizedBox(width: 8),
-          Text(n.proto, maxLines: 1, style: l.text(12, color: l.mute, lh: 17)),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 56,
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: testing ? const Skeleton() : Text(latText(n.delay), maxLines: 1, style: l.text(12.5, color: latColor(l, n.delay), lh: 18)),
+      Tap(
+        label: n.name,
+        pressedColor: l.paper2,
+        onTap: () => pickSheet<String>(app, n.name, [
+          PickOption('hide', tr('移除这个节点', 'Remove this node'), sub: tr('订阅更新后也不会回来，可以在下面放回', 'It stays out through updates; put it back from the list below'), danger: true),
+        ], (_) => app.hideNode(n)),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: const EdgeInsets.fromLTRB(45, 0, 16, 0),
+          child: Row(children: [
+            Expanded(child: Line1(n.name, l.text(14, lh: 20))),
+            const SizedBox(width: 8),
+            Text(n.proto, maxLines: 1, style: l.text(12, color: l.mute, lh: 17)),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 56,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: testing ? const Skeleton() : Text(latText(n.delay), maxLines: 1, style: l.text(12.5, color: latColor(l, n.delay), lh: 18)),
+              ),
             ),
-          ),
-        ]),
+          ]),
+        ),
       ),
     );
   }
@@ -412,6 +442,7 @@ class _ProviderTileState extends State<_ProviderTile> with SingleTickerProviderS
           SliverToBoxAdapter(child: acts),
           for (final (f, list) in regionsNow)
             _RegionTile(key: ValueKey(f), app: app, groupKey: '${widget.index}|$f', flag: f, nodes: list, forced: q.isNotEmpty),
+          SliverToBoxAdapter(child: _removed(l, app, p)),
         ];
       } else {
         // while the provider itself is unfolding, its contents are one box
@@ -423,6 +454,7 @@ class _ProviderTileState extends State<_ProviderTile> with SingleTickerProviderS
               child: Column(children: [
                 acts,
                 for (final (f, list) in regionsNow) _RegionHead(flag: f, nodes: list, open: app.openRegions.contains('${widget.index}|$f')),
+                _removed(l, app, p),
               ]),
             ),
           ),
@@ -437,7 +469,7 @@ class _ProviderTileState extends State<_ProviderTile> with SingleTickerProviderS
             alignment: Alignment.topCenter,
             child: Column(children: [
               _tinyActs(l, app, p),
-              for (final n in list) _NodeRow(n: n, testing: false),
+              for (final n in list) _NodeRow(app: app, n: n, testing: false),
               if (count > ns.length)
                 hairTop(
                   l,
@@ -448,6 +480,7 @@ class _ProviderTileState extends State<_ProviderTile> with SingleTickerProviderS
                     child: Text(tr('还有 {0} 个节点', '{0} more nodes', [count - ns.length]), style: l.text(14, color: l.mute, lh: 20)),
                   ),
                 ),
+              _removed(l, app, p),
             ]),
           ),
         ),
@@ -550,7 +583,7 @@ class _RegionTileState extends State<_RegionTile> with SingleTickerProviderState
       SliverToBoxAdapter(
         child: Accordion(
           open: _was,
-          builder: (context) => Column(children: [for (final n in list) _NodeRow(n: n, testing: widget.app.providerTesting)]),
+          builder: (context) => Column(children: [for (final n in list) _NodeRow(app: widget.app, n: n, testing: widget.app.providerTesting)]),
         ),
       ),
     ]);

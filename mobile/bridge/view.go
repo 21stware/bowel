@@ -102,6 +102,8 @@ type providerData struct {
 	// Dots is the health of a short list's nodes, when the view only carries
 	// some of them; empty means work it out from the nodes.
 	Dots []int `json:"dots,omitempty"`
+	// Hidden are the names of the nodes the user removed, as its content has them.
+	Hidden []string `json:"hidden,omitempty"`
 }
 
 // tickData is the once-a-second push.
@@ -180,7 +182,7 @@ func (x *bridge) view() viewData {
 			names = fullNames(x.store.Names(p.ID), p.ID)
 		}
 		pv := providerData{ID: p.ID, Name: p.Name, Kind: string(p.Kind), Nodes: len(names), Error: p.Error, Updated: p.UpdatedAt.UnixMilli(),
-			Enabled: p.Enabled, AutoUpdate: p.AutoUpdate, Source: maskSource(p), UsedBy: used[p.ID]}
+			Enabled: p.Enabled, AutoUpdate: p.AutoUpdate, Source: maskSource(p), UsedBy: used[p.ID], Hidden: p.Hidden}
 		if u := p.Usage; u != nil {
 			pv.Used, pv.Total, pv.Expire = u.Upload+u.Download, u.Total, u.Expire
 			if u.Total > 0 && float64(u.Upload+u.Download)/float64(u.Total) > .9 {

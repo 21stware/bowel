@@ -66,6 +66,7 @@ class ProviderInfo {
     this.autoUpdate = 0,
     this.source = '',
     this.usedBy = const [],
+    this.hidden = const [],
     this.subscription = false,
     this.shareable = true,
   });
@@ -74,6 +75,8 @@ class ProviderInfo {
   final bool long, enabled, subscription, shareable;
   final int nodes, autoUpdate;
   final List<String> usedBy;
+  /// The names of the nodes the user removed, as its content has them.
+  final List<String> hidden;
   final int? used;
   final String? usage, expires, warn;
   final List<int> tones;
