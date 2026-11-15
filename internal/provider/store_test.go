@@ -289,3 +289,55 @@ func TestPastedConfigNames(t *testing.T) {
 		t.Errorf("after the first is removed: %q", p.Name)
 	}
 }
+
+func TestSelectOnly(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	add := func(link string) Provider {
+		t.Helper()
+		p, err := s.Add(context.Background(), nil, link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	a := add("trojan://a@h:1#SubA")
+	b := add("trojan://b@h:2#SubB")
+	c := add("trojan://c@h:3#SubC")
+
+	got, err := s.SelectOnly(b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != b.ID || !got.Enabled {
+		t.Fatalf("SelectOnly(%q) = %+v", b.ID, got)
+	}
+	for _, p := range s.List() {
+		if want := p.ID == b.ID; p.Enabled != want {
+			t.Errorf("provider %s Enabled = %v, want %v", p.Name, p.Enabled, want)
+		}
+	}
+
+	reopened, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range reopened.List() {
+		if want := p.ID == b.ID; p.Enabled != want {
+			t.Errorf("reopened provider %s Enabled = %v, want %v", p.Name, p.Enabled, want)
+		}
+	}
+
+	if _, err := s.SelectOnly("missing"); err == nil {
+		t.Fatal("SelectOnly(missing) should fail")
+	}
+	if ga, _ := s.Get(a.ID); ga.Enabled {
+		t.Error("failed SelectOnly changed existing provider")
+	}
+	if gc, _ := s.Get(c.ID); gc.Enabled {
+		t.Error("failed SelectOnly changed existing provider")
+	}
+}

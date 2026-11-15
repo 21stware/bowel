@@ -8,6 +8,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/egoist/mygo"
+
+	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/settings"
 )
 
@@ -196,5 +199,91 @@ func TestTrayIconInk(t *testing.T) {
 				t.Errorf("white %v on %v: strongest alpha %d", white, on, maxA)
 			}
 		}
+	}
+}
+
+func TestTrayMenuControls(t *testing.T) {
+	a := &App{}
+	find := func(items []*mygo.MenuItem, label string) *mygo.MenuItem {
+		t.Helper()
+		for _, it := range items {
+			if it.Label == label {
+				return it
+			}
+		}
+		t.Fatalf("menu item %q not found", label)
+		return nil
+	}
+
+	// Case 1: Takeover on with System proxy on, TUN off, and 1 of 2 providers enabled.
+	m1 := a.trayMenu(Snapshot{
+		Takeover: Takeover{
+			On:     true,
+			System: Entry{Wanted: true},
+			Tun:    Entry{Wanted: false},
+		},
+		Providers: []ProviderView{
+			{ID: "p1", Name: "Sub A", Enabled: true},
+			{ID: "p2", Name: "Sub B", Enabled: false},
+		},
+	})
+	takeover := find(m1.Items(), i18n.T("接管", "Takeover"))
+	sys := find(m1.Items(), i18n.T("系统代理", "System proxy"))
+	tun := find(m1.Items(), "TUN")
+	if takeover.Type != mygo.MenuItemCheckbox || !takeover.Checked {
+		t.Errorf("takeover = %+v, want checked checkbox", takeover)
+	}
+	if sys.Type != mygo.MenuItemCheckbox || !sys.Checked {
+		t.Errorf("system proxy = %+v, want checked checkbox", sys)
+	}
+	if tun.Type != mygo.MenuItemCheckbox || tun.Checked {
+		t.Errorf("TUN = %+v, want unchecked checkbox", tun)
+	}
+	sub := find(m1.Items(), i18n.T("订阅", "Subscription")+"\tSub A")
+	if sub.Disabled {
+		t.Error("subscription menu unexpectedly disabled")
+	}
+	if len(sub.Submenu) != 2 {
+		t.Fatalf("subscription submenu has %d items, want 2", len(sub.Submenu))
+	}
+	if sub.Submenu[0].Type != mygo.MenuItemRadio || sub.Submenu[0].Label != "Sub A" || !sub.Submenu[0].Checked {
+		t.Errorf("submenu[0] = %+v", sub.Submenu[0])
+	}
+	if sub.Submenu[1].Type != mygo.MenuItemRadio || sub.Submenu[1].Label != "Sub B" || sub.Submenu[1].Checked {
+		t.Errorf("submenu[1] = %+v", sub.Submenu[1])
+	}
+
+	// Case 2: Paused (Takeover.On false even though entries are wanted), and no providers.
+	m2 := a.trayMenu(Snapshot{
+		Takeover: Takeover{
+			On:     false,
+			System: Entry{Wanted: true},
+			Tun:    Entry{Wanted: true},
+		},
+	})
+	if find(m2.Items(), i18n.T("接管", "Takeover")).Checked {
+		t.Error("paused takeover should be unchecked")
+	}
+	if find(m2.Items(), i18n.T("系统代理", "System proxy")).Checked {
+		t.Error("system proxy should appear unchecked while takeover is off")
+	}
+	if find(m2.Items(), "TUN").Checked {
+		t.Error("TUN should appear unchecked while takeover is off")
+	}
+	subEmpty := find(m2.Items(), i18n.T("订阅", "Subscription"))
+	if !subEmpty.Disabled || len(subEmpty.Submenu) != 0 {
+		t.Errorf("empty subscription menu = %+v, want disabled and empty", subEmpty)
+	}
+
+	// Case 3: Multiple providers enabled omits single active name suffix.
+	m3 := a.trayMenu(Snapshot{
+		Providers: []ProviderView{
+			{ID: "p1", Name: "Sub A", Enabled: true},
+			{ID: "p2", Name: "Sub B", Enabled: true},
+		},
+	})
+	subMulti := find(m3.Items(), i18n.T("订阅", "Subscription"))
+	if subMulti.Disabled || len(subMulti.Submenu) != 2 || !subMulti.Submenu[0].Checked || !subMulti.Submenu[1].Checked {
+		t.Errorf("multi-enabled subscription menu = %+v", subMulti)
 	}
 }

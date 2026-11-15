@@ -306,6 +306,20 @@ func (s *Store) SetEnabled(id string, on bool) (Provider, error) {
 	return s.update(id, func(p *Provider) { p.Enabled = on })
 }
 
+// SelectOnly enables provider id and disables all others in a single save.
+func (s *Store) SelectOnly(id string) (Provider, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx := slices.IndexFunc(s.items, func(p Provider) bool { return p.ID == id })
+	if idx < 0 {
+		return Provider{}, fmt.Errorf(i18n.T("没有这个 Provider: %s", "No such Provider: %s"), id)
+	}
+	for i := range s.items {
+		s.items[i].Enabled = i == idx
+	}
+	return s.items[idx], s.saveLocked()
+}
+
 func (s *Store) Rename(id, name string) (Provider, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
