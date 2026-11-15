@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:bowel/app/i18n.dart';
 import 'package:bowel/app/state.dart';
@@ -8,6 +9,7 @@ import 'package:bowel/pages/sheet.dart';
 import 'package:bowel/ui/atoms.dart';
 import 'package:bowel/ui/skin.dart';
 import 'package:flutter/material.dart' show DefaultMaterialLocalizations, Material, MaterialType;
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -204,18 +206,29 @@ void main() {
     expect(app.update?.version, '0.4.5');
   });
 
-  for (final code in languages) {
-    testWidgets('$code: the notice fits a narrow phone', (tester) async {
-      final app = await _app(tester, '0.4.4');
-      _latest = '10.20.30';
-      language = code;
-      addTearDown(() => language = 'zh');
-      await app.checkUpdate();
-      await _show(tester, app, () => Align(alignment: Alignment.topCenter, child: UpdateNotice(app: app)), width: 320);
-      expect(tester.takeException(), isNull);
-      expect(find.textContaining('10.20.30'), findsOneWidget);
+  group('on a narrow phone', () {
+    // Widths decide this, so it needs the app's real font: the test font
+    // draws every letter as wide as a kanji.
+    setUpAll(() async {
+      final bytes = await File('assets/fonts/OPPOSans4.0.ttf').readAsBytes();
+      await (FontLoader('OPPO Sans')..addFont(Future.value(ByteData.sublistView(bytes)))).load();
     });
-  }
+
+    for (final code in languages) {
+      testWidgets('$code: the notice shows the whole version', (tester) async {
+        final app = await _app(tester, '0.4.4');
+        _latest = '0.10.12';
+        language = code;
+        addTearDown(() => language = 'zh');
+        await app.checkUpdate();
+        await _show(tester, app, () => Align(alignment: Alignment.topCenter, child: UpdateNotice(app: app)), width: 320);
+        expect(tester.takeException(), isNull);
+        // The title gives way with an ellipsis, and the version is its end.
+        final title = tester.renderObject<RenderParagraph>(find.textContaining('0.10.12'));
+        expect(title.getMaxIntrinsicWidth(double.infinity), lessThanOrEqualTo(title.size.width), reason: 'the title is cut short');
+      });
+    }
+  });
 
   testWidgets('Settings offers the new version and a check by hand', (tester) async {
     final app = await _app(tester, '0.4.4');
