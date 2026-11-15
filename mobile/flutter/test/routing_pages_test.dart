@@ -58,6 +58,7 @@ Map _group(String id, String name, List<Map> services, {bool direct = false, boo
       'reject': reject,
       'custom': false,
       'movable': !const {'default', 'direct', 'reject'}.contains(id),
+      'chooses': !const {'default', 'direct', 'reject'}.contains(id),
       'mode': mode,
       'regions': <String>[],
       'providers': <String>[],
@@ -69,10 +70,13 @@ Map _group(String id, String name, List<Map> services, {bool direct = false, boo
       'sites': <Map>[],
     };
 
+/// Whether AI 服务 goes direct by the user's choice.
+bool _aiDirect = false;
+
 Map _routing() => {
       'groups': [
         _group('default', '默认', [_service('mine:default', '我的规则', mine: true)]),
-        _group('ai', 'AI 服务', [
+        _group('ai', 'AI 服务', direct: _aiDirect, [
           _service('mine:ai', '我的规则', mine: true),
           _service('openai', 'OpenAI', builtin: true, rules: ['openai.com', 'chatgpt.com', 'oaistatic.com']),
           _service('work', '工作', rules: ['work.example.com']),
@@ -225,6 +229,7 @@ void main() {
     _checkFails = _updateFails = _importFails = null;
     _targetImported = false;
     _sets = [];
+    _aiDirect = false;
     language = 'zh';
     _fakeCore();
   });
@@ -644,5 +649,34 @@ void main() {
     open.value = true;
     await _settle(tester);
     expect(FocusManager.instance.primaryFocus?.context?.findAncestorWidgetOfExactType<BareField>(), isNotNull);
+  });
+
+  testWidgets('a route group other than 直连 and 拦截 can go direct, as on the desktop', (tester) async {
+    final app = _app();
+    for (final id in ['default', 'direct', 'reject']) {
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(_host(app, GroupPage(app: app, id: id)));
+      await _settle(tester);
+      expect(find.text('走节点'), findsNothing, reason: id);
+    }
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai')));
+    await _settle(tester);
+    expect(find.text('节点策略'), findsOneWidget);
+    await tester.tap(find.text('直接连接'));
+    await _settle(tester);
+    expect(_ops.last, {'op': 'setDirect', 'id': 'ai', 'on': true});
+
+    _aiDirect = true;
+    app.routing = _routing();
+    app.notifyListeners();
+    await _settle(tester);
+    expect(find.text('节点策略'), findsNothing);
+    expect(find.textContaining('这个路由组的流量用本机网络访问'), findsOneWidget);
+    expect(find.bySemanticsLabel('更多'), findsOneWidget, reason: 'it can still be renamed and deleted');
+    expect(find.text('服务 · 2'), findsOneWidget, reason: 'its services stay');
+    await tester.tap(find.text('走节点'));
+    await _settle(tester);
+    expect(_ops.last, {'op': 'setDirect', 'id': 'ai', 'on': false});
   });
 }

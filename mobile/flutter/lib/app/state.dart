@@ -14,7 +14,7 @@ class RouteCfg {
 
   final String id;
   String name;
-  final bool direct;
+  bool direct; // a group other than 直连 can be sent direct, and back
   String? node;
   bool auto;
   String policy = 'auto';
@@ -910,12 +910,13 @@ class AppState extends ChangeNotifier {
         continue;
       }
       next.add(r);
+      r.direct = isDirect;
       if (r.direct) continue;
       final core = v['node'] as String? ?? '';
       if (core.isNotEmpty) {
         r.node = _nodeNames[core] ?? core;
         r.auto = v['auto'] as bool? ?? r.auto;
-      } else if (!_seenView) {
+      } else if (!_seenView || r.node == null) { // or back from going direct
         r.node = tr('未连接', 'Not connected');
         r.auto = true;
       }
