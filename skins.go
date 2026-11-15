@@ -243,6 +243,7 @@ var mrRobotPal = pal{
 	signal: ui.Hex("#ff2e3b"), good: ui.Hex("#6f9e72"), warn: ui.Hex("#e6c35c"),
 	route: map[string]ui.Color{"default": ui.Hex("#7a9dd0"), "ai": ui.Hex("#b385b5"), "media": ui.Hex("#d9822b"), "dev": ui.Hex("#88c3c5"), "direct": ui.Hex("#6c7079")},
 	font:  faceMono, display: faceMono, round: 0, glow: ui.RGBA(224, 36, 43, .3), deco: decoMrRobot,
+	console: true,
 }
 
 // The Machine: a surveillance feed. Black, white type, and the three
@@ -400,9 +401,10 @@ func dispIn(e ui.Element, p *pal, col ui.Color) ui.Element {
 	return disp(e, p)
 }
 
-// lit is what is filled with the accent, glowing in a skin that glows.
+// lit is what is filled with the accent, glowing in a skin that glows,
+// unless it has a terminal's manners: there only the big type glows.
 func lit(e ui.Element, p *pal) ui.Element {
-	if p.glow.A > 0 {
+	if p.glow.A > 0 && !p.console {
 		e.Shadow(0, 0, 14, 0, p.accent.Alpha(.5))
 	}
 	return e

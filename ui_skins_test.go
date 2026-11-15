@@ -1,6 +1,7 @@
 package main
 
 import (
+	"runtime"
 	"slices"
 	"testing"
 	"time"
@@ -312,6 +313,161 @@ func TestSamaritanSkin(t *testing.T) {
 		if near(tt, 6, 14, p.paper, 30) {
 			t.Errorf("%s: no bracket in the window's corner: %v", app, tt.Image().At(6, 14))
 		}
+	}
+}
+
+// skinned is the fixture in skin id, and whether that skin draws in the dark
+// here.
+func skinned(u *UI, id string) (*UI, bool) {
+	u.snap.Settings = settings.Defaults.Clone()
+	skinPick(&u.snap.Settings, id)
+	return u, skinByID(id).fixed() == "dark"
+}
+
+// palOf is skin id's palette with its own theme color, as the windows
+// draw it.
+func palOf(id string, dark bool) *pal {
+	k := skinByID(id)
+	p := *k.pal(dark)
+	p.setAccent(k.accent)
+	return &p
+}
+
+// reddish says whether the pixel at x, y is a red: much more red than
+// green.
+func reddish(tt *ui.Tester, x, y int) bool {
+	r, g, _, _ := tt.Image().At(x, y).RGBA()
+	return int(r>>8)-int(g>>8) > 50
+}
+
+// TestSquareSwitch: a skin with a terminal's manners draws its switches
+// square, a box with a square knob in the theme color when on, and they
+// still switch; the others keep the toolkit's round one.
+func TestSquareSwitch(t *testing.T) {
+	title, _ := traySpeedLabel(runtime.GOOS)
+	for _, id := range []string{"paper", "mrrobot"} {
+		u, dark := skinned(fixtureUI(), id)
+		p := palOf(id, dark)
+		tt := ui.NewTesterWith(u.settingsView, 760, 2000, ui.TesterOptions{Dark: dark})
+		tt.Advance(time.Second)
+		sw, ok := tt.AccessByRole(ui.RoleSwitch, title)
+		if !ok {
+			t.Fatalf("%s: no switch for the menu bar's speed among %q", id, tt.Texts())
+		}
+		b := sw.Bounds
+		// A round switch leaves its box's corner to the paper.
+		square := !near(tt, int(b.X), int(b.Y)+1, p.paper, 10)
+		if square != p.console {
+			t.Errorf("%s: the switch's corner is %v, square %v", id, tt.Image().At(int(b.X), int(b.Y)+1), square)
+		}
+		tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
+		tt.Advance(time.Second)
+		if !u.shownSettings().TraySpeed {
+			t.Fatalf("%s: the switch did not switch", id)
+		}
+		sw, _ = tt.AccessByRole(ui.RoleSwitch, title)
+		if !sw.Checked {
+			t.Errorf("%s: the switch does not say it is on", id)
+		}
+		if p.console && !near(tt, int(b.X+b.W)-9, int(b.Y+b.H/2), p.accent, 40) {
+			t.Errorf("%s: no knob in the theme color at the switch's end: %v", id, tt.Image().At(int(b.X+b.W)-9, int(b.Y+b.H/2)))
+		}
+	}
+}
+
+// TestFailTag: a skin whose red also marks what is chosen says a failure
+// in a solid block of the signal color; the others keep the word in it.
+func TestFailTag(t *testing.T) {
+	for _, id := range []string{"paper", "mrrobot"} {
+		u, dark := skinned(actUI(), id)
+		u.act.status = slices.Index(actStatuses, "failed")
+		p := palOf(id, dark)
+		tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: dark})
+		tt.Advance(time.Second)
+		r, ok := tt.Find("失败")
+		if !ok {
+			t.Fatalf("%s: no failed connection among %q", id, tt.Texts())
+		}
+		// Beside the word, inside a tag's padding.
+		x, y := int(r.X)-3, int(r.Y+r.H/2)
+		if block := near(tt, x, y, p.signal, 45); block != p.console {
+			t.Errorf("%s: beside 失败 is %v, a block %v", id, tt.Image().At(x, y), block)
+		}
+	}
+}
+
+// TestConsoleSidebar: in a skin with a terminal's manners the settings'
+// sidebar keeps its icons gray, where the toolkit draws them in the theme
+// color, eleven red marks under 黑客军团; the page chosen is in the theme
+// color, focus or not.
+func TestConsoleSidebar(t *testing.T) {
+	u, dark := skinned(fixtureUI(), "mrrobot")
+	p := palOf("mrrobot", dark)
+	tt := ui.NewTesterWith(u.settingsView, 760, 760, ui.TesterOptions{Dark: dark})
+	tt.Advance(time.Second)
+	r, ok := tt.Find("入站")
+	if !ok {
+		t.Fatalf("no 入站 among %q", tt.Texts())
+	}
+	red, gray := 0, 0
+	for x := int(r.X) - 26; x < int(r.X)-6; x++ {
+		for y := int(r.Y) - 2; y < int(r.Y+r.H)+2; y++ {
+			if reddish(tt, x, y) {
+				red++
+			} else if lighter(tt, x, y, p.paper2, 40) {
+				gray++
+			}
+		}
+	}
+	if red > 0 || gray == 0 {
+		t.Errorf("the icon beside 入站 has %d red pixels and %d gray ones", red, gray)
+	}
+	r, _ = tt.Find("通用")
+	// The label fills the row: look before the icon, inside the row,
+	// where the skin's vignette darkens its red.
+	if x, y := int(r.X)-29, int(r.Y+r.H/2); !reddish(tt, x, y) {
+		t.Errorf("the chosen page's row is %v, not the theme color", tt.Image().At(x, y))
+	}
+	if err := tt.Click("入站"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if u.set.section != "inbound" {
+		t.Errorf("clicking 入站 chose %q", u.set.section)
+	}
+}
+
+// TestConsoleQuiet: a skin with a terminal's manners puts no halo around
+// what is filled with its theme color, and 添加 with nothing to add is an
+// outline, not a dim block of a red that reads as an error.
+func TestConsoleQuiet(t *testing.T) {
+	u, dark := skinned(providersUIFixture(), "mrrobot")
+	tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: dark})
+	tt.Advance(time.Second)
+	r, ok := tt.Find("提供商")
+	if !ok {
+		t.Fatalf("no tab among %q", tt.Texts())
+	}
+	// Just above the chosen tab, where a halo would spill, against the
+	// same height above a tab that is not chosen.
+	other, _ := tt.Find("日志")
+	y := int(r.Y) - 6
+	warm := func(x int) int {
+		r, g, _, _ := tt.Image().At(x, y).RGBA()
+		return int(r>>8) - int(g>>8)
+	}
+	if d := warm(int(r.X+r.W/2)) - warm(int(other.X+other.W/2)); d > 12 {
+		t.Errorf("a halo above the chosen tab: %d redder than above another", d)
+	}
+	add, ok := tt.AccessByRole(ui.RoleButton, "添加")
+	if !ok {
+		t.Fatal("no 添加")
+	}
+	if x, y := int(add.Bounds.X)+5, int(add.Bounds.Y+add.Bounds.H/2); reddish(tt, x, y) {
+		t.Errorf("添加 with nothing to add is filled: %v", tt.Image().At(x, y))
+	}
+	if skinByID("mrrobot").dark.console != true || skinByID("phosphor").dark.console {
+		t.Error("黑客军团 has a terminal's manners, 荧光屏 keeps its glow")
 	}
 }
 

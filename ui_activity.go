@@ -807,7 +807,9 @@ func (u *UI) actRow(c *ui.Context, p *pal, i int, cn Conn) {
 				num(7, fmtBytes(cn.Down), ink)
 				num(8, fmtBytes(cn.Up), p.mute)
 			}
-			if cn.Status == "failed" {
+			if cn.Status == "failed" && p.console {
+				actCell(ui.Row(c).Justify(ui.End).AlignItems(ui.Center), 9).Children(func() { failTag(c, p, i18n.T("失败", "Failed"), 11) })
+			} else if cn.Status == "failed" {
 				num(9, i18n.T("失败", "Failed"), p.signal)
 			} else if cn.Status == "blocked" {
 				num(9, i18n.T("已拦截", "Blocked"), p.warn)

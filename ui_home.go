@@ -1278,6 +1278,10 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 						// stays on one line beside the bars.
 						d, size = i18n.T("超时", "Timeout"), 26
 					}
+					if p.timedOut(ex.Delay, ex.Tested) {
+						failTag(c, p, d, 20)
+						return
+					}
 					disp(ui.Text(c, d), p).FontSize(size).NoWrap().FontWeight(600).LetterSpacing(-1).FontFeatures("tnum").TextColor(delayColor(p, ex.Delay, ex.Tested)).ContentTransition(morphText)
 					if ex.Delay > 0 {
 						ui.Text(c, "ms").FontSize(14).FontWeight(500).TextColor(p.mute)
@@ -1732,7 +1736,11 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 				stabilityBarsIn(c, p, ink.Alpha(.7), n.History, 3, 14).Shrink(0)
 			}
 			ui.Text(c, fmtMs(n.Ping, n.Ping > 0)).FontSize(12).FontFeatures("tnum").Width(nodeColW).Shrink(0).NoWrap().TextAlign(ui.End).TextColor(delayColor(p, n.Ping, n.Ping > 0))
-			ui.Text(c, fmtDelay(n)).FontSize(12).FontFeatures("tnum").Width(nodeColW).Shrink(0).NoWrap().TextAlign(ui.End).TextColor(delayColor(p, n.Delay, n.Tested))
+			if p.timedOut(n.Delay, n.Tested) {
+				ui.Row(c).Width(nodeColW).Shrink(0).Justify(ui.End).AlignItems(ui.Center).Children(func() { failTag(c, p, fmtDelay(n), 11) })
+			} else {
+				ui.Text(c, fmtDelay(n)).FontSize(12).FontFeatures("tnum").Width(nodeColW).Shrink(0).NoWrap().TextAlign(ui.End).TextColor(delayColor(p, n.Delay, n.Tested))
+			}
 			mark := ""
 			switch {
 			case picked, on && q.Mode == routes.ModeFixed:
@@ -1799,6 +1807,10 @@ func (u *UI) siteStrip(c *ui.Context, p *pal, r RouteView, testing bool) {
 					ui.Text(c, s.Name).FontSize(12).FontWeight(500).TextColor(p.ink2).MaxWidth(150).MaxLines(1).Ellipsis("…")
 					if testing {
 						ui.Box(c).Size(36, 10).Radius(p.r(3)).Background(p.mute.Alpha(.2))
+						return
+					}
+					if p.timedOut(s.Delay, s.Tested) {
+						failTag(c, p, fmtMs(s.Delay, s.Tested), 11)
 						return
 					}
 					ui.Text(c, fmtMs(s.Delay, s.Tested)).FontSize(12).FontFeatures("tnum").NoWrap().TextColor(siteColor(p, s.Delay, s.Tested))
@@ -2140,7 +2152,7 @@ func (u *UI) entryWord(c *ui.Context, p *pal, id, word string, e Entry) {
 			label = i18n.T("使用 TUN", "Use TUN")
 		}
 		want := t.On && e.Wanted
-		if ui.Switch(c.Key("switch"), &want).Label(label).Disabled(busy).Shrink(0).Changed() && u.app != nil {
+		if toggle(c.Key("switch"), p, &want).Label(label).Disabled(busy).Shrink(0).Changed() && u.app != nil {
 			u.do(func() error {
 				if id == "sys" {
 					return u.app.setSystemProxy(want)
@@ -2157,7 +2169,7 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 		on := t.On
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, i18n.T("接管", "Takeover")).FontSize(12.5).FontWeight(600).TextColor(p.ink)
-			if ui.Switch(c.Key("master"), &on).Changed() {
+			if toggle(c.Key("master"), p, &on).Changed() {
 				u.do(func() error { return u.app.setTakeover(on) })
 			}
 		})
@@ -2182,7 +2194,7 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 				{i18n.T("自检", "Self-check"), i18n.T("每 2 秒确认系统代理仍指向 bowel", "Checks every 2 seconds that the system proxy still points at bowel")}, {i18n.T("不走代理", "Bypass"), strings.Join(t.Bypass, ", ")}})
 		}, func() {
 			on := t.On && t.System.Wanted
-			if ui.Switch(c.Key("sys"), &on).Disabled(u.pending("entry:sys")).Changed() {
+			if toggle(c.Key("sys"), p, &on).Disabled(u.pending("entry:sys")).Changed() {
 				u.do(func() error { return u.app.setSystemProxy(on) })
 			}
 		})
@@ -2209,7 +2221,7 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 			kv(c, p, [][2]string{{i18n.T("状态", "Status"), status}, {i18n.T("协议栈", "Stack"), tunStackText(u.snap.Settings.TunStack)}, {"DNS", tunDNSText(u.snap.Settings)}})
 		}, func() {
 			on := t.On && t.Tun.Wanted
-			if ui.Switch(c.Key("tun"), &on).Disabled(u.pending("entry:tun")).Changed() {
+			if toggle(c.Key("tun"), p, &on).Disabled(u.pending("entry:tun")).Changed() {
 				u.do(func() error { return u.app.setTun(on) })
 			}
 		})
@@ -2221,7 +2233,7 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 			kv(c, p, [][2]string{{i18n.T("混合端口", "Mixed port"), fmt.Sprintf(i18n.T("%d · HTTP 和 SOCKS5", "%d · HTTP and SOCKS5"), t.Port)}, {i18n.T("局域网", "LAN"), lan}})
 		}, func() {
 			on := t.Lan
-			if ui.Switch(c.Key("lan"), &on).Changed() {
+			if toggle(c.Key("lan"), p, &on).Changed() {
 				u.do(func() error { return u.app.setLan(on) })
 			}
 		})
@@ -2238,7 +2250,7 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 			if u.gatewayShownOn() {
 				ui.Column(c).Margin(5, 0, 0, 0).Children(func() { u.gatewayGuide(c, p, u.toast) })
 			}
-		}, func() { u.gatewaySwitch(c, "gateway", u.toast) })
+		}, func() { u.gatewaySwitch(c, p, "gateway", u.toast) })
 	})
 }
 

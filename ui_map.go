@@ -592,7 +592,11 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 							locTag(c, p, a.node.Where.Source)
 						})
 					})
-					ui.Text(c, fmtDelay(a.node)).FontSize(12).FontFeatures("tnum").TextColor(delayColor(p, a.node.Delay, a.node.Tested))
+					if p.timedOut(a.node.Delay, a.node.Tested) {
+						failTag(c, p, fmtDelay(a.node), 11)
+					} else {
+						ui.Text(c, fmtDelay(a.node)).FontSize(12).FontFeatures("tnum").TextColor(delayColor(p, a.node.Delay, a.node.Tested))
+					}
 				})
 			}
 		})

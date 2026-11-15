@@ -344,7 +344,11 @@ func (u *UI) groupMembers(c *ui.Context, p *pal, g GroupView) {
 			if m.Group {
 				ui.Text(c, i18n.T("路由组", "Route group")).FontSize(11).TextColor(p.mute).NoWrap().Shrink(0)
 			}
-			ui.Text(c, fmtMs(m.Delay, m.Tested)).FontSize(11.5).FontFeatures("tnum").TextColor(delayColor(p, m.Delay, m.Tested)).NoWrap().Shrink(0)
+			if p.timedOut(m.Delay, m.Tested) {
+				failTag(c, p, fmtMs(m.Delay, m.Tested), 10.5)
+			} else {
+				ui.Text(c, fmtMs(m.Delay, m.Tested)).FontSize(11.5).FontFeatures("tnum").TextColor(delayColor(p, m.Delay, m.Tested)).NoWrap().Shrink(0)
+			}
 		})
 	}
 }

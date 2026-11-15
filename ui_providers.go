@@ -272,11 +272,17 @@ func (u *UI) provAddBtn(c *ui.Context, p *pal, click func()) {
 		label = i18n.T("添加中…", "Adding…")
 	}
 	b := ui.ButtonBase(c).Height(36).MinWidth(84).Padding(0, 18).Justify(ui.Center).Radius(p.r(999)).Background(p.accent).Label(i18n.T("添加", "Add"))
-	if strings.TrimSpace(u.prov.input) == "" && !adding {
+	fg := p.onAccent
+	switch empty := strings.TrimSpace(u.prov.input) == "" && !adding; {
+	case empty && p.console:
+		// A dim block of a red theme color reads as an error: an outline.
+		b.Background(ui.Color{}).BorderWidth(1).BorderColor(p.hair)
+		fg = p.mute
+	case empty:
 		b.Opacity(.35)
 	}
 	b.OnClick(click).Children(func() {
-		shimmer(ui.Text(c, label).FontSize(12.5).FontWeight(600).TextColor(p.onAccent), adding, p).TextColor(p.onAccent)
+		shimmer(ui.Text(c, label).FontSize(12.5).FontWeight(600).TextColor(fg), adding, p).TextColor(fg)
 	})
 }
 
@@ -769,6 +775,10 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 					ui.Text(c, fmtMs(n.Ping, n.Ping > 0)).FontSize(12).FontWeight(600).TextColor(delayColor(p, n.Ping, n.Ping > 0)).NoWrap()
 				},
 				func() {
+					if p.timedOut(n.Delay, n.Tested) {
+						failTag(c, p, fmtDelay(n), 11)
+						return
+					}
 					ui.Text(c, fmtDelay(n)).FontSize(12).FontWeight(600).TextColor(delayColor(p, n.Delay, n.Tested)).NoWrap()
 				},
 				func() {

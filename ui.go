@@ -700,6 +700,45 @@ func splitRate(b int64) (string, string) {
 	return v, unit + "/s"
 }
 
+// toggle is a switch: the toolkit's, or in a skin with a terminal's
+// manners a square box whose square knob takes the theme color when on.
+func toggle(c *ui.Context, p *pal, on *bool) ui.Element {
+	if !p.console {
+		return ui.Switch(c, on)
+	}
+	sw := ui.SwitchBase(c, on).Size(36, 20).BorderWidth(1).BorderColor(p.hair)
+	var target float32
+	if *on {
+		target = 1
+		sw.BorderColor(p.accentLine)
+	}
+	pos := sw.Animate("knob", target, 140*time.Millisecond)
+	return sw.Draw(func(pt *ui.Painter, r ui.Rect) {
+		const in, d = 4, 12
+		pt.Fill(ui.Rect{X: r.X + in + pos*(r.W-d-2*in), Y: r.Y + in, W: d, H: d}, p.mute.Mix(p.accent, pos), 0)
+	})
+}
+
+// failTag is a status word for a failure, 失败 or 超时, as a skin with a
+// terminal's manners says it: on a solid block of the signal color. Where
+// the theme color is a red too, the word alone in red reads as one more
+// thing chosen. The other skins keep the word in the signal color.
+func failTag(c *ui.Context, p *pal, text string, size float32) ui.Element {
+	on := p.paper
+	if w := ui.Hex("#ffffff"); contrast(w, p.signal) > contrast(on, p.signal) {
+		on = w
+	}
+	e := ui.Row(c).Padding(1, 5).Shrink(0).Background(p.signal)
+	e.Children(func() {
+		ui.Text(c, text).FontSize(size).FontWeight(700).TextColor(on).NoWrap()
+	})
+	return e
+}
+
+// timedOut says whether a delay is one p says in a failTag: tested, and
+// nothing came back.
+func (p *pal) timedOut(ms int, tested bool) bool { return p.console && tested && ms <= 0 }
+
 func fmtDelay(n NodeView) string { return fmtMs(n.Delay, n.Tested) }
 
 func fmtMs(ms int, tested bool) string {
