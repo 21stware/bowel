@@ -495,6 +495,12 @@ func Call(method, payload string) (string, error) {
 		return encode(d)
 	case "tailnetLogout":
 		return "null", x.tailnetLogout(ctx)
+	case "checkUpdate":
+		d, err := x.checkUpdate(ctx, args.Version)
+		if err != nil {
+			return "", err
+		}
+		return encode(d)
 	}
 	return "", fmt.Errorf("unknown method %q", method)
 }
@@ -521,6 +527,7 @@ type callArgs struct {
 	Order     []string        `json:"order"`
 	Targets   []routes.Target `json:"targets"`
 	Patch     json.RawMessage `json:"patch"`
+	Version   string          `json:"version"`
 }
 
 func encode(v any) (string, error) {
