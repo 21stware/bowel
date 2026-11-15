@@ -570,6 +570,109 @@ func TestTagStyles(t *testing.T) {
 	}
 }
 
+// anyNear says whether a pixel of the rectangle from x0, y0 to x1, y1 is
+// within d of col.
+func anyNear(tt *ui.Tester, x0, y0, x1, y1 int, col ui.Color, d int) bool {
+	for x := x0; x < x1; x++ {
+		for y := y0; y < y1; y++ {
+			if near(tt, x, y, col, d) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// TestBracketPick: The Machine marks what is chosen with a box of
+// brackets in its yellow, not with a fill: the chosen tab is paper inside
+// with yellow at its corner, the chosen mode and the exit's name stand in
+// a box, and the settings' chosen page is not a yellow row. A skin
+// without brackets keeps its filled tab and draws no box.
+func TestBracketPick(t *testing.T) {
+	for _, id := range []string{"paper", "machine"} {
+		u, dark := skinned(fixtureUI(), id)
+		p := palOf(id, dark)
+		brackets := p.pick == "bracket"
+		tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: dark})
+		tt.Advance(time.Second)
+		r, ok := tt.Find("代理")
+		if !ok {
+			t.Fatalf("%s: no tab among %q", id, tt.Texts())
+		}
+		// Inside the tab, before its word.
+		x, y := int(r.X)-8, int(r.Y+r.H/2)
+		if filled := near(tt, x, y, p.accent, 30); filled == brackets {
+			t.Errorf("%s: inside the chosen tab is %v, filled %v", id, tt.Image().At(x, y), filled)
+		}
+		// The tab's top left corner, 16 before and 4 above its word.
+		if corner := anyNear(tt, int(r.X)-18, int(r.Y)-6, int(r.X)-12, int(r.Y), p.accentLine, 40); brackets && !corner {
+			t.Errorf("%s: no bracket at the chosen tab's corner", id)
+		}
+		r, ok = tt.Find("规则")
+		if !ok {
+			t.Fatalf("%s: no mode among %q", id, tt.Texts())
+		}
+		// Before the chosen mode's word, where its box begins.
+		if box := anyNear(tt, int(r.X)-12, int(r.Y)-8, int(r.X), int(r.Y+r.H/2), p.accentLine, 40); box != brackets {
+			t.Errorf("%s: a box round the chosen mode %v", id, box)
+		}
+		r, ok = tt.Find("香港 03 IPLC")
+		if !ok {
+			t.Fatalf("%s: no exit among %q", id, tt.Texts())
+		}
+		// Before the flag, where the box round the exit's name begins.
+		if box := anyNear(tt, int(r.X)-75, int(r.Y)-8, int(r.X)-45, int(r.Y+r.H)+8, p.accentLine, 40); box != brackets {
+			t.Errorf("%s: a box before the exit's flag %v", id, box)
+		}
+	}
+	u, dark := skinned(fixtureUI(), "machine")
+	p := palOf("machine", dark)
+	tt := ui.NewTesterWith(u.settingsView, 760, 760, ui.TesterOptions{Dark: dark})
+	tt.Advance(time.Second)
+	r, ok := tt.Find("通用")
+	if !ok {
+		t.Fatalf("no 通用 among %q", tt.Texts())
+	}
+	if x, y := int(r.X)-29, int(r.Y+r.H/2); near(tt, x, y, p.accent, 60) {
+		t.Errorf("the settings' chosen page is a filled row: %v", tt.Image().At(x, y))
+	}
+	if !anyNear(tt, int(r.X)-26, int(r.Y)-2, int(r.X)-6, int(r.Y+r.H)+2, p.accentLine, 60) {
+		t.Error("the chosen page's icon is not in the theme color")
+	}
+}
+
+// TestBlockHero: Samaritan stands the exit's name on a block of its red,
+// which hugs the flag and the name; the tab stays filled.
+func TestBlockHero(t *testing.T) {
+	for _, id := range []string{"paper", "samaritan"} {
+		u, dark := skinned(fixtureUI(), id)
+		p := palOf(id, dark)
+		tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Dark: dark})
+		tt.Advance(time.Second)
+		r, ok := tt.Find("香港 03 IPLC")
+		if !ok {
+			t.Fatalf("%s: no exit among %q", id, tt.Texts())
+		}
+		// Between the flag and the name.
+		x, y := int(r.X)-4, int(r.Y+r.H/2)
+		if block := near(tt, x, y, p.accent, 30); block != (p.pick == "block") {
+			t.Errorf("%s: beside the exit's name is %v, a block %v", id, tt.Image().At(x, y), block)
+		}
+		// The block ends with the name, which keeps to one line in it: the
+		// far side of the cell is paper.
+		if r.H > 70 {
+			t.Errorf("%s: the exit's name is %v high, on two lines", id, r.H)
+		}
+		if x := int(r.X+r.W) + 14; x < 398 && near(tt, x, y, p.accent, 30) {
+			t.Errorf("%s: the block runs on past the name to %d", id, x)
+		}
+		r, _ = tt.Find("代理")
+		if x, y := int(r.X)-8, int(r.Y+r.H/2); !near(tt, x, y, p.accent, 30) {
+			t.Errorf("%s: the chosen tab is not filled: %v", id, tt.Image().At(x, y))
+		}
+	}
+}
+
 func TestSkinShots(t *testing.T) {
 	if testing.Short() {
 		t.Skip()

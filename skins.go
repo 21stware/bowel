@@ -721,6 +721,35 @@ func cornerBrackets(pt *ui.Painter, r ui.Rect, arm, w float32, col ui.Color) {
 	}
 }
 
+// bracketBox is the box a camera puts round what it found: a dashed line
+// round r with a solid bracket in each corner, and with ticks a short
+// mark out of the middle of each side.
+func bracketBox(pt *ui.Painter, r ui.Rect, col ui.Color, ticks bool) {
+	var box ui.Path
+	box.MoveTo(r.X+.5, r.Y+.5).LineTo(r.X+r.W-.5, r.Y+.5).LineTo(r.X+r.W-.5, r.Y+r.H-.5).LineTo(r.X+.5, r.Y+r.H-.5).Close().Dash(0, 3, 3)
+	pt.StrokePath(&box, 1, col.Alpha(.55))
+	cornerBrackets(pt, r, min(8, min(r.W, r.H)/3), 2, col)
+	if !ticks {
+		return
+	}
+	const tick = 5
+	cx, cy := r.X+r.W/2, r.Y+r.H/2
+	pt.Fill(ui.Rect{X: cx - 1, Y: r.Y - tick, W: 2, H: tick}, col, 0)
+	pt.Fill(ui.Rect{X: cx - 1, Y: r.Y + r.H, W: 2, H: tick}, col, 0)
+	pt.Fill(ui.Rect{X: r.X - tick, Y: cy - 1, W: tick, H: 2}, col, 0)
+	pt.Fill(ui.Rect{X: r.X + r.W, Y: cy - 1, W: tick, H: 2}, col, 0)
+}
+
+// picked marks e as the one chosen in a skin that says so with brackets;
+// the fill or the ring the other skins give it is the caller's to leave
+// out. It takes e's Draw.
+func picked(e ui.Element, p *pal, on bool) ui.Element {
+	if on && p.brackets() {
+		e.Draw(func(pt *ui.Painter, r ui.Rect) { bracketBox(pt, r, p.accentLine, false) })
+	}
+	return e
+}
+
 // frameBrackets is the bracket in each corner of a window, or, smaller,
 // of a preview of one.
 func frameBrackets(pt *ui.Painter, r ui.Rect, col ui.Color) {

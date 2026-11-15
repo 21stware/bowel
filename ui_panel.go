@@ -335,10 +335,10 @@ func (u *UI) panelMode(c *ui.Context, p *pal) {
 			for _, m := range []string{"rule", "global", "direct"} {
 				on := s.Mode == m
 				b := ui.ButtonBase(c.Key("mode-"+m)).Padding(3, 13).Radius(p.r(6)).Label(panelModeName(m))
-				if on {
+				if on && !p.brackets() {
 					b.Background(p.card).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, .12))
 				}
-				b.OnClick(func() {
+				picked(b, p, on).OnClick(func() {
 					if !on && u.app != nil {
 						u.do(func() error { return u.app.setMode(m) })
 					}

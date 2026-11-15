@@ -488,9 +488,12 @@ func actSeg(c *ui.Context, p *pal, sel *int, labels []string) ui.Element {
 			s := p.named(seg.Segment(i).Padding(3, 11).Radius(p.r(6)), l)
 			col, w := p.ink2, 500
 			if i == *sel {
-				s.Background(p.card).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, .12))
+				if !p.brackets() {
+					s.Background(p.card).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, .12))
+				}
 				col, w = p.ink, 600
 			}
+			picked(s, p, i == *sel)
 			s.Children(func() { p.lab(ui.Text(c, p.cap(l))).FontSize(12).FontWeight(w).TextColor(col).NoWrap() })
 		}
 	})

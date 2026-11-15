@@ -385,18 +385,25 @@ func titleBarHeight(c *ui.Context) float32 { return max(c.TitleBar().Height, 50)
 func (u *UI) titleBar(c *ui.Context, p *pal) {
 	bar := c.TitleBar()
 	ui.Row(c).Height(titleBarHeight(c)).Padding(0, bar.Right+16, 0, bar.Left+14).Gap(16).AlignItems(ui.Center).DragWindow().Children(func() {
-		ui.Row(c).Gap(2).Padding(3).Radius(p.r(10)).Background(p.hair2).Shrink(0).Children(func() {
+		track := ui.Row(c).Gap(2).Padding(3).Radius(p.r(10)).Shrink(0)
+		if !p.brackets() {
+			track.Background(p.hair2)
+		}
+		track.Children(func() {
 			for _, pg := range pages {
 				id := pg.id
 				on := u.page == id
 				b := p.named(ui.ButtonBase(c.Key(id)).Padding(4, 16).Radius(p.r(7)), i18n.T(pg.zh, pg.en))
-				if on {
+				if on && !p.brackets() {
 					lit(b.Background(p.accent), p)
 				}
-				b.OnClick(func() { u.page = id }).Children(func() {
+				picked(b, p, on).OnClick(func() { u.page = id }).Children(func() {
 					ui.Row(c).Gap(6).Children(func() {
 						col := p.ink2
-						if on {
+						switch {
+						case on && p.brackets():
+							col = p.ink
+						case on:
 							col = p.onAccent
 						}
 						p.lab(ui.Text(c, p.cap(i18n.T(pg.zh, pg.en)))).FontSize(13).FontWeight(600).TextColor(col)
@@ -1004,10 +1011,14 @@ func (p *pal) lab(e ui.Element) ui.Element {
 // named gives b, a button whose label is drawn in capitals, the label as
 // written for assistive technology.
 func (p *pal) named(b ui.Element, label string) ui.Element {
-	if p.caps {
+	if p.cap(label) != label {
 		b.Label(label)
 	}
 	return b
 }
+
+// brackets says whether p marks what is chosen with a box of brackets,
+// in place of a fill or a ring.
+func (p *pal) brackets() bool { return p.pick == "bracket" }
 
 var _ = math.Pi

@@ -1213,11 +1213,33 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 		case len(s.Nodes) == 0 && s.Mode != "direct":
 			headline = i18n.T("还没有节点", "No nodes yet")
 		}
-		size := heroSize(c, headline, room, ok)
+		fit := room
+		if ok && p.pick != "" && room > 10 {
+			fit -= 10 // the far padding of the box or block round the name
+		}
+		size := heroSize(c, headline, fit, ok)
 		u.share(c, exitMatch{"default"}, "exit", func(c *ui.Context) ui.Element {
 			text := func() ui.Element {
 				return shimmer(disp(ui.Text(c, headline), p).FontSize(size).FontWeight(700).LetterSpacing(-.8*size/heroBig).TextColor(p.ink).
 					MaxLines(2).ContentTransition(morphText), switching, p)
+			}
+			if ok && p.pick != "" {
+				// A node's name in the skin's box, or on its block, which
+				// hugs the flag and the name and juts out of the column so
+				// that the flag stays in line with what is under it.
+				return ui.Row(c).Margin(8, 0, -4, -10).Children(func() {
+					box := flagged(c, p, ex, size, func() {
+						t := text().Shrink(1).MinWidth(0)
+						if p.pick == "block" {
+							t.TextColor(p.onAccent) // while switching too
+						}
+					}).Padding(4, 10).Shrink(1).MinWidth(0)
+					if p.pick == "block" {
+						box.Background(p.accent)
+					} else {
+						box.Draw(func(pt *ui.Painter, r ui.Rect) { bracketBox(pt, r, p.accentLine, true) })
+					}
+				})
 			}
 			if ok {
 				return flagged(c, p, ex, size, func() { text().Grow(1).Basis(0) }).Margin(12, 0, 0, 0)
@@ -1298,9 +1320,10 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 				pill(c, p, i18n.T("换节点", "Change node"), true).OnClick(func() { u.home.x = "hero" })
 				def := u.route("default")
 				g := pill(c, p, i18n.T("自动选最快", "Auto-pick fastest"), false)
-				if def.Auto {
+				if def.Auto && !p.brackets() {
 					g.Border(1.5, p.ink)
 				}
+				picked(g, p, def.Auto)
 				g.OnClick(func() {
 					if !def.Auto {
 						u.do(func() error { return u.app.selectNode("default", "") })
@@ -1975,6 +1998,10 @@ func (u *UI) modeNormal(c *ui.Context, p *pal) {
 						u.do(func() error { return u.app.setMode(m) })
 					}
 				})
+				if p.brackets() {
+					// Room for the box round the word, taken from between the words.
+					picked(b.Padding(3, 8).Margin(-3, -8), p, on)
+				}
 				b.Children(func() {
 					col := p.faint
 					if on {

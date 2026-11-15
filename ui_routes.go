@@ -199,10 +199,10 @@ func (u *UI) stratSeg(c *ui.Context, p *pal, rid string) {
 		for _, mode := range routes.Modes {
 			on := cur == mode
 			b := p.named(ui.ButtonBase(c.Key(mode)).Padding(3, 11).Radius(p.r(6)), modeName(mode))
-			if on {
+			if on && !p.brackets() {
 				b.Background(p.card).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, .12))
 			}
-			b.OnClick(func() { u.setStrategy(rid, mode) }).Children(func() {
+			picked(b, p, on).OnClick(func() { u.setStrategy(rid, mode) }).Children(func() {
 				w := 500
 				if on {
 					w = 600
@@ -242,6 +242,8 @@ func (u *UI) exitChoice(c *ui.Context, p *pal, rid string) {
 	opt := func(key, title, sub string, on bool, onClick func()) {
 		b := ui.ButtonBase(c.Key(key)).Column().Gap(1).Grow(1).Basis(0).MinWidth(0).Padding(9, 12).Radius(p.r(8)).AlignItems(ui.Start)
 		switch {
+		case on && p.brackets():
+			picked(b.Border(1, p.hair), p, on)
 		case on:
 			b.Border(1.5, p.ink)
 		default:

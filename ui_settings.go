@@ -299,15 +299,23 @@ func coreStateWord(state string) string {
 // toolkit draws every icon in the theme color and fills the chosen row
 // only while the sidebar has the focus; here the icon is painted gray in
 // the room left for it, and the chosen row is in the theme color, focus
-// or not.
+// or not: filled with it, or in a box of brackets where the skin has
+// those.
 func sideItem(c *ui.Context, p *pal, id string, icon *ui.SVG, label string, on bool) {
 	e := ui.SidebarItem(c.Key(id), id, nil, label).Padding(6, 8, 6, 32)
 	col := p.mute
-	if on {
+	switch {
+	case on && p.brackets():
+		e.Background(ui.Color{}).TextColor(p.accentLine)
+		col = p.accentLine
+	case on:
 		e.Background(p.accent).TextColor(p.onAccent)
 		col = p.onAccent
 	}
 	e.Draw(func(pt *ui.Painter, r ui.Rect) {
+		if on && p.brackets() {
+			bracketBox(pt, r, p.accentLine, false)
+		}
 		pt.Icon(icon, ui.Rect{X: r.X + 8, Y: r.Y + (r.H-16)/2, W: 16, H: 16}, col)
 	})
 }
@@ -673,9 +681,12 @@ func (u *UI) skinCard(c *ui.Context, p *pal, k *skin, on bool) {
 	ring := ui.Transparent
 	b := ui.ButtonBase(c.Key("skin-" + k.id)).Column().Width(158).Gap(7).Padding(4).Radius(p.r(12)).
 		Label(k.name()).Tooltip(k.note())
-	if on {
+	switch {
+	case on && p.brackets():
+		picked(b, p, on)
+	case on:
 		ring = p.ink
-	} else if b.Hovered() {
+	case b.Hovered():
 		ring = p.hair
 	}
 	b.Border(1.5, ring).OnClick(func() {
