@@ -194,6 +194,7 @@ type groupData struct {
 	Reject    bool            `json:"reject"`
 	Custom    bool            `json:"custom"`
 	Movable   bool            `json:"movable"` // not one of the fixed groups, which keep their place
+	Chooses   bool            `json:"chooses"` // between a node and going direct, which Direct then says
 	Mode      string          `json:"mode"`
 	Regions   []string        `json:"regions"`
 	Providers []string        `json:"providers"`
@@ -276,7 +277,7 @@ func (x *bridge) routing() routingData {
 	}
 	slices.SortFunc(out.Regions, func(a, b regionData) int { return b.Count - a.Count })
 	for _, r := range all {
-		g := groupData{ID: r.ID, Name: routes.Title(r), Summary: routes.Describe(r), Direct: r.Direct, Reject: r.Reject, Custom: r.Custom, Movable: !routes.Fixed(r.ID),
+		g := groupData{ID: r.ID, Name: routes.Title(r), Summary: routes.Describe(r), Direct: r.Direct, Reject: r.Reject, Custom: r.Custom, Movable: !routes.Fixed(r.ID), Chooses: choosesExit(r.ID),
 			Mode: r.Policy.Mode, Regions: nonNil(r.Policy.Regions), Providers: nonNil(r.Policy.Providers), Order: nonNil(r.Policy.Order), Fixed: r.Policy.Fixed,
 			Services: []serviceData{}, Targets: []routes.Target{}, Sites: []siteDelay{}}
 		if !r.Direct && !r.Reject {
@@ -468,6 +469,15 @@ func (x *bridge) routeOp(ctx context.Context, a callArgs) error {
 		return x.change(ctx, func(s *settings.Settings) {
 			s.Routing.ChangePolicy(a.ID, func(q *routes.Policy) { q.Order = a.Order })
 		})
+	case "setDirect":
+		if !choosesExit(a.ID) {
+			return errors.New(i18n.T("没有这条路由", "No such route"))
+		}
+		if err := x.change(ctx, func(s *settings.Settings) { s.Routing.ChangePolicy(a.ID, func(q *routes.Policy) { q.Direct = a.On }) }); err != nil {
+			return err
+		}
+		x.closeRoute(ctx, a.ID)
+		return nil
 	case "setFixed":
 		return x.change(ctx, func(s *settings.Settings) { s.Routing.PickNode(a.ID, a.Node) })
 	case "newGroup":
@@ -531,6 +541,31 @@ func (x *bridge) routeOp(ctx context.Context, a callArgs) error {
 		return x.setRule(ctx, r, true)
 	}
 	return errors.New("unknown route operation " + a.Op)
+}
+
+// choosesExit says whether group id can be sent direct from the phone, as
+// on the desktop: all but 直连 and 拦截, which never use a node, and 其他流量,
+// whose choice the phone has no place for yet.
+func choosesExit(id string) bool { return routes.ChoosesExit(id) && id != routes.Default }
+
+// closeRoute closes the connections on group id, so that a change of where
+// it leaves shows.
+func (x *bridge) closeRoute(ctx context.Context, id string) {
+	c, err := x.core()
+	if err != nil {
+		return
+	}
+	snap, err := c.Connections(ctx)
+	if err != nil {
+		return
+	}
+	all := x.routes()
+	for _, cn := range snap.Connections {
+		if len(cn.Chains) > 0 && routeOfGroup(all, cn.Chains[len(cn.Chains)-1]) == id {
+			_ = c.CloseConnection(ctx, cn.ID)
+		}
+	}
+	x.mon.Wake()
 }
 
 func cmpService(service, route string) string {

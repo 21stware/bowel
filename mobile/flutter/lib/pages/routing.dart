@@ -333,6 +333,26 @@ class _GroupPageState extends State<GroupPage> {
     app.routeOp('setScope', {'id': id, 'regions': regions ?? _strs(g, 'regions'), 'providers': providers ?? _strs(g, 'providers')});
   }
 
+  /// Where the group's traffic leaves, as on the desktop: by a node, or
+  /// directly. It comes before the node strategy, which only the first has.
+  Widget _exit(Look l, Map g) {
+    final direct = g['direct'] == true;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Seg<bool>(
+          options: [(false, tr('走节点', 'Via a node')), (true, tr('直接连接', 'Direct'))],
+          value: direct,
+          padH: 14,
+          onChanged: (v) {
+            if (v != direct) app.routeOp('setDirect', {'id': id, 'on': v});
+          },
+        ),
+      ),
+    );
+  }
+
   Widget _chips(List<Widget> kids) => Padding(padding: const EdgeInsets.only(top: 6, bottom: 4), child: Wrap(spacing: 4, runSpacing: 4, children: kids));
 
   /// Where the group is going now, and why not when it can't.
@@ -816,8 +836,8 @@ class _GroupPageState extends State<GroupPage> {
         final g = _g;
         if (g == null) return SubPage(title: tr('路由组', 'Route groups'), children: const []);
         _scrollWhenReady(g);
-        final direct = g['direct'] == true, reject = g['reject'] == true;
-        final canEdit = id != 'default' && !direct;
+        final direct = g['direct'] == true, reject = g['reject'] == true, chooses = g['chooses'] == true;
+        final canEdit = id != 'default' && (!direct || chooses);
         final named = _list(g, 'services').where((s) => s['mine'] != true).length;
         return SubPage(
           title: g['name'] as String? ?? id,
@@ -828,8 +848,14 @@ class _GroupPageState extends State<GroupPage> {
           ],
           children: [
             Padding(padding: const EdgeInsets.fromLTRB(16, 2, 16, 0), child: Text(_countLine(g), style: l.text(13, color: l.mute, lh: 18))),
+            if (chooses) _exit(l, g),
             if (reject)
               _note(l, tr('命中这里规则的连接会被拒绝，不经过节点，所以没有节点策略。', "Connections matching the rules here are refused, with no node, so there's no node strategy."))
+            else if (direct && chooses)
+              _note(
+                  l,
+                  tr('这个路由组的流量用本机网络访问，不经过节点。节点策略会保留，切回「走节点」后和原来一样。', "This group's traffic uses this machine's network, with no node. Its node strategy is kept, and is as it was once you switch back to a node.") +
+                      (app.mode == 'global' ? tr('现在是全局模式，所有流量仍走节点，回到规则模式后生效。', " Global mode sends everything through a node, so this applies once you're back in rule mode.") : ''))
             else if (direct)
               _note(l, tr('这里的流量直接连接，不经过节点，所以没有节点策略。', "Traffic here connects directly, with no node, so there's no node strategy."))
             else

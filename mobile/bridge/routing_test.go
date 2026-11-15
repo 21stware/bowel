@@ -435,3 +435,59 @@ func TestHideNode(t *testing.T) {
 		t.Fatal("a name with no provider was accepted")
 	}
 }
+
+// A group other than 直连 and 拦截 can go direct, as on the desktop: it keeps
+// its rules and its strategy, and in the core it is a group of its own
+// holding DIRECT alone.
+func TestGroupGoesDirect(t *testing.T) {
+	x := testBridge(t)
+	ctx := context.Background()
+	if g := group(t, x, "AI 服务"); g.Direct || !g.Chooses {
+		t.Fatalf("before: %+v", g)
+	}
+	for _, id := range []string{"direct", routes.Reject, routes.Default} {
+		if g := x.routing().Groups[slices.IndexFunc(x.routing().Groups, func(g groupData) bool { return g.ID == id })]; g.Chooses {
+			t.Errorf("%s offers the choice", id)
+		}
+		if err := x.routeOp(ctx, callArgs{Op: "setDirect", ID: id, On: true}); err == nil {
+			t.Errorf("%s: no error", id)
+		}
+	}
+	if err := x.routeOp(ctx, callArgs{Op: "setStrategy", ID: "ai", Mode: routes.ModeOrder}); err != nil {
+		t.Fatal(err)
+	}
+	if err := x.routeOp(ctx, callArgs{Op: "setDirect", ID: "ai", On: true}); err != nil {
+		t.Fatal(err)
+	}
+	g := group(t, x, "AI 服务")
+	if !g.Direct || !g.Chooses || g.Mode != routes.ModeOrder {
+		t.Fatalf("after going direct: %+v", g)
+	}
+	r, _ := x.route("ai")
+	name := routes.Group(r)
+	cfg := config(t, x)
+	var held []any
+	for _, it := range cfg["proxy-groups"].([]any) {
+		m := it.(map[string]any)
+		if m["name"] == name {
+			held, _ = m["proxies"].([]any)
+		}
+		if m["name"] == routes.Auto(r) {
+			t.Errorf("node group kept: %v", m)
+		}
+	}
+	if len(held) != 1 || held[0] != "DIRECT" {
+		t.Fatalf("%s holds %v, want DIRECT alone", name, held)
+	}
+	raw, _ := json.Marshal(cfg["rules"])
+	if !strings.Contains(string(raw), "chatgpt.com,"+name) {
+		t.Fatalf("rules no longer go to %s: %s", name, raw)
+	}
+
+	if err := x.routeOp(ctx, callArgs{Op: "setDirect", ID: "ai", On: false}); err != nil {
+		t.Fatal(err)
+	}
+	if g := group(t, x, "AI 服务"); g.Direct || g.Mode != routes.ModeOrder {
+		t.Fatalf("back on a node: %+v", g)
+	}
+}
