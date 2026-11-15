@@ -249,7 +249,7 @@ var mrRobotPal = pal{
 // The Machine: a surveillance feed. Black, white type, and the three
 // colors of its boxes: white for what is well, yellow for what is chosen,
 // red for what failed. Labels are in capitals in a geometric face, data in
-// a monospace. Its colors are sampled from stills; none are published.
+// a monospace.
 var machinePal = pal{
 	dark:  true,
 	paper: ui.Hex("#050505"), paper2: ui.Hex("#101010"), card: ui.Hex("#0b0b0b"), sheet: ui.Hex("#141414"),

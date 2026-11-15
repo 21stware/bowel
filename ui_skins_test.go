@@ -266,8 +266,8 @@ func TestMachineSkin(t *testing.T) {
 	}
 }
 
-// TestSamaritanSkin: Samaritan follows the appearance, white as the show
-// has it or dark, and brings its red, with white on it, in both; it is in
+// TestSamaritanSkin: Samaritan follows the appearance, white or dark,
+// and brings its red, with white on it, in both; it is in
 // one monospace with square corners; it asks for a block under the current
 // exit, outlined tags, capitals, crosshairs on the map and a terminal's
 // manners; and its texture leaves each paper its own, with a bracket in
