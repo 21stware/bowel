@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -122,6 +123,116 @@ func TestRoutesAddRule(t *testing.T) {
 	sv, ok := routes.FindRule(routes.Build(s.Routing, s.Rules), "DOMAIN-SUFFIX,netflix.com")
 	if !ok || sv.ID != "claude" {
 		t.Errorf("after moving: %+v %v", sv, ok)
+	}
+}
+
+// TestRoutesEditRule: a rule of the user's is edited in its row: its value
+// and kind keep it in its service and place, another route group puts it in
+// that group's own rules, a rule another service has is refused, and
+// Escape leaves it as it was.
+func TestRoutesEditRule(t *testing.T) {
+	u := routesFixture()
+	mine := routes.UserRule{Kind: routes.KindSuffix, Value: "chat.example.com", Route: "ai", Service: "claude"}
+	other := routes.UserRule{Kind: routes.KindDomain, Value: "x.example.com", Route: "ai", Service: "claude"}
+	u.snap.Settings.Rules = []routes.UserRule{mine, other}
+	u.selectGroup("ai")
+	u.routes.svc = "claude"
+	tt := ui.NewTester(u.view, 1060, 884)
+	tt.Advance(time.Second)
+
+	edit := func(value string) {
+		t.Helper()
+		if err := tt.Click("编辑"); err != nil {
+			t.Fatalf("%v: %q", err, tt.Texts())
+		}
+		tt.Frame()
+		f, ok := tt.AccessByRole(ui.RoleTextField, "编辑规则")
+		if !ok || f.Value != value {
+			t.Fatalf("no field holding the rule: %+v %v", f, ok)
+		}
+	}
+	rules := func() []routes.UserRule { return u.shownSettings().Rules }
+
+	edit("chat.example.com")
+	if !hasTextPart(tt, "保存后") {
+		t.Errorf("no preview: %q", tt.Texts())
+	}
+	u.routes.editVal, u.routes.editKind = "", routes.KindKeyword
+	typeInto(t, tt, "编辑规则", "chat")
+	shot(t, tt, "routes-edit-rule")
+	tt.Key(0, ui.KeyEnter)
+	tt.Advance(100 * time.Millisecond)
+	want := routes.UserRule{Kind: routes.KindKeyword, Value: "chat", Route: "ai", Service: "claude"}
+	if got := rules(); len(got) != 2 || got[0] != want || got[1] != other {
+		t.Fatalf("after Enter: %+v", got)
+	}
+	if _, ok := tt.AccessByRole(ui.RoleTextField, "编辑规则"); ok {
+		t.Error("the row is still being edited")
+	}
+
+	edit("chat")
+	u.routes.editRoute = "dev"
+	tt.Frame()
+	if err := tt.Click("保存"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(100 * time.Millisecond)
+	want = routes.UserRule{Kind: routes.KindKeyword, Value: "chat", Route: "dev"}
+	if got := rules(); len(got) != 2 || got[0] != want {
+		t.Fatalf("to another group: %+v", got)
+	}
+
+	// x.example.com is left in Claude; netflix.com is Netflix's.
+	edit("x.example.com")
+	u.routes.editVal, u.routes.editKind = "netflix.com", routes.KindSuffix
+	tt.Frame()
+	tt.Key(0, ui.KeyEnter)
+	tt.Advance(100 * time.Millisecond)
+	if !hasTextPart(tt, "一条规则只能属于一个服务") || hasTextPart(tt, "移过来") {
+		t.Fatalf("no refusal, or one offering to move: %q", tt.Texts())
+	}
+	shot(t, tt, "routes-edit-conflict")
+	if got := rules(); !slices.Equal(got, []routes.UserRule{want, other}) {
+		t.Fatalf("a refused edit changed the rules: %+v", got)
+	}
+
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if _, ok := tt.AccessByRole(ui.RoleTextField, "编辑规则"); ok || u.routes.editing != "" {
+		t.Error("Escape did not end editing")
+	}
+	if got := rules(); !slices.Equal(got, []routes.UserRule{want, other}) {
+		t.Fatalf("after Escape: %+v", got)
+	}
+
+	// The groups to pick from are in the sidebar's order: 其他流量 last.
+	edit("x.example.com")
+	sel, ok := tt.AccessByRole(ui.RolePopUpButton, "路由组")
+	if !ok {
+		t.Fatalf("no route select: %q", tt.Texts())
+	}
+	tt.ClickAt(sel.Bounds.X+sel.Bounds.W/2, sel.Bounds.Y+sel.Bounds.H/2)
+	tt.Frame()
+	var opts []ui.AccessInfo
+	for _, a := range tt.AccessAll() {
+		if a.Role == ui.RoleOption {
+			opts = append(opts, a)
+		}
+	}
+	slices.SortFunc(opts, func(a, b ui.AccessInfo) int { return cmp.Compare(a.Bounds.Y, b.Bounds.Y) })
+	if len(opts) < 2 || opts[len(opts)-1].Name != "其他流量" {
+		var names []string
+		for _, o := range opts {
+			names = append(names, o.Name)
+		}
+		t.Errorf("route options %q, want 其他流量 last", names)
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+
+	u.selectGroup("ai")
+	if u.routes.editing != "" {
+		t.Error("another group kept the edit")
 	}
 }
 

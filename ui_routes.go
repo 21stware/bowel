@@ -46,6 +46,11 @@ type routesUI struct {
 	conflict            *ruleConflict
 	picker              appPicker // the apps a rule of kind 应用 can be for
 
+	// The rule of the user's edited in its row, by its text as mihomo
+	// writes it ("" for none), and what it becomes.
+	editing                               string
+	editVal, editKind, editRoute, editErr string
+
 	armed string // "g:id" or "s:id": 删除 asks to be pressed again
 	delTo string // who inherits a group being deleted
 
@@ -111,6 +116,7 @@ func (u *UI) selectGroup(id string) {
 func (u *UI) clearRuleDraft() {
 	r := &u.routes
 	r.rule, r.ruleErr, r.conflict, r.snameOf, r.snameErr = "", "", nil, "", ""
+	r.editing, r.editErr = "", ""
 }
 
 // changeRouting changes route groups as setOpt changes an option, at once
@@ -1013,7 +1019,7 @@ func (u *UI) serviceEditor(c *ui.Context, p *pal, all []routes.Route, r routes.R
 			}
 			ui.Column(c).Children(func() {
 				for _, l := range s.Rules {
-					u.ruleLine(c, p, s, l)
+					u.ruleLine(c, p, all, s, l)
 				}
 			})
 			u.ruleInput(c, p, all, s)
@@ -1132,7 +1138,12 @@ func (u *UI) serviceName(c *ui.Context, p *pal, all []routes.Route, s routes.Ser
 	})
 }
 
-func (u *UI) ruleLine(c *ui.Context, p *pal, s routes.Service, l routes.Rule) {
+func (u *UI) ruleLine(c *ui.Context, p *pal, all []routes.Route, s routes.Service, l routes.Rule) {
+	st := &u.routes
+	if !l.Builtin && st.editing == l.Text {
+		u.ruleEdit(c, p, all, s, l)
+		return
+	}
 	ui.Row(c.Key(l.Text)).Gap(10).Padding(5, 0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 		col := p.ink
 		if l.Off || s.Off {
@@ -1150,7 +1161,96 @@ func (u *UI) ruleLine(c *ui.Context, p *pal, s routes.Service, l routes.Rule) {
 			})
 			return
 		}
+		if slices.Contains(routeKinds()[1:], l.Kind) {
+			btn(c.Key("e"), p, i18n.T("编辑", "Edit")).OnClick(func() {
+				st.editing, st.editVal, st.editKind, st.editRoute, st.editErr = l.Text, l.Value, l.Kind, s.Group, ""
+			})
+		}
 		btn(c.Key("d"), p, i18n.T("删除", "Delete")).OnClick(func() { u.setRule(l.User(s), true) })
+	})
+}
+
+// ruleEdit is the row of a rule of the user's being edited: what it
+// matches, how, and the route group it goes by. Saving it refuses a rule
+// another service has; Escape leaves the rule as it was.
+func (u *UI) ruleEdit(c *ui.Context, p *pal, all []routes.Route, s routes.Service, l routes.Rule) {
+	st := &u.routes
+	old := l.User(s)
+	typed := strings.TrimSpace(st.editVal) != ""
+	next, err := routes.ParseRule(st.editKind, st.editVal, st.editRoute)
+	save := func() {
+		if !typed || err != nil {
+			return
+		}
+		st.editErr = ""
+		if next.Mihomo() != old.Mihomo() {
+			if from, ok := routes.FindRule(all, next.Mihomo()); ok {
+				if from.ID == s.ID && next.Route == s.Group {
+					st.editErr = i18n.T("这条规则已经在这个服务里了", "That rule is already in this service")
+				} else {
+					path := u.route(from.Group).Name + " / " + routes.ServiceTitle(from)
+					st.editErr = fmt.Sprintf(i18n.T("%s 已经在 %s 里，一条规则只能属于一个服务。", "%s is already in %s; a rule belongs to one service."), next.Describe(), path)
+				}
+				return
+			}
+		}
+		st.editing = ""
+		u.changeRouting(func(set *settings.Settings) { set.Rules = routes.Edit(set.Rules, old, next) }, func() {
+			u.app.reroute(old, "")
+			u.app.reroute(next, next.Route)
+		})
+	}
+	c.OnWindowShortcut(0, ui.KeyEscape, func() { st.editing, st.editErr = "", "" })
+	ui.Column(c.Key(l.Text)).Gap(4).Padding(6, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			in := ui.TextInput(c.Key("edit"), &st.editVal).Label(i18n.T("编辑规则", "Edit rule")).AutoFocus().
+				Padding(5, 9).Radius(p.r(7)).Background(p.paper).Border(1, p.hair).FontSize(12.5).Font(actMono).Grow(1).Basis(0).MinWidth(0)
+			if st.editErr != "" || typed && err != nil {
+				in.BorderColor(p.signal)
+			}
+			if in.Changed() {
+				st.editErr = ""
+			}
+			if in.Submitted() {
+				save()
+			}
+			kl, kinds := routeKindLabels(), routeKinds()
+			cur := kl[max(0, slices.Index(kinds, st.editKind))]
+			if ui.Select(c.Key("kind"), &cur, kl).Label(i18n.T("匹配方式", "Match")).Width(128).Changed() {
+				st.editKind, st.editErr = kinds[max(0, slices.Index(kl, cur))], ""
+			}
+			ui.Text(c, i18n.T("走", "via")).FontSize(12).TextColor(p.mute).NoWrap().Shrink(0)
+			// In the sidebar's order: 其他流量 last.
+			var gl, gids []string
+			for _, g := range all {
+				if g.ID != routes.Default {
+					gl, gids = append(gl, routes.Title(g)), append(gids, g.ID)
+				}
+			}
+			if i := slices.IndexFunc(all, func(r routes.Route) bool { return r.ID == routes.Default }); i >= 0 {
+				gl, gids = append(gl, routes.Title(all[i])), append(gids, routes.Default)
+			}
+			gcur := gl[max(0, slices.Index(gids, st.editRoute))]
+			if ui.Select(c.Key("route"), &gcur, gl).Label(i18n.T("路由组", "Route group")).Width(130).Changed() {
+				st.editRoute, st.editErr = gids[max(0, slices.Index(gl, gcur))], ""
+			}
+			b := btn(c.Key("save"), p, i18n.T("保存", "Save"))
+			if typed && err == nil {
+				b.OnClick(save)
+			} else {
+				b.Opacity(.45)
+			}
+			btn(c.Key("cancel"), p, i18n.T("取消", "Cancel")).OnClick(func() { st.editing, st.editErr = "", "" })
+		})
+		switch {
+		case st.editErr != "":
+			ui.Text(c, st.editErr).FontSize(11.5).TextColor(p.signal)
+		case !typed:
+		case err != nil:
+			ui.Text(c, err.Error()).FontSize(11.5).TextColor(p.signal)
+		default:
+			ui.Text(c, fmt.Sprintf(i18n.T("保存后：%s · %s", "Will save: %s · %s"), next.Value, routes.KindName(next.Kind))).FontSize(11.5).TextColor(p.ink2)
+		}
 	})
 }
 
