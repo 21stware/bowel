@@ -699,25 +699,34 @@ func TestBlockHero(t *testing.T) {
 func TestMapMarkers(t *testing.T) {
 	k := skinByID("paper")
 	defer func(m string) { k.light.marker = m }(k.light.marker)
-	count := func(marker string) int {
+	p := palOf("paper", false)
+	render := func(marker string) image.Image {
 		k.light.marker = marker
 		u, _ := skinned(fixtureUI(), "paper")
-		p := palOf("paper", false)
 		tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
 		tt.Advance(time.Second)
-		img, n := tt.Image(), 0
+		return tt.Image()
+	}
+	// count is how much of the map in img is col and is not in but.
+	count := func(img, but image.Image, col ui.Color) int {
+		n := 0
 		for x := 402; x < 1058; x++ {
 			for y := 52; y < 376; y++ {
-				if nearIn(img, x, y, p.accentLine, 12) {
+				if nearIn(img, x, y, col, 12) && (but == nil || !nearIn(but, x, y, col, 12)) {
 					n++
 				}
 			}
 		}
 		return n
 	}
-	ring, box, cross := count(""), count("box"), count("cross")
+	rings, boxes, crosses := render(""), render("box"), render("cross")
+	ring, box, cross := count(rings, nil, p.accentLine), count(boxes, nil, p.accentLine), count(crosses, nil, p.accentLine)
 	if ring != 0 {
 		t.Errorf("rings: %d pixels of the theme color on the map", ring)
+	}
+	// Four exits, each a circle of ink that a box is not.
+	if n := count(rings, boxes, p.ink); n < 40 {
+		t.Errorf("rings: %d pixels of ink where the boxes have none, no rings on the map", n)
 	}
 	if box < 8 {
 		t.Errorf("boxes: %d pixels of the theme color, no brackets round the exit in use", box)
