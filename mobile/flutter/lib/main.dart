@@ -158,7 +158,10 @@ class _Tabs extends StatelessWidget {
                       Padding(
                         // a keyboard squeezes the opened card rather than covering its footer
                         padding: EdgeInsets.only(bottom: frame.nativeBar ? (kb > frame.barInset ? kb : frame.barReserve) : kb),
-                        child: Board(app: app),
+                        child: Column(children: [
+                          UpdateNotice(app: app),
+                          Expanded(child: Board(app: app)),
+                        ]),
                       ),
                     ),
                     page(1, ActivityPage(app: app)),

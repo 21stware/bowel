@@ -709,6 +709,9 @@ class AppState extends ChangeNotifier {
   /// Android. '' elsewhere, as the store updates the app on iOS.
   String appVersion = '';
 
+  /// The version as 设置 and 关于 print it. Only Android reports its own.
+  String get versionText => appVersion.isEmpty ? '0.1.0' : appVersion;
+
   /// A newer release, and the link that gets it.
   ({String version, String url})? update;
   bool updateChecking = false;
