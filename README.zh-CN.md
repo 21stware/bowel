@@ -49,7 +49,7 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 <img src="site/shots/panel-zh.webp" width="300" alt="菜单栏面板">
 
 ### 主题皮肤
-十四种皮肤，换的是整个界面的样子。
+十六种皮肤，换的是整个界面的样子。
 
 <table>
   <tr>
@@ -75,6 +75,10 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
   <tr>
     <td><img src="site/shots/skin-riso-zh.webp" alt="孔版"><br><sub>孔版</sub></td>
     <td><img src="site/shots/skin-mrrobot-zh.webp" alt="黑客军团"><br><sub>黑客军团</sub></td>
+    <td><img src="site/shots/skin-machine-zh.webp" alt="The Machine"><br><sub>The Machine</sub></td>
+  </tr>
+  <tr>
+    <td><img src="site/shots/skin-samaritan-zh.webp" alt="Samaritan"><br><sub>Samaritan</sub></td>
   </tr>
 </table>
 
