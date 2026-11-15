@@ -275,16 +275,32 @@ func bundledCore() string {
 	return filepath.Join(dir, runtime.GOOS+"-"+runtime.GOARCH, "bin", name)
 }
 
-// registerFonts adds the bundled interface face (ui.go's sans), shipped
-// unmodified with its license, as the OPPO Sans license requires.
+// bundledFonts are the faces shipped in resources/fonts, each unmodified
+// beside its license, as the licenses require: the interface face (ui.go's
+// sans) under its own name, and the skins' (skins.go) under one family
+// each, since their files name themselves by weight ("Jost* Semi").
+var bundledFonts = []struct{ file, family, license string }{
+	{"OPPOSans4.0.ttf", "", "OPPO Sans License.txt"},
+	{"Jost-500-Medium.ttf", "Jost", "Jost License.txt"},
+	{"Jost-600-Semi.ttf", "Jost", "Jost License.txt"},
+	{"Jost-700-Bold.ttf", "Jost", "Jost License.txt"},
+	{"IBMPlexMono-Regular.ttf", "IBM Plex Mono", "IBM Plex Mono License.txt"},
+	{"IBMPlexMono-Medium.ttf", "IBM Plex Mono", "IBM Plex Mono License.txt"},
+	{"IBMPlexMono-SemiBold.ttf", "IBM Plex Mono", "IBM Plex Mono License.txt"},
+	{"IBMPlexMono-Bold.ttf", "IBM Plex Mono", "IBM Plex Mono License.txt"},
+}
+
+// registerFonts adds the bundled faces.
 func registerFonts() {
 	res, _ := mygo.App.Path(mygo.PathResources)
-	b, err := os.ReadFile(filepath.Join(res, "fonts", "OPPOSans4.0.ttf"))
-	if err == nil {
-		err = ui.RegisterFont(b, "")
-	}
-	if err != nil {
-		log.Println("font:", err)
+	for _, f := range bundledFonts {
+		b, err := os.ReadFile(filepath.Join(res, "fonts", f.file))
+		if err == nil {
+			err = ui.RegisterFont(b, f.family)
+		}
+		if err != nil {
+			log.Println("font:", err)
+		}
 	}
 }
 

@@ -52,8 +52,14 @@ func (k *skin) fixed() string {
 	return ""
 }
 
+// The skins' faces. Jost and IBM Plex Mono are bundled (registerFonts);
+// the rest are the desktop's, each falling to a face that is there. A
+// desktop without the Mac's monospace faces gets the bundled one, not
+// whichever its system calls monospace.
 const (
-	faceMono    = "SF Mono, Menlo, PingFang SC, monospace"
+	faceMono    = "SF Mono, Menlo, IBM Plex Mono, PingFang SC, monospace"
+	facePlex    = "IBM Plex Mono, OPPO Sans 4.0, PingFang SC, monospace"
+	faceJost    = "Jost, OPPO Sans 4.0, PingFang SC, system-ui"
 	faceSerif   = "Georgia, Songti SC, serif"
 	faceDIN     = "DIN Alternate, OPPO Sans 4.0, PingFang SC"
 	faceFutura  = "Futura, OPPO Sans 4.0, PingFang SC"
