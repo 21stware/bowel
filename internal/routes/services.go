@@ -67,6 +67,11 @@ var builtins = []builtin{
 	sv("vercel", "Vercel", "dev", "vercel.com"),
 	sv("brew", "Homebrew", "dev", "brew.sh"),
 
+	// Play downloads apps from hosts under googleapis.cn, which the
+	// mainland list below also holds; from there they don't reach Google.
+	// A suffix goes before that list, so these take the default route.
+	sv("googleplay", "Google Play", Default, "googleapis.cn xn--ngstr-lra8j.com"),
+
 	sv("lan", "局域网", "direct", "geo:private geoip:private"),
 	sv("cn", "国内网站", "direct", "geo:cn geoip:CN"),
 }
