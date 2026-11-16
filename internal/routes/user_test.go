@@ -114,6 +114,29 @@ func TestUpsertRemove(t *testing.T) {
 	}
 }
 
+func TestEdit(t *testing.T) {
+	a := UserRule{Kind: KindSuffix, Value: "a.com", Route: "ai", Service: "claude"}
+	b := UserRule{Kind: KindSuffix, Value: "b.com", Route: "dev"}
+	c := UserRule{Kind: KindDomain, Value: "c.com", Route: "ai"}
+	rs := []UserRule{b, a, c}
+
+	got := Edit(rs, UserRule{Kind: KindSuffix, Value: "a.com"}, UserRule{Kind: KindKeyword, Value: "chat", Route: "ai"})
+	want := UserRule{Kind: KindKeyword, Value: "chat", Route: "ai", Service: "claude"}
+	if !slices.Equal(got, []UserRule{b, want, c}) || rs[1] != a {
+		t.Fatalf("same route keeps the service and the place, leaving the old slice: %v %v", got, rs)
+	}
+
+	got = Edit(rs, a, UserRule{Kind: KindSuffix, Value: "a.com", Route: "direct"})
+	if !slices.Equal(got, []UserRule{b, {Kind: KindSuffix, Value: "a.com", Route: "direct"}, c}) {
+		t.Fatalf("another route puts it in that group's own rules: %v", got)
+	}
+
+	got = Edit(rs, a, UserRule{Kind: KindDomain, Value: "c.com", Route: "ai"})
+	if !slices.Equal(got, []UserRule{b, {Kind: KindDomain, Value: "c.com", Route: "ai", Service: "claude"}}) {
+		t.Fatalf("a rule it now matches the traffic of goes: %v", got)
+	}
+}
+
 func TestExplain(t *testing.T) {
 	user := []UserRule{{Kind: KindSuffix, Value: "openai.com", Route: "direct"}, {Kind: KindIP, Value: "1.1.1.0/24", Route: "dev"}}
 	tpl := Template()

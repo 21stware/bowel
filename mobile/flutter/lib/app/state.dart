@@ -145,6 +145,8 @@ class AppState extends ChangeNotifier {
     twisted = prefs['borders'] == 'twisted';
     vpnOnDemand = prefs['vpnOnDemand'] == '1';
     vpnExcluded = prefs['vpnExcluded'] ?? '';
+    updateDismissed = prefs['updateDismissed'] ?? '';
+    appVersion = await Shell.instance.appVersion();
     setup = prefs['setupDone'] == '1' ? 0 : 1;
     notifyListeners();
   }
@@ -369,9 +371,15 @@ class AppState extends ChangeNotifier {
 
   /// Adds a rule. A failure comes back for the sheet to show: the service
   /// that already holds the rule, or what's wrong with it.
-  Future<({String? conflict, String? error})> addServiceRule(Map<String, Object?> args) async {
+  Future<({String? conflict, String? error})> addServiceRule(Map<String, Object?> args) => _ruleOp('addRule', args);
+
+  /// Changes a rule of the user's: `old` is the rule as listed, the rest what
+  /// it becomes. Refused the way [addServiceRule] is.
+  Future<({String? conflict, String? error})> editServiceRule(Map<String, Object?> args) => _ruleOp('editRule', args);
+
+  Future<({String? conflict, String? error})> _ruleOp(String op, Map<String, Object?> args) async {
     try {
-      await Core.instance.call('routeOp', {'op': 'addRule', ...args});
+      await Core.instance.call('routeOp', {'op': op, ...args});
     } catch (e) {
       final m = Core.message(e);
       return m.startsWith('conflict:') ? (conflict: m.substring(9), error: null) : (conflict: null, error: m);
@@ -701,6 +709,73 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // ---- Updates ----
+
+  /// This copy's version, where the app looks for a newer one itself: on
+  /// Android. '' elsewhere, as the store updates the app on iOS.
+  String appVersion = '';
+
+  /// The version as 设置 and 关于 print it. Only Android reports its own.
+  String get versionText => appVersion.isEmpty ? '0.1.0' : appVersion;
+
+  /// A newer release, and the link that gets it.
+  ({String version, String url})? update;
+  bool updateChecking = false;
+
+  /// The version whose notice on 代理 was closed. 设置 goes on offering it.
+  String updateDismissed = '';
+
+  bool get updateNotice => update != null && update!.version != updateDismissed;
+
+  // As the desktop's updateFirstCheck, updateEvery and updateRetry. The first
+  // waits for the core, so that the check can go out through its nodes.
+  static const updateFirstCheck = Duration(seconds: 20), updateEvery = Duration(hours: 6), updateRetry = Duration(minutes: 30);
+  Timer? _updateTimer;
+
+  /// Looks for a newer version for as long as the app is open.
+  void scheduleUpdateChecks([Duration wait = updateFirstCheck]) {
+    _updateTimer?.cancel();
+    if (!_live || appVersion.isEmpty) return;
+    _updateTimer = Timer(wait, () async => scheduleUpdateChecks(await checkUpdate() ? updateEvery : updateRetry));
+  }
+
+  /// Asks whether a newer version is out; false if that could not be asked.
+  /// Only a check the user asked for says how it went: offline is no news.
+  Future<bool> checkUpdate({bool manual = false}) async {
+    if (updateChecking) return true;
+    set(() => updateChecking = true);
+    try {
+      final out = await Core.instance.call('checkUpdate', {'version': appVersion});
+      update = out is Map ? (version: out['version'] as String, url: out['url'] as String) : null;
+      if (manual) _toast(update == null ? tr('已是最新版本 {0}', '{0} is the latest version', [appVersion]) : tr('新版本 {0}', 'Version {0}', [update!.version]));
+      return true;
+    } catch (e) {
+      if (manual) _toast(tr('检查更新失败：{0}', 'Could not check for updates: {0}', [Core.message(e)]), ms: 4000);
+      return false;
+    } finally {
+      set(() => updateChecking = false);
+    }
+  }
+
+  /// Opens the new version's file in the browser, which downloads it.
+  void openUpdate() {
+    final found = update;
+    if (found != null) Shell.instance.openURL(found.url);
+  }
+
+  void dismissUpdate() {
+    final found = update;
+    if (found == null) return;
+    Shell.instance.setPref('updateDismissed', found.version);
+    set(() => updateDismissed = found.version);
+  }
+
+  @override
+  void dispose() {
+    _updateTimer?.cancel();
+    super.dispose();
+  }
+
   // ---- What the core pushes ----
 
   /// Connects to the native host and starts from its current state.
@@ -726,6 +801,7 @@ class AppState extends ChangeNotifier {
       _syncTabTitles();
       _applyView(view);
     }
+    scheduleUpdateChecks();
   }
 
   void _clearSamples() {

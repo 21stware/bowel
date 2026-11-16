@@ -15,6 +15,7 @@ import (
 	"github.com/oboo/moho/internal/locate"
 	"github.com/oboo/moho/internal/provider"
 	"github.com/oboo/moho/internal/routes"
+	"github.com/oboo/moho/internal/settings"
 	"gopkg.in/yaml.v3"
 )
 
@@ -142,6 +143,48 @@ func TestRuleConflict(t *testing.T) {
 	}
 	if got := x.explain("a.example.com"); got.Route != "direct" {
 		t.Fatalf("explain = %+v, want direct", got)
+	}
+}
+
+// An edited rule keeps its service and place on the same group, goes to the
+// group's own rules on another, and is refused where another service has it.
+func TestEditRule(t *testing.T) {
+	x := testBridge(t)
+	ctx := context.Background()
+	mine := routes.UserRule{Kind: routes.KindSuffix, Value: "chat.example.com", Route: "ai", Service: "claude"}
+	other := routes.UserRule{Kind: routes.KindDomain, Value: "x.example.com", Route: "ai", Service: "claude"}
+	if err := x.change(ctx, func(s *settings.Settings) { s.Rules = []routes.UserRule{mine, other} }); err != nil {
+		t.Fatal(err)
+	}
+	rules := func() []routes.UserRule { return x.set.Get().Rules }
+
+	if err := x.routeOp(ctx, callArgs{Op: "editRule", Old: mine, Kind: routes.KindKeyword, Text: "chat", Route: "ai"}); err != nil {
+		t.Fatal(err)
+	}
+	want := routes.UserRule{Kind: routes.KindKeyword, Value: "chat", Route: "ai", Service: "claude"}
+	if got := rules(); !slices.Equal(got, []routes.UserRule{want, other}) {
+		t.Fatalf("same group: %+v", got)
+	}
+
+	if err := x.routeOp(ctx, callArgs{Op: "editRule", Old: want, Kind: routes.KindKeyword, Text: "chat", Route: "dev"}); err != nil {
+		t.Fatal(err)
+	}
+	want = routes.UserRule{Kind: routes.KindKeyword, Value: "chat", Route: "dev"}
+	if got := rules(); !slices.Equal(got, []routes.UserRule{want, other}) {
+		t.Fatalf("another group: %+v", got)
+	}
+
+	var conflict *conflictError
+	err := x.routeOp(ctx, callArgs{Op: "editRule", Old: other, Kind: routes.KindSuffix, Text: "netflix.com", Route: "ai"})
+	if !errors.As(err, &conflict) {
+		t.Fatalf("onto Netflix's rule = %v, want a conflict", err)
+	}
+	err = x.routeOp(ctx, callArgs{Op: "editRule", Old: other, Kind: routes.KindKeyword, Text: "chat", Route: "dev"})
+	if !errors.As(err, &conflict) {
+		t.Fatalf("onto the group's own rule = %v, want a conflict", err)
+	}
+	if got := rules(); !slices.Equal(got, []routes.UserRule{want, other}) {
+		t.Fatalf("a refused edit changed the rules: %+v", got)
 	}
 }
 

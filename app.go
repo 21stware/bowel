@@ -2727,11 +2727,28 @@ func located(r locate.Result) Located {
 
 var _ = geo.Place{} // locate's places are geo.Places
 
+// lanAddr is where other devices on the LAN reach the mixed port.
 func lanAddr(port int) string {
-	addrs, _ := net.InterfaceAddrs()
+	ifs, _ := net.Interfaces()
+	for _, ifc := range ifs {
+		addrs, _ := ifc.Addrs()
+		if ip := lanIP(ifc.Flags, addrs); ip != "" {
+			return fmt.Sprintf("%s:%d", ip, port)
+		}
+	}
+	return ""
+}
+
+// lanIP is an interface's first private IPv4 address, "" when the
+// interface is down: one whose cable is out can keep its address, on
+// Windows, and nothing answers there.
+func lanIP(flags net.Flags, addrs []net.Addr) string {
+	if flags&net.FlagUp == 0 {
+		return ""
+	}
 	for _, ad := range addrs {
 		if ip, ok := ad.(*net.IPNet); ok && ip.IP.To4() != nil && !ip.IP.IsLoopback() && ip.IP.IsPrivate() {
-			return fmt.Sprintf("%s:%d", ip.IP, port)
+			return ip.IP.String()
 		}
 	}
 	return ""

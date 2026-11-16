@@ -206,9 +206,6 @@ Needs Go 1.27.3+ (`GOTOOLCHAIN=auto` fetches it). No Node or Bun.
 ```bash
 ./scripts/fetch-core.sh     # mihomo + GeoSite/GeoIP data into resources/
 go tool mygo dev            # the app, rebuilt on every change
-go tool mygo dev -sign -    # the same, signed ad hoc: needed to try rules for apps on macOS
-                            # (the signature changes every build, so macOS asks again for
-                            # Accessibility, Screen Recording and the like)
 go tool mygo build          # bowel.app and a .dmg, signed but not notarized
 ./scripts/release.sh        # build, notarize and staple: use this for releases
 CGO_ENABLED=0 go test ./... # includes tests that start the real core
@@ -247,5 +244,7 @@ bowel was called Moho. The Go module is still `github.com/oboo/moho` and the bun
 ## License
 
 bowel is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE), which allows noncommercial use only. For a commercial license, [open an issue](https://github.com/21stware/bowel/issues).
+
+Linux distributions, package repositories and app stores may build bowel from source and distribute it, whether or not they are a business, under the [packaging exception](PACKAGING-EXCEPTION.md). Its users still get bowel for noncommercial use only.
 
 The bundled mihomo core stays under GPL-3.0. The desktop apps carry its license among their resources (`Contents/Resources/licenses/mihomo/` on macOS), the Android app names it in Settings, and each release attaches the matching source. The flag images in `assets/flags/` and the fonts in `resources/fonts/` are third-party files and keep their own licenses.

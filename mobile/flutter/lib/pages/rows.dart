@@ -12,13 +12,15 @@ Widget rowLabel(Look l, String a, String? sub) => Column(crossAxisAlignment: Cro
     ]);
 
 /// A row that opens or picks something. No `onTap` is a row that only says.
-Widget navRow(Look l, String a, String b, {String? sub, VoidCallback? onTap}) {
+/// `dot` marks a row that has news.
+Widget navRow(Look l, String a, String b, {String? sub, VoidCallback? onTap, Color? dot}) {
   final row = hairBottom(
     l,
     Container(
       constraints: const BoxConstraints(minHeight: 48),
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(children: [
+        if (dot != null) ...[Dot(dot), const SizedBox(width: 8)],
         Expanded(child: rowLabel(l, a, sub)),
         const SizedBox(width: 12),
         ConstrainedBox(constraints: const BoxConstraints(maxWidth: 150), child: Text(b, maxLines: 1, overflow: TextOverflow.ellipsis, style: l.text(14, color: l.mute, lh: 20))),

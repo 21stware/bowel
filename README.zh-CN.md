@@ -206,8 +206,6 @@ Restart=on-failure
 ```bash
 ./scripts/fetch-core.sh     # 下载 mihomo 内核和 GeoSite/GeoIP 数据到 resources/
 go tool mygo dev            # 运行，改代码自动重建
-go tool mygo dev -sign -    # 同上，用临时签名：在 macOS 上试按应用的规则要用这个
-                            # （临时签名每次构建都会变，macOS 会重新询问辅助功能、屏幕录制等权限）
 go tool mygo build          # 打包 bowel.app 和 .dmg（已签名，未公证）
 ./scripts/release.sh        # 打包、公证并装订，发版用这个
 CGO_ENABLED=0 go test ./... # 包含会启动真实内核的测试
@@ -246,5 +244,7 @@ bowel 原名 Moho。Go 模块仍是 `github.com/oboo/moho`，Bundle ID 仍是 `d
 ## 许可证
 
 bowel 采用 [PolyForm Noncommercial License 1.0.0](LICENSE) 授权，仅限非商业用途。如需商业授权，请[提交 issue](https://github.com/21stware/bowel/issues)。
+
+Linux 发行版、软件仓库和应用商店可以依照[打包豁免](PACKAGING-EXCEPTION.md)从源码编译并分发 bowel，分发方是否为商业机构都可以。最终用户拿到的 bowel 仍仅限非商业用途。豁免以英文原文为准。
 
 随应用打包的 mihomo 内核仍适用 GPL-3.0。桌面版的资源目录里附有它的许可证（macOS 上是 `Contents/Resources/licenses/mihomo/`），Android 版在设置中注明，每个 Release 都附带对应版本的源码。`assets/flags/` 中的旗帜图片和 `resources/fonts/` 中的字体属于第三方文件，仍适用各自的许可证。

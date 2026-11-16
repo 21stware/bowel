@@ -533,6 +533,8 @@ func (x *bridge) routeOp(ctx context.Context, a callArgs) error {
 			return &conflictError{from: routes.ServiceTitle(from)}
 		}
 		return x.setRule(ctx, r, false)
+	case "editRule":
+		return x.editRule(ctx, a.Old, a.Kind, a.Text, a.Route)
 	case "removeRule":
 		r, err := routes.ParseRule(a.Kind, a.Text, a.Route)
 		if err != nil {
@@ -607,6 +609,30 @@ func (x *bridge) setRule(ctx context.Context, r routes.UserRule, removed bool) e
 		keep = ""
 	}
 	x.rerouteBy(ctx, r.Matches, keep)
+	return nil
+}
+
+// editRule makes old match text by kind and go by route: in old's service
+// on the same group, in route's own rules on another. A rule another
+// service has, or this one already, is refused.
+func (x *bridge) editRule(ctx context.Context, old routes.UserRule, kind, text, route string) error {
+	next, err := routes.ParseRule(kind, text, route)
+	if err != nil {
+		return err
+	}
+	if next.Mihomo() != old.Mihomo() {
+		if from, ok := routes.FindRule(x.routes(), next.Mihomo()); ok {
+			if from.ID == cmpService(old.Service, old.Route) && next.Route == old.Route {
+				return errors.New(i18n.T("这条规则已经在这个服务里了", "That rule is already in this service"))
+			}
+			return &conflictError{from: routes.ServiceTitle(from)}
+		}
+	}
+	if err := x.change(ctx, func(s *settings.Settings) { s.Rules = routes.Edit(s.Rules, old, next) }); err != nil {
+		return err
+	}
+	x.rerouteBy(ctx, old.Matches, "")
+	x.rerouteBy(ctx, next.Matches, next.Route)
 	return nil
 }
 
