@@ -445,9 +445,9 @@ type Tick struct {
 	// AppsUnknown: the core can't tell which program on this computer
 	// opened a connection (monitor.Snapshot.Unnamed), so no rule for an
 	// application matches. On macOS it takes how the core is signed: one
-	// signed by an Apple Development identity, as `mygo dev` does when the
-	// keychain has one, saw none in any combination tried on 27.2 (#131);
-	// the ad hoc signature mygo dev falls back to does see them.
+	// signed by an Apple Development identity, as `mygo dev` signed it
+	// until MyGo 0.9.1, saw none in any combination tried on 27.2 (#131);
+	// the linker's signature mygo dev now leaves on it does see them.
 	AppsUnknown bool `json:"appsUnknown,omitempty"`
 }
 
