@@ -93,6 +93,9 @@ class Shell {
   /// An https page in the browser, such as Tailscale's login.
   Future<void> openURL(String url) => _channel.invokeMethod('openURL', {'url': url});
 
+  /// This copy's version on Android, where the app looks for updates itself.
+  Future<String> appVersion() async => !kIsWeb && Platform.isAndroid ? await _channel.invokeMethod<String>('appVersion') ?? '' : '';
+
   /// The apps that can be left out of the VPN, on Android.
   Future<List<({String id, String name})>> listApps() async {
     final list = await _channel.invokeMethod<List>('listApps') ?? const [];
