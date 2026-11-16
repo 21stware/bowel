@@ -72,6 +72,25 @@ func TestRulesBySpecificity(t *testing.T) {
 	}
 }
 
+// TestGooglePlayBeforeMainland: Play's download hosts are under
+// googleapis.cn, which the mainland list also holds. They go through a
+// node, by the default route, before that list sends them direct.
+func TestGooglePlayBeforeMainland(t *testing.T) {
+	all := Build(Plan{}, nil)
+	if _, ok := serviceIn(groupOf(t, all, Default), "googleplay"); !ok {
+		t.Fatalf("the default route has no Google Play: %+v", groupOf(t, all, Default).Services)
+	}
+	lines := lineTexts(all, nil)
+	at := func(s string) int { return slices.Index(lines, s) }
+	play, cn := at("DOMAIN-SUFFIX,googleapis.cn→default"), at("GEOSITE,cn→direct")
+	if play < 0 || cn < 0 {
+		t.Fatalf("missing lines: %q", lines)
+	}
+	if play > cn {
+		t.Errorf("googleapis.cn at %d, after the mainland list at %d", play, cn)
+	}
+}
+
 // TestNoDuplicateLines: a user's rule in a built-in service is one line.
 func TestNoDuplicateLines(t *testing.T) {
 	users := []UserRule{{Kind: KindSuffix, Value: "claude.example", Route: "ai", Service: "claude"}}
