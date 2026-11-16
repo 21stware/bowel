@@ -275,20 +275,8 @@ func (a *App) trayMenu(s Snapshot) *mygo.Menu {
 		mygo.Separator(),
 	)
 
-	subLabel := i18n.T("订阅", "Subscription")
-	var enabledProviders int
-	var activeProviderName string
-	for _, p := range s.Providers {
-		if p.Enabled {
-			enabledProviders++
-			activeProviderName = p.Name
-		}
-	}
-	if enabledProviders == 1 {
-		subLabel += "\t" + activeProviderName
-	}
 	items = append(items, &mygo.MenuItem{
-		Label:    subLabel,
+		Label:    i18n.T("提供商", "Provider"),
 		Submenu:  a.providerMenu(s.Providers),
 		Disabled: len(s.Providers) == 0,
 	})
@@ -335,10 +323,11 @@ func (a *App) providerMenu(providers []ProviderView) []*mygo.MenuItem {
 	for _, p := range providers {
 		id := p.ID
 		items = append(items, &mygo.MenuItem{
-			Label:   p.Name,
-			Type:    mygo.MenuItemRadio,
-			Checked: p.Enabled,
-			Click:   func(*mygo.MenuItem, *mygo.Window) { go func() { a.logErr(a.selectProvider(id)) }() },
+			Label: p.Name, Type: mygo.MenuItemCheckbox, Checked: p.Enabled,
+			Click: func(it *mygo.MenuItem, _ *mygo.Window) {
+				on := it.Checked
+				go func() { a.logErr(a.setProviderEnabled(id, on)) }()
+			},
 		})
 	}
 	return items

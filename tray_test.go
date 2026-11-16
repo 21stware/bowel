@@ -239,18 +239,18 @@ func TestTrayMenuControls(t *testing.T) {
 	if tun.Type != mygo.MenuItemCheckbox || tun.Checked {
 		t.Errorf("TUN = %+v, want unchecked checkbox", tun)
 	}
-	sub := find(m1.Items(), i18n.T("订阅", "Subscription")+"\tSub A")
-	if sub.Disabled {
-		t.Error("subscription menu unexpectedly disabled")
+	prov := find(m1.Items(), i18n.T("提供商", "Provider"))
+	if prov.Disabled {
+		t.Error("provider menu unexpectedly disabled")
 	}
-	if len(sub.Submenu) != 2 {
-		t.Fatalf("subscription submenu has %d items, want 2", len(sub.Submenu))
+	if len(prov.Submenu) != 2 {
+		t.Fatalf("provider submenu has %d items, want 2", len(prov.Submenu))
 	}
-	if sub.Submenu[0].Type != mygo.MenuItemRadio || sub.Submenu[0].Label != "Sub A" || !sub.Submenu[0].Checked {
-		t.Errorf("submenu[0] = %+v", sub.Submenu[0])
+	if prov.Submenu[0].Type != mygo.MenuItemCheckbox || prov.Submenu[0].Label != "Sub A" || !prov.Submenu[0].Checked {
+		t.Errorf("submenu[0] = %+v", prov.Submenu[0])
 	}
-	if sub.Submenu[1].Type != mygo.MenuItemRadio || sub.Submenu[1].Label != "Sub B" || sub.Submenu[1].Checked {
-		t.Errorf("submenu[1] = %+v", sub.Submenu[1])
+	if prov.Submenu[1].Type != mygo.MenuItemCheckbox || prov.Submenu[1].Label != "Sub B" || prov.Submenu[1].Checked {
+		t.Errorf("submenu[1] = %+v", prov.Submenu[1])
 	}
 
 	// Case 2: Paused (Takeover.On false even though entries are wanted), and no providers.
@@ -270,20 +270,25 @@ func TestTrayMenuControls(t *testing.T) {
 	if find(m2.Items(), "TUN").Checked {
 		t.Error("TUN should appear unchecked while takeover is off")
 	}
-	subEmpty := find(m2.Items(), i18n.T("订阅", "Subscription"))
-	if !subEmpty.Disabled || len(subEmpty.Submenu) != 0 {
-		t.Errorf("empty subscription menu = %+v, want disabled and empty", subEmpty)
+	provEmpty := find(m2.Items(), i18n.T("提供商", "Provider"))
+	if !provEmpty.Disabled || len(provEmpty.Submenu) != 0 {
+		t.Errorf("empty provider menu = %+v, want disabled and empty", provEmpty)
 	}
 
-	// Case 3: Multiple providers enabled omits single active name suffix.
+	// Case 3: Multiple providers enabled both show checked without turning either off.
 	m3 := a.trayMenu(Snapshot{
 		Providers: []ProviderView{
 			{ID: "p1", Name: "Sub A", Enabled: true},
 			{ID: "p2", Name: "Sub B", Enabled: true},
 		},
 	})
-	subMulti := find(m3.Items(), i18n.T("订阅", "Subscription"))
-	if subMulti.Disabled || len(subMulti.Submenu) != 2 || !subMulti.Submenu[0].Checked || !subMulti.Submenu[1].Checked {
-		t.Errorf("multi-enabled subscription menu = %+v", subMulti)
+	provMulti := find(m3.Items(), i18n.T("提供商", "Provider"))
+	if provMulti.Disabled || len(provMulti.Submenu) != 2 {
+		t.Fatalf("multi-enabled provider menu = %+v", provMulti)
+	}
+	for i, it := range provMulti.Submenu {
+		if it.Type != mygo.MenuItemCheckbox || !it.Checked {
+			t.Errorf("submenu[%d] = %+v, want checked checkbox", i, it)
+		}
 	}
 }

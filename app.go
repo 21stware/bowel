@@ -1781,15 +1781,6 @@ func (a *App) setProviderEnabled(id string, on bool) error {
 	return a.applyConfig() // a disabled source's routing stops, and comes back with it
 }
 
-func (a *App) selectProvider(id string) error {
-	done := a.begin("provider:" + id)
-	defer done()
-	if _, err := a.providers.SelectOnly(id); err != nil {
-		return err
-	}
-	return a.applyConfig()
-}
-
 func (a *App) renameProvider(id, name string) error {
 	p, err := a.providers.Rename(id, name)
 	// A config's local file is found by its name: one in use may have just
