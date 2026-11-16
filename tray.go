@@ -35,7 +35,10 @@ import (
 const traySpeedEvery = 2 * time.Second
 
 func (a *App) setupTray() {
-	tray, err := mygo.NewTray(mygo.TrayOptions{ID: "moho", Icon: trayIcon(false, trayWhite(runtime.GOOS, taskbarLight())), IconIsTemplate: true, ToolTip: trayName})
+	// MonospacedTitle: the rates beside the icon are always as many
+	// characters (trayText), and only in a monospaced font are a "K", an
+	// "M" and a "." as wide as each other (#175).
+	tray, err := mygo.NewTray(mygo.TrayOptions{ID: "moho", Icon: trayIcon(false, trayWhite(runtime.GOOS, taskbarLight())), IconIsTemplate: true, MonospacedTitle: true, ToolTip: trayName})
 	if err != nil {
 		log.Println("tray:", err)
 		return
@@ -224,9 +227,10 @@ func trayText(goos string, show bool, t Tick) (title, tip string) {
 	return "↓" + padRate(t.Down) + " ↑" + padRate(t.Up), tip
 }
 
-// padRate is fmtRateShort at a fixed width, filled on the left with figure
-// spaces, which are as wide as a digit in the menu bar: the item keeps its
-// width as the numbers change, and its neighbors stay where they are.
+// padRate is fmtRateShort at a fixed number of characters, filled on the
+// left with figure spaces. The tray draws its title in a monospaced font
+// (setupTray), so the item keeps its width as the numbers and their units
+// change, and its neighbors stay where they are.
 func padRate(b int64) string {
 	s := fmtRateShort(b)
 	for n := utf8.RuneCountInString(s); n < 4; n++ {
