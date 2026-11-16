@@ -113,7 +113,7 @@ func (u *UI) panelHead(c *ui.Context, p *pal) {
 		}
 		ui.Spacer(c)
 		on := s.Takeover.On
-		if ui.Switch(c.Key("takeover"), &on).Label(i18n.T("接管", "Takeover")).Disabled(u.pending("takeover")).Changed() {
+		if toggle(c.Key("takeover"), p, &on).Label(i18n.T("接管", "Takeover")).Disabled(u.pending("takeover")).Changed() {
 			u.do(func() error { return u.app.setTakeover(on) })
 		}
 	})
@@ -271,7 +271,11 @@ func (u *UI) panelNodeList(c *ui.Context, p *pal, r RouteView) {
 			if r.Auto && r.Node == name {
 				ui.Text(c, i18n.T("当前", "Current")).FontSize(10.5).FontWeight(600).TextColor(p.mute)
 			}
-			ui.Text(c, fmtDelay(n)).FontSize(11.5).FontFeatures("tnum").TextColor(delayColor(p, n.Delay, n.Tested))
+			if p.timedOut(n.Delay, n.Tested) {
+				failTag(c, p, fmtDelay(n), 10.5)
+			} else {
+				ui.Text(c, fmtDelay(n)).FontSize(11.5).FontFeatures("tnum").TextColor(delayColor(p, n.Delay, n.Tested))
+			}
 		}).OnClick(func() {
 			if !chosen {
 				choose(name)
@@ -331,10 +335,10 @@ func (u *UI) panelMode(c *ui.Context, p *pal) {
 			for _, m := range []string{"rule", "global", "direct"} {
 				on := s.Mode == m
 				b := ui.ButtonBase(c.Key("mode-"+m)).Padding(3, 13).Radius(p.r(6)).Label(panelModeName(m))
-				if on {
+				if on && !p.brackets() {
 					b.Background(p.card).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, .12))
 				}
-				b.OnClick(func() {
+				picked(b, p, on).OnClick(func() {
 					if !on && u.app != nil {
 						u.do(func() error { return u.app.setMode(m) })
 					}
@@ -346,7 +350,7 @@ func (u *UI) panelMode(c *ui.Context, p *pal) {
 							col = p.mute
 						}
 					}
-					ui.Text(c, panelModeWord(m)).FontSize(12.5).FontWeight(w).TextColor(col)
+					p.word(c, panelModeWord(m)).FontSize(12.5).FontWeight(w).TextColor(col)
 				})
 			}
 		})

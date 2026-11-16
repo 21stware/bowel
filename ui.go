@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -119,6 +120,20 @@ type pal struct {
 	round         float32
 	glow          ui.Color
 	deco          func(pt *ui.Painter, r ui.Rect, p *pal)
+	// What a skin may also change, each as every skin had it when left
+	// zero. pick is how what is chosen shows: "" filled or raised,
+	// "bracket" a dashed box with corner brackets and no fill, "block"
+	// filled, with the current exit's name on a block of the accent. tags
+	// is how a small tag is drawn: "" tinted, "solid", "outline". caps sets
+	// short Latin labels in capitals, and label is their face, "" for
+	// font. marker is how the map marks an exit: "" a ring, "box" a
+	// bracket box, "cross" a crosshair with a boxed name. console is a
+	// terminal's manners: a square switch, the sidebar's icons in gray,
+	// a primary button that can't be pressed as an outline, no halo
+	// around what is filled, and a failure as a solid tag.
+	pick, tags, marker string
+	caps, console      bool
+	label              string
 }
 
 var lightPal = pal{
@@ -370,21 +385,28 @@ func titleBarHeight(c *ui.Context) float32 { return max(c.TitleBar().Height, 50)
 func (u *UI) titleBar(c *ui.Context, p *pal) {
 	bar := c.TitleBar()
 	ui.Row(c).Height(titleBarHeight(c)).Padding(0, bar.Right+16, 0, bar.Left+14).Gap(16).AlignItems(ui.Center).DragWindow().Children(func() {
-		ui.Row(c).Gap(2).Padding(3).Radius(p.r(10)).Background(p.hair2).Shrink(0).Children(func() {
+		track := ui.Row(c).Gap(2).Padding(3).Radius(p.r(10)).Shrink(0)
+		if !p.brackets() {
+			track.Background(p.hair2)
+		}
+		track.Children(func() {
 			for _, pg := range pages {
 				id := pg.id
 				on := u.page == id
 				b := ui.ButtonBase(c.Key(id)).Padding(4, 16).Radius(p.r(7))
-				if on {
+				if on && !p.brackets() {
 					lit(b.Background(p.accent), p)
 				}
-				b.OnClick(func() { u.page = id }).Children(func() {
+				picked(b, p, on).OnClick(func() { u.page = id }).Children(func() {
 					ui.Row(c).Gap(6).Children(func() {
 						col := p.ink2
-						if on {
+						switch {
+						case on && p.brackets():
+							col = p.ink
+						case on:
 							col = p.onAccent
 						}
-						ui.Text(c, i18n.T(pg.zh, pg.en)).FontSize(13).FontWeight(600).TextColor(col)
+						p.word(c, i18n.T(pg.zh, pg.en)).FontSize(13).FontWeight(600).TextColor(col)
 						if id == "providers" && u.providerWarn() {
 							ui.Box(c).Size(5, 5).Radius(p.r(3)).Background(p.warn)
 						}
@@ -427,7 +449,7 @@ func (u *UI) stateColor(p *pal) ui.Color {
 func (u *UI) statePill(c *ui.Context, p *pal) {
 	ui.Row(c).Gap(6).Padding(4, 11).Radius(p.r(999)).Background(p.hair2).Children(func() {
 		ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(u.stateColor(p)).Transition(ui.ElementTransition{Colors: true})
-		ui.Text(c, stateName(u.snap.State)).FontSize(12).FontWeight(600).TextColor(p.ink2)
+		p.word(c, stateName(u.snap.State)).FontSize(12).FontWeight(600).TextColor(p.ink2)
 	})
 }
 
@@ -528,7 +550,7 @@ func (u *UI) fixRoute(id string) {
 
 // kicker is the small spaced label above a section.
 func kicker(c *ui.Context, p *pal, s string) ui.Element {
-	return ui.Text(c, s).FontSize(10.5).FontWeight(600).LetterSpacing(1.5).TextColor(p.mute)
+	return p.word(c, s).FontSize(10.5).FontWeight(600).LetterSpacing(1.5).TextColor(p.mute)
 }
 
 // pageHead is the head of a list page (日志, 提供商): kicker, big count
@@ -572,7 +594,13 @@ func shimmer(e ui.Element, on bool, p *pal) ui.Element {
 
 // pill is the prototype's round button: the accent, or a hairline ghost.
 func pill(c *ui.Context, p *pal, label string, primary bool) ui.Element {
-	b := ui.ButtonBase(c).Padding(7, 14).Radius(p.r(999))
+	// Capitals are wider, and so is a monospace: a little smaller and
+	// closer, the three under the exit's name stay inside their cell.
+	size, padX := float32(12.5), float32(14)
+	if (p.caps || p.mono()) && latin(label) {
+		size, padX = 11.5, 11
+	}
+	b := ui.ButtonBase(c).Padding(7, padX).Radius(p.r(999))
 	if primary {
 		lit(b.Background(p.accent), p)
 	} else {
@@ -583,7 +611,7 @@ func pill(c *ui.Context, p *pal, label string, primary bool) ui.Element {
 		if primary {
 			col = p.onAccent
 		}
-		ui.Text(c, label).FontSize(12.5).FontWeight(600).TextColor(col)
+		p.word(c, label).FontSize(size).FontWeight(600).TextColor(col)
 	})
 }
 
@@ -594,7 +622,7 @@ func btn(c *ui.Context, p *pal, label string) ui.Element {
 		b.BorderColor(p.ink)
 	}
 	// A label never breaks: "ドメインをコピー" on two lines reads as two buttons.
-	return b.Children(func() { ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(p.ink).NoWrap() })
+	return b.Children(func() { p.word(c, label).FontSize(12).FontWeight(500).TextColor(p.ink).NoWrap() })
 }
 
 // chevron is the mark of something that opens: a small drawn V, pointing
@@ -629,7 +657,7 @@ func btnChevron(c *ui.Context, p *pal, label string, up bool) ui.Element {
 		b.BorderColor(p.ink)
 	}
 	return b.Children(func() {
-		ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(p.ink).NoWrap()
+		p.word(c, label).FontSize(12).FontWeight(500).TextColor(p.ink).NoWrap()
 		chevron(c, p.ink, up)
 	})
 }
@@ -685,6 +713,45 @@ func splitRate(b int64) (string, string) {
 	v, unit, _ := strings.Cut(s, " ")
 	return v, unit + "/s"
 }
+
+// toggle is a switch: the toolkit's, or in a skin with a terminal's
+// manners a square box whose square knob takes the theme color when on.
+func toggle(c *ui.Context, p *pal, on *bool) ui.Element {
+	if !p.console {
+		return ui.Switch(c, on)
+	}
+	sw := ui.SwitchBase(c, on).Size(36, 20).BorderWidth(1).BorderColor(p.hair)
+	var target float32
+	if *on {
+		target = 1
+		sw.BorderColor(p.accentLine)
+	}
+	pos := sw.Animate("knob", target, 140*time.Millisecond)
+	return sw.Draw(func(pt *ui.Painter, r ui.Rect) {
+		const in, d = 4, 12
+		pt.Fill(ui.Rect{X: r.X + in + pos*(r.W-d-2*in), Y: r.Y + in, W: d, H: d}, p.mute.Mix(p.accent, pos), 0)
+	})
+}
+
+// failTag is a status word for a failure, 失败 or 超时, as a skin with a
+// terminal's manners says it: on a solid block of the signal color. Where
+// the theme color is a red too, the word alone in red reads as one more
+// thing chosen. The other skins keep the word in the signal color.
+func failTag(c *ui.Context, p *pal, text string, size float32) ui.Element {
+	on := p.paper
+	if w := ui.Hex("#ffffff"); contrast(w, p.signal) > contrast(on, p.signal) {
+		on = w
+	}
+	e := ui.Row(c).Padding(1, 5).Shrink(0).Background(p.signal)
+	e.Children(func() {
+		p.word(c, text).FontSize(size).FontWeight(700).TextColor(on).NoWrap()
+	})
+	return e
+}
+
+// timedOut says whether a delay is one p says in a failTag: tested, and
+// nothing came back.
+func (p *pal) timedOut(ms int, tested bool) bool { return p.console && tested && ms <= 0 }
 
 func fmtDelay(n NodeView) string { return fmtMs(n.Delay, n.Tested) }
 
@@ -893,10 +960,87 @@ func locTag(c *ui.Context, p *pal, src string) {
 	case "locating":
 		text, col = i18n.T("定位中", "Locating"), p.warn
 	}
-	// A tag never breaks: squeezed, its letters would stack one a line.
-	ui.Box(c).Padding(1, 6).Radius(p.r(4)).Background(col.Alpha(.12)).Shrink(0).Children(func() {
-		ui.Text(c, text).FontSize(10.5).FontWeight(600).TextColor(col).NoWrap()
-	})
+	tag(c, p, text, col)
 }
+
+// tag is a small label in col: tinted with it, or as the skin's tags
+// are, a solid block of it or a hairline box.
+func tag(c *ui.Context, p *pal, text string, col ui.Color) ui.Element {
+	// A tag never breaks: squeezed, its letters would stack one a line.
+	b := ui.Box(c).Padding(1, 6).Radius(p.r(4)).Shrink(0)
+	fg := col
+	switch p.tags {
+	case "solid":
+		b.Background(col)
+		if fg = p.paper; contrast(p.ink, col) > contrast(fg, col) {
+			fg = p.ink
+		}
+	case "outline":
+		b.Border(1, col.Alpha(.6))
+	default:
+		b.Background(col.Alpha(.12))
+	}
+	b.Children(func() {
+		p.word(c, text).FontSize(10.5).FontWeight(600).TextColor(fg).NoWrap()
+	})
+	return b
+}
+
+// cap is s as p's short labels say it: in capitals, where the skin sets
+// them and every letter of s is Latin. 代理, ログ and 香港 03 have no
+// capitals, and a label half in them reads worse than one left alone.
+// It is for labels only: a name or a sentence is not passed through it.
+func (p *pal) cap(s string) string {
+	if !p.caps || !latin(s) {
+		return s
+	}
+	return strings.ToUpper(s)
+}
+
+// latin says whether every letter of s is a Latin one.
+func latin(s string) bool {
+	for _, r := range s {
+		if unicode.IsLetter(r) && !unicode.Is(unicode.Latin, r) {
+			return false
+		}
+	}
+	return true
+}
+
+// word is s, a short label, as p draws its labels: in their face, and in
+// capitals where the skin sets them. Capitals are how it is drawn, not
+// what it is called: assistive technology gets it as written.
+func (p *pal) word(c *ui.Context, s string) ui.Element {
+	e := p.lab(ui.Text(c, p.cap(s)))
+	if p.cap(s) != s {
+		e.Label(s)
+	}
+	return e
+}
+
+// lab sets e, a short label, in p's label face, spaced a little where it
+// is in capitals. Set a letter spacing of the label's own after it.
+func (p *pal) lab(e ui.Element) ui.Element {
+	if p.label != "" {
+		e.Font(p.label)
+	}
+	if p.caps {
+		e.LetterSpacing(.6)
+	}
+	return e
+}
+
+// labelFace is the face of p's short labels, for what is painted, not laid
+// out.
+func (p *pal) labelFace() string {
+	if p.label != "" {
+		return p.label
+	}
+	return p.font
+}
+
+// brackets says whether p marks what is chosen with a box of brackets,
+// in place of a fill or a ring.
+func (p *pal) brackets() bool { return p.pick == "bracket" }
 
 var _ = math.Pi

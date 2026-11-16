@@ -180,7 +180,7 @@ func (u *UI) settingsButton(c *ui.Context, p *pal) {
 	b.OnClick(u.openSettings).Children(func() {
 		ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, gear).Size(14, 14).TextColor(col)
-			ui.Text(c, i18n.T("设置", "Settings")).FontSize(13).FontWeight(600).TextColor(col)
+			p.word(c, i18n.T("设置", "Settings")).FontSize(13).FontWeight(600).TextColor(col)
 		})
 	})
 }
@@ -295,10 +295,39 @@ func coreStateWord(state string) string {
 	return ""
 }
 
+// sideItem is a sidebar's item in a skin with a terminal's manners. The
+// toolkit draws every icon in the theme color and fills the chosen row
+// only while the sidebar has the focus; here the icon is painted gray in
+// the room left for it, and the chosen row is in the theme color, focus
+// or not: filled with it, or in a box of brackets where the skin has
+// those.
+func sideItem(c *ui.Context, p *pal, id string, icon *ui.SVG, label string, on bool) {
+	e := ui.SidebarItem(c.Key(id), id, nil, label).Padding(6, 8, 6, 32)
+	col := p.mute
+	switch {
+	case on && p.brackets():
+		e.Background(ui.Color{}).TextColor(p.accentLine)
+		col = p.accentLine
+	case on:
+		e.Background(p.accent).TextColor(p.onAccent)
+		col = p.onAccent
+	}
+	e.Draw(func(pt *ui.Painter, r ui.Rect) {
+		if on && p.brackets() {
+			bracketBox(pt, r, p.accentLine, false)
+		}
+		pt.Icon(icon, ui.Rect{X: r.X + 8, Y: r.Y + (r.H-16)/2, W: 16, H: 16}, col)
+	})
+}
+
 // settingsSidebar lists the sections, under the window's controls, with
 // the core's version and state at its foot.
 func (u *UI) settingsSidebar(c *ui.Context, p *pal) {
-	ui.Column(c).Width(196).Shrink(0).Background(p.paper2).BorderWidth(0, 1, 0, 0).BorderColor(p.hair2).Children(func() {
+	w := float32(196)
+	if p.mono() {
+		w = 220 // "Developer networks" in a monospace
+	}
+	ui.Column(c).Width(w).Shrink(0).Background(p.paper2).BorderWidth(0, 1, 0, 0).BorderColor(p.hair2).Children(func() {
 		ui.Row(c).Height(max(c.TitleBar().Height, 50)).Shrink(0).DragWindow()
 		ui.Row(c).Shrink(0).Padding(0, 10, 10, 10).Children(func() {
 			ui.SearchField(c.Key("find"), &u.set.query).Bind(&u.set.findH).
@@ -313,6 +342,10 @@ func (u *UI) settingsSidebar(c *ui.Context, p *pal) {
 		}
 		ui.Sidebar(c.Key("nav"), &sel, func() {
 			for _, sec := range settingsSections {
+				if p.console {
+					sideItem(c, p, sec.id, sec.icon, sec.name(), sel == sec.id)
+					continue
+				}
 				ui.SidebarItem(c.Key(sec.id), sec.id, sec.icon, sec.name())
 			}
 		}).Grow(1).Padding(0, 10).Background(p.paper2).Label(i18n.T("设置", "Settings"))
@@ -609,7 +642,7 @@ func (u *UI) generalSection(c *ui.Context, p *pal, s settings.Settings) {
 	})
 	optRow(c, p, i18n.T("开机启动", "Open at login"), i18n.T("登录 Mac 时自动打开 bowel", "Open bowel when you log in to this Mac"), func() {
 		on := u.snap.OpenAtLogin
-		if ui.Switch(c.Key("login"), &on).Label(i18n.T("开机启动", "Open at login")).Changed() {
+		if toggle(c.Key("login"), p, &on).Label(i18n.T("开机启动", "Open at login")).Changed() {
 			u.snap.OpenAtLogin = on // shown at once; the next snapshot says what the system did
 			if u.app != nil {
 				go func() {
@@ -652,9 +685,12 @@ func (u *UI) skinCard(c *ui.Context, p *pal, k *skin, on bool) {
 	ring := ui.Transparent
 	b := ui.ButtonBase(c.Key("skin-" + k.id)).Column().Width(158).Gap(7).Padding(4).Radius(p.r(12)).
 		Label(k.name()).Tooltip(k.note())
-	if on {
+	switch {
+	case on && p.brackets():
+		picked(b, p, on)
+	case on:
 		ring = p.ink
-	} else if b.Hovered() {
+	case b.Hovered():
 		ring = p.hair
 	}
 	b.Border(1.5, ring).OnClick(func() {
@@ -731,7 +767,7 @@ func (u *UI) inboundSection(c *ui.Context, p *pal, s settings.Settings) {
 
 	optHeading(c, p, i18n.T("局域网", "LAN"))
 	if gatewaySupported() {
-		optRow(c, p, i18n.T("网关模式", "Gateway mode"), gatewayDesc(), func() { u.gatewaySwitch(c, "gateway", u.settingsToast) })
+		optRow(c, p, i18n.T("网关模式", "Gateway mode"), gatewayDesc(), func() { u.gatewaySwitch(c, p, "gateway", u.settingsToast) })
 	}
 	if gatewaySupported() && u.gatewayShownOn() && !searching() {
 		ui.Column(c).Padding(10, 0, 12, 0).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() { u.gatewayGuide(c, p, u.settingsToast) })
@@ -742,7 +778,7 @@ func (u *UI) inboundSection(c *ui.Context, p *pal, s settings.Settings) {
 	}
 	optRow(c, p, i18n.T("允许局域网连接", "Allow LAN connections"), lan, func() {
 		on := s.AllowLan
-		if ui.Switch(c.Key("lan"), &on).Label(i18n.T("允许局域网连接", "Allow LAN connections")).Changed() {
+		if toggle(c.Key("lan"), p, &on).Label(i18n.T("允许局域网连接", "Allow LAN connections")).Changed() {
 			u.setOpt(func(s *settings.Settings) { s.AllowLan = on })
 		}
 	})
@@ -1118,7 +1154,7 @@ func optHeading(c *ui.Context, p *pal, s string) {
 	if searching() {
 		return
 	}
-	ui.Text(c, s).FontSize(11.5).FontWeight(700).TextColor(p.faint).Padding(20, 0, 2, 0)
+	p.word(c, s).FontSize(11.5).FontWeight(700).TextColor(p.faint).Padding(20, 0, 2, 0)
 }
 
 // optLabel is an option's name and what it does.
@@ -1168,7 +1204,7 @@ func optWide(c *ui.Context, p *pal, title, desc string, control func()) {
 func (u *UI) optSwitch(c *ui.Context, p *pal, key, title, desc string, val bool, set func(*settings.Settings, bool), disabled ...bool) {
 	optRow(c, p, title, desc, func() {
 		on := val
-		sw := ui.Switch(c.Key(key), &on).Label(title)
+		sw := toggle(c.Key(key), p, &on).Label(title)
 		if len(disabled) > 0 && disabled[0] {
 			sw.Disabled(true)
 		}

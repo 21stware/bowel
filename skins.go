@@ -52,8 +52,14 @@ func (k *skin) fixed() string {
 	return ""
 }
 
+// The skins' faces. Jost and IBM Plex Mono are bundled (registerFonts);
+// the rest are the desktop's, each falling to a face that is there. A
+// desktop without the Mac's monospace faces gets the bundled one, not
+// whichever its system calls monospace.
 const (
-	faceMono    = "SF Mono, Menlo, PingFang SC, monospace"
+	faceMono    = "SF Mono, Menlo, IBM Plex Mono, PingFang SC, monospace"
+	facePlex    = "IBM Plex Mono, OPPO Sans 4.0, PingFang SC, monospace"
+	faceJost    = "Jost, OPPO Sans 4.0, PingFang SC, system-ui"
 	faceSerif   = "Georgia, Songti SC, serif"
 	faceDIN     = "DIN Alternate, OPPO Sans 4.0, PingFang SC"
 	faceFutura  = "Futura, OPPO Sans 4.0, PingFang SC"
@@ -237,7 +243,49 @@ var mrRobotPal = pal{
 	signal: ui.Hex("#ff2e3b"), good: ui.Hex("#6f9e72"), warn: ui.Hex("#e6c35c"),
 	route: map[string]ui.Color{"default": ui.Hex("#7a9dd0"), "ai": ui.Hex("#b385b5"), "media": ui.Hex("#d9822b"), "dev": ui.Hex("#88c3c5"), "direct": ui.Hex("#6c7079")},
 	font:  faceMono, display: faceMono, round: 0, glow: ui.RGBA(224, 36, 43, .3), deco: decoMrRobot,
+	console: true,
 }
+
+// The Machine: a surveillance feed. Black, white type, and the three
+// colors of its boxes: white for what is well, yellow for what is chosen,
+// red for what failed. Labels are in capitals in a geometric face, data in
+// a monospace.
+var machinePal = pal{
+	dark:  true,
+	paper: ui.Hex("#050505"), paper2: ui.Hex("#101010"), card: ui.Hex("#0b0b0b"), sheet: ui.Hex("#141414"),
+	ink: ui.Hex("#f4f4f2"), ink2: ui.Hex("#c9c9c6"), mute: ui.Hex("#8b8b88"), faint: ui.Hex("#3c3c3a"),
+	hair: ui.RGBA(244, 244, 242, .24), hair2: ui.RGBA(244, 244, 242, .11), hover: ui.RGBA(244, 244, 242, .06),
+	signal: ui.Hex("#ff453a"), good: ui.Hex("#f4f4f2"), warn: ui.Hex("#f2e02a"),
+	route: map[string]ui.Color{"default": ui.Hex("#f4f4f2"), "ai": ui.Hex("#f2e02a"), "media": ui.Hex("#5ec98b"), "dev": ui.Hex("#4d8df7"), "direct": ui.Hex("#6e6e6b")},
+	font:  facePlex, display: faceJost, label: faceJost, round: 0, deco: decoMachine,
+	pick: "bracket", tags: "solid", marker: "box", caps: true, console: true,
+}
+
+// Samaritan: the other machine, all in one monospace over a fine grid,
+// with one red. White, as it mostly is, or dark, as its maps are. Red is
+// both what is chosen and what failed here, so a failure is a solid tag
+// (console) among outlined ones.
+var (
+	samaritanLight = pal{
+		paper: ui.Hex("#f4f4f1"), paper2: ui.Hex("#eaeae6"), card: ui.Hex("#fafaf8"), sheet: ui.Hex("#ffffff"),
+		ink: ui.Hex("#101211"), ink2: ui.Hex("#343836"), mute: ui.Hex("#636965"), faint: ui.Hex("#b9bdb8"),
+		hair: ui.RGBA(16, 18, 17, .22), hair2: ui.RGBA(16, 18, 17, .1), hover: ui.RGBA(16, 18, 17, .05),
+		signal: ui.Hex("#c8141d"), good: ui.Hex("#101211"), warn: ui.Hex("#806200"),
+		route: map[string]ui.Color{"default": ui.Hex("#101211"), "ai": ui.Hex("#e3202b"), "media": ui.Hex("#74683c"), "dev": ui.Hex("#3f6861"), "direct": ui.Hex("#9a9f9a")},
+		font:  facePlex, display: facePlex, label: facePlex, round: 0, deco: decoSamaritan,
+		pick: "block", tags: "outline", marker: "cross", caps: true, console: true,
+	}
+	samaritanDark = pal{
+		dark:  true,
+		paper: ui.Hex("#0d0f0e"), paper2: ui.Hex("#171a19"), card: ui.Hex("#121514"), sheet: ui.Hex("#1b1f1d"),
+		ink: ui.Hex("#eceeea"), ink2: ui.Hex("#bfc4be"), mute: ui.Hex("#858b85"), faint: ui.Hex("#3d423e"),
+		hair: ui.RGBA(236, 238, 234, .24), hair2: ui.RGBA(236, 238, 234, .1), hover: ui.RGBA(236, 238, 234, .06),
+		signal: ui.Hex("#ff4b4f"), good: ui.Hex("#eceeea"), warn: ui.Hex("#d9bd62"),
+		route: map[string]ui.Color{"default": ui.Hex("#eceeea"), "ai": ui.Hex("#e3202b"), "media": ui.Hex("#b9ae8c"), "dev": ui.Hex("#7fa39d"), "direct": ui.Hex("#555b56")},
+		font:  facePlex, display: facePlex, label: facePlex, round: 0, deco: decoSamaritan,
+		pick: "block", tags: "outline", marker: "cross", caps: true, console: true,
+	}
+)
 
 // skins are the looks to pick, in settings.Skins' order; the first is the
 // default.
@@ -270,6 +318,10 @@ var skins = []skin{
 		light: &risoPal, accent: "#FF48A0"},
 	{id: "mrrobot", zh: "黑客军团", en: "Mr. Robot", noteZh: "入夜的终端：近黑底、冷灰等宽字与一抹 fsociety 红", noteEn: "A terminal after dark: near-black, cold gray monospace and one fsociety red",
 		dark: &mrRobotPal, accent: "#E0242B"},
+	{id: "machine", zh: "The Machine", en: "The Machine", noteZh: "监控画面：黑底、白字、黄色的方框与角括号", noteEn: "A surveillance feed: black, white type, yellow boxes and corner brackets",
+		dark: &machinePal, accent: "#F2E02A"},
+	{id: "samaritan", zh: "Samaritan", en: "Samaritan", noteZh: "另一台机器：等宽字、细网格与一种红", noteEn: "The other machine: monospace, a fine grid and one red",
+		light: &samaritanLight, dark: &samaritanDark, accent: "#E3202B"},
 }
 
 func skinByID(id string) *skin {
@@ -349,9 +401,14 @@ func dispIn(e ui.Element, p *pal, col ui.Color) ui.Element {
 	return disp(e, p)
 }
 
-// lit is what is filled with the accent, glowing in a skin that glows.
+// mono says whether p sets its text in a monospace face, which is wider
+// than the faces the layout was drawn for: what holds a fixed width asks.
+func (p *pal) mono() bool { return p.font == faceMono || p.font == facePlex }
+
+// lit is what is filled with the accent, glowing in a skin that glows,
+// unless it has a terminal's manners: there only the big type glows.
 func lit(e ui.Element, p *pal) ui.Element {
-	if p.glow.A > 0 {
+	if p.glow.A > 0 && !p.console {
 		e.Shadow(0, 0, 14, 0, p.accent.Alpha(.5))
 	}
 	return e
@@ -645,6 +702,118 @@ func cursorOn(pt *ui.Painter) bool {
 	at := time.Duration(pt.Now().UnixNano()) % (2 * cursorBlink)
 	pt.After(cursorBlink - at%cursorBlink)
 	return at < cursorBlink
+}
+
+// scanLines darkens every third line of r, at alpha a: a screen filmed.
+func scanLines(pt *ui.Painter, r ui.Rect, a float32) {
+	line := ui.RGBA(0, 0, 0, a)
+	for y := r.Y; y < r.Y+r.H; y += 3 {
+		pt.Fill(ui.Rect{X: r.X, Y: y, W: r.W, H: 1}, line, 0)
+	}
+}
+
+// cornerBrackets draws an L in each corner of r, its arms arm long and w
+// thick, inside r.
+func cornerBrackets(pt *ui.Painter, r ui.Rect, arm, w float32, col ui.Color) {
+	for _, x := range []float32{r.X, r.X + r.W - arm} {
+		pt.Fill(ui.Rect{X: x, Y: r.Y, W: arm, H: w}, col, 0)
+		pt.Fill(ui.Rect{X: x, Y: r.Y + r.H - w, W: arm, H: w}, col, 0)
+	}
+	for _, y := range []float32{r.Y, r.Y + r.H - arm} {
+		pt.Fill(ui.Rect{X: r.X, Y: y, W: w, H: arm}, col, 0)
+		pt.Fill(ui.Rect{X: r.X + r.W - w, Y: y, W: w, H: arm}, col, 0)
+	}
+}
+
+// bracketBox is the box a camera puts round what it found: a dashed line
+// round r with a solid bracket in each corner, and with ticks a short
+// mark out of the middle of each side.
+func bracketBox(pt *ui.Painter, r ui.Rect, col ui.Color, ticks bool) {
+	var box ui.Path
+	box.MoveTo(r.X+.5, r.Y+.5).LineTo(r.X+r.W-.5, r.Y+.5).LineTo(r.X+r.W-.5, r.Y+r.H-.5).LineTo(r.X+.5, r.Y+r.H-.5).Close().Dash(0, 3, 3)
+	pt.StrokePath(&box, 1, col.Alpha(.55))
+	cornerBrackets(pt, r, min(8, min(r.W, r.H)/3), 2, col)
+	if !ticks {
+		return
+	}
+	const tick = 5
+	cx, cy := r.X+r.W/2, r.Y+r.H/2
+	pt.Fill(ui.Rect{X: cx - 1, Y: r.Y - tick, W: 2, H: tick}, col, 0)
+	pt.Fill(ui.Rect{X: cx - 1, Y: r.Y + r.H, W: 2, H: tick}, col, 0)
+	pt.Fill(ui.Rect{X: r.X - tick, Y: cy - 1, W: tick, H: 2}, col, 0)
+	pt.Fill(ui.Rect{X: r.X + r.W, Y: cy - 1, W: tick, H: 2}, col, 0)
+}
+
+// picked marks e as the one chosen in a skin that says so with brackets;
+// the fill or the ring the other skins give it is the caller's to leave
+// out. It takes e's Draw.
+func picked(e ui.Element, p *pal, on bool) ui.Element {
+	if on && p.brackets() {
+		e.Draw(func(pt *ui.Painter, r ui.Rect) { bracketBox(pt, r, p.accentLine, false) })
+	}
+	return e
+}
+
+// frameBrackets is the bracket in each corner of a window, or, smaller,
+// of a preview of one.
+func frameBrackets(pt *ui.Painter, r ui.Rect, col ui.Color) {
+	arm, in := float32(14), float32(6)
+	if r.W < 400 {
+		arm, in = 7, 3.5
+	}
+	cornerBrackets(pt, ui.Rect{X: r.X + in, Y: r.Y + in, W: r.W - 2*in, H: r.H - 2*in}, arm, 1.2, col)
+}
+
+// decoMachine: the feed's scan lines, a bracket in each corner of the
+// window, and a ruler's ticks along its edges. Nothing moves.
+func decoMachine(pt *ui.Painter, r ui.Rect, p *pal) {
+	scanLines(pt, r, .1)
+	if r.W >= 400 {
+		tick := p.ink.Alpha(.45)
+		for x := float32(125); x < r.W; x += 125 {
+			pt.Fill(ui.Rect{X: r.X + x, Y: r.Y, W: 1, H: 5}, tick, 0)
+			pt.Fill(ui.Rect{X: r.X + x, Y: r.Y + r.H - 5, W: 1, H: 5}, tick, 0)
+		}
+		for y := float32(125); y < r.H; y += 125 {
+			pt.Fill(ui.Rect{X: r.X, Y: r.Y + y, W: 5, H: 1}, tick, 0)
+			pt.Fill(ui.Rect{X: r.X + r.W - 5, Y: r.Y + y, W: 5, H: 1}, tick, 0)
+		}
+	}
+	frameBrackets(pt, r, p.ink.Alpha(.6))
+}
+
+// decoSamaritan: a fine grid, every fourth line a little stronger, a
+// bracket in each corner of the window and a rail down each side; in the
+// dark, scan lines and the edges dimmed too. Nothing moves.
+func decoSamaritan(pt *ui.Painter, r ui.Rect, p *pal) {
+	const step = 62.5
+	w := 1 / pt.Scale()
+	grid := func(i int) ui.Color {
+		if i%4 == 0 {
+			return p.ink.Alpha(.075)
+		}
+		return p.ink.Alpha(.035)
+	}
+	for i := 1; float32(i)*step < r.W; i++ {
+		pt.Fill(ui.Rect{X: r.X + round(float32(i)*step), Y: r.Y, W: w, H: r.H}, grid(i), 0)
+	}
+	for i := 1; float32(i)*step < r.H; i++ {
+		pt.Fill(ui.Rect{X: r.X, Y: r.Y + round(float32(i)*step), W: r.W, H: w}, grid(i), 0)
+	}
+	if p.dark {
+		scanLines(pt, r, .18)
+		vignette(pt, r, ui.Hex("#000000"), .3)
+	}
+	frameBrackets(pt, r, p.ink.Alpha(.4))
+	if r.W < 400 || r.H < 160 {
+		return
+	}
+	for _, x := range []float32{r.X + 3, r.X + r.W - 4} {
+		pt.Fill(ui.Rect{X: x, Y: r.Y + 40, W: 1, H: r.H - 80}, p.ink.Alpha(.3), 0)
+		for _, f := range []float32{.3, .5, .7} {
+			pt.Fill(ui.Rect{X: x - 2, Y: r.Y + round(r.H*f), W: 5, H: 1}, p.ink.Alpha(.45), 0)
+		}
+	}
 }
 
 // decoRiso: halftone dots from the two bottom corners, pink and blue,

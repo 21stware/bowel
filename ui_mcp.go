@@ -87,7 +87,11 @@ func (u *UI) mcpSection(c *ui.Context, p *pal, s settings.Settings) {
 				case "failed":
 					word, col = i18n.T("失败", "Failed"), p.signal
 				}
-				ui.Text(c, word).FontSize(11.5).FontWeight(600).TextColor(col).Shrink(0)
+				if ch.Outcome == "failed" && p.console {
+					failTag(c, p, word, 10.5)
+				} else {
+					ui.Text(c, word).FontSize(11.5).FontWeight(600).TextColor(col).Shrink(0)
+				}
 				line := ch.Client + " · " + ch.What.String()
 				if ch.Error != "" {
 					line += " · " + firstLine(ch.Error)

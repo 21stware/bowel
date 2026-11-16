@@ -205,15 +205,15 @@ func (u *UI) stratSeg(c *ui.Context, p *pal, rid string) {
 		for _, mode := range routes.Modes {
 			on := cur == mode
 			b := ui.ButtonBase(c.Key(mode)).Padding(3, 11).Radius(p.r(6))
-			if on {
+			if on && !p.brackets() {
 				b.Background(p.card).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, .12))
 			}
-			b.OnClick(func() { u.setStrategy(rid, mode) }).Children(func() {
+			picked(b, p, on).OnClick(func() { u.setStrategy(rid, mode) }).Children(func() {
 				w := 500
 				if on {
 					w = 600
 				}
-				ui.Text(c, modeName(mode)).FontSize(12).FontWeight(w).TextColor(p.ink).NoWrap()
+				p.word(c, modeName(mode)).FontSize(12).FontWeight(w).TextColor(p.ink).NoWrap()
 			})
 		}
 	})
@@ -248,6 +248,8 @@ func (u *UI) exitChoice(c *ui.Context, p *pal, rid string) {
 	opt := func(key, title, sub string, on bool, onClick func()) {
 		b := ui.ButtonBase(c.Key(key)).Column().Gap(1).Grow(1).Basis(0).MinWidth(0).Padding(9, 12).Radius(p.r(8)).AlignItems(ui.Start)
 		switch {
+		case on && p.brackets():
+			picked(b.Border(1, p.hair), p, on)
 		case on:
 			b.Border(1.5, p.ink)
 		default:
@@ -1108,7 +1110,7 @@ func dangerBtn(c *ui.Context, p *pal, label string, armed bool) ui.Element {
 	} else if b.Hovered() {
 		b.BorderColor(p.signal)
 	}
-	return b.Children(func() { ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(col).NoWrap() })
+	return b.Children(func() { p.word(c, label).FontSize(12).FontWeight(500).TextColor(col).NoWrap() })
 }
 
 func (u *UI) serviceName(c *ui.Context, p *pal, all []routes.Route, s routes.Service) {

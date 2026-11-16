@@ -456,7 +456,7 @@ func (u *UI) actHead(c *ui.Context, p *pal) {
 				} else if b.Hovered() {
 					col = p.ink2
 				}
-				b.Children(func() { ui.Text(c, tab.label).FontSize(13).FontWeight(w).TextColor(col) })
+				b.Children(func() { p.word(c, tab.label).FontSize(13).FontWeight(w).TextColor(col) })
 			}
 		})
 	})
@@ -488,10 +488,13 @@ func actSeg(c *ui.Context, p *pal, sel *int, labels []string) ui.Element {
 			s := seg.Segment(i).Padding(3, 11).Radius(p.r(6))
 			col, w := p.ink2, 500
 			if i == *sel {
-				s.Background(p.card).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, .12))
+				if !p.brackets() {
+					s.Background(p.card).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, .12))
+				}
 				col, w = p.ink, 600
 			}
-			s.Children(func() { ui.Text(c, l).FontSize(12).FontWeight(w).TextColor(col).NoWrap() })
+			picked(s, p, i == *sel)
+			s.Children(func() { p.word(c, l).FontSize(12).FontWeight(w).TextColor(col).NoWrap() })
 		}
 	})
 	return seg.Track
@@ -505,7 +508,15 @@ func actSelect(c *ui.Context, p *pal, sel *string, options []string, label strin
 		s.Trigger.BorderColor(p.ink)
 	}
 	s.Trigger.Children(func() {
-		ui.Text(c, *sel).FontSize(12).TextColor(p.ink).NoWrap()
+		// The first is the interface's own word for all of them; an
+		// app's name is the app's.
+		var t ui.Element
+		if len(options) > 0 && *sel == options[0] {
+			t = p.word(c, *sel)
+		} else {
+			t = p.lab(ui.Text(c, *sel))
+		}
+		t.FontSize(12).TextColor(p.ink).NoWrap()
 		chevron(c, p.mute, false)
 	})
 	s.Popup(func(panel ui.Element) {
@@ -567,13 +578,15 @@ func (u *UI) actQueryBar(c *ui.Context, p *pal) {
 					return
 				}
 				a.armedAt, a.armedSig = c.Now(), a.sig()
-			}).Children(func() { ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(col).NoWrap() })
+			}).Children(func() { p.word(c, label).FontSize(12).FontWeight(500).TextColor(col).NoWrap() })
 		})
 		ui.Row(c).Gap(16).Padding(2, 0, 10, 0).AlignItems(ui.Center).Children(func() {
 			actSeg(c.Key("status"), p, &a.status, []string{
 				fmt.Sprintf(i18n.T("活跃 %d", "Active %d"), a.count("active")), fmt.Sprintf(i18n.T("已关闭 %d", "Closed %d"), a.count("closed")),
 				fmt.Sprintf(i18n.T("失败 %d", "Failed %d"), a.count("failed")), fmt.Sprintf(i18n.T("已拦截 %d", "Blocked %d"), a.count("blocked")), i18n.T("全部", "All")})
-			ui.Row(c).Gap(14).AlignItems(ui.Center).Shrink(1).MinWidth(0).ClipX().Children(func() {
+			// The routes' filters go to a second line sooner than be cut
+			// off: a monospace face, capitals or English leave them no room.
+			ui.Row(c).Wrap().GapX(14).GapY(2).AlignItems(ui.Center).Shrink(1).MinWidth(0).ClipX().Children(func() {
 				chip := func(id, label string, mark bool) {
 					on := a.route == id
 					b := ui.ButtonBase(c.Key("route:"+id)).Row().Gap(5).Padding(6, 0).Margin(-6, 0).AlignItems(ui.Center).OnClick(func() { a.route = id })
@@ -584,10 +597,16 @@ func (u *UI) actQueryBar(c *ui.Context, p *pal) {
 						col = p.ink2
 					}
 					b.Children(func() {
+						// A route is named by the user: only "All routes"
+						// is a label.
+						var t ui.Element
 						if mark {
 							swatch(c, p.routeColor(id), 8)
+							t = p.lab(ui.Text(c, label))
+						} else {
+							t = p.word(c, label)
 						}
-						ui.Text(c, label).FontSize(12).FontWeight(w).TextColor(col).NoWrap()
+						t.FontSize(12).FontWeight(w).TextColor(col).NoWrap()
 					})
 				}
 				chip("", i18n.T("所有路由", "All routes"), false)
@@ -679,7 +698,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 	head.Children(func() {
 		for i, col := range actCols {
 			if col.sort == "" {
-				t := ui.Text(c, i18n.T(col.zh, col.en)).FontSize(10.5).FontWeight(600).LetterSpacing(.8).TextColor(p.mute).NoWrap().Ellipsis("…")
+				t := p.word(c, i18n.T(col.zh, col.en)).FontSize(10.5).FontWeight(600).LetterSpacing(.8).TextColor(p.mute).NoWrap().Ellipsis("…")
 				actCell(t, i)
 				continue
 			}
@@ -701,7 +720,7 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 				if on {
 					colr = p.ink
 				}
-				ui.Text(c, label).FontSize(10.5).FontWeight(600).LetterSpacing(.8).TextColor(colr).NoWrap()
+				p.word(c, label).FontSize(10.5).FontWeight(600).LetterSpacing(.8).TextColor(colr).NoWrap()
 			})
 		}
 	})
@@ -807,7 +826,9 @@ func (u *UI) actRow(c *ui.Context, p *pal, i int, cn Conn) {
 				num(7, fmtBytes(cn.Down), ink)
 				num(8, fmtBytes(cn.Up), p.mute)
 			}
-			if cn.Status == "failed" {
+			if cn.Status == "failed" && p.console {
+				actCell(ui.Row(c).Justify(ui.End).AlignItems(ui.Center), 9).Children(func() { failTag(c, p, i18n.T("失败", "Failed"), 11) })
+			} else if cn.Status == "failed" {
 				num(9, i18n.T("失败", "Failed"), p.signal)
 			} else if cn.Status == "blocked" {
 				num(9, i18n.T("已拦截", "Blocked"), p.warn)
@@ -917,7 +938,9 @@ func (u *UI) actDetail(c *ui.Context, p *pal, cn Conn) {
 					if b.Hovered() {
 						b.BorderColor(p.signal)
 					}
-					b.Children(func() { ui.Text(c, i18n.T("断开", "Close")).FontSize(12).FontWeight(500).TextColor(p.signal) })
+					b.Children(func() {
+						p.word(c, i18n.T("断开", "Close")).FontSize(12).FontWeight(500).TextColor(p.signal)
+					})
 				}
 				host := cn.Host
 				if host == "" {

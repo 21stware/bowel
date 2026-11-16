@@ -64,9 +64,9 @@ func (u *UI) setGateway(on bool, toast func(string)) {
 }
 
 // gatewaySwitch is the switch, for a window whose toasts are toast.
-func (u *UI) gatewaySwitch(c *ui.Context, key string, toast func(string)) {
+func (u *UI) gatewaySwitch(c *ui.Context, p *pal, key string, toast func(string)) {
 	on := u.gatewayShownOn()
-	if ui.Switch(c.Key(key), &on).Label(i18n.T("网关模式", "Gateway mode")).Disabled(u.gw.flipping).Changed() {
+	if toggle(c.Key(key), p, &on).Label(i18n.T("网关模式", "Gateway mode")).Disabled(u.gw.flipping).Changed() {
 		if !on && u.snap.Takeover.Gateway.Auto.Status == "on" {
 			u.gw.ask = "off" // devices have their addresses from here: ask first
 			return
