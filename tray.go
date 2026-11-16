@@ -268,8 +268,18 @@ func (a *App) trayMenu(s Snapshot) *mygo.Menu {
 	items = append(items,
 		&mygo.MenuItem{Label: i18n.T("接管", "Takeover"), Type: mygo.MenuItemCheckbox, Checked: s.Takeover.On, Accelerator: "CmdOrCtrl+T",
 			Click: func(it *mygo.MenuItem, _ *mygo.Window) { on := it.Checked; go func() { a.logErr(a.setTakeover(on)) }() }},
+		&mygo.MenuItem{Label: i18n.T("系统代理", "System proxy"), Type: mygo.MenuItemCheckbox, Checked: s.Takeover.On && s.Takeover.System.Wanted,
+			Click: func(it *mygo.MenuItem, _ *mygo.Window) { on := it.Checked; go func() { a.logErr(a.setSystemProxy(on)) }() }},
+		&mygo.MenuItem{Label: "TUN", Type: mygo.MenuItemCheckbox, Checked: s.Takeover.On && s.Takeover.Tun.Wanted,
+			Click: func(it *mygo.MenuItem, _ *mygo.Window) { on := it.Checked; go func() { a.logErr(a.setTun(on)) }() }},
 		mygo.Separator(),
 	)
+
+	items = append(items, &mygo.MenuItem{
+		Label:    i18n.T("提供商", "Provider"),
+		Submenu:  a.providerMenu(s.Providers),
+		Disabled: len(s.Providers) == 0,
+	})
 
 	// One node list, the default exit's, as the panel has; the window has the routes.
 	for _, r := range s.Routes {
@@ -306,6 +316,21 @@ func (a *App) trayMenu(s Snapshot) *mygo.Menu {
 		&mygo.MenuItem{Role: mygo.RoleQuit, Label: i18n.T("退出 bowel", "Quit bowel")},
 	)
 	return mygo.NewMenu(items)
+}
+
+func (a *App) providerMenu(providers []ProviderView) []*mygo.MenuItem {
+	items := make([]*mygo.MenuItem, 0, len(providers))
+	for _, p := range providers {
+		id := p.ID
+		items = append(items, &mygo.MenuItem{
+			Label: p.Name, Type: mygo.MenuItemCheckbox, Checked: p.Enabled,
+			Click: func(it *mygo.MenuItem, _ *mygo.Window) {
+				on := it.Checked
+				go func() { a.logErr(a.setProviderEnabled(id, on)) }()
+			},
+		})
+	}
+	return items
 }
 
 // routeMenu lists automatic and the fastest nodes; the window has the rest.
