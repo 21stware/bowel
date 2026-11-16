@@ -141,6 +141,48 @@ class Toast extends StatelessWidget {
   }
 }
 
+/// A newer version, as one line over 代理: what the desktop says in its title
+/// bar. Closing it is for that version; 设置 goes on offering it.
+class UpdateNotice extends StatelessWidget {
+  const UpdateNotice({super.key, required this.app});
+  final AppState app;
+
+  @override
+  Widget build(BuildContext context) {
+    final found = app.update;
+    if (found == null || !app.updateNotice) return const SizedBox.shrink();
+    final l = Skin.of(context);
+    return ColoredBox(
+      color: l.paper,
+      child: hairBottom(
+        l,
+        Padding(
+          padding: const EdgeInsets.only(left: 16, right: 4),
+          child: Row(children: [
+            Dot(l.accent),
+            const SizedBox(width: 8),
+            Expanded(child: Line1(tr('新版本 {0}', 'Version {0}', [found.version]), l.text(13.5, weight: 500, lh: 20))),
+            Tap(
+              onTap: app.openUpdate,
+              child: SizedBox(
+                height: 44,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Text(tr('去下载', 'Download'), maxLines: 1, style: l.text(13.5, weight: 600, color: l.ink2, lh: 20)),
+                    Ic('chev', size: 13, color: l.ink2),
+                  ]),
+                ),
+              ),
+            ),
+            Tap(onTap: app.dismissUpdate, label: tr('关闭', 'Close'), child: SizedBox(width: 40, height: 44, child: Center(child: Ic('x', size: 18, color: l.ink2)))),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
 /// Android has no system tab bar to host, so Flutter draws Material 3's. It
 /// follows the skin. iOS uses the real one, from the native shell.
 class AndroidBar extends StatelessWidget {
@@ -178,6 +220,7 @@ class AndroidBar extends StatelessWidget {
                   ),
                   Icon(it.$1, size: 24, color: app.tab == i ? l.ink : l.ink2),
                   if (i == 2) Positioned(top: 1, right: 16, child: Dot(l.warn)),
+                  if (i == 3 && app.update != null) Positioned(top: 1, right: 16, child: Dot(l.accent)),
                 ]),
                 const SizedBox(height: 3),
                 Text(it.$2, maxLines: 1, style: l.text(12, weight: app.tab == i ? 700 : 500, color: app.tab == i ? l.ink : l.ink2, lh: 16).copyWith(shadows: const [])),

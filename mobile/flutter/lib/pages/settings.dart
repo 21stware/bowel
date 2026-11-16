@@ -197,7 +197,9 @@ class _SettingsHomeState extends State<_SettingsHome> {
               section(l, tr('通用', 'General'), [
                 navRow(l, tr('语言', 'Language'), languageNames[language]!, onTap: () => pickSheet<String>(app, tr('语言', 'Language'), [for (final c in languages) PickOption(c, languageNames[c]!)], app.setLanguage, value: language)),
                 navRow(l, tr('内核选项', 'Core options'), app.coreText, onTap: () => pushPage(context, OptionsPage(app: app))),
-                navRow(l, tr('关于与开源许可', 'About and licenses'), '0.1.0', onTap: () => pushPage(context, AboutPage(app: app))),
+                if (app.update != null) navRow(l, tr('新版本 {0}', 'Version {0}', [app.update!.version]), tr('去下载', 'Download'), dot: l.accent, onTap: app.openUpdate),
+                if (app.appVersion.isNotEmpty) navRow(l, tr('检查更新', 'Check for updates'), app.updateChecking ? tr('正在检查…', 'Checking…') : '', onTap: () => app.checkUpdate(manual: true)),
+                navRow(l, tr('关于与开源许可', 'About and licenses'), app.versionText, onTap: () => pushPage(context, AboutPage(app: app))),
               ]),
               const SizedBox(height: 18),
             ]),

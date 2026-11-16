@@ -61,6 +61,7 @@ class MainActivity : FlutterActivity() {
             "openVPNSettings" -> openVpnSettings(result)
             "openURL" -> openUrl(call.argument<String>("url").orEmpty(), result)
             "listApps" -> offMain(result) { launcherApps() }
+            "appVersion" -> result.success(packageManager.getPackageInfo(packageName, 0).versionName.orEmpty())
             else -> result.notImplemented()
         }
     }
