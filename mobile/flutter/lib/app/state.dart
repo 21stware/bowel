@@ -371,9 +371,15 @@ class AppState extends ChangeNotifier {
 
   /// Adds a rule. A failure comes back for the sheet to show: the service
   /// that already holds the rule, or what's wrong with it.
-  Future<({String? conflict, String? error})> addServiceRule(Map<String, Object?> args) async {
+  Future<({String? conflict, String? error})> addServiceRule(Map<String, Object?> args) => _ruleOp('addRule', args);
+
+  /// Changes a rule of the user's: `old` is the rule as listed, the rest what
+  /// it becomes. Refused the way [addServiceRule] is.
+  Future<({String? conflict, String? error})> editServiceRule(Map<String, Object?> args) => _ruleOp('editRule', args);
+
+  Future<({String? conflict, String? error})> _ruleOp(String op, Map<String, Object?> args) async {
     try {
-      await Core.instance.call('routeOp', {'op': 'addRule', ...args});
+      await Core.instance.call('routeOp', {'op': op, ...args});
     } catch (e) {
       final m = Core.message(e);
       return m.startsWith('conflict:') ? (conflict: m.substring(9), error: null) : (conflict: null, error: m);

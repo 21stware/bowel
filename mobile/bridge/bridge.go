@@ -528,6 +528,8 @@ type callArgs struct {
 	Targets   []routes.Target `json:"targets"`
 	Patch     json.RawMessage `json:"patch"`
 	Version   string          `json:"version"`
+	// Old is the rule editRule changes, as stored.
+	Old routes.UserRule `json:"old"`
 }
 
 func encode(v any) (string, error) {
