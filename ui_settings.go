@@ -659,6 +659,20 @@ func (u *UI) generalSection(c *ui.Context, p *pal, s settings.Settings) {
 	title, desc := traySpeedLabel(runtime.GOOS)
 	u.optSwitch(c, p, "trayspeed", title, desc, s.TraySpeed,
 		func(s *settings.Settings, on bool) { s.TraySpeed = on })
+	// Only the menu bar stacks them: the Windows tray tells them in a
+	// tooltip, and a Linux indicator's label is one line.
+	if traySpeedStacks(runtime.GOOS) {
+		title, desc := traySpeedTwoLinesLabel()
+		u.optSwitch(c, p, "trayspeed2", title, desc, s.TraySpeedTwoLines,
+			func(s *settings.Settings, on bool) { s.TraySpeedTwoLines = on }, !s.TraySpeed)
+	}
+}
+
+// traySpeedTwoLinesLabel names the option that puts the menu bar's rates on
+// two lines.
+func traySpeedTwoLinesLabel() (title, desc string) {
+	return i18n.T("网速分两行显示", "Show the speed on two lines"),
+		i18n.T("上传在上、下载在下，在菜单栏里占的宽度更窄", "Upload on top and download below, which takes less room in the menu bar")
 }
 
 // traySpeedLabel names the option that puts the rates by the menu bar icon,

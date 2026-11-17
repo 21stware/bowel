@@ -86,6 +86,10 @@ type Settings struct {
 	// TraySpeed: the rates stand beside the menu bar icon (in its tooltip
 	// on Windows, whose tray has no text). Off unless asked for.
 	TraySpeed bool `json:"traySpeed"`
+	// TraySpeedTwoLines: on macOS those rates stand on two lines, upload
+	// over download, which takes the menu bar less room (#188). Off, they
+	// stand on one.
+	TraySpeedTwoLines bool `json:"traySpeedTwoLines,omitempty"`
 
 	// MCPPolicy is what happens when an agent asks, over MCP, to change
 	// something: "ask" the user each time, "allow" it, or "deny" it.

@@ -96,6 +96,19 @@ func TestSettingsWindow(t *testing.T) {
 		if !u.shownSettings().TraySpeed {
 			t.Error("the switch did not turn the menu bar's speed on")
 		}
+		// Two lines, under it, only where the menu bar can stack them (#188).
+		title2, _ := traySpeedTwoLinesLabel()
+		sw2, ok := tt.AccessByRole(ui.RoleSwitch, title2)
+		if ok != traySpeedStacks(runtime.GOOS) {
+			t.Fatalf("a switch for two lines on %s: %v", runtime.GOOS, ok)
+		}
+		if ok {
+			tt.ClickAt(sw2.Bounds.X+sw2.Bounds.W/2, sw2.Bounds.Y+sw2.Bounds.H/2)
+			tt.Frame()
+			if !u.shownSettings().TraySpeedTwoLines {
+				t.Error("the switch did not put the menu bar's speed on two lines")
+			}
+		}
 		tt.SetSize(760, 560)
 		tt.Frame()
 

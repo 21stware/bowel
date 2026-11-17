@@ -25,7 +25,9 @@ import (
 // the user asks for the rates there (Settings.TraySpeed): then they stand
 // beside the icon as text, where the platform has text beside an icon
 // (macOS, and the Linux panels that show an indicator's label), and in the
-// icon's tooltip on Windows, which has none. A click opens the panel
+// icon's tooltip on Windows, which has none. On macOS they can stand on two
+// lines instead (Settings.TraySpeedTwoLines), drawn in the icon
+// (tray_rates.go). A click opens the panel
 // (ui_panel.go) under the icon; a right click, or a Control-click, the
 // menu, which takes over, switches the node and the mode without opening
 // the window.
@@ -114,7 +116,8 @@ func (a *App) togglePanel() {
 var trayOn = struct {
 	sync.Mutex
 	set, on    bool
-	white      bool // the ink it was drawn in
+	white      bool      // the ink it was drawn in
+	lines      [2]string // the rates drawn in it (trayLines), if any
 	title, tip string
 	// nodes: the Linux menu last set offers the nodes.
 	nodes bool
@@ -130,7 +133,8 @@ func (a *App) refreshTray(s Snapshot) {
 	if tray == nil {
 		return
 	}
-	trayDraw(tray, s.Takeover.On, trayWhite(runtime.GOOS, taskbarLight()))
+	_, _, lines := a.trayRates()
+	trayDraw(tray, s.Takeover.On, trayWhite(runtime.GOOS, taskbarLight()), lines)
 	if runtime.GOOS == "linux" {
 		a.setTrayMenu(tray, s)
 	}
@@ -153,10 +157,10 @@ func (a *App) trayTick() {
 		// while bowel runs: redraw the icon in the ink it now needs.
 		if runtime.GOOS == "windows" {
 			trayOn.Lock()
-			on, set := trayOn.on, trayOn.set
+			on, set, lines := trayOn.on, trayOn.set, trayOn.lines
 			trayOn.Unlock()
 			if set {
-				trayDraw(tray, on, trayWhite(runtime.GOOS, taskbarLight()))
+				trayDraw(tray, on, trayWhite(runtime.GOOS, taskbarLight()), lines)
 			}
 		}
 		// The Linux menu is built from the snapshot, which traffic does not
@@ -186,16 +190,31 @@ func (a *App) setTrayMenu(tray *mygo.Tray, s Snapshot) {
 	tray.SetMenu(a.trayMenu(s))
 }
 
-// traySpeed sets the rates beside the icon and in its tooltip, or takes
-// them away; the tray hears of it only when the text changes.
-func (a *App) traySpeed(tray *mygo.Tray) {
+// trayRates is what tells the rates now: the text beside the icon, the
+// tooltip, and the two lines drawn in the icon in place of that text.
+func (a *App) trayRates() (title, tip string, lines [2]string) {
 	st := a.settings.Get()
 	t := a.tick()
-	title, tip := trayText(runtime.GOOS, st.TraySpeed && (a.takeoverOn(st) || trafficNow(t)), t)
+	show := st.TraySpeed && (a.takeoverOn(st) || trafficNow(t))
+	title, tip = trayText(runtime.GOOS, show, t)
+	if lines = trayLines(runtime.GOOS, show && st.TraySpeedTwoLines, t); lines != ([2]string{}) {
+		title = ""
+	}
+	return title, tip, lines
+}
+
+// traySpeed sets the rates beside the icon, in it, and in its tooltip, or
+// takes them away; the tray hears of it only when they change.
+func (a *App) traySpeed(tray *mygo.Tray) {
+	title, tip, lines := a.trayRates()
 	trayOn.Lock()
 	newTitle, newTip := title != trayOn.title, tip != trayOn.tip
 	trayOn.title, trayOn.tip = title, tip
+	on, white, set := trayOn.on, trayOn.white, trayOn.set
 	trayOn.Unlock()
+	if set {
+		trayDraw(tray, on, white, lines)
+	}
 	if newTitle {
 		tray.SetTitle(title)
 	}
@@ -225,6 +244,22 @@ func trayText(goos string, show bool, t Tick) (title, tip string) {
 		return "", fmt.Sprintf("%s · ↓ %s  ↑ %s", trayName, fmtRate(t.Down), fmtRate(t.Up))
 	}
 	return "↓" + padRate(t.Down) + " ↑" + padRate(t.Up), tip
+}
+
+// traySpeedStacks says whether the system goos can show the rates on two
+// lines: only the macOS menu bar, where they are drawn in the icon
+// (trayRatesIcon). Windows tells them in a tooltip, and a Linux panel's
+// label is one line of text.
+func traySpeedStacks(goos string) bool { return goos == "darwin" }
+
+// trayLines are the rates on two lines, upload over download, each as many
+// characters whatever the rate; none where they are not shown, or where
+// the system has no two lines (traySpeedStacks).
+func trayLines(goos string, show bool, t Tick) [2]string {
+	if !show || !traySpeedStacks(goos) {
+		return [2]string{}
+	}
+	return [2]string{"↑" + padRate(t.Up), "↓" + padRate(t.Down)}
 }
 
 // padRate is fmtRateShort at a fixed number of characters, filled on the
@@ -413,15 +448,21 @@ func (a *App) logErr(err error) {
 	}
 }
 
-// trayDraw sets the icon, if it is not already the one for on in this ink.
-func trayDraw(tray *mygo.Tray, on, white bool) {
+// trayDraw sets the icon, if it is not already the one for on in this ink
+// with these rates in it; with none, it is the logo alone.
+func trayDraw(tray *mygo.Tray, on, white bool, lines [2]string) {
 	trayOn.Lock()
-	changed := !trayOn.set || trayOn.on != on || trayOn.white != white
-	trayOn.set, trayOn.on, trayOn.white = true, on, white
+	changed := !trayOn.set || trayOn.on != on || trayOn.white != white || trayOn.lines != lines
+	trayOn.set, trayOn.on, trayOn.white, trayOn.lines = true, on, white, lines
 	trayOn.Unlock()
-	if changed {
-		_ = tray.SetIcon(trayIcon(on, white), true)
+	if !changed {
+		return
 	}
+	if lines != ([2]string{}) {
+		_ = tray.SetIcon(trayRatesIcon(on, white, lines), true)
+		return
+	}
+	_ = tray.SetIcon(trayIcon(on, white), true)
 }
 
 // trayWhite is whether the icon is drawn in white ink. macOS takes it as a
