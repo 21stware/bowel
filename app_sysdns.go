@@ -103,7 +103,7 @@ func (a *App) syncDNS(ctx context.Context, wanted, running bool) (changed bool) 
 	var why *string
 	if err != nil {
 		log.Println("system dns:", err)
-		line := firstLine(err.Error())
+		line := failure(err)
 		why = &line
 	}
 	a.dnsErr.Store(why)

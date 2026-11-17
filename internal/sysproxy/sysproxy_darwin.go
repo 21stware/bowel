@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/oboo/moho/internal/netsetup"
 )
 
 // DefaultBypass is macOS's own bypass list for a new service.
@@ -58,6 +60,9 @@ func run(ctx context.Context, args ...string) error {
 	cmd, cancel := command(ctx, "networksetup", args...)
 	defer cancel()
 	if out, err := cmd.CombinedOutput(); err != nil {
+		if netsetup.Refused(string(out)) {
+			return fmt.Errorf("networksetup %s: %w", args[0], netsetup.ErrAdmin)
+		}
 		return fmt.Errorf("networksetup %s: %s", args[0], strings.TrimSpace(string(out)))
 	}
 	return nil
