@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/oboo/moho/internal/netsetup"
 )
 
 // Supported says whether this system's DNS servers are bowel's to set.
@@ -25,6 +27,9 @@ func output(ctx context.Context, name string, args ...string) (string, error) {
 	if err != nil {
 		if ctx.Err() != nil {
 			return "", ctx.Err()
+		}
+		if netsetup.Refused(string(out)) {
+			return "", fmt.Errorf("%s %s: %w", name, args[0], netsetup.ErrAdmin)
 		}
 		return "", fmt.Errorf("%s %s: %s", name, args[0], firstLine(string(out), err))
 	}

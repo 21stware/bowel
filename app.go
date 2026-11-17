@@ -805,7 +805,7 @@ func (a *App) pointProxy(s settings.Settings, ports []int, keep bool) error {
 	a.mu.Lock()
 	a.proxyErr, a.failed = "", failed
 	if err != nil {
-		a.proxyErr = firstLine(err.Error())
+		a.proxyErr = failure(err)
 	}
 	a.mu.Unlock()
 	return err
