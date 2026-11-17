@@ -10,7 +10,6 @@ import (
 	"reflect"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/oboo/moho/internal/geo"
@@ -18,16 +17,13 @@ import (
 	"github.com/oboo/moho/internal/mihomo"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
+	"github.com/oboo/moho/internal/speed"
 )
 
 const siteTimeout = 5 * time.Second
 
-// siteResult is a route's other test sites, timed through node.
-type siteResult struct {
-	Node  string
-	Sites []siteDelay
-}
-
+// siteDelay is one of a route's other test sites, timed through the node
+// the route uses.
 type siteDelay struct {
 	Name   string `json:"name"`
 	URL    string `json:"url"`
@@ -217,6 +213,9 @@ type pickData struct {
 	Country    string `json:"country"`
 	Flag       string `json:"flag"`
 	Delay      int    `json:"delay"` // -1 untested, 0 timed out
+	// Routes is the node's delay on each other route's main target (see
+	// nodeData.Routes); Delay is the default route's.
+	Routes map[string]int `json:"routes"`
 }
 
 type regionData struct {
@@ -251,8 +250,9 @@ func (x *bridge) routing() routingData {
 	im := x.importedNow()
 	all := x.routes()
 	x.mu.Lock()
-	px, prov, sites := x.proxies, x.provNodes, x.sites
+	px, prov := x.proxies, x.provNodes
 	x.mu.Unlock()
+	rd := readingOf(s, im)
 	out := routingData{Groups: []groupData{}, Nodes: []pickData{}, Regions: []regionData{}, Providers: []providerPick{}, Kinds: []kindData{}}
 	out.Imported = x.imported(s, im, all, px, prov)
 	for _, k := range routes.Kinds {
@@ -266,11 +266,12 @@ func (x *bridge) routing() routingData {
 		out.Providers = append(out.Providers, providerPick{p.ID, p.Name})
 		for _, n := range fullNames(x.store.Names(p.ID), p.ID) {
 			pl := placeOf(n)
+			tests, others := rd.tests(px[n])
 			d := -1
-			if h := px[n].History; len(h) > 0 {
-				d = h[len(h)-1].Delay
+			if ms, ok := rd.last(tests); ok {
+				d = ms
 			}
-			out.Nodes = append(out.Nodes, pickData{n, display(n), p.Name, p.ID, pl.Country, strings.ToLower(pl.Country), d})
+			out.Nodes = append(out.Nodes, pickData{n, display(n), p.Name, p.ID, pl.Country, strings.ToLower(pl.Country), d, others})
 			if pl.Country != "" {
 				count[pl.Country]++
 			}
@@ -292,9 +293,14 @@ func (x *bridge) routing() routingData {
 			g.Movable, g.Chooses = false, false
 		}
 		if !r.Direct && !r.Reject {
-			g.Now = display(x.nodeOf(px, prov, r, im))
+			node := x.nodeOf(px, prov, r, im)
+			g.Now = display(node)
 			g.Targets = s.TargetsOf(r.ID)
-			g.Sites = append(g.Sites, sites[r.ID].Sites...)
+			for _, t := range g.Targets[1:] { // the node's own tests of them, as the core keeps them
+				sd := siteDelay{Name: t.Name, URL: t.URL}
+				sd.Delay, sd.Tested = rd.last(px[node].HistoryOf(t.URL)) // a failure is 0, a timeout
+				g.Sites = append(g.Sites, sd)
+			}
 		}
 		for _, sv := range r.Services {
 			d := serviceData{ID: sv.ID, Name: routes.ServiceTitle(sv), Builtin: sv.Builtin, Mine: sv.Mine, Off: sv.Off, Changed: sv.Changed, Rules: []ruleData{}}
@@ -739,9 +745,8 @@ func (x *bridge) setTargets(ctx context.Context, routeID string, list []routes.T
 }
 
 // testSites times a route's other targets through the node it uses now.
-func (x *bridge) testSites(routeID string) error {
-	c, err := x.core()
-	if err != nil {
+func (x *bridge) testSites(ctx context.Context, routeID string) error {
+	if _, err := x.core(); err != nil {
 		return err
 	}
 	r, err := x.route(routeID)
@@ -756,25 +761,11 @@ func (x *bridge) testSites(routeID string) error {
 	if providerOf(node) == "" {
 		return errors.New(i18n.T("这条路由现在没有节点", "This route has no node now"))
 	}
-	targets := x.set.Get().TargetsOf(routeID)[1:]
-	out := make([]siteDelay, len(targets))
-	var wg sync.WaitGroup
-	for i, t := range targets {
-		wg.Go(func() {
-			ctx, cancel := context.WithTimeout(context.Background(), siteTimeout+time.Second)
-			defer cancel()
-			ms, _ := c.NodeDelay(ctx, "p-"+providerOf(node), node, t.URL, siteTimeout) // a failure stays 0, a timeout
-			out[i] = siteDelay{Name: t.Name, URL: t.URL, Delay: ms, Tested: true}
-		})
+	var list []speed.Target
+	for _, t := range x.set.Get().TargetsOf(routeID)[1:] {
+		list = append(list, speed.Target{Node: node, URL: t.URL})
 	}
-	wg.Wait()
-	x.mu.Lock()
-	next := maps.Clone(x.sites)
-	if next == nil {
-		next = map[string]siteResult{}
-	}
-	next[routeID] = siteResult{node, out}
-	x.sites = next
-	x.mu.Unlock()
+	x.tests.Now(ctx, list)
+	x.readTests() // the results are the node's, in the core
 	return nil
 }

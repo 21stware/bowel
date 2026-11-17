@@ -30,6 +30,7 @@ import (
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/ruleset"
 	"github.com/oboo/moho/internal/settings"
+	"github.com/oboo/moho/internal/speed"
 	"gopkg.in/yaml.v3"
 )
 
@@ -82,7 +83,6 @@ type bridge struct {
 	traffic     *routeTraffic        // per-route bytes by day
 	rangesSent  time.Time            // when the 7 and 30 day totals last went out
 	switched    *switchNote
-	sites       map[string]siteResult
 	updating    bool                 // the automatic Provider update is running
 	checked     *ruleset.Checked     // the rule set 导入规则集 last showed
 	checkedFrom string               // full fetch location, including the picked file's folder
@@ -93,6 +93,13 @@ type bridge struct {
 	groupSeen  map[string]int64 // each group's bytes at the last tick
 	pushNanos  int64            // the last tick's work in Go
 	pushBytes  int
+
+	// Every speed test goes through these (speed.go).
+	tests      *speed.Queue[speed.Target] // requests through nodes
+	sweeps     *speed.Queue[string]       // the providers' own checks
+	nodeHome   map[string]string          // node → the core's provider that has it
+	shownNodes []shownNode                // what the interface shows now
+	shownSites string                     // the route whose other sites it shows
 }
 
 // switchNote is a route's automatic group having moved off a failed node.
@@ -127,6 +134,7 @@ func Start(dir string, sink Sink) error {
 		mon: monitor.New(filepath.Join(dir, "stats.json")), vpn: "off", lastNode: map[string]string{},
 	}
 	nb.mon.SkipGroup = core.ProbeGroup
+	nb.startSpeed()
 	store.Vet = nb.vetUpdate
 	nb.loc = locate.New(filepath.Join(dir, "locations.json"))
 	nb.loc.Login = nb.probeLogin
@@ -185,7 +193,7 @@ func (x *bridge) connect() {
 			}
 			if x.refresh(ctx) == nil {
 				x.push()
-				x.measure(ctx, c)
+				x.measure(ctx)
 				return
 			}
 			time.Sleep(300 * time.Millisecond)
@@ -195,14 +203,20 @@ func (x *bridge) connect() {
 
 // measure tests every node once. The auto groups are lazy and start on the
 // first node, which in many subscriptions is a fake one saying how much
-// traffic is left, with no place and no flag.
-func (x *bridge) measure(ctx context.Context, c *mihomo.Client) {
+// traffic is left, with no place and no flag. It is each provider's own
+// check, and those of an imported config's own node providers, which have
+// no p- provider of bowel's.
+func (x *bridge) measure(ctx context.Context) {
+	var names []string
 	for _, p := range x.store.List() {
 		if p.Enabled {
-			_ = c.HealthCheck(ctx, "p-"+p.ID)
+			names = append(names, "p-"+p.ID)
 		}
 	}
-	measureImported(ctx, c, x.importedNow())
+	if im := x.importedNow(); im != nil {
+		names = append(names, im.ProviderNames()...)
+	}
+	x.sweeps.Now(ctx, names)
 	if x.refresh(ctx) == nil {
 		x.push()
 	}
@@ -238,7 +252,7 @@ func (x *bridge) refresh(ctx context.Context) error {
 		return err
 	}
 	im := x.importedNow()
-	nodes := map[string][]string{}
+	nodes, home := map[string][]string{}, map[string]string{}
 	for name, p := range pv {
 		id, ok := strings.CutPrefix(name, "p-")
 		if im != nil && slices.Contains(im.ProviderNames(), name) { // the nodes of a source's own provider count as its
@@ -251,6 +265,7 @@ func (x *bridge) refresh(ctx context.Context) error {
 			nodes[id] = append(nodes[id], n.Name)
 			// /proxies has the groups only: a node and its tests are here.
 			px[n.Name] = n
+			home[n.Name] = name
 		}
 	}
 	version := ""
@@ -265,12 +280,12 @@ func (x *bridge) refresh(ctx context.Context) error {
 	x.noteWaiting(ctx, c, im, pv)
 	all := x.routes()
 	x.mu.Lock()
-	x.proxies, x.provNodes = px, nodes
+	x.proxies, x.provNodes, x.nodeHome = px, nodes, home
 	if version != "" {
 		x.version = version
 	}
 	if im == nil { // an imported config's groups switch by their own rules
-		x.noticeSwitchesLocked(all)
+		x.noticeSwitchesLocked(all, x.set.Get())
 	}
 	x.mu.Unlock()
 	return nil
@@ -278,7 +293,7 @@ func (x *bridge) refresh(ctx context.Context) error {
 
 // noticeSwitchesLocked records a route's automatic group moving off a failed
 // node, which the 代理 page says for a while.
-func (x *bridge) noticeSwitchesLocked(all []routes.Route) {
+func (x *bridge) noticeSwitchesLocked(all []routes.Route, s settings.Settings) {
 	for _, r := range all {
 		if r.Direct {
 			continue
@@ -289,7 +304,7 @@ func (x *bridge) noticeSwitchesLocked(all []routes.Route) {
 		if now := x.proxies[routes.Group(r)].Now; prev == "" || prev == n || (now != routes.Auto(r) && now != routes.Backup(r)) {
 			continue
 		}
-		if h := x.proxies[prev].History; len(h) > 0 && h[len(h)-1].Delay == 0 {
+		if h, ok := speed.Last(x.proxies[prev].HistoryOf(s.TargetsOf(r.ID)[0].URL), speed.StaleAfter(s.HealthInterval, s.URLTestInterval), time.Now()); ok && h.Delay == 0 {
 			x.switched = &switchNote{route: r.ID, from: display(prev), to: display(n), at: time.Now()}
 		}
 	}
@@ -309,6 +324,7 @@ func (x *bridge) loop() {
 			x.mu.Unlock()
 			if real && x.refresh(context.Background()) == nil {
 				x.push()
+				x.keepMeasured()
 				go x.locateExits()
 			}
 		}
@@ -491,7 +507,10 @@ func Call(method, payload string) (string, error) {
 	case "setTargets":
 		return "null", x.setTargets(ctx, args.Route, args.Targets)
 	case "testSites":
-		return "null", x.testSites(args.Route)
+		return "null", x.testSites(ctx, args.Route)
+	case "viewing": // what the interface shows now, to keep tested; nothing when it shows none
+		x.setViewing(args.Nodes, args.Sites)
+		return "null", nil
 	case "settings":
 		return encode(x.settingsData())
 	case "setLanguage":
@@ -549,6 +568,9 @@ type callArgs struct {
 	Version   string          `json:"version"`
 	// Old is the rule editRule changes, as stored.
 	Old routes.UserRule `json:"old"`
+	// Nodes and Sites are what "viewing" says the interface shows.
+	Nodes []shownNode `json:"nodes"`
+	Sites string      `json:"sites"`
 }
 
 func encode(v any) (string, error) {
@@ -899,34 +921,41 @@ func (x *bridge) setAutoUpdate(id string, hours int) error {
 	return nil
 }
 
+// testRoute tests, now, what a route's page shows: each node the route can
+// use on its main target, one request per node and a few at a time, and the
+// route's other sites through the node it uses. Tests ctx does not wait for
+// go on, and the view has their results when the last is over.
 func (x *bridge) testRoute(ctx context.Context, routeID string) error {
-	c, err := x.core()
-	if err != nil {
+	if _, err := x.core(); err != nil {
 		return err
 	}
 	r, err := x.route(routeID)
 	if err != nil {
 		return err
 	}
-	url := x.set.Get().TargetsOf(routeID)[0].URL
-	if _, err := c.GroupDelay(ctx, routes.Group(r), url, 5*time.Second); err != nil {
-		return err
+	im := x.importedNow()
+	x.mu.Lock()
+	px, prov := x.proxies, x.provNodes
+	x.mu.Unlock()
+	targets := x.set.Get().TargetsOf(routeID)
+	list := speed.OfRoute(px, r, targets[0].URL)
+	if n := x.nodeOf(px, prov, r, im); providerOf(n) != "" {
+		for _, t := range targets[1:] {
+			list = append(list, speed.Target{Node: n, URL: t.URL})
+		}
 	}
-	_ = x.refresh(ctx)
-	x.push()
+	x.tests.Now(ctx, list)
+	x.readTests()
 	return nil
 }
 
+// testProvider runs a provider's own check, once however many ask.
 func (x *bridge) testProvider(ctx context.Context, id string) error {
-	c, err := x.core()
-	if err != nil {
+	if _, err := x.core(); err != nil {
 		return err
 	}
-	if err := c.HealthCheck(ctx, "p-"+id); err != nil {
-		return err
-	}
-	_ = x.refresh(ctx)
-	x.push()
+	x.sweeps.Now(ctx, []string{"p-" + id})
+	x.readTests()
 	return nil
 }
 

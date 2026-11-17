@@ -94,7 +94,7 @@ func (a *App) keepMeasured() {
 	a.mu.Unlock()
 	var want viewing
 	if a.importedNow() == nil {
-		want.tests = fixedTargets(px, a.routes(), s)
+		want.tests = speed.Fixed(px, a.routes(), s)
 	}
 	if a.winShown.Load() {
 		want.tests, want.pings = append(want.tests, window.tests...), append(want.pings, window.pings...)
@@ -103,44 +103,8 @@ func (a *App) keepMeasured() {
 		want.tests, want.pings = append(want.tests, panel.tests...), append(want.pings, panel.pings...)
 	}
 	age := time.Duration(s.URLTestInterval) * time.Second
-	a.tests.Want(age, want.tests, func(t speed.Target) time.Time { return lastTest(px[t.Node], t.URL) })
+	a.tests.Want(age, want.tests, func(t speed.Target) time.Time { return speed.Tested(px[t.Node], t.URL) })
 	a.pinger.Want(age, want.pings, func(n string) time.Time { return pings[n].at })
-}
-
-// lastTest is when p was last tested on url by anyone, as the core has it.
-func lastTest(p mihomo.Proxy, url string) time.Time {
-	h := p.HistoryOf(url)
-	if len(h) == 0 {
-		return time.Time{}
-	}
-	return h[len(h)-1].Time
-}
-
-// fixedTargets are the nodes the routes are fixed on, each with its route's
-// main target: what no group of the core chooses, and so none keeps tested.
-func fixedTargets(px map[string]mihomo.Proxy, all []routes.Route, s settings.Settings) []speed.Target {
-	var out []speed.Target
-	for _, r := range all {
-		if !r.NodeGroups() {
-			continue
-		}
-		if n := px[routes.Group(r)].Now; providerOf(n) != "" && !routes.Internal(r, n) {
-			out = append(out, speed.Target{Node: n, URL: s.TargetsOf(r.ID)[0].URL})
-		}
-	}
-	return out
-}
-
-// routeTargets are the nodes route r can use, each with url: its group's
-// members but for the route's own helper groups.
-func routeTargets(px map[string]mihomo.Proxy, r routes.Route, url string) []speed.Target {
-	var out []speed.Target
-	for _, m := range px[routes.Group(r)].All {
-		if t := (speed.Target{Node: m, URL: url}); !routes.Internal(r, m) && !slices.Contains(out, t) {
-			out = append(out, t)
-		}
-	}
-	return out
 }
 
 // testTarget requests a URL through a node. The core keeps the result with

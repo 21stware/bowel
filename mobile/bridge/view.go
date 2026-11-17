@@ -84,6 +84,22 @@ type nodeData struct {
 	ProviderName string `json:"providerName"`
 	// H is the node's latest delays, one bar each, oldest first.
 	H []int `json:"h"`
+	// Tested says whether Delay is a result: a delay of 0 is then a timeout.
+	Tested bool `json:"tested"`
+	// Routes is the node's delay as each other route tests it, on that
+	// route's main target, by route id: 0 timed out, absent not tested.
+	// Delay, H and Tested are the default route's. nil under a config's own
+	// routing, where every route shows the node's own.
+	Routes map[string]int `json:"routes"`
+}
+
+// on is the node's delay as route id tests it, and whether it was tested.
+func (n nodeData) on(id string) (ms int, tested bool) {
+	if id == routes.Default || n.Routes == nil {
+		return n.Delay, n.Tested
+	}
+	ms, tested = n.Routes[id]
+	return ms, tested
 }
 
 type providerData struct {
@@ -169,6 +185,7 @@ func (x *bridge) view() viewData {
 	st := x.set.Get()
 	im := x.importedNow()
 	all := x.routes()
+	rd := readingOf(st, im)
 	v := viewData{Language: i18n.Lang(), VPN: vpn, VPNError: vErr, Mode: st.Mode, Routes: []routeData{}, Nodes: []nodeData{}, Providers: []providerData{}}
 	v.You = x.youPlace()
 	if im != nil {
@@ -206,7 +223,7 @@ func (x *bridge) view() viewData {
 			continue // its nodes are not on offer
 		}
 		for _, n := range names {
-			nv := x.located(nodeView(n, p.ID, px[n]))
+			nv := x.located(nodeView(n, p.ID, px[n], rd))
 			nv.ProviderName = pname
 			// A pasted link's node goes by its Provider's name, so renaming
 			// the Provider renames the node, as on the desktop.
@@ -228,12 +245,12 @@ func (x *bridge) view() viewData {
 		rv := routeData{ID: r.ID, Name: routes.Title(r), Color: routeColor(r.Color), Direct: r.Direct, Reject: r.Reject, Policy: r.Policy.Mode, Rules: x.routeRules(r), Detail: routes.Describe(r)}
 		v.RuleCount += rv.Rules
 		if im != nil {
-			x.importedRoute(&rv, &v, r, im, px, prov)
+			x.importedRoute(&rv, &v, r, im, px, prov, rd)
 			v.Routes = append(v.Routes, rv)
 			continue
 		}
 		if !r.Direct && !r.Reject {
-			rv.Broken = brokenWhy(r.Policy, v.Nodes)
+			rv.Broken = brokenWhy(r.Policy, v.Nodes, r.ID)
 			rv.Auto = r.Policy.Mode != routes.ModeFixed
 			if r.Policy.Mode == routes.ModeFixed {
 				rv.Node = r.Policy.Fixed // what it will be on, with the VPN off too
@@ -245,7 +262,7 @@ func (x *bridge) view() viewData {
 					rv.Node = now
 				}
 				if r.ID == routes.Default && rv.Node != "" {
-					n := x.located(nodeView(rv.Node, providerOf(rv.Node), px[rv.Node]))
+					n := x.located(nodeView(rv.Node, providerOf(rv.Node), px[rv.Node], rd))
 					v.Exit = &n
 				}
 			}
@@ -264,7 +281,7 @@ func (x *bridge) view() viewData {
 
 // importedRoute fills in rv, a route of an imported config's: its group's
 // chain says the node, and its kind whether the core chooses by itself.
-func (x *bridge) importedRoute(rv *routeData, v *viewData, r routes.Route, im *core.Imported, px map[string]mihomo.Proxy, prov map[string][]string) {
+func (x *bridge) importedRoute(rv *routeData, v *viewData, r routes.Route, im *core.Imported, px map[string]mihomo.Proxy, prov map[string][]string, rd reading) {
 	rv.Rules = im.RulesTo(r.Name)
 	if r.Direct || r.Reject {
 		return
@@ -278,7 +295,7 @@ func (x *bridge) importedRoute(rv *routeData, v *viewData, r routes.Route, im *c
 	if now := x.nodeOf(px, prov, r, im); now != "" && now != "DIRECT" && now != "REJECT" && now != "REJECT-DROP" {
 		rv.Node = now
 		if r.ID == routes.Default {
-			n := x.located(nodeView(now, providerOf(now), px[now]))
+			n := x.located(nodeView(now, providerOf(now), px[now], rd))
 			v.Exit = &n
 		}
 	}
@@ -321,7 +338,7 @@ func judge(mode string, v viewData, sw *switchNote) *issueData {
 			continue
 		}
 		for _, n := range v.Nodes {
-			if n.Name == r.Node && len(n.H) > 0 && n.Delay == 0 {
+			if ms, tested := n.on(r.ID); n.Name == r.Node && tested && ms == 0 {
 				return &issueData{Level: "warn", Text: fmt.Sprintf(i18n.T("%s：%s 测速失败", "%s: %s failed the speed test"), r.Name, n.Display)}
 			}
 		}
@@ -338,12 +355,15 @@ func judge(mode string, v viewData, sw *switchNote) *issueData {
 }
 
 // brokenWhy says why a group has no way out now, "" if it has one: only
-// what has been tested counts as down.
-func brokenWhy(q routes.Policy, nodes []nodeData) string {
+// what route rid has tested counts as down.
+func brokenWhy(q routes.Policy, nodes []nodeData, rid string) string {
 	if len(nodes) == 0 {
 		return ""
 	}
-	alive := func(n nodeData) bool { return len(n.H) == 0 || n.Delay > 0 }
+	alive := func(n nodeData) bool {
+		ms, tested := n.on(rid)
+		return !tested || ms > 0
+	}
 	switch q.Mode {
 	case routes.ModeFixed:
 		if !slices.ContainsFunc(nodes, func(n nodeData) bool { return n.Name == q.Fixed && alive(n) }) {
@@ -425,16 +445,16 @@ func providerOf(node string) string {
 	return id
 }
 
-func nodeView(name, provider string, p mihomo.Proxy) nodeData {
+func nodeView(name, provider string, p mihomo.Proxy, rd reading) nodeData {
 	n := nodeData{Name: name, Display: geo.Visible(display(name)), Provider: provider, Type: p.Type, Where: placeOf(name), Source: "按名称"}
 	if n.Where.City == "" && n.Where.Country == "" {
 		n.Source = "未知"
 	}
-	if l := len(p.History); l > 0 {
-		n.Delay = p.History[l-1].Delay
-		for _, h := range p.History[max(0, l-10):] {
-			n.H = append(n.H, barHeight(h.Delay))
-		}
+	tests, others := rd.tests(p)
+	n.Routes = others
+	n.Delay, n.Tested = rd.last(tests)
+	for _, h := range tests[max(0, len(tests)-10):] {
+		n.H = append(n.H, barHeight(h.Delay))
 	}
 	return n
 }

@@ -1501,7 +1501,7 @@ func (a *App) testRoute(ctx context.Context, routeID string) error {
 	px := a.proxies
 	a.mu.Unlock()
 	targets := a.settings.Get().TargetsOf(routeID)
-	list := routeTargets(px, r, targets[0].URL)
+	list := speed.OfRoute(px, r, targets[0].URL)
 	var nodes []string
 	for _, t := range list {
 		if providerOf(t.Node) != "" {

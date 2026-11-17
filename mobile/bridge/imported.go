@@ -449,14 +449,3 @@ func (x *bridge) importedIssue(s settings.Settings, im *core.Imported, running b
 	}
 	return &issueData{Level: "warn", Text: text, Detail: detail, Action: "providers", Label: i18n.T("查看", "View")}
 }
-
-// measureImported tests the nodes of an imported config's own node
-// providers, which have no p- provider of bowel's.
-func measureImported(ctx context.Context, c *mihomo.Client, im *core.Imported) {
-	if im == nil {
-		return
-	}
-	for _, name := range im.ProviderNames() {
-		_ = c.HealthCheck(ctx, name)
-	}
-}
