@@ -21,7 +21,7 @@ type Queue[K comparable] struct {
 	Idle func()
 
 	limit int
-	test  func(K)
+	test  func(K) bool
 
 	mu    sync.Mutex
 	calls map[K]*call     // asked for: waiting or running
@@ -32,18 +32,22 @@ type Queue[K comparable] struct {
 
 type call struct {
 	running bool
+	now     bool // Now asked for it: someone waits
 	done    chan struct{}
 }
 
 // New is a queue that runs test for at most limit things at once. test
-// returns when the test is over: it carries its own timeout.
-func New[K comparable](limit int, test func(K)) *Queue[K] {
+// returns when the test is over: it carries its own timeout. It returns
+// false when it could not test at all, which leaves the thing due.
+func New[K comparable](limit int, test func(K) bool) *Queue[K] {
 	return &Queue[K]{limit: limit, test: test, calls: map[K]*call{}, at: map[K]time.Time{}}
 }
 
 // Want asks for a test of each of keys whose last one is older than age,
 // and returns at once. tested, if not nil, says when someone else last
-// tested a key: a test is a test, whoever ran it.
+// tested a key: a test is a test, whoever ran it. keys are all that is
+// wanted: what an earlier Want asked for, has not started and is not among
+// them is dropped.
 func (q *Queue[K]) Want(age time.Duration, keys []K, tested func(K) time.Time) {
 	now := time.Now()
 	last := make([]time.Time, len(keys))
@@ -54,6 +58,13 @@ func (q *Queue[K]) Want(age time.Duration, keys []K, tested func(K) time.Time) {
 	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	q.queue = slices.DeleteFunc(q.queue, func(k K) bool {
+		if q.calls[k].now || slices.Contains(keys, k) {
+			return false
+		}
+		delete(q.calls, k)
+		return true
+	})
 	for i, k := range keys {
 		if q.calls[k] != nil || now.Sub(q.at[k]) < age || now.Sub(last[i]) < age {
 			continue
@@ -80,6 +91,7 @@ func (q *Queue[K]) Now(ctx context.Context, keys []K) {
 			wait = append(wait, c)
 			continue
 		}
+		c.now = true
 		first = append(first, k)
 		wait = append(wait, c)
 	}
@@ -124,9 +136,11 @@ func (q *Queue[K]) work() {
 		c := q.calls[k]
 		c.running = true
 		q.mu.Unlock()
-		q.test(k)
+		ran := q.test(k)
 		q.mu.Lock()
-		q.at[k] = time.Now()
+		if ran {
+			q.at[k] = time.Now()
+		}
 		delete(q.calls, k)
 		q.mu.Unlock()
 		close(c.done)

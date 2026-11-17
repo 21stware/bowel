@@ -528,6 +528,7 @@ func (u *UI) delayWord(r RouteView) (string, ui.Color, bool) {
 		return "—", ui.Color{}, false
 	}
 	n = n.On(r.ID)
+	u.see(n.Name, r.Main.URL)
 	return fmtDelay(n), ui.Color{}, n.Tested
 }
 

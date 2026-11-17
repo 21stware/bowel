@@ -35,13 +35,14 @@ type counted struct {
 	gate  chan struct{}
 }
 
-func (c *counted) test(k string) {
+func (c *counted) test(k string) bool {
 	c.mu.Lock()
 	c.order = append(c.order, k)
 	c.mu.Unlock()
 	if c.gate != nil {
 		<-c.gate
 	}
+	return true
 }
 
 func (c *counted) ran() []string {
@@ -75,10 +76,52 @@ func TestWantSkipsFreshAndRunning(t *testing.T) {
 	}
 }
 
+// What is wanted is what the last Want named: a list scrolled past must
+// not leave its rows behind in the queue. What Now asked for stays.
+func TestWantDropsWhatIsNoLongerWanted(t *testing.T) {
+	c := &counted{gate: make(chan struct{})}
+	q := New(1, c.test)
+	q.Want(time.Hour, []string{"a", "b", "c", "d"}, nil)
+	until(t, func() bool { return len(c.ran()) == 1 }) // a runs, the others wait
+	go q.Now(context.Background(), []string{"d"})
+	until(t, func() bool {
+		q.mu.Lock()
+		defer q.mu.Unlock()
+		return slices.Equal(q.queue, []string{"d", "b", "c"})
+	})
+	q.Want(time.Hour, []string{"c", "e"}, nil) // b and d are no longer on screen
+	close(c.gate)
+	settle(t, q)
+	if got := c.ran(); !slices.Equal(got, []string{"a", "d", "c", "e"}) {
+		t.Fatalf("ran %v, want a d c e", got)
+	}
+	q.Want(time.Hour, []string{"b"}, nil) // dropped is not tested: it is still due
+	settle(t, q)
+	if got := c.ran(); len(got) != 5 || got[4] != "b" {
+		t.Fatalf("ran %v, want b at last", got)
+	}
+}
+
+// A test that could not run (no core yet) is no test: its key is due as
+// soon as it is wanted again, not an interval later.
+func TestATestThatDidNotRunIsStillDue(t *testing.T) {
+	var n atomic.Int32
+	q := New(1, func(string) bool { return n.Add(1) > 1 })
+	q.Want(time.Hour, []string{"a"}, nil)
+	settle(t, q)
+	q.Want(time.Hour, []string{"a"}, nil)
+	settle(t, q)
+	q.Want(time.Hour, []string{"a"}, nil) // the second one ran
+	settle(t, q)
+	if n.Load() != 2 {
+		t.Fatalf("asked %d times, want 2", n.Load())
+	}
+}
+
 func TestLimit(t *testing.T) {
 	var now, most atomic.Int32
 	var total atomic.Int32
-	q := New(3, func(int) {
+	q := New(3, func(int) bool {
 		n := now.Add(1)
 		for {
 			m := most.Load()
@@ -89,6 +132,7 @@ func TestLimit(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 		total.Add(1)
 		now.Add(-1)
+		return true
 	})
 	keys := make([]int, 20)
 	for i := range keys {

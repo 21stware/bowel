@@ -113,6 +113,8 @@ type App struct {
 	// through nodes, pinger the pings, sweeps the providers' own checks.
 	tests          *speed.Queue[speed.Target]
 	pinger, sweeps *speed.Queue[string]
+	// viewing is what each window last drew, by window.
+	viewing map[string]viewing
 	// nodeProxies are the providers' nodes as last read. The maps below are
 	// replaced, never changed, so a snapshot can hold on to them.
 	nodeProxies map[string]mihomo.Proxy

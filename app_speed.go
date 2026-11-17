@@ -50,6 +50,25 @@ type pingEnv struct {
 	servers map[string]map[string]string // provider id → node → server
 }
 
+// viewing is what a window drew that shows a test's result: requests
+// through nodes, and pings of nodes.
+type viewing struct {
+	tests []speed.Target
+	pings []string
+}
+
+// setViewing is told what window win ("window" or "panel") draws now.
+// While it shows, what it draws is kept tested.
+func (a *App) setViewing(win string, v viewing) {
+	a.mu.Lock()
+	if a.viewing == nil {
+		a.viewing = map[string]viewing{}
+	}
+	a.viewing[win] = v
+	a.mu.Unlock()
+	go a.keepMeasured()
+}
+
 // startSpeed makes the queues every speed test goes through: requests
 // through nodes, pings, and the providers' own checks.
 func (a *App) startSpeed() {
@@ -59,23 +78,33 @@ func (a *App) startSpeed() {
 	a.sweeps = speed.New(2, a.sweepProvider)
 }
 
-// keepMeasured asks, in the background, for the one test nobody else runs:
-// the node a route is fixed on, on that route's main target, once per test
-// interval. The core tests every node of a provider while traffic passes
-// through any group that uses it, and then this asks for nothing; with no
-// traffic the core rests, and a fixed node would never be looked at again.
-// Under a config's own routing the groups are the config's.
+// keepMeasured asks, in the background, for the tests nobody else runs,
+// each once per test interval. One is the node a route is fixed on, on that
+// route's main target: the core tests every node of a provider while
+// traffic passes through any group that uses it, and then this asks for
+// nothing; with no traffic the core rests, and a fixed node would never be
+// looked at again. Under a config's own routing the groups are the
+// config's. The others are what the window and the menu bar panel draw,
+// while they show.
 func (a *App) keepMeasured() {
-	if a.importedNow() != nil {
-		return
-	}
 	s := a.settings.Get()
 	a.mu.Lock()
-	px := a.proxies
+	px, pings := a.proxies, a.pings
+	window, panel := a.viewing["window"], a.viewing["panel"]
 	a.mu.Unlock()
-	a.tests.Want(time.Duration(s.URLTestInterval)*time.Second, fixedTargets(px, a.routes(), s), func(t speed.Target) time.Time {
-		return lastTest(px[t.Node], t.URL)
-	})
+	var want viewing
+	if a.importedNow() == nil {
+		want.tests = fixedTargets(px, a.routes(), s)
+	}
+	if a.winShown.Load() {
+		want.tests, want.pings = append(want.tests, window.tests...), append(want.pings, window.pings...)
+	}
+	if u := a.uiRef(); u != nil && u.panel.win.Load() != nil {
+		want.tests, want.pings = append(want.tests, panel.tests...), append(want.pings, panel.pings...)
+	}
+	age := time.Duration(s.URLTestInterval) * time.Second
+	a.tests.Want(age, want.tests, func(t speed.Target) time.Time { return lastTest(px[t.Node], t.URL) })
+	a.pinger.Want(age, want.pings, func(n string) time.Time { return pings[n].at })
 }
 
 // lastTest is when p was last tested on url by anyone, as the core has it.
@@ -115,11 +144,12 @@ func routeTargets(px map[string]mihomo.Proxy, r routes.Route, url string) []spee
 }
 
 // testTarget requests a URL through a node. The core keeps the result with
-// the node, by URL, which is where it is read from.
-func (a *App) testTarget(t speed.Target) {
+// the node, by URL, which is where it is read from. Without a core there
+// is no test.
+func (a *App) testTarget(t speed.Target) bool {
 	c, err := a.core.Client()
 	if err != nil {
-		return
+		return false
 	}
 	timeout := siteTimeout
 	s := a.settings.Get()
@@ -142,6 +172,7 @@ func (a *App) testTarget(t speed.Target) {
 	a.mu.Lock()
 	a.nodesAt = time.Time{} // the result is in the providers' lists
 	a.mu.Unlock()
+	return true
 }
 
 // readTests shows the results when the last test asked for is over.
@@ -154,12 +185,15 @@ func (a *App) readTests() {
 
 // sweepProvider has the core test a provider's nodes its own way: every
 // node on every target the groups registered.
-func (a *App) sweepProvider(id string) {
-	if c, err := a.core.Client(); err == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		_ = c.HealthCheck(ctx, "p-"+id)
-		cancel()
+func (a *App) sweepProvider(id string) bool {
+	c, err := a.core.Client()
+	if err != nil {
+		return false
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_ = c.HealthCheck(ctx, "p-"+id)
+	return true
 }
 
 // mainURLs is each route's main target; direct routes have none.
@@ -199,10 +233,10 @@ func siteViews(targets []routes.Target, node mihomo.Proxy, stale time.Duration, 
 }
 
 // pingNode measures the way to a node's server, around the core.
-func (a *App) pingNode(n string) {
+func (a *App) pingNode(n string) bool {
 	c, err := a.core.Client()
 	if err != nil {
-		return
+		return false
 	}
 	a.pingMu.Lock()
 	if time.Since(a.pingEnv.at) > 5*time.Second {
@@ -223,7 +257,7 @@ func (a *App) pingNode(n string) {
 	host, ok := env.servers[id][display(n)]
 	a.pingMu.Unlock()
 	if env.tunOn && env.iface == "" {
-		return
+		return false
 	}
 	res := pingResult{}
 	if ok {
@@ -239,6 +273,7 @@ func (a *App) pingNode(n string) {
 	a.pings = next
 	a.mu.Unlock()
 	a.emit()
+	return true
 }
 
 func measurePing(c *mihomo.Client, host, iface string, tunOn bool) int {

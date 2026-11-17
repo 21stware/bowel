@@ -5,12 +5,15 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
+	"github.com/oboo/moho/internal/speed"
 )
 
 // testHits counts the test requests that reach a local server, by path, and
@@ -118,6 +121,75 @@ func TestCoreTestRouteGoesNodeByNode(t *testing.T) {
 		if m := n.On("ai"); !m.Tested || m.Delay == 0 {
 			t.Errorf("%s shows no result on the route: %+v", n.Display, m)
 		}
+	}
+}
+
+// viewingApp is speedApp with its pings noted instead of sent, and a site
+// no group of the core tests.
+func viewingApp(t *testing.T) (a *App, node speed.Target, h *testHits, pinged func() []string) {
+	a, n, h := speedApp(t, nil)
+	var mu sync.Mutex
+	var pings []string
+	a.pinger = speed.New(1, func(n string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		pings = append(pings, n)
+		return true
+	})
+	site := strings.TrimSuffix(a.settings.Get().TestURL, "/t/default") + "/t/site"
+	return a, speed.Target{Node: n["JP"].Name, URL: site}, h, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(pings)
+	}
+}
+
+// refreshFor is the app's own refreshes, for d.
+func refreshFor(a *App, d time.Duration) {
+	for end := time.Now().Add(d); time.Now().Before(end); time.Sleep(500 * time.Millisecond) {
+		a.refresh()
+	}
+}
+
+// With the window showing, what it draws is tested when it is due, and
+// nothing else: one row is one request and one ping.
+func TestCoreViewingAsksOnlyForWhatIsDrawn(t *testing.T) {
+	a, row, h, pinged := viewingApp(t)
+	before := h.settle(t)
+	a.winShown.Store(true)
+	a.setViewing("window", viewing{tests: []speed.Target{row}, pings: []string{row.Node}})
+	refreshFor(a, 3*time.Second)
+	a.setViewing("window", viewing{tests: []speed.Target{row}, pings: []string{row.Node}}) // drawn again: just tested
+	refreshFor(a, 2*time.Second)
+	if got, _ := h.since(before); len(got) != 1 || got["/t/site"] != 1 {
+		t.Errorf("requests: %v, want 1 on /t/site and nothing else", got)
+	}
+	if got := pinged(); !slices.Equal(got, []string{row.Node}) {
+		t.Errorf("pings: %v, want one of %s", got, row.Node)
+	}
+	a.mu.Lock()
+	tests := a.proxies[row.Node].HistoryOf(row.URL)
+	a.mu.Unlock()
+	if len(tests) != 1 || tests[0].Delay == 0 {
+		t.Errorf("the node's tests of the site, as read from the core: %+v", tests)
+	}
+}
+
+// A window that is hidden keeps nothing tested, whatever it drew last;
+// shown again, it does.
+func TestCoreViewingStopsWhenTheWindowHides(t *testing.T) {
+	a, row, h, pinged := viewingApp(t)
+	before := h.settle(t)
+	a.setViewing("window", viewing{tests: []speed.Target{row}, pings: []string{row.Node}})
+	refreshFor(a, 3*time.Second)
+	if got, _ := h.since(before); len(got) != 0 || len(pinged()) != 0 {
+		t.Fatalf("hidden, it asked for %v and pinged %v", got, pinged())
+	}
+	a.winShown.Store(true)
+	a.keepMeasured() // as the next refresh of the providers' lists does
+	refreshFor(a, 3*time.Second)
+	if got, _ := h.since(before); len(got) != 1 || got["/t/site"] != 1 || len(pinged()) != 1 {
+		t.Errorf("shown again: requests %v, pings %v; want one of each", got, pinged())
 	}
 }
 

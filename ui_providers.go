@@ -741,6 +741,8 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 		ui.Text(c, msg).FontSize(12).TextColor(p.mute).Padding(10, 0)
 	}
 	for _, n := range nodes {
+		u.see(n.Name, u.route("default").Main.URL)
+		u.seePing(n.Name)
 		ui.Row(c.Key(n.Name)).Gap(12).Padding(7, 0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
 			cols(
 				func() { flagBadge(c, p, nodeFlag(n), 11) },
