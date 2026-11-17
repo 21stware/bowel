@@ -194,6 +194,9 @@ func (x *bridge) checkRuleSet(ctx context.Context, a callArgs) (ruleSetCheck, er
 // open connections it now sends there, so that it shows at once. It returns
 // the service's id.
 func (x *bridge) importRuleSet(ctx context.Context, a callArgs) (string, error) {
+	if err := x.rulesEditable(); err != nil {
+		return "", err
+	}
 	if _, err := x.route(a.Route); err != nil {
 		return "", err
 	}

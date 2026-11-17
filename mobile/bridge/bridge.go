@@ -59,10 +59,16 @@ type bridge struct {
 
 	setMu sync.Mutex // one change of the config at a time
 
+	impMu   sync.Mutex // guards imp and impInfo, never held with mu
+	imp     importedCache
+	impInfo map[string]routingInfo
+
 	mu          sync.Mutex
 	routesNow   []routes.Route
 	routesAt    uint64
-	vpn         string // off, connecting, on, disconnecting, error
+	routesIm    *core.Imported  // the imported routing routesNow was built from
+	impWaiting  importedWaiting // what the imported routing's core has not downloaded
+	vpn         string          // off, connecting, on, disconnecting, error
 	vpnErr      string
 	version     string // the core's, once it has said
 	wantConns   bool
@@ -121,6 +127,7 @@ func Start(dir string, sink Sink) error {
 		mon: monitor.New(filepath.Join(dir, "stats.json")), vpn: "off", lastNode: map[string]string{},
 	}
 	nb.mon.SkipGroup = core.ProbeGroup
+	store.Vet = nb.vetUpdate
 	nb.loc = locate.New(filepath.Join(dir, "locations.json"))
 	nb.loc.Login = nb.probeLogin
 	if err := nb.openRuleSets(); err != nil {
@@ -195,6 +202,7 @@ func (x *bridge) measure(ctx context.Context, c *mihomo.Client) {
 			_ = c.HealthCheck(ctx, "p-"+p.ID)
 		}
 	}
+	measureImported(ctx, c, x.importedNow())
 	if x.refresh(ctx) == nil {
 		x.push()
 	}
@@ -229,9 +237,13 @@ func (x *bridge) refresh(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	im := x.importedNow()
 	nodes := map[string][]string{}
 	for name, p := range pv {
 		id, ok := strings.CutPrefix(name, "p-")
+		if im != nil && slices.Contains(im.ProviderNames(), name) { // the nodes of a source's own provider count as its
+			id, ok = x.set.Get().ImportedRouting, true
+		}
 		if !ok {
 			continue
 		}
@@ -250,13 +262,16 @@ func (x *bridge) refresh(ctx context.Context) error {
 			version = v.Version
 		}
 	}
+	x.noteWaiting(ctx, c, im, pv)
 	all := x.routes()
 	x.mu.Lock()
 	x.proxies, x.provNodes = px, nodes
 	if version != "" {
 		x.version = version
 	}
-	x.noticeSwitchesLocked(all)
+	if im == nil { // an imported config's groups switch by their own rules
+		x.noticeSwitchesLocked(all)
+	}
 	x.mu.Unlock()
 	return nil
 }
@@ -413,7 +428,11 @@ func Call(method, payload string) (string, error) {
 	case "updateAll":
 		return encode(x.updateAll())
 	case "renameProvider":
-		return "null", x.renameProvider(args.ID, args.Name)
+		return "null", x.renameProvider(ctx, args.ID, args.Name)
+	case "useRouting": // a provider's own groups and rules, or bowel's for ""
+		return "null", x.setImportedRouting(ctx, args.ID)
+	case "selectMember": // a member of an imported config's group
+		return "null", x.selectMember(ctx, args.Name, args.Node)
 	case "deleteProvider":
 		return "null", x.deleteProvider(ctx, args.ID)
 	case "hideNode":
@@ -560,14 +579,21 @@ func (x *bridge) setMode(ctx context.Context, mode string) error {
 	return nil
 }
 
-// routes are the route groups as the user has them now, built once per change.
+// routes are the route groups as the user has them now, built once per
+// change: bowel's, or those of the imported config in use.
 func (x *bridge) routes() []routes.Route {
 	gen := x.set.Gen()
+	im := x.importedNow()
 	x.mu.Lock()
 	defer x.mu.Unlock()
-	if x.routesNow == nil || x.routesAt != gen {
-		s := x.set.Get()
-		x.routesNow, x.routesAt = routes.Build(s.Routing, s.Rules), gen
+	if x.routesNow == nil || x.routesAt != gen || x.routesIm != im {
+		if im != nil {
+			x.routesNow = im.Routes()
+		} else {
+			s := x.set.Get()
+			x.routesNow = routes.Build(s.Routing, s.Rules)
+		}
+		x.routesAt, x.routesIm = gen, im
 	}
 	return x.routesNow
 }
@@ -582,8 +608,15 @@ func (x *bridge) route(id string) (routes.Route, error) {
 
 // selectNode makes a group's strategy that one node, or the fastest for "".
 func (x *bridge) selectNode(ctx context.Context, routeID, node string) error {
-	if _, err := x.route(routeID); err != nil {
+	r, err := x.route(routeID)
+	if err != nil {
 		return err
+	}
+	if x.importedNow() != nil {
+		if r.Direct {
+			return errors.New(i18n.T("没有这条路由", "No such route"))
+		}
+		return x.selectMember(ctx, routes.Group(r), x.sourceName(node))
 	}
 	return x.change(ctx, func(s *settings.Settings) { s.Routing.PickNode(routeID, node) })
 }
@@ -679,13 +712,28 @@ func (x *bridge) prepareTunnel() error {
 // writeConfig writes config.yaml for the tunnel: bowel's own config, with
 // the desktop-only parts replaced by what a phone's VPN needs.
 func (x *bridge) writeConfig() error {
+	cfg, err := x.config(x.set.Get(), x.importedNow())
+	if err != nil {
+		return err
+	}
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(x.dir, "config.yaml"), out, 0o600)
+}
+
+// config is the tunnel's config for s, with im's routing when that is set.
+func (x *bridge) config(s settings.Settings, im *core.Imported) (map[string]any, error) {
 	refs := []core.ProviderRef{}
 	for _, p := range x.store.List() {
-		if p.Enabled {
+		// A config whose nodes are all its own proxy-providers' is no node
+		// file: the core refuses one without `proxies`. Its nodes come with
+		// its routing, when that is in use.
+		if p.Enabled && x.store.OwnNodes(p.ID) {
 			refs = append(refs, core.ProviderRef{ID: p.ID, Path: x.store.Path(p.ID), Hidden: p.Hidden})
 		}
 	}
-	s := x.set.Get()
 	all := routes.Build(s.Routing, s.Rules)
 	scopes, orders := x.nodeLists(all)
 	opts := s.Options.Clone()
@@ -696,14 +744,14 @@ func (x *bridge) writeConfig() error {
 	raw, err := core.BuildConfig(core.Input{
 		Providers: refs, Routes: all, UserRules: routes.Active(all, s.Rules), RuleSets: x.ruleSetRefs(s), Scopes: scopes, Orders: orders,
 		Mode: s.Mode, Tun: true, LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: probePort, Options: opts,
-		Dev: tailnetOverlay(s.Tailnet),
+		Dev: tailnetOverlay(s.Tailnet), Imported: im,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var cfg map[string]any
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
-		return err
+		return nil, err
 	}
 	tun := cfg["tun"].(map[string]any)
 	tun["stack"], tun["mtu"] = "gvisor", 1500
@@ -724,17 +772,13 @@ func (x *bridge) writeConfig() error {
 	addTailnetListener(cfg, s.Tailnet)
 	addSelfListener(cfg)
 	if err := x.lockProbe(cfg); err != nil {
-		return err
+		return nil, err
 	}
 	if runtime.GOOS == "ios" {
 		// The extension has little memory; the rule data ships with the app.
 		cfg["geo-auto-update"] = false
 	}
-	out, err := yaml.Marshal(cfg)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(x.dir, "config.yaml"), out, 0o600)
+	return cfg, nil
 }
 
 // tunFD is the TUN descriptor the service or extension last started the core with.
@@ -789,9 +833,15 @@ func (x *bridge) updateAll() int {
 	return failed
 }
 
-func (x *bridge) renameProvider(id, name string) error {
-	if _, err := x.store.Rename(id, name); err != nil {
+func (x *bridge) renameProvider(ctx context.Context, id, name string) error {
+	p, err := x.store.Rename(id, name)
+	if err != nil {
 		return err
+	}
+	// A config's local file is found by its name: one in use may have just
+	// gained or lost its file.
+	if p.Kind == provider.File && x.set.Get().ImportedRouting != "" {
+		return x.applyConfig(ctx)
 	}
 	x.push()
 	return nil
@@ -800,6 +850,11 @@ func (x *bridge) renameProvider(id, name string) error {
 func (x *bridge) deleteProvider(ctx context.Context, id string) error {
 	if err := x.store.Delete(id); err != nil {
 		return err
+	}
+	if x.set.Get().ImportedRouting == id { // deleting it ends the choice
+		if _, err := x.set.Update(func(s *settings.Settings) { s.ImportedRouting = "" }); err != nil {
+			return err
+		}
 	}
 	return x.applyConfig(ctx)
 }
@@ -901,6 +956,9 @@ func (x *bridge) closeConn(ctx context.Context, id string) error {
 // addRule sends a domain and everything under it to a route, ahead of the
 // template's rules, and closes what it matches that goes elsewhere.
 func (x *bridge) addRule(ctx context.Context, host, routeID string) error {
+	if err := x.rulesEditable(); err != nil {
+		return err
+	}
 	r, err := routes.ParseRule(routes.KindSuffix, host, routeID)
 	if err != nil {
 		return err

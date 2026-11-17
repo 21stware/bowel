@@ -223,6 +223,41 @@ Widget _tinyActs(Look l, AppState app, ProviderInfo p, {String? note}) {
   );
 }
 
+/// What p's config brings beside its nodes, with 使用它们 or 改回 bowel 路由.
+/// Nothing for a Provider that has only nodes.
+Widget _routing(Look l, AppState app, ProviderInfo p) {
+  final r = p.routing;
+  if (r == null || !p.enabled && !r.inUse) return const SizedBox.shrink();
+  final s = l.text(12.5, color: l.mute, lh: 18);
+  final String note;
+  Widget? act;
+  if (r.problem != null) {
+    note = tr('带路由组，但不能使用：{0}', "Has route groups that can't be used: {0}", [r.problem]);
+  } else if (r.inUse) {
+    note = tr('正在使用它的 {0} 个路由组', 'Using its {0} route groups', [r.groups]);
+    act = Btn(tr('改回 bowel 路由', "Use bowel's routing"), kind: BtnKind.quiet, minH: 36, padH: 11, fontSize: 13, onTap: () => app.useRouting(null));
+  } else {
+    note = tr('这份配置带 {0} 个路由组、{1} 条规则', 'This config has {0} route groups and {1} rules', [r.groups, r.rules]);
+    act = Btn(tr('使用它们', 'Use them'), kind: BtnKind.quiet, minH: 36, padH: 11, fontSize: 13, onTap: () => _confirmRouting(app, p, r));
+  }
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(16, 0, 12, 10),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(note, style: r.problem != null ? s.copyWith(color: l.warnT) : (r.inUse ? s.copyWith(color: l.ink) : s)),
+      if (act != null) ...[const SizedBox(height: 6), act],
+    ]),
+  );
+}
+
+void _confirmRouting(AppState app, ProviderInfo p, ProviderRouting r) {
+  final body = [
+    tr('将按这份配置的 {0} 个路由组和 {1} 条规则分流，保留它的分组类型、成员顺序和嵌套。', "Traffic will go by this config's {0} route groups and {1} rules, with its group kinds, member order and nesting kept.", [r.groups, r.rules]),
+    tr('你的规则和规则集会暂停，改回 bowel 路由后恢复。订阅更新时继续使用它的路由。', "Your rules and rule sets pause until you go back to bowel's routing. Updates of the subscription keep using its routing."),
+    if (r.remote > 0) tr('这份配置自带 {0} 个订阅，里面的节点在使用之后才由内核下载', 'This config brings {0} subscriptions of its own; the core downloads their nodes once it is in use', [r.remote]),
+  ].join('\n\n');
+  confirmSheet(app, tr('按它的路由分流', 'Route by this config'), tr('使用它们', 'Use them'), () => app.useRouting(p), body: body);
+}
+
 /// The nodes removed from p, each with 放回; nothing when there are none.
 Widget _removed(Look l, AppState app, ProviderInfo p) {
   if (p.hidden.isEmpty) return const SizedBox.shrink();
@@ -490,6 +525,7 @@ class _ProviderTileState extends State<_ProviderTile> with SingleTickerProviderS
     return SliverMainAxisGroup(slivers: [
       _isOpen ? PinnedHeaderSliver(child: head) : SliverToBoxAdapter(child: head),
       SliverToBoxAdapter(child: _meta(l, ns)),
+      SliverToBoxAdapter(child: _routing(l, app, p)),
       ...body,
       SliverToBoxAdapter(child: Container(height: 1, color: l.hair2)),
     ]);

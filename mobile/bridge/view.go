@@ -34,6 +34,9 @@ type viewData struct {
 	UserRules int `json:"userRules"`
 	// Core is what the 设置 page says about mihomo.
 	Core string `json:"core"`
+	// Imported is there while a provider's own routing is in use, without
+	// its groups (the 路由组 page asks for those).
+	Imported *importedData `json:"imported,omitempty"`
 }
 
 // issueData is what the 代理 page says is wrong, the desktop's title bar.
@@ -104,6 +107,8 @@ type providerData struct {
 	Dots []int `json:"dots,omitempty"`
 	// Hidden are the names of the nodes the user removed, as its content has them.
 	Hidden []string `json:"hidden,omitempty"`
+	// Routing is the groups and rules its config brings, nil when it has none.
+	Routing *providerRouting `json:"routing,omitempty"`
 }
 
 // tickData is the once-a-second push.
@@ -162,15 +167,20 @@ func (x *bridge) view() viewData {
 	vpn, vErr, px, prov, version, sw := x.vpn, x.vpnErr, x.proxies, x.provNodes, x.version, x.switched
 	x.mu.Unlock()
 	st := x.set.Get()
+	im := x.importedNow()
 	all := x.routes()
 	v := viewData{Language: i18n.Lang(), VPN: vpn, VPNError: vErr, Mode: st.Mode, Routes: []routeData{}, Nodes: []nodeData{}, Providers: []providerData{}}
 	v.You = x.youPlace()
+	if im != nil {
+		v.Imported = x.imported(st, im, all, px, prov)
+		v.Imported.Groups = nil
+	}
 	used := map[string][]string{}
 	for _, r := range all {
 		if r.Direct || r.Reject {
 			continue
 		}
-		if p := providerOf(currentNode(px, r)); p != "" {
+		if p := providerOf(x.nodeOf(px, prov, r, im)); p != "" {
 			used[p] = append(used[p], routes.Title(r))
 		}
 	}
@@ -182,7 +192,7 @@ func (x *bridge) view() viewData {
 			names = fullNames(x.store.Names(p.ID), p.ID)
 		}
 		pv := providerData{ID: p.ID, Name: p.Name, Kind: string(p.Kind), Nodes: len(names), Error: p.Error, Updated: p.UpdatedAt.UnixMilli(),
-			Enabled: p.Enabled, AutoUpdate: p.AutoUpdate, Source: maskSource(p), UsedBy: used[p.ID], Hidden: p.Hidden}
+			Enabled: p.Enabled, AutoUpdate: p.AutoUpdate, Source: maskSource(p), UsedBy: used[p.ID], Hidden: p.Hidden, Routing: x.providerRouting(p, st.ImportedRouting)}
 		if u := p.Usage; u != nil {
 			pv.Used, pv.Total, pv.Expire = u.Upload+u.Download, u.Total, u.Expire
 			if u.Total > 0 && float64(u.Upload+u.Download)/float64(u.Total) > .9 {
@@ -217,6 +227,11 @@ func (x *bridge) view() viewData {
 	for _, r := range all {
 		rv := routeData{ID: r.ID, Name: routes.Title(r), Color: routeColor(r.Color), Direct: r.Direct, Reject: r.Reject, Policy: r.Policy.Mode, Rules: x.routeRules(r), Detail: routes.Describe(r)}
 		v.RuleCount += rv.Rules
+		if im != nil {
+			x.importedRoute(&rv, &v, r, im, px, prov)
+			v.Routes = append(v.Routes, rv)
+			continue
+		}
 		if !r.Direct && !r.Reject {
 			rv.Broken = brokenWhy(r.Policy, v.Nodes)
 			rv.Auto = r.Policy.Mode != routes.ModeFixed
@@ -237,10 +252,36 @@ func (x *bridge) view() viewData {
 		}
 		v.Routes = append(v.Routes, rv)
 	}
-	if vpn == "on" {
+	if im != nil {
+		v.RuleCount = len(im.Rules)
+	}
+	v.Issue = x.importedIssue(st, im, vpn == "on")
+	if vpn == "on" && v.Issue == nil {
 		v.Issue = judge(st.Mode, v, sw)
 	}
 	return v
+}
+
+// importedRoute fills in rv, a route of an imported config's: its group's
+// chain says the node, and its kind whether the core chooses by itself.
+func (x *bridge) importedRoute(rv *routeData, v *viewData, r routes.Route, im *core.Imported, px map[string]mihomo.Proxy, prov map[string][]string) {
+	rv.Rules = im.RulesTo(r.Name)
+	if r.Direct || r.Reject {
+		return
+	}
+	if g, ok := im.GroupOf(r.Name); ok {
+		rv.Auto = core.GroupKind(g) != "select"
+	}
+	if px == nil {
+		return
+	}
+	if now := x.nodeOf(px, prov, r, im); now != "" && now != "DIRECT" && now != "REJECT" && now != "REJECT-DROP" {
+		rv.Node = now
+		if r.ID == routes.Default {
+			n := x.located(nodeView(now, providerOf(now), px[now]))
+			v.Exit = &n
+		}
+	}
 }
 
 // judge is the first thing worth saying about a running tunnel.

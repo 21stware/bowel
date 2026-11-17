@@ -69,6 +69,7 @@ class ProviderInfo {
     this.hidden = const [],
     this.subscription = false,
     this.shareable = true,
+    this.routing,
   });
 
   final String id, name, kind, updated, source;
@@ -80,6 +81,31 @@ class ProviderInfo {
   final int? used;
   final String? usage, expires, warn;
   final List<int> tones;
+
+  /// The route groups and rules its config brings; null when it has none.
+  final ProviderRouting? routing;
+}
+
+/// What a complete config brings beside its nodes: its own route groups and
+/// rules, which the user may route by instead of bowel's.
+class ProviderRouting {
+  const ProviderRouting({this.groups = 0, this.rules = 0, this.remote = 0, this.inUse = false, this.problem});
+
+  ProviderRouting.from(Map m)
+      : groups = m['groups'] as int? ?? 0,
+        rules = m['rules'] as int? ?? 0,
+        remote = m['remote'] as int? ?? 0,
+        inUse = m['inUse'] as bool? ?? false,
+        problem = m['problem'] as String?;
+
+  final int groups, rules;
+
+  /// How many subscriptions of its own its groups take nodes from.
+  final int remote;
+  final bool inUse;
+
+  /// Why it can't be used; null when it can.
+  final String? problem;
 }
 
 /// A region's name in the interface's language; `regions` stays the Chinese

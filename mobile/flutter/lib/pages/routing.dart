@@ -186,6 +186,8 @@ class _RoutesPageState extends State<RoutesPage> {
       listenable: app,
       builder: (context, _) {
         final l = Skin.of(context);
+        final imported = app.routing?['imported'];
+        if (imported is Map) return _ImportedRoutes(app: app, data: imported);
         final all = _groups(app);
         // The fixed groups keep their place, so a group moves among the rest.
         final movable = [for (final g in all) if (g['movable'] == true) g['id'] as String];
@@ -264,6 +266,122 @@ class _RoutesPageState extends State<RoutesPage> {
           ]),
         ),
       ),
+    );
+  }
+}
+
+/// The kind of an imported group, in words.
+String _kindWord(String kind) => switch (kind) {
+      'select' => tr('手动选择', 'Manual'),
+      'url-test' => tr('自动最快', 'Fastest'),
+      'fallback' => tr('顺序备用', 'Fallback'),
+      'load-balance' => tr('负载均衡', 'Load balance'),
+      _ => kind,
+    };
+
+/// 路由组 while a provider's own routing is in use: its groups as the config
+/// has them, in its order. Only the groups of the kind the user chooses in
+/// change here; the rest is the config's, until 改回 bowel 路由.
+class _ImportedRoutes extends StatelessWidget {
+  const _ImportedRoutes({required this.app, required this.data});
+  final AppState app;
+  final Map data;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = Skin.of(context);
+    final groups = _list(data, 'groups');
+    final unused = ((data['unused'] as List?) ?? const []).cast<String>();
+    final paused = data['pausedRules'] as int? ?? 0, sets = data['pausedSets'] as int? ?? 0;
+    final small = l.text(13, color: l.mute, lh: 18);
+    return SubPage(
+      title: tr('路由组 · 来自这份配置', 'Routes · From this config'),
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${data['name'] ?? ''} · ${tr('{0} 个路由组 · {1} 条规则，按配置里的顺序生效', '{0} route groups · {1} rules, in the config\'s order', [groups.length, data['rules'] ?? 0])}', style: small),
+            const SizedBox(height: 6),
+            Text(tr('新建路由组、改规则和测试一个地址现在不可用；实际命中了哪条规则，可以在「活动」里看。', "New route groups, rule changes and testing an address aren't available now; Activity shows which rule each connection matched."), style: small),
+            if (paused + sets > 0) ...[
+              const SizedBox(height: 6),
+              Text(tr('你的 {0} 条规则和 {1} 个规则集已暂停，改回 bowel 路由后恢复。', "Your {0} rules and {1} rule sets are paused until you go back to bowel's routing.", [paused, sets]), style: small),
+            ],
+            if (unused.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(tr('这份配置里的 {0} 不会生效：DNS、TUN 和本机端口用的是 bowel 自己的设置。', "Not used from this config: {0}. DNS, TUN and local ports follow bowel's own settings.", [unused.join(tr('、', ', '))]), style: small.copyWith(color: l.warnT)),
+            ],
+            const SizedBox(height: 10),
+            Btn(tr('改回 bowel 路由', "Use bowel's routing"), kind: BtnKind.quiet, minH: 36, padH: 11, fontSize: 13, onTap: () => app.useRouting(null)),
+          ]),
+        ),
+        const SizedBox(height: 6),
+        for (final g in groups) Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: _row(l, g)),
+      ],
+    );
+  }
+
+  Widget _row(Look l, Map g) {
+    final name = g['name'] as String? ?? '';
+    final kind = g['kind'] as String? ?? '';
+    final rules = g['rules'] as int? ?? 0;
+    final exit = g['exit'] as String? ?? '';
+    final now = g['now'] as String? ?? '';
+    final route = g['route'] as String? ?? '';
+    final selectable = g['selectable'] == true;
+    final small = l.text(12.5, color: l.mute, lh: 17);
+    final member = _list(g, 'members').where((m) => m['name'] == now).firstOrNull;
+    final delay = member == null || member['tested'] != true ? -1 : member['delay'] as int? ?? 0;
+    final via = exit.isEmpty ? now : (now.isEmpty || app.shownNode(exit) == now ? app.shownNode(exit) : '$now → ${app.shownNode(exit)}');
+    final row = hairBottom(
+      l,
+      Container(
+        constraints: const BoxConstraints(minHeight: 56),
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(children: [
+          Square(route.isEmpty ? l.faint : l.route(route), size: 12),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Line1(name, l.text(15, lh: 21)),
+              Line1(
+                '${_kindWord(kind)}${rules > 0 ? tr(' · {0} 条规则指向这里', ' · {0} rules point here', [rules]) : tr(' · 没有规则直接指向这里', ' · no rule points here directly')}${selectable ? '' : tr(' · 由内核自己选择', ' · the core chooses by itself')}',
+                small,
+              ),
+              if (via.isNotEmpty) Line1(via, l.text(12.5, color: l.ink2, lh: 17)),
+            ]),
+          ),
+          const SizedBox(width: 10),
+          Text(latText(delay), maxLines: 1, style: l.text(12.5, color: latColor(l, delay), lh: 17)),
+          const SizedBox(width: 4),
+          Ic('chev', size: 15, color: selectable ? l.mute : l.faint),
+        ]),
+      ),
+    );
+    return Tap(onTap: () => _pick(g), child: row);
+  }
+
+  void _pick(Map g) {
+    final name = g['name'] as String? ?? '';
+    if (g['selectable'] != true) {
+      app.say(tr('这个组是「{0}」，由内核自己选择', 'This group is {0}: the core chooses by itself', [_kindWord(g['kind'] as String? ?? '')]));
+      return;
+    }
+    final members = _list(g, 'members');
+    pickSheet<String>(
+      app,
+      name,
+      [
+        for (final m in members)
+          PickOption(
+            m['name'] as String,
+            m['group'] == true ? m['name'] as String : app.shownNode(m['node'] as String? ?? m['name'] as String),
+            sub: m['group'] == true ? tr('路由组', 'Route group') : (m['tested'] == true ? latText(m['delay'] as int? ?? 0) : null),
+          ),
+      ],
+      (m) => app.selectMember(name, m),
+      value: g['now'] as String?,
+      search: members.length > 12,
     );
   }
 }
