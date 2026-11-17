@@ -1,0 +1,184 @@
+package speed
+
+import (
+	"context"
+	"slices"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+// settle waits for q to have nothing queued or running.
+func settle[K comparable](t *testing.T, q *Queue[K]) {
+	t.Helper()
+	until(t, func() bool {
+		q.mu.Lock()
+		defer q.mu.Unlock()
+		return len(q.calls) == 0 && q.busy == 0
+	})
+}
+
+func until(t *testing.T, ok func() bool) {
+	t.Helper()
+	for end := time.Now().Add(5 * time.Second); !ok(); time.Sleep(time.Millisecond) {
+		if time.Now().After(end) {
+			t.Fatal("timed out")
+		}
+	}
+}
+
+// counted is a test function that notes what it was asked and waits at gate.
+type counted struct {
+	mu    sync.Mutex
+	order []string
+	gate  chan struct{}
+}
+
+func (c *counted) test(k string) {
+	c.mu.Lock()
+	c.order = append(c.order, k)
+	c.mu.Unlock()
+	if c.gate != nil {
+		<-c.gate
+	}
+}
+
+func (c *counted) ran() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.order)
+}
+
+func TestWantSkipsFreshAndRunning(t *testing.T) {
+	c := &counted{gate: make(chan struct{})}
+	q := New(2, c.test)
+	q.Want(time.Hour, []string{"a"}, nil)
+	until(t, func() bool { return len(c.ran()) == 1 })
+	q.Want(time.Hour, []string{"a", "b"}, nil) // a is already asked for
+	close(c.gate)
+	settle(t, q)
+	q.Want(time.Hour, []string{"a", "b"}, nil) // both were just tested
+	now := func(string) time.Time { return time.Now() }
+	q.Want(time.Hour, []string{"c"}, now) // someone else just tested c
+	settle(t, q)
+	if got := c.ran(); !slices.Equal(got, []string{"a", "b"}) {
+		t.Fatalf("ran %v, want a and b once each", got)
+	}
+	long := func(string) time.Time { return time.Now().Add(-2 * time.Hour) }
+	q.Want(time.Nanosecond, []string{"a"}, long) // its own test is older than a nanosecond
+	settle(t, q)
+	q.Want(time.Hour, []string{"d"}, long)
+	settle(t, q)
+	if got := c.ran(); !slices.Equal(got, []string{"a", "b", "a", "d"}) {
+		t.Fatalf("ran %v, want a again and then d", got)
+	}
+}
+
+func TestLimit(t *testing.T) {
+	var now, most atomic.Int32
+	var total atomic.Int32
+	q := New(3, func(int) {
+		n := now.Add(1)
+		for {
+			m := most.Load()
+			if n <= m || most.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+		total.Add(1)
+		now.Add(-1)
+	})
+	keys := make([]int, 20)
+	for i := range keys {
+		keys[i] = i
+	}
+	q.Now(context.Background(), keys)
+	if total.Load() != 20 || most.Load() != 3 {
+		t.Fatalf("%d tests, %d at once; want 20 and 3", total.Load(), most.Load())
+	}
+}
+
+func TestNowJoinsAndGoesFirst(t *testing.T) {
+	c := &counted{gate: make(chan struct{})}
+	q := New(1, c.test)
+	q.Want(time.Hour, []string{"a", "b", "c"}, nil)
+	until(t, func() bool { return len(c.ran()) == 1 }) // a runs, b and c wait
+	done := make(chan struct{})
+	go func() {
+		q.Now(context.Background(), []string{"c", "d", "a", "c"})
+		close(done)
+	}()
+	until(t, func() bool {
+		q.mu.Lock()
+		defer q.mu.Unlock()
+		return slices.Equal(q.queue, []string{"c", "d", "b"})
+	})
+	for i := range 3 { // a, c and d finish
+		select {
+		case <-done:
+			t.Fatalf("returned after %d tests", i)
+		default:
+		}
+		c.gate <- struct{}{}
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Now did not return when its tests were done")
+	}
+	c.gate <- struct{}{}
+	settle(t, q)
+	if got := c.ran(); !slices.Equal(got, []string{"a", "c", "d", "b"}) {
+		t.Fatalf("ran %v, want a c d b", got)
+	}
+}
+
+func TestNowTestsWhatIsFresh(t *testing.T) {
+	c := &counted{}
+	q := New(1, c.test)
+	q.Now(context.Background(), []string{"a"})
+	q.Now(context.Background(), []string{"a"})
+	q.Now(context.Background(), nil)
+	if got := c.ran(); !slices.Equal(got, []string{"a", "a"}) {
+		t.Fatalf("ran %v, want a twice", got)
+	}
+}
+
+func TestNowReturnsWhenContextEnds(t *testing.T) {
+	c := &counted{gate: make(chan struct{})}
+	q := New(1, c.test)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		q.Now(ctx, []string{"a", "b"})
+		close(done)
+	}()
+	until(t, func() bool { return len(c.ran()) == 1 })
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Now did not return when its context ended")
+	}
+	close(c.gate)
+	settle(t, q)
+	if got := c.ran(); !slices.Equal(got, []string{"a", "b"}) {
+		t.Fatalf("ran %v: what was asked goes on without the asker", got)
+	}
+}
+
+func TestIdle(t *testing.T) {
+	var idle atomic.Int32
+	c := &counted{}
+	q := New(4, c.test)
+	q.Idle = func() { idle.Add(1) }
+	q.Now(context.Background(), []string{"a", "b", "c", "d", "e"})
+	until(t, func() bool { return idle.Load() == 1 })
+	q.Want(time.Hour, []string{"a"}, nil) // fresh: nothing starts, nothing ends
+	time.Sleep(20 * time.Millisecond)
+	if n := idle.Load(); n != 1 {
+		t.Fatalf("Idle was called %d times, want once", n)
+	}
+}
