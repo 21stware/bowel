@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image/color"
 	"image/png"
+	"os"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -199,6 +200,85 @@ func TestTrayIconInk(t *testing.T) {
 				t.Errorf("white %v on %v: strongest alpha %d", white, on, maxA)
 			}
 		}
+	}
+}
+
+// Two lines are upload over download, as many characters each whatever the
+// rates, and only in the macOS menu bar (#188).
+func TestTrayLines(t *testing.T) {
+	if settings.Defaults.TraySpeedTwoLines {
+		t.Fatal("the speed is on two lines by default")
+	}
+	old := settings.Defaults.Clone()
+	next := old.Clone()
+	next.TraySpeedTwoLines = true
+	if !appOnly(old, next) {
+		t.Error("putting the speed on two lines reloads the core")
+	}
+	if l := trayLines("darwin", false, Tick{Up: 1, Down: 2}); l != ([2]string{}) {
+		t.Errorf("lines %q with the rates not shown", l)
+	}
+	for _, goos := range []string{"windows", "linux"} {
+		if traySpeedStacks(goos) {
+			t.Errorf("%s offers two lines", goos)
+		}
+		if l := trayLines(goos, true, Tick{Up: 1, Down: 2}); l != ([2]string{}) {
+			t.Errorf("lines %q on %s", l, goos)
+		}
+	}
+	if l := trayLines("darwin", true, Tick{Up: 60 << 10, Down: 1363149}); l != [2]string{"↑ 60K", "↓1.3M"} {
+		t.Errorf("lines %q, want upload over download", l)
+	}
+	for _, b := range []int64{0, 7, 512, 60 << 10, 1363149, 300 << 20, 2254857830} {
+		for _, l := range trayLines("darwin", true, Tick{Up: b, Down: b / 3}) {
+			if n := utf8.RuneCountInString(l); n != 5 {
+				t.Errorf("%q is %d characters", l, n)
+			}
+		}
+	}
+}
+
+// The icon with the rates in it is as wide for every rate, so the menu bar
+// item never moves its neighbors, is the menu bar's height, and has the
+// rates on both lines in full ink, whether taken over or not.
+func TestTrayRatesIcon(t *testing.T) {
+	width := -1
+	for _, b := range []int64{0, 7, 1000, 60 << 10, 1363149, 300 << 20, 2254857830} {
+		for _, on := range []bool{false, true} {
+			img, err := png.Decode(bytes.NewReader(trayRatesIcon(on, false, trayLines("darwin", true, Tick{Up: b, Down: b / 3}))))
+			if err != nil {
+				t.Fatal(err)
+			}
+			bd := img.Bounds()
+			if bd.Dy() != 36 {
+				t.Fatalf("the icon is %d px tall", bd.Dy())
+			}
+			if width < 0 {
+				width = bd.Dx()
+			}
+			if bd.Dx() != width {
+				t.Errorf("%d B/s: %d px wide, others are %d", b, bd.Dx(), width)
+			}
+			for half := range 2 {
+				var maxA uint8
+				for y := half * 18; y < half*18+18; y++ {
+					for x := 36; x < bd.Dx(); x++ {
+						maxA = max(maxA, color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA).A)
+					}
+				}
+				if maxA != 255 {
+					t.Errorf("%d B/s on %v: line %d's strongest alpha is %d", b, on, half+1, maxA)
+				}
+			}
+		}
+	}
+	// Narrower than the one line it replaces, at about 7 px per character
+	// of the menu bar's font: eleven characters, 119 pt (#186).
+	if width/2 >= 18+119 {
+		t.Errorf("two lines are %d pt wide with the logo, no narrower than one", width/2)
+	}
+	if os.Getenv("TRAY_RATES_PNG") != "" {
+		_ = os.WriteFile(os.Getenv("TRAY_RATES_PNG"), trayRatesIcon(true, false, [2]string{"↑ 60K", "↓1.3M"}), 0o644)
 	}
 }
 

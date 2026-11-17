@@ -1264,7 +1264,7 @@ func migrateData(dir string) {
 func appOnly(old, next settings.Settings) bool {
 	next.Language, next.StartHidden, next.Accent, next.Appearance = old.Language, old.StartHidden, old.Accent, old.Appearance
 	next.Skin, next.Borders, next.CommonRegions = old.Skin, old.Borders, old.CommonRegions
-	next.TraySpeed = old.TraySpeed
+	next.TraySpeed, next.TraySpeedTwoLines = old.TraySpeed, old.TraySpeedTwoLines
 	next.MCPPolicy = old.MCPPolicy                  // the MCP server's, not the core's
 	if routingCoreSame(old.Routing, next.Routing) { // a strategy is a selector's position
 		next.Routing = old.Routing
@@ -1339,7 +1339,7 @@ func (a *App) updateSettingsAnd(fn func(*settings.Settings), reapply bool) error
 	if appearanceOf(next) != appearanceOf(old) && !a.headless {
 		mygo.Theme.SetSource(mygo.ThemeSource(appearanceOf(next)))
 	}
-	if next.TraySpeed != old.TraySpeed {
+	if next.TraySpeed != old.TraySpeed || next.TraySpeedTwoLines != old.TraySpeedTwoLines {
 		a.mon.Wake() // the rates beside the icon: now, and at their own pace
 		a.trayTick()
 	}
