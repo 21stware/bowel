@@ -1,0 +1,145 @@
+package main
+
+import (
+	"context"
+	"maps"
+	"net/http"
+	"net/http/httptest"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/oboo/moho/internal/routes"
+	"github.com/oboo/moho/internal/settings"
+)
+
+// testHits counts the test requests that reach a local server, by path, and
+// how many of one path were being answered at once.
+type testHits struct {
+	mu    sync.Mutex
+	n     map[string]int
+	now   map[string]int
+	most  map[string]int
+	last  time.Time
+	pause time.Duration // how long an answer takes
+}
+
+func (h *testHits) serve(w http.ResponseWriter, r *http.Request) {
+	p := r.URL.Path
+	h.mu.Lock()
+	h.n[p]++
+	h.now[p]++
+	h.most[p] = max(h.most[p], h.now[p])
+	h.last = time.Now()
+	pause := h.pause
+	h.mu.Unlock()
+	time.Sleep(pause)
+	h.mu.Lock()
+	h.now[p]--
+	h.mu.Unlock()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// settle waits for the core's own tests of a start or a reload to be over,
+// and returns the counts from then.
+func (h *testHits) settle(t *testing.T) map[string]int {
+	t.Helper()
+	for end := time.Now().Add(40 * time.Second); ; time.Sleep(200 * time.Millisecond) {
+		h.mu.Lock()
+		quiet := !h.last.IsZero() && time.Since(h.last) > 3*time.Second
+		if quiet {
+			defer h.mu.Unlock()
+			clear(h.most)
+			return maps.Clone(h.n)
+		}
+		h.mu.Unlock()
+		if time.Now().After(end) {
+			t.Fatal("the test requests never stopped")
+		}
+	}
+}
+
+// since is what arrived after before, by path.
+func (h *testHits) since(before map[string]int) (d, most map[string]int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	d = map[string]int{}
+	for p, n := range h.n {
+		if n -= before[p]; n > 0 {
+			d[p] = n
+		}
+	}
+	return d, maps.Clone(h.most)
+}
+
+// speedApp is routingApp with every route tested against a local server:
+// the default route on /t/default, the others on /t/<id>, and no other
+// sites. A test is one request: with unified delay, bowel's default, the
+// core sends a second one on the same connection and times that.
+func speedApp(t *testing.T, prepare func(*settings.Settings)) (*App, map[string]NodeView, *testHits) {
+	h := &testHits{n: map[string]int{}, now: map[string]int{}, most: map[string]int{}}
+	srv := httptest.NewServer(http.HandlerFunc(h.serve))
+	t.Cleanup(srv.Close)
+	a, n := routingApp(t, func(s *settings.Settings) {
+		s.TestURL, s.UnifiedDelay = srv.URL+"/t/default", false
+		s.RouteTargets = map[string][]routes.Target{}
+		for _, id := range []string{"ai", "media", "dev"} {
+			s.RouteTargets[id] = []routes.Target{{Name: id, URL: srv.URL + "/t/" + id}}
+		}
+		if prepare != nil {
+			prepare(s)
+		}
+	})
+	return a, n, h
+}
+
+// 全部测速 asks each of the route's nodes once, on that route's main
+// target, and no more of them at once than the limit: here one.
+func TestCoreTestRouteGoesNodeByNode(t *testing.T) {
+	saved := testWorkers
+	testWorkers = 1
+	t.Cleanup(func() { testWorkers = saved })
+	a, _, h := speedApp(t, nil)
+	before := h.settle(t)
+	h.mu.Lock()
+	h.pause = 100 * time.Millisecond
+	h.mu.Unlock()
+	if err := a.testRoute(context.Background(), "ai"); err != nil {
+		t.Fatal(err)
+	}
+	got, most := h.since(before)
+	if len(got) != 1 || got["/t/ai"] != 3 {
+		t.Errorf("requests: %v, want 3 on /t/ai and nothing else", got)
+	}
+	if most["/t/ai"] != 1 {
+		t.Errorf("%d at once, want one after another", most["/t/ai"])
+	}
+	for _, n := range a.snapshot().Nodes {
+		if m := n.On("ai"); !m.Tested || m.Delay == 0 {
+			t.Errorf("%s shows no result on the route: %+v", n.Display, m)
+		}
+	}
+}
+
+// With nothing on screen and no traffic, bowel tests one thing: the node a
+// route was fixed on, once per test interval. The routes on automatic are
+// the core's.
+func TestCoreIdleKeepsOnlyFixedNodesTested(t *testing.T) {
+	a, n, h := speedApp(t, func(s *settings.Settings) { s.URLTestInterval = 10 })
+	if err := a.selectNode("ai", n["JP"].Name); err != nil {
+		t.Fatal(err)
+	}
+	a.refresh()
+	before := h.settle(t)
+	for end := time.Now().Add(24 * time.Second); time.Now().Before(end); time.Sleep(time.Second) {
+		a.mu.Lock()
+		a.nodesAt = time.Time{} // as if the providers' lists were due each time
+		a.mu.Unlock()
+		a.refresh()
+	}
+	time.Sleep(500 * time.Millisecond)
+	got, _ := h.since(before)
+	if d := got["/t/ai"]; len(got) != 1 || d < 2 || d > 3 {
+		t.Errorf("requests in 24 s at an interval of 10 s: %v, want 2 or 3 on /t/ai and nothing else", got)
+	}
+}

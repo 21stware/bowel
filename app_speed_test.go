@@ -1,14 +1,17 @@
 package main
 
 import (
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 
+	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/mihomo"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
+	"github.com/oboo/moho/internal/speed"
 )
 
 // /proxies has no provider nodes: without the providers' lists every node
@@ -75,16 +78,24 @@ func TestAppOnlyFollowsMainTargets(t *testing.T) {
 	}
 }
 
+// A route's other sites are the node's own tests of them, as the core keeps
+// them: another node has its own.
 func TestSiteViews(t *testing.T) {
-	targets := []routes.Target{{Name: "A", URL: "https://a"}, {Name: "B", URL: "https://b"}}
-	res := siteResult{node: "n1", sites: []SiteDelay{{Name: "A", URL: "https://a", Delay: 50, Tested: true}}}
-	got := siteViews(targets, res, "n1")
-	if !got[0].Tested || got[0].Delay != 50 || got[1].Tested || got[1].Name != "B" {
+	now := time.Now()
+	targets := []routes.Target{{Name: "A", URL: "https://a"}, {Name: "B", URL: "https://b"}, {Name: "C", URL: "https://c"}}
+	n1 := mihomo.Proxy{Extra: map[string]mihomo.URLTests{
+		"https://a": {History: []mihomo.History{{Time: now, Delay: 50}}},
+		"https://c": {History: []mihomo.History{{Time: now.Add(-time.Hour), Delay: 0}}},
+	}}
+	got := siteViews(targets, n1, 30*time.Minute, now)
+	if !got[0].Tested || got[0].Delay != 50 || got[0].Name != "A" || got[1].Tested || got[1].Name != "B" {
 		t.Fatalf("got %+v", got)
 	}
-	// Results of the node used before say nothing of this one.
-	if got = siteViews(targets, res, "n2"); got[0].Tested {
-		t.Fatalf("stale result shown: %+v", got)
+	if got[2].Tested {
+		t.Fatalf("a failure from an hour ago still shows: %+v", got[2])
+	}
+	if got = siteViews(targets, mihomo.Proxy{}, 30*time.Minute, now); got[0].Tested {
+		t.Fatalf("a node that was never tested shows a result: %+v", got)
 	}
 }
 
@@ -93,11 +104,67 @@ func TestNodeTestKeepsTheLastTwelve(t *testing.T) {
 	for i := 1; i <= 15; i++ {
 		h = append(h, mihomo.History{Delay: i})
 	}
-	if v := nodeTest(h); v.Delay != 15 || !v.Tested || len(v.History) != 12 || v.History[0] != 4 {
+	if v := nodeTest(h, time.Hour, time.Now()); v.Delay != 15 || !v.Tested || len(v.History) != 12 || v.History[0] != 4 {
 		t.Fatalf("got %+v", v)
 	}
-	if v := nodeTest(nil); v.Tested || v.History == nil {
+	if v := nodeTest(nil, time.Hour, time.Now()); v.Tested || v.History == nil {
 		t.Fatalf("untested: %+v", v)
+	}
+}
+
+// A failure from before a long quiet stretch is not the node's state now:
+// it reads as not tested, which no route counts against it.
+func TestNodeTestForgetsAnOldFailure(t *testing.T) {
+	now := time.Now()
+	h := []mihomo.History{{Time: now.Add(-2 * time.Hour), Delay: 80}, {Time: now.Add(-time.Hour), Delay: 0}}
+	if v := nodeTest(h, 30*time.Minute, now); v.Tested || v.Delay != 0 || len(v.History) != 2 {
+		t.Fatalf("an hour-old failure: %+v", v)
+	}
+	if v := nodeTest(h, 2*time.Hour, now); !v.Tested || v.Delay != 0 {
+		t.Fatalf("a failure still in its time: %+v", v)
+	}
+}
+
+// Only a route whose selector is on a node is kept tested by bowel: the
+// automatic and the ordered groups are the core's to test.
+func TestFixedTargets(t *testing.T) {
+	s := settings.Defaults.Clone()
+	all := routes.Build(s.Routing, nil)
+	node := "B" + core.NodeSep + "p1"
+	px := map[string]mihomo.Proxy{}
+	for _, r := range all {
+		switch {
+		case !r.NodeGroups():
+		case r.ID == "ai":
+			px[routes.Group(r)] = mihomo.Proxy{Now: node}
+		case r.ID == "media":
+			px[routes.Group(r)] = mihomo.Proxy{Now: routes.Backup(r)}
+		case r.ID == "dev":
+			px[routes.Group(r)] = mihomo.Proxy{Now: "DIRECT"}
+		default:
+			px[routes.Group(r)] = mihomo.Proxy{Now: routes.Auto(r)}
+		}
+	}
+	got := fixedTargets(px, all, s)
+	want := []speed.Target{{Node: node, URL: s.TargetsOf("ai")[0].URL}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	if got := fixedTargets(map[string]mihomo.Proxy{}, all, s); len(got) != 0 {
+		t.Fatalf("no groups yet: %+v", got)
+	}
+}
+
+// 全部测速 is a request through each node the route can use, not through
+// its own helper groups.
+func TestRouteTargetsLeavesOutItsOwnGroups(t *testing.T) {
+	r := routes.Route{ID: "ai", Name: "AI 服务"}
+	a, b := "A"+core.NodeSep+"p1", "B"+core.NodeSep+"p1"
+	px := map[string]mihomo.Proxy{routes.Group(r): {All: []string{routes.Auto(r), routes.Backup(r), a, b, a}}}
+	got := routeTargets(px, r, "https://u")
+	want := []speed.Target{{Node: a, URL: "https://u"}, {Node: b, URL: "https://u"}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
 	}
 }
 
