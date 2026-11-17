@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 
 import '../app/i18n.dart';
 import '../app/sample.dart';
+import '../app/shown.dart';
 import '../app/state.dart';
 import '../pages/sheet.dart' show PickOption, pickSheet;
 import '../ui/atoms.dart';
@@ -320,7 +321,7 @@ class _MapCard extends StatelessWidget {
                     const SizedBox(width: 9),
                     Line1(r.name, l.text(13, color: l.ink2, lh: 18), clip: true),
                     const SizedBox(width: 9),
-                    SizedBox(width: 56, child: Text(latText(node(r.node!).delay), textAlign: TextAlign.right, maxLines: 1, style: l.text(13, color: l.mute, lh: 18))),
+                    SizedBox(width: 56, child: Text(latText(node(r.node!).on(r.id)), textAlign: TextAlign.right, maxLines: 1, style: l.text(13, color: l.mute, lh: 18))),
                   ]),
                 ),
               ),
@@ -625,7 +626,7 @@ class _RoutesCard extends StatelessWidget {
         const SizedBox(width: 9),
         Expanded(child: Align(alignment: Alignment.centerLeft, child: Shim(active: s.pending == 'node:${r.id}', child: _flyExit('exit-${r.id}', n, l.text(14.5, weight: 600, lh: 20))))),
         const SizedBox(width: 8),
-        Text(latText(n.delay), maxLines: 1, style: l.text(13, color: l.mute, lh: 18)),
+        Text(latText(n.on(r.id)), maxLines: 1, style: l.text(13, color: l.mute, lh: 18)),
       ]),
     );
   }
@@ -658,7 +659,7 @@ class _RoutesCard extends StatelessWidget {
               Row(children: [
                 Expanded(child: Line1(rulesOf[r.id]!, l.text(12.5, color: l.mute, lh: 18))),
                 const SizedBox(width: 9),
-                Text('${n != null ? '${latText(n.delay)} · ' : ''}${(share[r.id]! * 100).round()}%', maxLines: 1, style: ms),
+                Text('${n != null ? '${latText(n.on(r.id))} · ' : ''}${(share[r.id]! * 100).round()}%', maxLines: 1, style: ms),
               ]),
             ]),
           ),
@@ -758,7 +759,7 @@ class _PickerList extends StatelessWidget {
       final inRegion = s.region == 'all' || (s.region == 'none' ? n.flag.isEmpty : n.flag == s.region);
       return inRegion && (q.isEmpty || n.name.toLowerCase().contains(q));
     }).toList()
-      ..sort(byLatency);
+      ..sort(byLatencyOn(route.id));
     if (list.isEmpty) return Center(child: Text(tr('没有匹配的节点', 'No matching nodes'), style: l.text(14, color: l.mute, lh: 20)));
     return ListView.builder(
       padding: EdgeInsets.zero,
@@ -796,7 +797,12 @@ class _PickRow extends StatelessWidget {
     final on = n.name == route.node;
     final switching = s.pending == 'node:${route.id}' && on;
     final sub = l.text(12.5, color: l.mute, lh: 18);
-    return Tap(
+    final delay = n.on(route.id);
+    return Shown(
+      app: s,
+      node: n.name,
+      route: route.id,
+      child: Tap(
       onTap: () => s.pickNode(route.id, n.name),
       child: Container(
         constraints: const BoxConstraints(minHeight: 58),
@@ -822,12 +828,13 @@ class _PickRow extends StatelessWidget {
             width: 54,
             child: Align(
               alignment: Alignment.centerRight,
-              child: s.testing ? const Skeleton() : Text(latText(n.delay), maxLines: 1, style: l.text(13.5, color: latColor(l, n.delay), lh: 20)),
+              child: s.testing ? const Skeleton() : Text(latText(delay), maxLines: 1, style: l.text(13.5, color: latColor(l, delay), lh: 20)),
             ),
           ),
           const SizedBox(width: 11),
           SizedBox(width: 17, child: on ? Ic('check', size: 17, color: l.ink) : null),
         ]),
+      ),
       ),
     );
   }

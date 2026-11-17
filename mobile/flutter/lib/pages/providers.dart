@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 
 import '../app/i18n.dart';
 import '../app/sample.dart';
+import '../app/shown.dart';
 import '../app/state.dart';
 import '../ui/atoms.dart';
 import '../ui/skin.dart';
@@ -289,7 +290,7 @@ class _NodeRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = Skin.of(context);
-    return hairTop(
+    return Shown(app: app, node: n.name, route: 'default', child: hairTop(
       l,
       Tap(
         label: n.name,
@@ -315,7 +316,7 @@ class _NodeRow extends StatelessWidget {
           ]),
         ),
       ),
-    );
+    ));
   }
 }
 

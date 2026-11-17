@@ -3,7 +3,7 @@ import 'i18n.dart';
 // shots use; once the core is attached, AppState replaces them with real ones.
 
 class Node {
-  const Node(this.name, this.flag, this.city, this.source, this.proto, this.provider, this.delay, this.history, {this.providerId = '', this.lat, this.lon});
+  const Node(this.name, this.flag, this.city, this.source, this.proto, this.provider, this.delay, this.history, {this.providerId = '', this.lat, this.lon, this.routes});
 
   final String name, flag, city, source, proto, provider;
 
@@ -14,8 +14,17 @@ class Node {
   final double? lat, lon;
 
   /// Milliseconds; 0 means the last test timed out, -1 that there was none.
+  /// This is its test of the default route's target.
   final int delay;
   final List<int> history;
+
+  /// Its delay on each other route's own target; a route it has no test of
+  /// is left out. Null when every route shows [delay]: the sample values,
+  /// and a config's own routing.
+  final Map<String, int>? routes;
+
+  /// Its delay as the route tests it.
+  int on(String route) => route == 'default' || routes == null ? delay : routes![route] ?? -1;
 }
 
 /// The route of each of a traffic column's parts, in order.
@@ -216,7 +225,13 @@ List<Node> _buildNodes() {
 }
 
 Node node(String name) => nodes.firstWhere((n) => n.name == name, orElse: () => Node(name, '', '', '未知', '', '', -1, const []));
-int byLatency(Node a, Node b) => (a.delay <= 0 ? 100000 : a.delay).compareTo(b.delay <= 0 ? 100000 : b.delay);
+int byLatency(Node a, Node b) => byLatencyOn('default')(a, b);
+
+/// Fastest first by each node's test of the route's own target.
+int Function(Node, Node) byLatencyOn(String route) {
+  int slow(Node n) => n.on(route) <= 0 ? 100000 : n.on(route);
+  return (a, b) => slow(a).compareTo(slow(b));
+}
 /// -1 untested, 0 timed out, then fast to slow.
 int latTone(int d) => d < 0 ? -1 : (d == 0 ? 0 : (d < 130 ? 1 : (d < 220 ? 2 : 3)));
 String latText(int d) => d < 0 ? '—' : (d == 0 ? tr('超时', 'Timeout') : '$d ms');

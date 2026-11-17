@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 
 import '../app/i18n.dart';
 import '../app/sample.dart';
+import '../app/shown.dart';
 import '../app/state.dart';
 import '../ui/atoms.dart';
 import '../ui/skin.dart';
@@ -74,7 +75,7 @@ String _exitWord(AppState app, Map g, RouteCfg? rc) {
   };
 }
 
-String _delayWord(RouteCfg? rc) => rc == null || rc.direct || rc.broken != null || rc.node == null ? '—' : latText(node(rc.node!).delay);
+String _delayWord(RouteCfg? rc) => rc == null || rc.direct || rc.broken != null || rc.node == null ? '—' : latText(node(rc.node!).on(rc.id));
 
 /// What a service still sends: nothing while it is off.
 List<Map> _live(Map s) => s['off'] == true ? const [] : [for (final r in _list(s, 'rules')) if (r['off'] != true) r];
@@ -441,8 +442,10 @@ class _GroupPageState extends State<GroupPage> {
 
   List<Map> get _nodes => _list(app.routing, 'nodes');
 
+  /// A node to choose for this group, with its test of the group's own target.
   PickOption<String> _nodeOption(Map n) {
-    final d = n['delay'] as int? ?? -1;
+    final on = id == 'default' ? null : n['routes'] as Map?;
+    final d = (on == null ? n['delay'] : on[id]) as int? ?? -1;
     return PickOption(n['name'] as String, n['display'] as String, sub: '${n['provider']}${d > 0 ? ' · $d ms' : (d == 0 ? ' · ${tr('超时', 'Timeout')}' : '')}', leading: FlagDot(n['flag'] as String? ?? '', 18));
   }
 
@@ -643,7 +646,7 @@ class _GroupPageState extends State<GroupPage> {
       });
     }
 
-    return section(l, tr('测试地址', 'Test URLs'), [
+    return Shown(app: app, route: id, child: section(l, tr('测试地址', 'Test URLs'), [
       for (final (i, t) in targets.indexed)
         navRow(l, t['name'] as String, i == 0 ? tr('主要', 'Primary') : (() {
           final d = delayOf(t);
@@ -667,7 +670,7 @@ class _GroupPageState extends State<GroupPage> {
           }),
         ]),
       ),
-    ]);
+    ]));
   }
 
   void _addRule(Map s) {
