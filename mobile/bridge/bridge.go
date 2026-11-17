@@ -184,6 +184,7 @@ func (x *bridge) connect() {
 	x.mu.Lock()
 	x.client, x.cancel = c, cancel
 	x.mu.Unlock()
+	x.tests.Forget() // a core just started has no results
 	go x.mon.Run(ctx, c)
 	go func() {
 		// The core answers a moment after the tunnel reports connected.
@@ -933,6 +934,9 @@ func (x *bridge) testRoute(ctx context.Context, routeID string) error {
 	if err != nil {
 		return err
 	}
+	if !r.NodeGroups() {
+		return errors.New(i18n.T("没有这条路由", "No such route"))
+	}
 	im := x.importedNow()
 	x.mu.Lock()
 	px, prov := x.proxies, x.provNodes
@@ -999,7 +1003,9 @@ func (x *bridge) reload(ctx context.Context, c *mihomo.Client) error {
 	if err := x.writeConfig(); err != nil {
 		return err
 	}
-	return c.Reload(ctx, filepath.Join(x.dir, "config.yaml"))
+	err := c.Reload(ctx, filepath.Join(x.dir, "config.yaml"))
+	x.tests.Forget() // the core has none of its results any more
+	return err
 }
 
 func (x *bridge) logs() []logData {

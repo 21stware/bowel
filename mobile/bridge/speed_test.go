@@ -58,7 +58,6 @@ func (f *fakeCore) tested(node, url string, ago time.Duration, ms int) {
 func speedBridge(t *testing.T) (*bridge, *fakeCore) {
 	t.Helper()
 	x := testBridge(t)
-	x.startSpeed()
 	id := x.store.List()[0].ID
 	r, err := x.route(routes.Default)
 	if err != nil {
@@ -94,6 +93,14 @@ func speedBridge(t *testing.T) (*bridge, *fakeCore) {
 	mux.HandleFunc("GET /providers/proxies/{provider}/healthcheck", func(w http.ResponseWriter, q *http.Request) {
 		f.mu.Lock()
 		f.sweeps = append(f.sweeps, q.PathValue("provider"))
+		f.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("PUT /configs", func(w http.ResponseWriter, _ *http.Request) { // a reload: the nodes are new ones, with no tests
+		f.mu.Lock()
+		for _, p := range f.nodes {
+			p.History, p.Extra = nil, nil
+		}
 		f.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -246,6 +253,73 @@ func TestViewingAsksOnlyForWhatItNames(t *testing.T) {
 	}
 	if w := x.wanted(); len(w) != 0 {
 		t.Errorf("still wanted with nothing shown: %+v", w)
+	}
+}
+
+// A core that reloads has lost what it measured: a row still shown is asked
+// for again then, not a test interval later.
+func TestViewingAsksAgainAfterTheCoreReloads(t *testing.T) {
+	x, f := speedBridge(t)
+	x.setViewing([]shownNode{{Node: f.b, Route: "ai"}}, "")
+	if got := f.settle(t, 1); len(got) != 1 {
+		t.Fatalf("asked for %+v, want the row once", got)
+	}
+	ctx := context.Background()
+	if err := x.reload(ctx, x.client); err != nil {
+		t.Fatal(err)
+	}
+	if err := x.refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	x.keepMeasured()
+	if got := f.settle(t, 2); len(got) != 2 {
+		t.Errorf("after the reload it was asked for %+v, want the row again", got)
+	}
+}
+
+// A row on a route that has no target (the direct one) is nothing to test.
+func TestViewingARouteWithoutATargetAsksNothing(t *testing.T) {
+	x, f := speedBridge(t)
+	x.mu.Lock()
+	x.shownNodes, x.shownSites = []shownNode{{Node: f.b, Route: "direct"}, {Node: f.b, Route: routes.Reject}}, "direct"
+	x.mu.Unlock()
+	if w := x.wanted(); len(w) != 0 {
+		t.Errorf("wanted: %+v", w)
+	}
+}
+
+// Nor is there anything to test on such a route by hand: it says so.
+func TestTestRouteRefusesARouteWithoutNodes(t *testing.T) {
+	x, f := speedBridge(t)
+	for _, id := range []string{"direct", routes.Reject} {
+		if err := x.testRoute(context.Background(), id); err == nil {
+			t.Errorf("%s: tested without an error", id)
+		}
+	}
+	if got := f.settle(t, 1); len(got) != 0 {
+		t.Errorf("asked for %+v", got)
+	}
+}
+
+// With the VPN off there is no core to ask: what is shown stays due, and
+// is asked for when the core is back.
+func TestViewingWaitsForTheCore(t *testing.T) {
+	x, f := speedBridge(t)
+	c := x.client
+	x.disconnect()
+	x.mu.Lock()
+	x.proxies = map[string]mihomo.Proxy{f.b: *f.nodes[f.b]} // as the last view had them
+	x.mu.Unlock()
+	x.setViewing([]shownNode{{Node: f.b, Route: "ai"}}, "")
+	if got := f.settle(t, 1); len(got) != 0 {
+		t.Fatalf("asked a core that is not there for %+v", got)
+	}
+	x.mu.Lock()
+	x.client = c
+	x.mu.Unlock()
+	x.keepMeasured()
+	if got := f.settle(t, 1); len(got) != 1 {
+		t.Errorf("with the core back it was asked for %+v, want the row", got)
 	}
 }
 

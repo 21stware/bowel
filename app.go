@@ -683,6 +683,7 @@ func (a *App) applyConfig() error {
 	a.mu.Lock()
 	a.nodesAt = time.Time{} // providers may hold other nodes now
 	a.mu.Unlock()
+	a.tests.Forget() // and the core has none of its results any more
 	a.syncGateway()
 	a.refresh()
 	return nil

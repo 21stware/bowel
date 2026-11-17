@@ -226,3 +226,56 @@ func TestIdle(t *testing.T) {
 		t.Fatalf("Idle was called %d times, want once", n)
 	}
 }
+
+// A core that reloads forgets its results: what was tested before is due
+// again, however lately that was.
+func TestForgetMakesWhatWasTestedDueAgain(t *testing.T) {
+	c := &counted{}
+	q := New(1, c.test)
+	q.Now(context.Background(), []string{"a"})
+	q.Want(time.Hour, []string{"a"}, nil) // just tested
+	settle(t, q)
+	q.Forget()
+	q.Want(time.Hour, []string{"a"}, nil)
+	settle(t, q)
+	if got := c.ran(); !slices.Equal(got, []string{"a", "a"}) {
+		t.Fatalf("ran %v, want a again after Forget", got)
+	}
+}
+
+// A test that was running when the core reloaded left its result with the
+// old one: it does not count either.
+func TestForgetLeavesOutATestStillRunning(t *testing.T) {
+	c := &counted{gate: make(chan struct{})}
+	q := New(1, c.test)
+	q.Want(time.Hour, []string{"a"}, nil)
+	until(t, func() bool { return len(c.ran()) == 1 })
+	q.Forget()
+	close(c.gate)
+	settle(t, q)
+	q.Want(time.Hour, []string{"a"}, nil)
+	settle(t, q)
+	if got := c.ran(); !slices.Equal(got, []string{"a", "a"}) {
+		t.Fatalf("ran %v, want a again: its first test ended after Forget", got)
+	}
+}
+
+// A key named more than once is tested once, and what an asker that has
+// already left asked for is tested all the same.
+func TestNowWithDuplicatesAndNoOneWaiting(t *testing.T) {
+	c := &counted{}
+	q := New(2, c.test)
+	q.Now(context.Background(), []string{"a", "a", "b", "a"})
+	got := c.ran()
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"a", "b"}) {
+		t.Fatalf("ran %v, want a and b once each", got)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	q.Now(ctx, []string{"c"})
+	settle(t, q)
+	if got := c.ran(); len(got) != 3 || got[2] != "c" {
+		t.Fatalf("ran %v, want c after them", got)
+	}
+}

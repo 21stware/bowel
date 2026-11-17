@@ -127,14 +127,35 @@ func TestPanelMarksItsRows(t *testing.T) {
 	}
 }
 
+// A provider's nodes are all laid out, one under the other: the ones the
+// window has no room for are not on screen, and are not marked.
+func TestProviderPageMarksOnlyTheRowsInView(t *testing.T) {
+	u := viewingUI(300)
+	u.page, u.prov.open = "providers", "a"
+	tt := ui.NewTester(u.view, 1060, 760)
+	next := func() viewing { // the frame after says what the last one showed
+		tt.Frame()
+		return u.seen["window"]
+	}
+	v := next()
+	if n := len(v.pings); n < 5 || n > 40 || on(v, "https://main/default") != n {
+		t.Fatalf("%d pings and %d delays of 300 rows marked, want the ones in view", n, on(v, "https://main/default"))
+	}
+	before := slices.Clone(v.pings)
+	tt.Scroll(500, 400, 0, 4000)
+	if v = next(); len(v.pings) < 5 || len(v.pings) > 40 || slices.Contains(v.pings, before[0]) {
+		t.Errorf("after scrolling: %d rows marked, the first of before among them: %v", len(v.pings), v.pings)
+	}
+}
+
 // The provider page marks the rows of the provider that is open.
 func TestProviderPageMarksItsNodes(t *testing.T) {
 	u := viewingUI(8)
 	u.page, u.prov.open = "providers", "a"
 	tt := ui.NewTester(u.view, 1060, 760)
-	tt.Advance(2 * time.Second)
+	tt.Frame() // the rows have their places now
 	v := u.seen["window"]
-	if n := on(v, "https://main/default"); n == 0 || len(v.pings) != n {
+	if n := on(v, "https://main/default"); n != 8 || len(v.pings) != n {
 		t.Errorf("the provider page marks %d delays and %d pings: %+v", n, len(v.pings), v)
 	}
 }

@@ -28,6 +28,7 @@ type Queue[K comparable] struct {
 	queue []K             // the ones waiting, the next one first
 	busy  int             // goroutines running tests
 	at    map[K]time.Time // when each was last tested here
+	gen   int             // how often Forget was called
 }
 
 type call struct {
@@ -107,6 +108,16 @@ func (q *Queue[K]) Now(ctx context.Context, keys []K) {
 	}
 }
 
+// Forget drops when each thing was last tested here: the core that kept
+// the results reloaded, and has none of them now. A test still running
+// left its result with the old core, and does not count.
+func (q *Queue[K]) Forget() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	clear(q.at)
+	q.gen++
+}
+
 // start has as many goroutines testing as the queue has work for and the
 // limit allows. q.mu is held.
 func (q *Queue[K]) start() {
@@ -135,10 +146,11 @@ func (q *Queue[K]) work() {
 		q.queue = q.queue[1:]
 		c := q.calls[k]
 		c.running = true
+		gen := q.gen
 		q.mu.Unlock()
 		ran := q.test(k)
 		q.mu.Lock()
-		if ran {
+		if ran && gen == q.gen {
 			q.at[k] = time.Now()
 		}
 		delete(q.calls, k)

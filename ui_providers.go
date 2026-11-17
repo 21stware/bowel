@@ -31,6 +31,7 @@ type providersUI struct {
 	empty bool   // the list was empty in the last frame
 
 	open    string    // the provider whose nodes show, "" for none
+	view    ui.Rect   // where the list was in the last frame: the rows that meet it are on screen
 	offer   string    // the provider just added whose config brings a routing: it is asked about once
 	confirm string    // the provider whose 删除 asks to be pressed again
 	confAt  time.Time // when it started asking
@@ -114,7 +115,9 @@ func (u *UI) providersPage(c *ui.Context, p *pal) {
 	ui.Column(c).Fill().Children(func() {
 		u.provHead(c, p)
 		u.provAddBar(c, p)
-		ui.Scroll(c).Grow(1).Padding(0, 26, 18, 26).Children(func() {
+		list := ui.Scroll(c).Grow(1).Padding(0, 26, 18, 26)
+		pr.view = list.Bounds()
+		list.Children(func() {
 			if empty {
 				u.provEmpty(c, p)
 				return
@@ -741,9 +744,16 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 		ui.Text(c, msg).FontSize(12).TextColor(p.mute).Padding(10, 0)
 	}
 	for _, n := range nodes {
-		u.see(n.Name, u.route("default").Main.URL)
-		u.seePing(n.Name)
-		ui.Row(c.Key(n.Name)).Gap(12).Padding(7, 0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
+		row := ui.Row(c.Key(n.Name)).Gap(12).Padding(7, 0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2)
+		// Every row is laid out, however many: only those the list has
+		// room for are on screen, as the last frame placed them. A frame
+		// that is the first to lay a row out marks it a frame later, which
+		// a shown window has every second.
+		if b := row.Bounds(); b.H > 0 && b.Y < pr.view.Y+pr.view.H && b.Y+b.H > pr.view.Y {
+			u.see(n.Name, u.route("default").Main.URL)
+			u.seePing(n.Name)
+		}
+		row.Children(func() {
 			cols(
 				func() { flagBadge(c, p, nodeFlag(n), 11) },
 				func() {

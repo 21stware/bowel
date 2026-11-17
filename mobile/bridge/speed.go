@@ -112,13 +112,17 @@ func (x *bridge) wanted() []speed.Target {
 	}
 	for _, n := range nodes {
 		if _, ok := px[n.Node]; ok {
-			out = append(out, speed.Target{Node: n.Node, URL: s.TargetsOf(n.Route)[0].URL})
+			if t := s.TargetsOf(n.Route); len(t) > 0 { // the direct route has none
+				out = append(out, speed.Target{Node: n.Node, URL: t[0].URL})
+			}
 		}
 	}
 	if r, err := x.route(sites); err == nil {
 		if n := x.nodeOf(px, prov, r, im); providerOf(n) != "" {
-			for _, t := range s.TargetsOf(sites)[1:] {
-				out = append(out, speed.Target{Node: n, URL: t.URL})
+			for i, t := range s.TargetsOf(sites) {
+				if i > 0 { // the first is the main target, the route's nodes' own
+					out = append(out, speed.Target{Node: n, URL: t.URL})
+				}
 			}
 		}
 	}

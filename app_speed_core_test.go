@@ -193,6 +193,35 @@ func TestCoreViewingStopsWhenTheWindowHides(t *testing.T) {
 	}
 }
 
+// A core that reloads has lost what it measured: what the window still
+// shows is asked for again then, not a test interval later.
+func TestCoreViewingAsksAgainAfterTheCoreReloads(t *testing.T) {
+	a, row, h, _ := viewingApp(t)
+	before := h.settle(t)
+	a.winShown.Store(true)
+	a.setViewing("window", viewing{tests: []speed.Target{row}, pings: []string{row.Node}})
+	refreshFor(a, 3*time.Second)
+	if got, _ := h.since(before); got["/t/site"] != 1 {
+		t.Fatalf("requests: %v, want 1 on /t/site", got)
+	}
+	if _, err := a.settings.Update(func(s *settings.Settings) { s.URLTestTolerance++ }); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.applyConfig(); err != nil { // as a change of the settings does
+		t.Fatal(err)
+	}
+	refreshFor(a, 3*time.Second)
+	if got, _ := h.since(before); got["/t/site"] != 2 {
+		t.Errorf("after the reload: %d on /t/site, want it asked for again", got["/t/site"])
+	}
+	a.mu.Lock()
+	tests := a.proxies[row.Node].HistoryOf(row.URL)
+	a.mu.Unlock()
+	if len(tests) == 0 || tests[len(tests)-1].Delay == 0 {
+		t.Errorf("the node's tests of the site after the reload: %+v", tests)
+	}
+}
+
 // With nothing on screen and no traffic, bowel tests one thing: the node a
 // route was fixed on, once per test interval. The routes on automatic are
 // the core's.

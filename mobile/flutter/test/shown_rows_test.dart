@@ -324,4 +324,43 @@ void main() {
     expect(find.text('机场 A · 300 ms'), findsNothing, reason: "the default route's delay");
     expect(find.text('机场 A'), findsOneWidget, reason: '东京 01 has no test on this target');
   });
+
+  // A hundred rows of 50, one under the other, on a screen 760 high.
+  List<Widget> rows(AppState app) => [for (var i = 0; i < 100; i++) Shown(app: app, node: 'n$i', route: 'ai', child: const SizedBox(width: 300, height: 50))];
+  List<String> told() => [for (final n in _viewing.last['nodes'] as List) n['node'] as String];
+  List<String> range(int from, int to) => [for (var i = from; i <= to; i++) 'n$i'];
+
+  testWidgets('of rows all laid out in a page that scrolls, only those in view are on screen', (tester) async {
+    tester.view.physicalSize = const Size(360, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final app = await _attached();
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    await tester.pumpWidget(Directionality(textDirection: TextDirection.ltr, child: SingleChildScrollView(controller: scroll, child: Column(children: rows(app)))));
+    await tester.pump();
+    expect(told(), unorderedEquals(range(0, 15)));
+
+    scroll.jumpTo(2000);
+    await tester.pump();
+    await tester.pump();
+    expect(told(), unorderedEquals(range(40, 55)));
+
+    await tester.drag(find.byType(SingleChildScrollView), const Offset(0, -500));
+    await tester.pumpAndSettle();
+    final at = scroll.offset;
+    expect(at, greaterThan(2400));
+    expect(told(), unorderedEquals(range(at ~/ 50, (at + 759) ~/ 50)));
+  });
+
+  testWidgets('a row a list keeps ready below the screen is not on screen', (tester) async {
+    tester.view.physicalSize = const Size(360, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final app = await _attached();
+    final all = rows(app);
+    await tester.pumpWidget(Directionality(textDirection: TextDirection.ltr, child: ListView.builder(itemCount: all.length, itemBuilder: (_, i) => all[i])));
+    await tester.pump();
+    expect(told(), unorderedEquals(range(0, 15)));
+  });
 }
