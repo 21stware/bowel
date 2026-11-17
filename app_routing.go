@@ -28,7 +28,7 @@ func (a *App) routes() []routes.Route {
 	if a.routesAt != gen || a.routesNow == nil {
 		s := a.settings.Get()
 		if im := a.importedLocked(s); im != nil {
-			a.routesNow = importedRoutes(im)
+			a.routesNow = im.Routes()
 		} else {
 			a.routesNow = routes.Build(s.Routing, s.Rules)
 		}

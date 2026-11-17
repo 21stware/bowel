@@ -139,6 +139,9 @@ func wanted(r routes.Route) string {
 
 // followPolicies puts every group's selector where its strategy says.
 func (x *bridge) followPolicies(ctx context.Context, c *mihomo.Client) error {
+	if x.importedNow() != nil {
+		return nil // the core's selectors are the source's groups, not the strategies'
+	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	px, err := c.Proxies(ctx)
@@ -228,6 +231,9 @@ type providerPick struct {
 }
 
 type routingData struct {
+	// Imported is there while a provider's own routing is in use: then
+	// Groups are its routes, which the page shows and does not edit.
+	Imported  *importedData  `json:"imported,omitempty"`
 	Groups    []groupData    `json:"groups"`
 	Nodes     []pickData     `json:"nodes"`
 	Regions   []regionData   `json:"regions"`
@@ -242,11 +248,13 @@ type kindData struct {
 
 func (x *bridge) routing() routingData {
 	s := x.set.Get()
+	im := x.importedNow()
 	all := x.routes()
 	x.mu.Lock()
-	px, sites := x.proxies, x.sites
+	px, prov, sites := x.proxies, x.provNodes, x.sites
 	x.mu.Unlock()
 	out := routingData{Groups: []groupData{}, Nodes: []pickData{}, Regions: []regionData{}, Providers: []providerPick{}, Kinds: []kindData{}}
+	out.Imported = x.imported(s, im, all, px, prov)
 	for _, k := range routes.Kinds {
 		out.Kinds = append(out.Kinds, kindData{k, routes.KindName(k)})
 	}
@@ -280,8 +288,11 @@ func (x *bridge) routing() routingData {
 		g := groupData{ID: r.ID, Name: routes.Title(r), Summary: routes.Describe(r), Direct: r.Direct, Reject: r.Reject, Custom: r.Custom, Movable: !routes.Fixed(r.ID), Chooses: choosesExit(r.ID),
 			Mode: r.Policy.Mode, Regions: nonNil(r.Policy.Regions), Providers: nonNil(r.Policy.Providers), Order: nonNil(r.Policy.Order), Fixed: r.Policy.Fixed,
 			Services: []serviceData{}, Targets: []routes.Target{}, Sites: []siteDelay{}}
+		if im != nil {
+			g.Movable, g.Chooses = false, false
+		}
 		if !r.Direct && !r.Reject {
-			g.Now = display(currentNode(px, r))
+			g.Now = display(x.nodeOf(px, prov, r, im))
 			g.Targets = s.TargetsOf(r.ID)
 			g.Sites = append(g.Sites, sites[r.ID].Sites...)
 		}
@@ -332,6 +343,9 @@ func (x *bridge) explain(input string) explainData {
 		return explainData{Error: err.Error()}
 	}
 	s := x.set.Get()
+	if x.importedNow() != nil {
+		return explainData{Error: i18n.T("正在使用导入配置的路由，测试一个地址现在不可用；实际命中了哪条规则，可以在「活动」里看。", "An imported config's routing is in use, so an address can't be tested now; Activity shows which rule each connection matched.")}
+	}
 	if r, ok := tailnetOverlay(s.Tailnet).Match(host); ok {
 		return explainData{Rule: r.Text, Name: "Tailscale", Note: i18n.T("走内置 Tailscale：tailnet 的地址和 MagicDNS 名字在所有模式下都走它。", "Goes by the built-in Tailscale: the tailnet's addresses and MagicDNS names go by it in every mode.")}
 	}
@@ -451,6 +465,9 @@ func parseRule(kind, text string) parsedRule {
 // ---- what the pages change ----
 
 func (x *bridge) routeOp(ctx context.Context, a callArgs) error {
+	if err := x.rulesEditable(); err != nil {
+		return err
+	}
 	switch a.Op {
 	case "setStrategy":
 		x.mu.Lock()
@@ -674,6 +691,9 @@ func (x *bridge) rerouteBy(ctx context.Context, match func(host, ip string) bool
 // back. A new main target is tried first through the route's node, because
 // the automatic group would otherwise find every node dead on it.
 func (x *bridge) setTargets(ctx context.Context, routeID string, list []routes.Target) error {
+	if err := x.rulesEditable(); err != nil {
+		return err
+	}
 	r, err := x.route(routeID)
 	if err != nil {
 		return err
@@ -728,9 +748,11 @@ func (x *bridge) testSites(routeID string) error {
 	if err != nil {
 		return err
 	}
+	im := x.importedNow()
 	x.mu.Lock()
-	node := currentNode(x.proxies, r)
+	px, prov := x.proxies, x.provNodes
 	x.mu.Unlock()
+	node := x.nodeOf(px, prov, r, im)
 	if providerOf(node) == "" {
 		return errors.New(i18n.T("这条路由现在没有节点", "This route has no node now"))
 	}

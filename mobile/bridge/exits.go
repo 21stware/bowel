@@ -90,13 +90,14 @@ func (x *bridge) locateExits() {
 	if err != nil {
 		return
 	}
+	im := x.importedNow()
 	x.mu.Lock()
-	px := x.proxies
+	px, prov := x.proxies, x.provNodes
 	x.mu.Unlock()
 	found := false
 	seen := map[string]bool{}
 	for _, r := range x.routes() {
-		n := currentNode(px, r)
+		n := x.nodeOf(px, prov, r, im)
 		if r.Direct || n == "" || n == "DIRECT" || seen[n] {
 			continue
 		}

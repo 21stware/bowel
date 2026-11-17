@@ -102,6 +102,10 @@ class AppState extends ChangeNotifier {
 
   // from the core
   int userRules = 6;
+
+  /// The provider whose own routing is in use, without its groups (the
+  /// 路由组 page has those); null with bowel's.
+  Map? imported;
   String coreText = 'mihomo · 运行中';
   String? _vpn;
   bool _seenView = false;
@@ -603,6 +607,23 @@ class AppState extends ChangeNotifier {
     _send('setAutoUpdate', {'id': p.id, 'hours': hours});
   }
 
+  /// Routes by p's own groups and rules, or by bowel's again for null.
+  Future<bool> useRouting(ProviderInfo? p) async {
+    final ok = await _send('useRouting', {'id': p?.id ?? ''});
+    if (ok) {
+      await refreshRouting();
+      _toast(p == null ? tr('已改回 bowel 路由', "Back on bowel's routing") : tr('正在按它的路由分流', 'Routing by this config'));
+    }
+    return ok;
+  }
+
+  /// Points a group of the config in use, one the user chooses in, at member.
+  Future<bool> selectMember(String group, String member) async {
+    final ok = await _send('selectMember', {'name': group, 'node': member});
+    if (ok) await refreshRouting();
+    return ok;
+  }
+
   Future<bool> renameProvider(ProviderInfo p, String name) => _send('renameProvider', {'id': p.id, 'name': name});
 
   /// Adds the YAML file the user picks.
@@ -829,6 +850,7 @@ class AppState extends ChangeNotifier {
     final raised = v['issue'] as Map?;
     alert = raised == null ? null : Alert(raised['level'] as String? ?? 'warn', raised['text'] as String? ?? '', raised['detail'] as String?, raised['action'] as String?, raised['label'] as String?);
     userRules = v['userRules'] as int? ?? 0;
+    imported = v['imported'] as Map?;
     final at = v['you'] as Map?;
     you = at == null ? null : Place((at['lat'] as num).toDouble(), (at['lon'] as num).toDouble(), at['city'] as String? ?? '');
     coreText = v['core'] as String? ?? '';
@@ -914,6 +936,9 @@ class AppState extends ChangeNotifier {
 
   Map<String, String> _nodeNames = const {};
 
+  /// A node's name in these pages, from its name in the core.
+  String shownNode(String core) => _nodeNames[core] ?? core;
+
   void _applyProviders(List list) {
     providers = [
       for (final raw in list) _providerOf(raw as Map),
@@ -949,6 +974,7 @@ class AppState extends ChangeNotifier {
       hidden: (p['hidden'] as List? ?? const []).cast<String>(),
       subscription: p['kind'] == 'subscription',
       shareable: p['kind'] != 'file',
+      routing: p['routing'] is Map ? ProviderRouting.from(p['routing'] as Map) : null,
     );
   }
 

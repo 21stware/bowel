@@ -36,7 +36,8 @@ class _SettingsPageState extends State<SettingsPage> {
       if (nav == null) return;
       nav.popUntil((r) => r.isFirst);
       nav.push(routeOf(RoutesPage(app: app)));
-      nav.push(routeOf(GroupPage(app: app, id: id, service: service)));
+      // a config's own groups are all on 路由组; bowel's group page edits what is paused
+      if (app.imported == null) nav.push(routeOf(GroupPage(app: app, id: id, service: service)));
     };
     app.openRoutesPage = () {
       final nav = app.settingsNav.currentState;
@@ -192,7 +193,7 @@ class _SettingsHomeState extends State<_SettingsHome> {
               ]),
               section(l, tr('路由与规则', 'Routes and rules'), [
                 navRow(l, tr('路由组', 'Route groups'), tr('{0} 个', '{0}', [app.ruleTargets.length]), onTap: () => pushPage(context, RoutesPage(app: app))),
-                navRow(l, tr('我的规则', 'My rules'), tr('{0} 条', '{0}', [app.userRules]), sub: tr('让某个域名、关键词或 IP 段走指定路由', 'Send a domain, keyword or IP range through a chosen route'), onTap: () => pushPage(context, MyRulesPage(app: app))),
+                navRow(l, tr('我的规则', 'My rules'), app.imported != null ? tr('已暂停', 'Paused') : tr('{0} 条', '{0}', [app.userRules]), sub: tr('让某个域名、关键词或 IP 段走指定路由', 'Send a domain, keyword or IP range through a chosen route'), onTap: () => pushPage(context, MyRulesPage(app: app))),
               ]),
               section(l, tr('通用', 'General'), [
                 navRow(l, tr('语言', 'Language'), languageNames[language]!, onTap: () => pickSheet<String>(app, tr('语言', 'Language'), [for (final c in languages) PickOption(c, languageNames[c]!)], app.setLanguage, value: language)),

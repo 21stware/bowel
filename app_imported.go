@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -120,57 +119,6 @@ func (a *App) importedLocked(s settings.Settings) *core.Imported {
 	}
 	a.imp.now = im
 	return im
-}
-
-// importedRoutes are im's routes: "this traffic goes that way", which is
-// what a group is when rules point at it. MATCH's target is the default
-// route, the one the exit, the map and the menu bar follow.
-func importedRoutes(im *core.Imported) []routes.Route {
-	match := im.Match()
-	route := func(id, name string) routes.Route {
-		return routes.Route{ID: id, Name: name, Summary: fmt.Sprintf(i18n.T("%d 条规则指向这里", "%d rules point here"), im.RulesTo(name))}
-	}
-	direct := func(id, name string, reject bool) routes.Route {
-		r := route(id, name)
-		r.Direct, r.Reject, r.Color = true, reject, "--r-direct"
-		return r
-	}
-	var def routes.Route
-	switch match {
-	case "", "DIRECT":
-		def = direct(routes.Default, "DIRECT", false)
-		def.Label = i18n.T("其他流量", "Other")
-	case "REJECT", "REJECT-DROP":
-		def = direct(routes.Default, match, true)
-		def.Label = i18n.T("其他流量", "Other")
-	default:
-		def = route(routes.Default, match)
-	}
-	out := []routes.Route{def}
-	n, hasDirect, hasReject := 0, false, false
-	for _, t := range im.Targets() {
-		switch t {
-		case match, "PASS", "PASS-RULE", "COMPATIBLE", "GLOBAL":
-		case "DIRECT":
-			hasDirect = true
-		case "REJECT", "REJECT-DROP":
-			hasReject = true
-		default:
-			n++
-			out = append(out, route("g"+strconv.Itoa(n), t))
-		}
-	}
-	if hasDirect {
-		r := direct("direct", "DIRECT", false)
-		r.Label = i18n.T("直连", "Direct")
-		out = append(out, r)
-	}
-	if hasReject {
-		r := direct(routes.Reject, "REJECT", true)
-		r.Label = i18n.T("拦截", "Block")
-		out = append(out, r)
-	}
-	return out
 }
 
 // listedNode is the name the node list has for one a group names: the
