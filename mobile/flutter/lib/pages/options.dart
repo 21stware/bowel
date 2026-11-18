@@ -1,7 +1,9 @@
 import 'dart:io' show Platform;
 
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter/widgets.dart';
 
+import '../app/app_list.dart';
 import '../app/i18n.dart';
 import '../app/shell.dart';
 import '../app/state.dart';
@@ -233,6 +235,50 @@ class _AppsPageState extends State<AppsPage> {
     }
   }
 
+  /// Turns off the apps named on the clipboard, added to the ones already off
+  /// or in place of them. Names not on this phone stay, for once installed.
+  Future<void> _import() async {
+    final app = widget.app;
+    final text = (await Clipboard.getData('text/plain'))?.text ?? '';
+    final got = parsePackages(text);
+    if (got.isEmpty) {
+      app.say(text.trim().isEmpty ? tr('剪贴板是空的', 'The clipboard is empty') : tr('剪贴板里没有包名', 'No package names on the clipboard'), ms: 2600);
+      return;
+    }
+    final had = {for (final s in app.vpnExcluded.split(',')) if (s.isNotEmpty) s};
+    void take(Set<String> next) {
+      app.setExcluded(next);
+      final known = {for (final a in _apps ?? const <({String id, String name})>[]) a.id};
+      final missing = got.where((id) => !known.contains(id)).length;
+      app.say(
+        missing == 0
+            ? tr('已导入 {0} 个，下次开启 VPN 时生效', 'Imported {0}. Applies the next time VPN turns on.', [got.length])
+            : tr('已导入 {0} 个，其中 {1} 个本机没有，装上后生效', "Imported {0}. {1} aren't on this phone and apply once installed.", [got.length, missing]),
+        ms: 4000,
+      );
+    }
+
+    if (had.isEmpty || had.containsAll(got)) return take({...had, ...got});
+    pickSheet<bool>(
+      app,
+      tr('导入 {0} 个不走 bowel 的 App', 'Import {0} apps that skip bowel', [got.length]),
+      [
+        PickOption(true, tr('加到现有的里', 'Add to the current ones'), sub: tr('现在有 {0} 个', '{0} now', [had.length])),
+        PickOption(false, tr('替换现有的', 'Replace the current ones'), sub: tr('现有的 {0} 个会恢复走 bowel', 'The {0} now will go through bowel again', [had.length])),
+      ],
+      (add) => take(add ? {...had, ...got} : got),
+    );
+  }
+
+  Future<void> _export(Set<String> out) async {
+    if (out.isEmpty) {
+      widget.app.say(tr('还没有不走 bowel 的 App', 'No apps skip bowel yet'));
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: packagesText(out)));
+    widget.app.say(tr('已复制 {0} 个包名', 'Copied {0} package names', [out.length]));
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = widget.app;
@@ -247,7 +293,15 @@ class _AppsPageState extends State<AppsPage> {
           title: tr('分应用代理', 'Per-app proxy'),
           dockChild: SearchField(hint: tr('搜索 App', 'Search apps'), label: tr('搜索 App', 'Search apps'), onChanged: (v) => setState(() => _q = v)),
           children: [
-            Padding(padding: const EdgeInsets.fromLTRB(16, 4, 16, 6), child: Text(tr('关掉的 App 不走 bowel，直接联网。下次开启 VPN 时生效。', 'Apps turned off skip bowel and connect directly. Applies the next time VPN turns on.'), style: l.text(13, color: l.mute, lh: 18))),
+            Padding(padding: const EdgeInsets.fromLTRB(16, 4, 16, 6), child: Text(tr('关掉的 App 不走 bowel，直接联网。下次开启 VPN 时生效。导入导出的是不走 bowel 的包名，每行一个；别的客户端"只代理选中 App"的列表，在这里意思正好相反。', 'Apps turned off skip bowel and connect directly. Applies the next time VPN turns on. Import and export carry the package names that skip bowel, one per line; another client\'s list of apps to proxy means the opposite here.'), style: l.text(13, color: l.mute, lh: 18))),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+              child: Row(children: [
+                Btn(tr('从剪贴板导入', 'Import'), onTap: _import, minH: 34, fontSize: 13),
+                const SizedBox(width: 8),
+                Btn(tr('导出到剪贴板', 'Export'), onTap: () => _export(out), minH: 34, fontSize: 13),
+              ]),
+            ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Column(children: [
