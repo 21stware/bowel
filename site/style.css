@@ -106,6 +106,17 @@ html.zh .en, html.en .zh { display: none !important; }
 .lang-menu a[aria-current] { color: var(--ink); font-weight: 650; }
 .gh { display: inline-flex; padding: 6px; border-radius: 8px; color: var(--ink2); }
 .gh:hover { background: var(--hair2); color: var(--ink); }
+/* Star on GitHub: a pill with the count in its own segment, as GitHub draws it. */
+.star {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; text-decoration: none;
+  font: 600 13px var(--sans); color: var(--ink); border: 1px solid var(--hair); border-radius: 999px; padding: 5px 12px 5px 10px;
+  transition: border-color .15s, background .15s;
+}
+.star:hover { border-color: var(--faint); background: var(--hair2); }
+.star-n { font-weight: 650; font-variant-numeric: tabular-nums; padding-left: 8px; margin-left: 2px; border-left: 1px solid var(--hair); }
+.star .star-icon { color: #e3b341; }
+.star.big { font-size: 15px; padding: 9px 18px 9px 15px; gap: 8px; }
+.star-ask { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px 14px; margin: 30px auto 0; max-width: 560px; color: var(--ink2); font-size: 15px; }
 
 /* Buttons */
 .btn {
@@ -298,6 +309,8 @@ html:lang(ja) .slogan { word-break: keep-all; }
   .get-tabs button { padding: 7px 12px; font-size: 14px; }
   .differ th, .differ td { padding: 10px 5px; font-size: 13px; }
   .hero { padding-top: 48px; }
+  .nav .star-l { display: none; }
+  .nav .star-n { padding-left: 6px; }
   .stage { margin-top: 48px; }
   .panel-float { display: none; }
   .skin-tabs button { padding: 7px 11px; font-size: 13.5px; }

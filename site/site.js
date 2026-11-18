@@ -113,6 +113,25 @@
       .catch(function () {});
   }
 
+  // Star buttons show the repository's star count once GitHub says it.
+  function stars(n) {
+    if (typeof n !== "number" || !(n >= 0)) return;
+    var text = n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k" : String(n);
+    document.querySelectorAll(".star-n").forEach(function (b) { b.textContent = text; b.hidden = false; });
+  }
+  var starCount = null;
+  try { starCount = JSON.parse(sessionStorage.getItem("bowel-stars")); } catch (e) {}
+  if (typeof starCount === "number") stars(starCount);
+  else if (window.fetch) {
+    fetch("https://api.github.com/repos/21stware/bowel", { headers: { Accept: "application/vnd.github+json" } })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+      .then(function (j) {
+        stars(j.stargazers_count);
+        try { sessionStorage.setItem("bowel-stars", JSON.stringify(j.stargazers_count)); } catch (e) {}
+      })
+      .catch(function () {});
+  }
+
   // The nav gets a hairline once the page scrolls.
   var nav = document.querySelector(".nav");
   var onScroll = function () { nav.classList.toggle("scrolled", window.scrollY > 8); };
