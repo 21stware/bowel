@@ -39,6 +39,7 @@ func TestNetcatKind(t *testing.T) {
 // bash gets its block in .bashrc, with no netcat in it; the shell that
 // is the user's is the one read, and undoing clears either file.
 func TestBashBlock(t *testing.T) {
+	applies(t)
 	o := opts(t)
 	o.Shell, o.Netcat = "bash", "none"
 	put(t, o.path(bashFile), "alias ll='ls -l'\n")

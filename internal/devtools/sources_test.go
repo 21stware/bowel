@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -41,15 +42,15 @@ func TestSourcesDefault(t *testing.T) {
 func TestSourcesRead(t *testing.T) {
 	cases := []struct{ id, rel, text, want string }{
 		{SourceNPM, ".npmrc", "//registry.npmjs.org/:_authToken=abc\n  registry = https://npm.acme.dev/ ; ours\n", "https://npm.acme.dev/"},
-		{SourcePyPI, ".pip/pip.conf", "[global]\nindex-url: https://pypi.acme.dev/simple\n", "https://pypi.acme.dev/simple"},
-		{SourcePyPI, "Library/Application Support/pip/pip.conf", "[global]\nindex-url = https://mirrors.aliyun.com/pypi/simple/\n", "https://mirrors.aliyun.com/pypi/simple/"},
+		{SourcePyPI, pipOld(), "[global]\nindex-url: https://pypi.acme.dev/simple\n", "https://pypi.acme.dev/simple"},
+		{SourcePyPI, pipOther(), "[global]\nindex-url = https://mirrors.aliyun.com/pypi/simple/\n", "https://mirrors.aliyun.com/pypi/simple/"},
 		{SourceGo, goEnvFile(), "GOFLAGS=-mod=mod\nGOPROXY=https://goproxy.cn,direct\n", "https://goproxy.cn"},
 		{SourceCargo, ".cargo/config", "[source.crates-io]\nreplace-with = 'vendored'\n[source.vendored]\ndirectory = \"vendor\"\n", "vendored"},
 		// The official source written out, a scoped registry, a comment
 		// and a source nothing is replaced with are not a mirror.
 		{SourceNPM, ".npmrc", "registry=https://registry.npmjs.org/\n", ""},
 		{SourceNPM, ".npmrc", "@acme:registry=https://npm.acme.dev/\n# registry=https://old.example/\n; registry=https://older.example/\n", ""},
-		{SourcePyPI, ".config/pip/pip.conf", "[global]\nindex-url = https://pypi.org/simple\n", ""},
+		{SourcePyPI, pipFile(), "[global]\nindex-url = https://pypi.org/simple\n", ""},
 		{SourceGo, goEnvFile(), "GOPROXY=direct\n", ""},
 		{SourceCargo, ".cargo/config.toml", "[source.acme]\nregistry = \"sparse+https://crates.acme.dev/\"\n", ""},
 	}
@@ -69,8 +70,8 @@ func TestSetMirrorRoundTrip(t *testing.T) {
 	cases := []struct{ id, rel, before string }{
 		{SourceNPM, ".npmrc", ""},
 		{SourceNPM, ".npmrc", "//registry.npmjs.org/:_authToken=abc\n@acme:registry=https://npm.acme.dev/\n"},
-		{SourcePyPI, ".config/pip/pip.conf", ""},
-		{SourcePyPI, ".config/pip/pip.conf", "[global]\ntimeout = 60\n\n[install]\nuser = true\n"},
+		{SourcePyPI, pipFile(), ""},
+		{SourcePyPI, pipFile(), "[global]\ntimeout = 60\n\n[install]\nuser = true\n"},
 		{SourceGo, goEnvFile(), "GOFLAGS=-mod=mod\n"},
 		{SourceCargo, ".cargo/config.toml", ""},
 		{SourceCargo, ".cargo/config.toml", "[net]\ngit-fetch-with-cli = true\n"},
@@ -117,7 +118,7 @@ func TestSetMirrorRoundTrip(t *testing.T) {
 // pip refuses a file with two [global] sections.
 func TestPipKeepsOneGlobal(t *testing.T) {
 	o := opts(t)
-	path := o.path(".config/pip/pip.conf")
+	path := o.path(pipFile())
 	put(t, path, "[global]\ntimeout = 60\n")
 	src := sourceOf(t, o, SourcePyPI)
 	for _, m := range src.Mirrors {
@@ -134,7 +135,7 @@ func TestPipKeepsOneGlobal(t *testing.T) {
 // A setting of the user's is changed where it is, under the name it has.
 func TestSetMirrorInPlace(t *testing.T) {
 	o := opts(t)
-	old := o.path(".pip/pip.conf")
+	old := o.path(pipOld())
 	put(t, old, "[global]\nindex-url = https://pypi.acme.dev/simple\n")
 	m := sourceOf(t, o, SourcePyPI).Mirrors[0]
 	if err := SetMirror(o, SourcePyPI, m); err != nil {
@@ -143,7 +144,7 @@ func TestSetMirrorInPlace(t *testing.T) {
 	if got := get(t, old); got != "[global]\nindex-url = "+m+"\n" {
 		t.Fatalf("%q", got)
 	}
-	if _, err := os.Stat(o.path(".config/pip/pip.conf")); err == nil {
+	if _, err := os.Stat(o.path(pipFile())); err == nil {
 		t.Fatal("a second file was written")
 	}
 
@@ -240,4 +241,29 @@ func TestFix(t *testing.T) {
 			t.Errorf("%s: %q %q", c.name, kind, m)
 		}
 	}
+}
+
+// pipFile is where bowel writes pip's settings in a home with none:
+// ~/.config without macOS's Application Support, AppData under Windows.
+func pipFile() string {
+	if runtime.GOOS == "windows" {
+		return "AppData/Roaming/pip/pip.ini"
+	}
+	return ".config/pip/pip.conf"
+}
+
+// pipOld is a place pip still reads that bowel does not write first.
+func pipOld() string {
+	if runtime.GOOS == "windows" {
+		return "pip/pip.ini"
+	}
+	return ".pip/pip.conf"
+}
+
+// pipOther is another place pip reads, used when it is the one there.
+func pipOther() string {
+	if runtime.GOOS == "windows" {
+		return "pip/pip.ini"
+	}
+	return "Library/Application Support/pip/pip.conf"
 }

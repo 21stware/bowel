@@ -40,6 +40,7 @@ func toolsShot(t *testing.T, tt *ui.Tester, name string) {
 }
 
 func TestToolsInModeCell(t *testing.T) {
+	needTools(t)
 	u := fixtureUI()
 	u.snap.Tools = toolsFixture()
 	tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})
@@ -108,6 +109,7 @@ func TestPanelCopiesTerminalCommand(t *testing.T) {
 
 // A button that restarts Colima asks twice; the others act on the first click.
 func TestColimaButtonAsksTwice(t *testing.T) {
+	needTools(t)
 	u := fixtureUI()
 	u.snap.Tools = toolsFixture()
 	u.home.x, u.home.toolsList = "mode", true
@@ -123,6 +125,7 @@ func TestColimaButtonAsksTwice(t *testing.T) {
 }
 
 func TestShellRowCopies(t *testing.T) {
+	needTools(t)
 	u := fixtureUI()
 	u.snap.Tools = toolsFixture()
 	u.snap.Dev.Exports = "export a=1"
@@ -131,5 +134,14 @@ func TestShellRowCopies(t *testing.T) {
 	tt.Advance(2 * time.Second)
 	if !tt.HasText("复制命令") {
 		t.Error("no copy button")
+	}
+}
+
+// needTools skips a test of the developer tools' rows on a system where
+// bowel does not connect them, which leaves the rows out.
+func needTools(t *testing.T) {
+	t.Helper()
+	if !devtools.Supported() {
+		t.Skip("developer tools aren't connected on this system")
 	}
 }

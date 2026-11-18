@@ -71,6 +71,7 @@ env: {}
 `
 
 func TestColimaRoundTrip(t *testing.T) {
+	applies(t)
 	o := opts(t)
 	path := o.path(colimaConfig)
 	put(t, path, colimaSample)
@@ -97,6 +98,7 @@ func TestColimaRoundTrip(t *testing.T) {
 
 // Colima may drop the comments when it rewrites the file; the key still goes.
 func TestColimaUndoWithoutComments(t *testing.T) {
+	applies(t)
 	o := opts(t)
 	path := o.path(colimaConfig)
 	put(t, path, colimaSample)
@@ -133,6 +135,7 @@ func TestColimaKeepsOtherDockerKeys(t *testing.T) {
 }
 
 func TestContainersOnlyTouchesWhatBowelWrote(t *testing.T) {
+	applies(t)
 	o := opts(t)
 	path := o.path(dockerConfig)
 	put(t, path, `{"auths":{"x":{}},"proxies":{"default":{"httpProxy":"http://mine:1"}}}`)
@@ -163,6 +166,7 @@ func TestContainersOnlyTouchesWhatBowelWrote(t *testing.T) {
 }
 
 func TestStalePort(t *testing.T) {
+	applies(t)
 	o := opts(t)
 	put(t, o.path(sshFile), "Host a\n")
 	if err := Apply(o, GitSSH); err != nil {
@@ -271,6 +275,7 @@ func TestGitDirectOverridesEnvironment(t *testing.T) {
 }
 
 func TestUndoAllLeavesTheRest(t *testing.T) {
+	applies(t)
 	o := opts(t)
 	put(t, o.path(colimaConfig), colimaSample)
 	put(t, o.path(shellFile), "export A=1\n")
@@ -297,6 +302,7 @@ func TestUndoAllLeavesTheRest(t *testing.T) {
 }
 
 func TestWriteGoesThroughSymlink(t *testing.T) {
+	applies(t)
 	o := opts(t)
 	real := filepath.Join(filepath.Dir(o.Home), "dotfiles", "zshenv")
 	put(t, real, "export A=1\n")
@@ -314,5 +320,14 @@ func TestWriteGoesThroughSymlink(t *testing.T) {
 	}
 	if !strings.Contains(get(t, real), "nc -z") {
 		t.Error("not written to the real file")
+	}
+}
+
+// applies skips a test that writes the tools' settings where bowel does
+// not write them: Apply refuses under Windows.
+func applies(t *testing.T) {
+	t.Helper()
+	if !Supported() {
+		t.Skip(errUnsupported)
 	}
 }
