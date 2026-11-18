@@ -149,7 +149,7 @@ curl -fsSL https://21stware.github.io/packages/install.sh | sh
 
 ## 命令行
 
-同一个程序也是命令行，用来操作运行中的 bowel。macOS 上它在 `/Applications/bowel.app/Contents/MacOS/bowel`，可以链接到 `PATH` 里（`ln -s /Applications/bowel.app/Contents/MacOS/bowel /usr/local/bin/bowel`），或直接写完整路径。不带命令运行时，和以前一样打开应用。
+同一个程序也是命令行，用来操作运行中的 bowel。macOS 上用 Homebrew 安装时，`bowel` 已经在 `PATH` 里；否则它在 `/Applications/bowel.app/Contents/MacOS/bowel`，可以链接到 `PATH` 里（`ln -s /Applications/bowel.app/Contents/MacOS/bowel /usr/local/bin/bowel`），或直接写完整路径。不带命令运行时，和以前一样打开应用。
 
 ```bash
 bowel status                      # 状态灯、模式、接管、各路由的节点、流量

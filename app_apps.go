@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -97,6 +98,11 @@ var ownApp = func() string {
 	exe, err := os.Executable()
 	if err != nil {
 		return ""
+	}
+	// Homebrew's cask links the executable into its bin; the bundle is
+	// where the link points.
+	if p, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = p
 	}
 	return routes.AppOf(exe)
 }()
