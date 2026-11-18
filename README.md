@@ -149,7 +149,7 @@ TUN asks for an administrator once, the first time you turn it on: macOS in its 
 
 ## Command line
 
-The same program is a command line for the running bowel. On macOS it is `/Applications/bowel.app/Contents/MacOS/bowel`; link it into your `PATH` (`ln -s /Applications/bowel.app/Contents/MacOS/bowel /usr/local/bin/bowel`) or use the full path. Run without a command, it opens the app as before.
+The same program is a command line for the running bowel. On macOS, installing with Homebrew puts `bowel` in your `PATH`; otherwise it is `/Applications/bowel.app/Contents/MacOS/bowel`: link it into your `PATH` (`ln -s /Applications/bowel.app/Contents/MacOS/bowel /usr/local/bin/bowel`) or use the full path. Run without a command, it opens the app as before.
 
 ```bash
 bowel status                      # the light, mode, takeover, each route's node, traffic
