@@ -62,6 +62,7 @@ func (f *gwFake) AnswersDNS(addr string) bool { return f.fwd && addr == f.net.IP
 func fakeTun(t *testing.T, installed *bool, dialogs *int) {
 	saved := osTun
 	osTun.installed = func(string) bool { return *installed }
+	osTun.needsRule = func(string) bool { return false } // not the polkit rule on this machine
 	osTun.step = func(src, dst string) (tun.Step, error) { return tun.Step{"/install ", dst}, nil }
 	osTun.admin = func(prompt string, steps ...tun.Step) error {
 		*dialogs++

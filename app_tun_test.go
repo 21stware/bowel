@@ -22,6 +22,7 @@ func TestTunNeedsInstall(t *testing.T) {
 	defer func() { osTun = saved }()
 	installed := true
 	osTun.installed = func(string) bool { return installed }
+	osTun.needsRule = func(string) bool { return false } // not the polkit rule on this machine
 	a := &App{}
 	if a.tunNeedsInstall() {
 		t.Error("current copy: no authorization needed")
@@ -215,6 +216,7 @@ func TestLeaveTunCore(t *testing.T) {
 	saved := osTun
 	defer func() { osTun = saved }()
 	osTun.installed = func(string) bool { return true }
+	osTun.needsRule = func(string) bool { return false } // not the polkit rule on this machine
 	osTun.install = func(string, string) error { return nil }
 	newA := func(bin string) *App {
 		m, err := core.New(bin, filepath.Join(t.TempDir(), "core"))
@@ -276,6 +278,7 @@ func TestTunCoreFailureKeepsACore(t *testing.T) {
 	saved := osTun
 	defer func() { osTun = saved }()
 	osTun.installed = func(string) bool { return true }
+	osTun.needsRule = func(string) bool { return false } // not the polkit rule on this machine
 	osTun.install = func(string, string) error { t.Error("asked for an authorization"); return nil }
 
 	// A core that checks a config as the real one does and never runs.
@@ -388,6 +391,7 @@ func TestTurningTunOnMovesToTheInstalledCore(t *testing.T) {
 	defer func() { osTun = saved }()
 	installed := true
 	osTun.installed = func(string) bool { return installed }
+	osTun.needsRule = func(string) bool { return false } // not the polkit rule on this machine
 	dir := t.TempDir()
 	st, err := settings.Open(dir)
 	if err != nil {
