@@ -485,7 +485,7 @@ func (u *UI) notice(c *ui.Context, p *pal) {
 			Transition(ui.ElementTransition{Animation: &motion, Enter: &ui.Motion{Opacity: 0}, Exit: &ui.Motion{Opacity: 0}}).
 			Children(func() {
 				ui.Box(c).Size(7, 7).Radius(p.r(4)).Background(col).Shrink(0)
-				t := ui.Text(c, is.Text).FontSize(12.5).FontWeight(500).TextColor(p.ink).NoWrap().Ellipsis("…").Shrink(1)
+				t := ui.Text(c, is.Text).FontSize(12.5).FontWeight(500).TextColor(p.ink).SingleLine().Shrink(1)
 				if is.Detail != "" {
 					t.Tooltip(is.Detail)
 				} else {
