@@ -39,6 +39,7 @@ func testBridge(t *testing.T) *bridge {
 	if err := x.openRuleSets(); err != nil {
 		t.Fatal(err)
 	}
+	x.startSpeed()
 	file := filepath.Join(dir, "nodes.yaml")
 	if err := os.WriteFile(file, []byte(nodesYAML), 0o600); err != nil {
 		t.Fatal(err)

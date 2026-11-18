@@ -1182,6 +1182,7 @@ func (u *UI) exitNode() (NodeView, bool) {
 	if !u.snap.Takeover.On || u.snap.Mode == "direct" || u.snap.Exit == nil {
 		return NodeView{}, false
 	}
+	u.see(u.snap.Exit.Node, u.route(routes.Default).Main.URL) // asked for to be drawn
 	return u.node(u.snap.Exit.Node)
 }
 
@@ -1698,6 +1699,10 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 			return
 		}
 		n := item.n
+		if !item.gone {
+			u.see(n.Name, r.Main.URL)
+			u.seePing(n.Name)
+		}
 		ordered := item.place > 0
 		adding := q.Mode == routes.ModeOrder && !ordered
 		on := r.Node == n.Name && r.Broken == "" && !adding && !picking
@@ -1825,7 +1830,11 @@ func (u *UI) siteStrip(c *ui.Context, p *pal, r RouteView, testing bool) {
 				ui.Text(c, i18n.T("经当前节点", "Through this node")).FontSize(11).TextColor(p.mute).NoWrap().Shrink(0).
 					Tooltip(i18n.T("经当前节点请求各站点的耗时，不是下载速度", "Time to request each site through this node, not its download speed"))
 			}
+			_, node := u.node(r.Node)
 			for _, s := range r.Sites {
+				if node {
+					u.see(r.Node, s.URL)
+				}
 				ui.Row(c.Key(s.URL)).Gap(6).AlignItems(ui.Baseline).Shrink(0).Tooltip(s.URL).Children(func() {
 					ui.Text(c, s.Name).FontSize(12).FontWeight(500).TextColor(p.ink2).MaxWidth(150).MaxLines(1).Ellipsis("…")
 					if testing {
@@ -2394,6 +2403,7 @@ func (u *UI) routeRow(c *ui.Context, p *pal, r RouteView, nameW float32, cut boo
 		n = n.On(r.ID)
 		hasNode = hasNode && !r.Direct
 		if hasNode {
+			u.see(n.Name, r.Main.URL)
 			name, delay = n.Display, fmtDelay(n)
 		} else if r.Direct && routes.ChoosesExit(rid) && u.snap.Imported == nil {
 			delay = "—" // direct by choice, whatever it holds
@@ -2481,8 +2491,10 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 			})
 			name := noNodeWord(r)
 			n, hasNode := u.node(r.Node)
+			n = n.On(rid)
 			hasNode = hasNode && !r.Direct
 			if hasNode {
+				u.see(n.Name, r.Main.URL)
 				name = n.Display
 				if r.Auto {
 					name += i18n.T(" · 自动", " · Auto")

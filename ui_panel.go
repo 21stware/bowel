@@ -70,6 +70,7 @@ func (u *UI) panelShow(apply func()) {
 func panelTheme(c *ui.Context, p *pal) { applyTheme(c, p, true) }
 
 func (u *UI) panelView(c *ui.Context) {
+	defer u.watch("panel")()
 	c.DisableAnimations() // switches and hovers land at once
 	useLook(u.shownSettings())
 	p := palette(c)
@@ -263,6 +264,7 @@ func (u *UI) panelNodeList(c *ui.Context, p *pal, r RouteView) {
 	}
 	for _, n := range nodes {
 		name := n.Name
+		u.see(name, r.Main.URL)
 		chosen := !r.Auto && r.Node == name
 		panelNodeRow(c, p, name, chosen, func() {
 			flagged(c, p, n, 12.5, func() {

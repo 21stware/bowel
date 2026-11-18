@@ -31,6 +31,9 @@ List<String> _shown = [];
 List<String> _hidden = [];
 final _calls = <(String, Map)>[];
 
+/// What the core was last told is on screen.
+Map _viewing = {};
+
 Map _view() => {
       'vpn': 'off',
       'mode': 'rule',
@@ -54,6 +57,8 @@ void _fakeCore() {
     switch (method) {
       case 'view':
         return jsonEncode(_view());
+      case 'viewing':
+        _viewing = args;
       case 'hideNode':
         _calls.add((method, args));
         final name = (args['node'] as String).split(_sep).first;
@@ -108,6 +113,7 @@ void main() {
     _shown = ['东京 01', '香港 02'];
     _hidden = [];
     _calls.clear();
+    _viewing = {};
     language = 'zh';
     _fakeCore();
   });
@@ -150,6 +156,28 @@ void main() {
     expect(find.textContaining('已移除的节点'), findsNothing);
     expect(find.text('东京 01'), findsOneWidget);
     await tester.pump(const Duration(seconds: 6)); // let the toast's timer end
+  });
+
+  testWidgets("an open Provider's nodes are on screen, on the default route's target", (tester) async {
+    tester.view.physicalSize = const Size(360, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final app = AppState();
+    await app.attachCore();
+    await tester.pumpWidget(_host(app));
+    await _settle(tester);
+    expect(_viewing['nodes'] ?? const [], isEmpty, reason: 'closed, it shows no node');
+
+    await tester.tap(find.text('机场 A').first);
+    await _settle(tester);
+    expect(_viewing['nodes'], unorderedEquals([
+      {'node': '东京 01${_sep}p1', 'route': 'default'},
+      {'node': '香港 02${_sep}p1', 'route': 'default'},
+    ]));
+
+    await tester.tap(find.text('机场 A').first);
+    await _settle(tester);
+    expect(_viewing['nodes'], isEmpty);
   });
 
   for (final lang in ['zh', 'en', 'ja', 'zh-Hant']) {

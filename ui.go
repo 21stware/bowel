@@ -38,6 +38,11 @@ type UI struct {
 
 	page   string // home, activity, providers
 	toasts []string
+	// seeing is the list the frame being drawn adds to, drawn each window's
+	// last one, and seen what the app was told of each (watch).
+	seeing *viewing
+	drawn  map[string]*viewing
+	seen   map[string]viewing
 
 	home   homeUI
 	routes routesUI
@@ -311,6 +316,7 @@ var motion = ui.Animation{Duration: 520 * time.Millisecond, Ease: ui.CubicBezier
 // ---- The window ----
 
 func (u *UI) view(c *ui.Context) {
+	defer u.watch("window")()
 	useLook(u.shownSettings())
 	p := windowPal(c, palette(c))
 	applyTheme(c, p, true)

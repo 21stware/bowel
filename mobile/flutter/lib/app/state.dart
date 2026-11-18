@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show Clipboard, MissingPluginException;
-import 'package:flutter/widgets.dart' show BuildContext, Element, GlobalKey, NavigatorState, TextEditingController, Widget, WidgetsBinding;
+import 'package:flutter/widgets.dart' show AppLifecycleListener, AppLifecycleState, BuildContext, Element, GlobalKey, NavigatorState, TextEditingController, Widget, WidgetsBinding;
 
 import 'core.dart';
 import 'i18n.dart';
@@ -794,7 +794,55 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _updateTimer?.cancel();
+    _lifecycle?.dispose();
     super.dispose();
+  }
+
+  // ---- What is on screen ----
+
+  /// The rows on screen and how many show each: a node's delay on a route,
+  /// or with no node the route's other sites. The core keeps these tested
+  /// while the app is in front.
+  final _shown = <(String, String), int>{};
+  bool _front = true, _telling = false;
+  String _told = '';
+  AppLifecycleListener? _lifecycle;
+
+  void show((String, String) row) {
+    _shown[row] = (_shown[row] ?? 0) + 1;
+    _tellShown();
+  }
+
+  void unshow((String, String) row) {
+    final left = (_shown[row] ?? 1) - 1;
+    left > 0 ? _shown[row] = left : _shown.remove(row);
+    _tellShown();
+  }
+
+  /// The route whose other sites are on screen; '' when none are.
+  String get _shownSites => !_front ? '' : _shown.keys.where((r) => r.$1.isEmpty).map((r) => r.$2).firstOrNull ?? '';
+
+  /// Tells the core what is on screen, once for all a frame brought and
+  /// took away, and only when that differs from what it was last told.
+  void _tellShown() {
+    if (!_live || _telling) return;
+    _telling = true;
+    scheduleMicrotask(() {
+      _telling = false;
+      final args = {
+        'nodes': [
+          if (_front)
+            for (final (node, route) in _shown.keys)
+              if (node.isNotEmpty) {'node': _coreNames[node] ?? node, 'route': route},
+        ],
+        'sites': _shownSites,
+      };
+      if ('$args' == _told) return;
+      _told = '$args';
+      Core.instance.call('viewing', args).then((_) {}, onError: (_) {
+        _told = ''; // not told, then: the next change says it all again
+      });
+    });
   }
 
   // ---- What the core pushes ----
@@ -806,6 +854,8 @@ class AppState extends ChangeNotifier {
       switch (name) {
         case 'view':
           _applyView(value as Map);
+          // a route's other sites come with its page's data, which is asked for
+          if (_shownSites.isNotEmpty) refreshRouting();
         case 'tick':
           _applyTick(value as Map);
         case 'conns':
@@ -814,6 +864,10 @@ class AppState extends ChangeNotifier {
     };
     await core.start();
     if (!core.live) return;
+    _lifecycle = AppLifecycleListener(onStateChange: (state) {
+      _front = state == AppLifecycleState.resumed;
+      _tellShown();
+    });
     _clearSamples();
     await core.call('conns', {'on': true});
     final view = await core.call('view');
@@ -923,9 +977,10 @@ class AppState extends ChangeNotifier {
         n['source'] as String? ?? '未知',
         n['type'] as String? ?? '',
         providerName,
-        bars.isEmpty ? -1 : n['delay'] as int? ?? 0,
+        n['tested'] == true ? n['delay'] as int? ?? 0 : -1,
         [...List.filled(10 - bars.length.clamp(0, 10), 2), ...bars],
         providerId: n['provider'] as String? ?? '',
+        routes: (n['routes'] as Map?)?.cast<String, int>(),
         lat: _placed(where) ? (where['lat'] as num?)?.toDouble() : null,
         lon: _placed(where) ? (where['lon'] as num?)?.toDouble() : null,
       ));

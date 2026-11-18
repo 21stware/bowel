@@ -42,6 +42,7 @@ import (
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/ruleset"
 	"github.com/oboo/moho/internal/settings"
+	"github.com/oboo/moho/internal/speed"
 	"github.com/oboo/moho/internal/sysproxy"
 	"github.com/oboo/moho/internal/tun"
 )
@@ -105,15 +106,21 @@ type App struct {
 	// impWaiting is what the config in use has the core download and the
 	// core does not have yet, as of nodesAt.
 	impWaiting importedWaiting
+	// nodeHome is the core's provider each node is in, by the node's name:
+	// where a test of it is asked for. Replaced, never changed.
+	nodeHome map[string]string
+	// Every speed test goes through one of these: tests has the requests
+	// through nodes, pinger the pings, sweeps the providers' own checks.
+	tests          *speed.Queue[speed.Target]
+	pinger, sweeps *speed.Queue[string]
+	// viewing is what each window last drew, by window.
+	viewing map[string]viewing
 	// nodeProxies are the providers' nodes as last read. The maps below are
 	// replaced, never changed, so a snapshot can hold on to them.
 	nodeProxies map[string]mihomo.Proxy
 	pings       map[string]pingResult
-	sites       map[string]siteResult // by route id
-	sitesBusy   map[string]bool
-	routeAt     map[string]time.Time // route id → when its main target was last tested
-	pingBusy    atomic.Bool
-	mainBusy    atomic.Bool
+	pingMu      sync.Mutex // guards pingEnv
+	pingEnv     pingEnv
 	you         *locate.Result
 	lastNode    map[string]string // route id → node, to notice automatic switches
 	switched    *switchNote
@@ -216,6 +223,7 @@ func newApp() (*App, error) {
 		gw: gateway.New(osGateway(), filepath.Join(data, "gateway-before.json")),
 	}
 	ps.Vet = a.vetUpdate
+	a.startSpeed()
 	a.tunStale.Store(stale)
 	cm.SafePaths = []string{provDir, sets.Dir()} // for a core that is the app's child; see storeDir
 	a.keepRuleSets()
@@ -538,12 +546,13 @@ func (a *App) refresh() {
 		sig := nodeSig(px)
 		a.mu.Lock()
 		nodes, known, stale := a.provNodes, a.nodeProxies, sig != a.nodesSig || time.Since(a.nodesAt) > nodesEvery
+		homes := a.nodeHome
 		waiting := a.impWaiting
 		a.mu.Unlock()
 		if err == nil && stale {
 			var pp map[string]mihomo.ProxyProvider
 			if pp, err = c.ProxyProviders(ctx); err == nil {
-				nodes, known = map[string][]string{}, map[string]mihomo.Proxy{}
+				nodes, known, homes = map[string][]string{}, map[string]mihomo.Proxy{}, map[string]string{}
 				im := a.importedNow()
 				waiting = importedWaiting{}
 				if im != nil && len(im.RuleProviders) > 0 {
@@ -570,6 +579,7 @@ func (a *App) refresh() {
 					for _, n := range p.Proxies {
 						nodes[id] = append(nodes[id], n.Name)
 						known[n.Name] = n
+						homes[n.Name] = name
 					}
 				}
 			}
@@ -578,7 +588,7 @@ func (a *App) refresh() {
 		if err == nil {
 			addNodes(px, known)
 			a.mu.Lock()
-			a.proxies, a.provNodes, a.nodeProxies = px, nodes, known
+			a.proxies, a.provNodes, a.nodeProxies, a.nodeHome = px, nodes, known, homes
 			slices.Sort(waiting.subs)
 			a.impWaiting = waiting
 			if stale {
@@ -671,9 +681,9 @@ func (a *App) applyConfig() error {
 	a.adoptSelections()
 	logPolicyErr(a.followPolicies())
 	a.mu.Lock()
-	a.nodesAt = time.Time{}       // providers may hold other nodes now
-	a.routeAt, a.sites = nil, nil // and a reload forgets what each URL did
+	a.nodesAt = time.Time{} // providers may hold other nodes now
 	a.mu.Unlock()
+	a.tests.Forget() // and the core has none of its results any more
 	a.syncGateway()
 	a.refresh()
 	return nil
@@ -1473,31 +1483,46 @@ func (a *App) selectNode(routeID, node string) error {
 	return nil
 }
 
+// testRoute tests, now, what a route's page shows: each node the route can
+// use on its main target, one request per node and a few at a time; the
+// route's other sites through the node it uses; and those nodes' pings.
 func (a *App) testRoute(ctx context.Context, routeID string) error {
 	r := a.route(routeID)
 	if r.ID == "" || !r.NodeGroups() {
 		return errors.New(i18n.T("没有这条路由", "No such route"))
 	}
-	c, err := a.core.Client()
-	if err != nil {
+	if _, err := a.core.Client(); err != nil {
 		return err
 	}
 	done := a.begin("test:" + routeID)
 	defer done()
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, testWait)
 	defer cancel()
-	var wg sync.WaitGroup
-	wg.Go(func() { a.pingNodes(a.allNodes()) })
-	wg.Go(func() { a.testSites(routeID) })
-	_, err = c.GroupDelay(ctx, routes.Group(r), a.settings.Get().TargetsOf(routeID)[0].URL, 5*time.Second)
-	wg.Wait()
-	// The new results are in the providers' lists: read them now.
 	a.mu.Lock()
-	a.nodesAt = time.Time{}
-	a.markTested(routeID)
+	px := a.proxies
 	a.mu.Unlock()
-	a.refresh()
-	return err
+	targets := a.settings.Get().TargetsOf(routeID)
+	list := speed.OfRoute(px, r, targets[0].URL)
+	var nodes []string
+	for _, t := range list {
+		if providerOf(t.Node) != "" {
+			nodes = append(nodes, t.Node)
+		}
+	}
+	if n := currentNode(px, r); providerOf(n) != "" {
+		for _, t := range targets[1:] {
+			list = append(list, speed.Target{Node: n, URL: t.URL})
+		}
+	}
+	var wg sync.WaitGroup
+	wg.Go(func() { a.pinger.Now(ctx, nodes) })
+	a.tests.Now(ctx, list)
+	wg.Wait()
+	a.readTests() // the new results are in the providers' lists
+	if ctx.Err() != nil {
+		return errors.New(i18n.T("还没有测完，其余的结果会陆续出来", "Not all tested yet; the rest of the results will follow"))
+	}
+	return nil
 }
 
 func (a *App) locate(ctx context.Context, node string) error {
@@ -1603,7 +1628,7 @@ func (a *App) noticeSwitches() {
 		if len(targets) == 0 {
 			continue
 		}
-		if h := a.proxies[prev].HistoryOf(targets[0].URL); len(h) > 0 && h[len(h)-1].Delay == 0 {
+		if h, ok := speed.Last(a.proxies[prev].HistoryOf(targets[0].URL), speed.StaleAfter(s.HealthInterval, s.URLTestInterval), time.Now()); ok && h.Delay == 0 {
 			note := &switchNote{route: r.ID, from: prev, to: n, at: time.Now()}
 			a.switched = note
 			a.hideSwitchAt(note)
@@ -1735,13 +1760,10 @@ func (a *App) afterProviderAdded(p provider.Provider) (ProviderView, error) {
 	return a.providerView(p), nil
 }
 
-// healthCheck tests a provider's nodes and locates the ones in use.
+// healthCheck tests a provider's nodes and locates the ones in use. A
+// provider being tested already is waited for, not tested again.
 func (a *App) healthCheck(id string) {
-	if c, err := a.core.Client(); err == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		_ = c.HealthCheck(ctx, "p-"+id)
-		cancel()
-	}
+	a.sweeps.Now(context.Background(), []string{id})
 	a.refresh()
 	a.locateExits(false)
 }
@@ -2361,7 +2383,7 @@ func (a *App) snapshot() Snapshot {
 	a.mu.Lock()
 	sys, proxyErr, px, provNodes, you := a.sys, a.proxyErr, a.proxies, a.provNodes, a.you
 	note := a.switched // taken with px: a refresh may record a newer switch
-	pings, sites := a.pings, a.sites
+	pings := a.pings
 	openAtLogin := a.openAtLogin
 	gwp, gwErr := a.gwProbe, a.gwErr
 	pending := make([]string, 0, len(a.pending))
@@ -2446,12 +2468,13 @@ func (a *App) snapshot() Snapshot {
 
 	// Nodes, in their providers' order.
 	mains := mainURLs(s)
+	stale, now := speed.StaleAfter(s.HealthInterval, s.URLTestInterval), time.Now()
 	view := func(name string) NodeView {
 		p := px[name]
 		v := NodeView{Name: name, Display: a.label(provNodes, name), Provider: providerOf(name), Type: p.Type, UDP: p.UDP, History: []int{}}
 		v.Routes = make(map[string]NodeTest, len(mains))
 		for id, u := range mains {
-			v.Routes[id] = nodeTest(p.HistoryOf(u))
+			v.Routes[id] = nodeTest(p.HistoryOf(u), stale, now)
 		}
 		t := v.Routes[routes.Default]
 		v.Delay, v.Tested = t.Delay, t.Tested
@@ -2513,7 +2536,11 @@ func (a *App) snapshot() Snapshot {
 				rv.Node = ""
 			}
 			rv.Targets = s.TargetsOf(r.ID)
-			rv.Main, rv.Sites = rv.Targets[0], siteViews(rv.Targets[1:], sites[r.ID], rv.Node)
+			var through mihomo.Proxy // sites are timed through a node of a provider only
+			if providerOf(rv.Node) != "" {
+				through = px[rv.Node]
+			}
+			rv.Main, rv.Sites = rv.Targets[0], siteViews(rv.Targets[1:], through, stale, now)
 			rv.Broken = brokenWhy(r.Policy, snap.Nodes, r.ID)
 		}
 		if total > 0 {
@@ -2607,7 +2634,7 @@ func (a *App) switchStale(n *switchNote, px map[string]mihomo.Proxy, s settings.
 		return true // the group moved again
 	}
 	if targets := s.TargetsOf(r.ID); len(targets) > 0 {
-		if h := px[n.from].HistoryOf(targets[0].URL); len(h) > 0 && h[len(h)-1].Delay > 0 {
+		if h, ok := speed.Last(px[n.from].HistoryOf(targets[0].URL), speed.StaleAfter(s.HealthInterval, s.URLTestInterval), time.Now()); ok && h.Delay > 0 {
 			return true // the node it left works again
 		}
 	}
