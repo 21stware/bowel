@@ -2,12 +2,13 @@ package ruleset
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -179,7 +180,7 @@ func TestUpdateKeepsTheLastGoodList(t *testing.T) {
 }
 
 func TestSources(t *testing.T) {
-	for _, s := range []string{"https://x.example/a.yaml", "http://x.example/a", "/tmp/a.list", "~/a.list"} {
+	for _, s := range []string{"https://x.example/a.yaml", "http://x.example/a", filepath.Join(os.TempDir(), "a.list"), "~/a.list"} {
 		if err := Check(s); err != nil {
 			t.Errorf("%s: %v", s, err)
 		}
@@ -213,7 +214,7 @@ func TestStaleAndKeep(t *testing.T) {
 	if _, ok := st.Get("s2"); ok {
 		t.Error("s2 kept")
 	}
-	if _, err := os.Stat(st.Path("s2")); err == nil || !strings.Contains(err.Error(), "no such") {
+	if _, err := os.Stat(st.Path("s2")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("s2's file: %v", err)
 	}
 	if _, ok := st.Get("s1"); !ok {

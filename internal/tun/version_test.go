@@ -3,18 +3,23 @@ package tun
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
+// fakeCore is a program that answers -v the way mihomo does: a shell
+// script, or a batch file under Windows, which runs no scripts.
 func fakeCore(t *testing.T, line string) string {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "mihomo")
-	if err := os.WriteFile(p, []byte("#!/bin/sh\necho '"+line+"'\necho 'Use tags: x'\n"), 0o755); err != nil {
+	p, text := filepath.Join(t.TempDir(), "mihomo"), "#!/bin/sh\necho '"+line+"'\necho 'Use tags: x'\n"
+	if runtime.GOOS == "windows" {
+		p, text = p+".cmd", "@echo off\r\necho "+line+"\r\necho Use tags: x\r\n"
+	}
+	if err := os.WriteFile(p, []byte(text), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return p
 }
-
 func TestStale(t *testing.T) {
 	v1 := fakeCore(t, "Mihomo Meta v1.19.33 darwin arm64 with go1.26.10 Wed Oct 21 2026")
 	same := fakeCore(t, "Mihomo Meta v1.19.33 darwin arm64 with go1.26.11 Thu Oct 22 2026")

@@ -34,6 +34,7 @@ func gatewayFixture() *UI {
 // TestHomeGateway: the board lists the gateway under the entries, and the
 // takeover's detail has its guide with the address to copy.
 func TestHomeGateway(t *testing.T) {
+	needGateway(t)
 	for _, dark := range []bool{false, true} {
 		u := gatewayFixture()
 		suffix := map[bool]string{false: "", true: "-dark"}[dark]
@@ -65,6 +66,7 @@ func TestHomeGateway(t *testing.T) {
 // TestSettingsGateway: 入站 › 局域网 has the switch; on, the guide and the
 // tips that apply; off, neither.
 func TestSettingsGateway(t *testing.T) {
+	needGateway(t)
 	u := gatewayFixture()
 	u.set.section = "inbound"
 	tt := ui.NewTesterWith(u.settingsView, 760, 1500, ui.TesterOptions{})
@@ -114,6 +116,7 @@ func TestSettingsGatewayLanguages(t *testing.T) {
 // The step to automatic, as the line under the addresses says it: nothing
 // in the way, on, a second server, and the question before turning off.
 func TestGatewayAutoLine(t *testing.T) {
+	needGateway(t)
 	u := gatewayFixture()
 	u.home.x = "takeover"
 	g := &u.snap.Takeover.Gateway
@@ -196,5 +199,14 @@ func TestActivityDevices(t *testing.T) {
 	tt.Advance(time.Second)
 	if !tt.HasText("网关没有打开。在「代理」页的「接管」里打开后，经过这台电脑的设备会列在这里。") {
 		t.Errorf("gateway off: %q", tt.Texts())
+	}
+}
+
+// needGateway skips a test of what the interface shows for the gateway on
+// a system that has none, where it shows nothing.
+func needGateway(t *testing.T) {
+	t.Helper()
+	if !gatewaySupported() {
+		t.Skip("no gateway on this system")
 	}
 }
