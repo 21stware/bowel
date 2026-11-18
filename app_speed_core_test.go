@@ -244,3 +244,55 @@ func TestCoreIdleKeepsOnlyFixedNodesTested(t *testing.T) {
 		t.Errorf("requests in 24 s at an interval of 10 s: %v, want 2 or 3 on /t/ai and nothing else", got)
 	}
 }
+
+// A change that leaves the core's config as it was, as the system proxy's
+// switch does, leaves the core alone: no reload, and so none of the tests
+// the core runs of every node when it loads its providers (#200). A change
+// that is in the config still reloads it, and applyConfig always does.
+func TestCoreUnchangedConfigIsNotReloaded(t *testing.T) {
+	a, _, h := speedApp(t, nil)
+	before := h.settle(t)
+	pid := a.core.Status().PID
+	for range 3 {
+		if err := a.applyConfigIfChanged(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	time.Sleep(3 * time.Second) // what a reload would have tested would show by now
+	if got, _ := h.since(before); len(got) != 0 {
+		t.Fatalf("an unchanged config: requests %v, want none", got)
+	}
+	if got := a.core.Status().PID; got != pid {
+		t.Fatalf("the core's pid went %d → %d", pid, got)
+	}
+
+	// The same config, asked for as applyConfig asks: the core loads it.
+	if err := a.applyConfig(); err != nil {
+		t.Fatal(err)
+	}
+	if !h.arrives(before, "/t/default") {
+		t.Fatal("applyConfig: the core did not test its nodes, as a reload has it do")
+	}
+	after := h.settle(t)
+
+	// A change of the config, asked for as the switches ask.
+	if _, err := a.settings.Update(func(s *settings.Settings) { s.URLTestTolerance++ }); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.applyConfigIfChanged(); err != nil {
+		t.Fatal(err)
+	}
+	if !h.arrives(after, "/t/default") {
+		t.Error("a changed config: the core did not test its nodes, as a reload has it do")
+	}
+}
+
+// arrives waits a while for a request on path after before.
+func (h *testHits) arrives(before map[string]int, path string) bool {
+	for end := time.Now().Add(15 * time.Second); time.Now().Before(end); time.Sleep(100 * time.Millisecond) {
+		if got, _ := h.since(before); got[path] > 0 {
+			return true
+		}
+	}
+	return false
+}

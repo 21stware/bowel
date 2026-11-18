@@ -4,6 +4,7 @@ package core
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -105,6 +107,7 @@ type Manager struct {
 	listenErr string // the proxy port the running core could not open
 	tunErr    string // why the running core could not bring the TUN device up
 	loading   bool   // see Loading
+	loaded    []byte // the config the running core loaded in full; nil when not known (see Loaded)
 	timing    ApplyTiming
 	stopping  bool
 	closed    bool // by Close
@@ -315,7 +318,11 @@ func (m *Manager) Apply(cfg []byte) error {
 		m.loading = false
 		m.mu.Unlock()
 		defer since(&t.Start, time.Now())
-		return m.start()
+		if err := m.start(); err != nil {
+			return err
+		}
+		m.setLoaded(cfg)
+		return nil
 	}
 	wait := m.ReloadWait
 	if wait <= 0 {
@@ -352,9 +359,35 @@ func (m *Manager) Apply(cfg []byte) error {
 	m.loading = slow
 	m.mu.Unlock()
 	if slow {
+		m.setLoaded(nil) // not in full yet
 		return nil
 	}
-	return err
+	if err != nil {
+		m.setLoaded(nil) // the core may have it, or not
+		return err
+	}
+	m.setLoaded(cfg)
+	return nil
+}
+
+// Loaded reports whether the running core has cfg loaded already, in full
+// and with nothing of it failed that a reload would try again (a port it
+// could not open, its TUN device). Applying cfg again would change nothing
+// but make the core build everything anew, and with that test every node of
+// every provider once more: mihomo checks a provider's nodes on each URL its
+// groups test whenever it loads the provider, lazy or not (#200). A change
+// that only the core's files carry (a provider's nodes) is not in cfg, so
+// what applies one must not ask this.
+func (m *Manager) Loaded(cfg []byte) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.client != nil && m.loaded != nil && !m.loading && m.listenErr == "" && m.tunErr == "" && bytes.Equal(m.loaded, cfg)
+}
+
+func (m *Manager) setLoaded(cfg []byte) {
+	m.mu.Lock()
+	m.loaded = slices.Clone(cfg)
+	m.mu.Unlock()
 }
 
 // ApplyTiming is where the last Apply spent its time. Check is zero when
@@ -437,6 +470,7 @@ func (m *Manager) run() error {
 		return nil
 	}
 	m.stopping = false
+	m.loaded = nil // what Apply started it with, it says once it has
 	m.mu.Unlock()
 
 	if _, err := os.Stat(m.Bin); err != nil {
@@ -494,7 +528,7 @@ func (m *Manager) run() error {
 		defer close(exited)
 		m.mu.Lock()
 		stopping := m.stopping
-		m.cmd, m.client = nil, nil
+		m.cmd, m.client, m.loaded = nil, nil, nil
 		m.mu.Unlock()
 		_ = os.Remove(filepath.Join(m.Dir, "mihomo.pid"))
 		if stopping {
