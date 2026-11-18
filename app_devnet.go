@@ -131,19 +131,23 @@ func (a *App) bypassOf(s settings.Settings) []string {
 // applyDev gives the core the config build makes of the overlay. What the
 // machine happens to look like must not cost the user their network: if
 // the core refuses it, the catalog alone goes in, and the settings page
-// says so.
-func (a *App) applyDev(s settings.Settings, build func(devnet.Overlay) ([]byte, error)) error {
+// says so. With keep, a config the running core has already stays as it
+// is: kept says so, and nothing was applied.
+func (a *App) applyDev(s settings.Settings, build func(devnet.Overlay) ([]byte, error), keep bool) (kept bool, err error) {
 	env := a.devEnv()
 	env.LocalDNS = a.localDNS(s, env, false) // s may have just turned TUN on
 	dev := overlayOf(s, env)
 	cfg, err := build(dev)
 	if err != nil {
-		return err
+		return false, err
+	}
+	if keep && a.core.Loaded(cfg) {
+		return true, nil // what was tried of the overlay is what went in then
 	}
 	err = a.core.Apply(cfg)
 	if a.leaveTunCore(err) {
 		if cfg, err = build(dev); err != nil {
-			return err
+			return false, err
 		}
 		err = a.core.Apply(cfg)
 	}
@@ -157,7 +161,7 @@ func (a *App) applyDev(s settings.Settings, build func(devnet.Overlay) ([]byte, 
 	a.dev.mu.Lock()
 	a.dev.tried, a.dev.triedIPv6, a.dev.fellBack = dev.Fingerprint(), env.IPv6.Usable, fellBack
 	a.dev.mu.Unlock()
-	return err
+	return false, err
 }
 
 // devLoop follows the machine's networks.

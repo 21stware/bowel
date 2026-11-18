@@ -657,7 +657,16 @@ func tunEntry(wanted, on, installed bool, fault string, state core.State) Entry 
 func (a *App) takeoverOn(s settings.Settings) bool { return !s.Paused && (s.SystemProxy || s.Tun) }
 
 // applyConfig rebuilds the runtime config and makes the core use it.
-func (a *App) applyConfig() error {
+func (a *App) applyConfig() error { return a.applyConfigKeep(false) }
+
+// applyConfigIfChanged is applyConfig for a change that may leave the
+// core's config as it was, as the system proxy's switch does: then the core
+// keeps what it has. A reload would build every provider and group anew,
+// and the core then tests every node on each route's target again, which
+// with a big subscription is seconds of a busy core for nothing (#200).
+func (a *App) applyConfigIfChanged() error { return a.applyConfigKeep(true) }
+
+func (a *App) applyConfigKeep(keep bool) error {
 	began := time.Now()
 	a.dropImported() // a provider's file, or whether it is in use, may have changed
 	s := a.settings.Get()
@@ -665,10 +674,16 @@ func (a *App) applyConfig() error {
 	a.ensureIPv6(s)
 	im := a.importedNow()
 	var build time.Duration
-	err := a.applyDev(s, func(dev devnet.Overlay) ([]byte, error) {
+	kept, err := a.applyDev(s, func(dev devnet.Overlay) ([]byte, error) {
 		defer func(t time.Time) { build += time.Since(t) }(time.Now())
 		return a.buildConfig(s, dev, im)
-	})
+	}, keep)
+	if kept {
+		a.mon.Note("bowel: config unchanged, the core keeps it (build " + strconv.FormatInt(build.Milliseconds(), 10) + "ms)")
+		a.syncGateway()
+		a.refresh()
+		return nil
+	}
 	applied := time.Now()
 	defer func() { a.mon.Note(applyNote(err, began, applied, time.Now(), build, a.core.Timing())) }()
 	if err != nil {
@@ -1158,7 +1173,7 @@ func (a *App) updateTun() error {
 }
 
 func (a *App) afterTakeover() error {
-	err := a.applyConfig()
+	err := a.applyConfigIfChanged()
 	a.applySystemProxy()
 	a.applySystemDNS()
 	a.refresh()

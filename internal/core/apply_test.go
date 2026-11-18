@@ -111,3 +111,84 @@ func TestApplyRunningCoreChecks(t *testing.T) {
 		t.Fatalf("after the next reload: %+v, pid %d → %d", conf, pid, m.Status().PID)
 	}
 }
+
+// Loaded is true only of the config the running core loaded in full, and
+// not while something of it failed that a reload tries again (#200).
+func TestLoaded(t *testing.T) {
+	bin := coreBin(t)
+	dir, err := os.MkdirTemp("", "moho")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	geo(t, dir)
+	_ = os.WriteFile(filepath.Join(dir, "a.txt"), []byte(yamlNodes), 0o600)
+	m, err := New(bin, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe, _ := FreePort()
+	mixed, _ := FreePort()
+	in := Input{
+		Providers: []ProviderRef{{ID: "aaa", Path: filepath.Join(dir, "a.txt")}},
+		Routes:    routes.Template(), Mode: "rule", MixedPort: mixed, LogLevel: "info",
+		TestURL: "https://www.gstatic.com/generate_204", ProbePort: probe, Controller: m.ControllerFields(),
+	}
+	rule, _ := BuildConfig(in)
+	in.Mode = "global"
+	global, _ := BuildConfig(in)
+	if m.Loaded(rule) {
+		t.Fatal("loaded with no core")
+	}
+	if err := m.Apply(rule); err != nil {
+		t.Fatalf("start: %v\n%s", err, m.logs.last(10))
+	}
+	defer m.Stop()
+	if !m.Loaded(rule) || m.Loaded(global) {
+		t.Fatalf("started with rule: Loaded(rule) = %v, Loaded(global) = %v", m.Loaded(rule), m.Loaded(global))
+	}
+	if err := m.Apply(global); err != nil {
+		t.Fatal(err)
+	}
+	if !m.Loaded(global) || m.Loaded(rule) {
+		t.Fatalf("reloaded with global: Loaded(global) = %v, Loaded(rule) = %v", m.Loaded(global), m.Loaded(rule))
+	}
+
+	// A refused config leaves the core, and what it has, as they were.
+	var doc map[string]any
+	_ = yaml.Unmarshal(rule, &doc)
+	doc["rules"] = append([]any{"DOMAIN,example.org,nowhere"}, doc["rules"].([]any)...)
+	bad, _ := yaml.Marshal(doc)
+	if err := m.Apply(bad); err == nil {
+		t.Fatal("a rule to a group that is not there was taken")
+	}
+	if !m.Loaded(global) || m.Loaded(bad) {
+		t.Error("after a refused reload, the core's config is not the one it kept")
+	}
+
+	// A port it could not open, or its TUN device, is tried again by a
+	// reload, so the config counts as not loaded while one failed.
+	m.setListenErr("port 1 is taken")
+	if m.Loaded(global) {
+		t.Error("loaded while a port failed")
+	}
+	m.setListenErr("")
+	m.setTunErr("Access is denied")
+	if m.Loaded(global) {
+		t.Error("loaded while the TUN device failed")
+	}
+	m.setTunErr("")
+
+	// A core started again by Restart is started from config.yaml, which
+	// Apply did not hand it: not known.
+	if err := m.Restart(); err != nil {
+		t.Fatal(err)
+	}
+	if m.Loaded(global) {
+		t.Error("loaded after a restart nobody gave it a config for")
+	}
+	m.Stop()
+	if m.Loaded(global) {
+		t.Error("loaded with the core stopped")
+	}
+}
