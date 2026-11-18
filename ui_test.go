@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image/png"
 	"math"
 	"os"
@@ -262,6 +263,64 @@ func TestHeader(t *testing.T) {
 		t.Errorf("the notice's action went to %q", u.page)
 	}
 	shot(t, tt, "header-providers")
+}
+
+// TestNoticeShortens: a long notice ends in "…" before what follows it
+// in the title bar, so the update, the state and 设置 look as they do
+// with no notice, at every width the window can be (#262 in the group).
+func TestNoticeShortens(t *testing.T) {
+	issues := []*Issue{
+		{Level: "warn", Text: "其他流量：🇯🇵 [IPLC]AWS日本03 | 电信移动联通推荐 不可用，已换到 🇭🇰 香港 02", Action: "activity", Label: "查看"},
+		{Level: "warn", Text: "其他流量：🇯🇵 [IPLC]AWS日本03 | 电信移动联通推荐 x2.0 不可用，已换到 🇭🇰 [IPLC]香港HKT 05 | 电信移动联通推荐 x1.5 | Netflix | Disney+", Action: "activity", Label: "查看"},
+		{Level: "error", Text: "「其他流量」固定的 🇯🇵 [IPLC]AWS日本03 | 电信移动联通推荐 不通", Action: "fix:default", Label: "换节点"},
+	}
+	render := func(w int, is *Issue, up bool) *ui.Tester {
+		u := fixtureUI()
+		u.snap.State = StateDegraded
+		u.snap.Issue = is
+		if up {
+			u.snap.Update = &UpdateView{Status: updateAvailable, Version: "9.9.9"}
+		}
+		tt := ui.NewTester(u.view, w, 760)
+		tt.Advance(time.Second)
+		return tt
+	}
+	for _, w := range []int{960, 1060, 1280} {
+		for _, up := range []bool{false, true} {
+			bare := render(w, nil, up)
+			first := "降级"
+			if up {
+				first = "新版本 9.9.9"
+			}
+			f, ok := bare.Find(first)
+			if !ok {
+				t.Fatalf("no %q at %v: %q", first, w, bare.Texts())
+			}
+			x0 := int(f.X) - 20
+			want := bare.Image()
+			for i, is := range issues {
+				tt := render(w, is, up)
+				shot(t, tt, fmt.Sprintf("notice-%d-%d-%v", w, i, up))
+				last := is.Label
+				if strings.HasPrefix(is.Action, "fix:") {
+					last = "改用全部节点自动"
+				}
+				if b, ok := tt.Find(last); !ok || int(b.X+b.W) > x0 {
+					t.Errorf("width %d, issue %d, update %v: %q at %+v, past x %d", w, i, up, last, b, x0)
+				}
+				got := tt.Image()
+			pixels:
+				for y := 0; y < 50; y++ {
+					for x := x0; x < w; x++ {
+						if got.RGBAAt(x, y) != want.RGBAAt(x, y) {
+							t.Errorf("width %d, issue %d, update %v: the notice reaches %q and what follows, at %d,%d", w, i, up, first, x, y)
+							break pixels
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 // TestSharedPiecesKeepUp: the pieces shared between a cell's views, as
