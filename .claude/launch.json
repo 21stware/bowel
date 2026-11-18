@@ -8,6 +8,12 @@
       "port": 8765
     },
     {
+      "name": "site-node",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["-e", "const h=require('http'),f=require('fs'),p=require('path');const T={'.html':'text/html; charset=utf-8','.css':'text/css','.js':'text/javascript','.png':'image/png','.webp':'image/webp','.svg':'image/svg+xml'};h.createServer((q,r)=>{let u=decodeURIComponent(q.url.split('?')[0]);let fp=p.join('site',u);if(u.endsWith('/'))fp=p.join(fp,'index.html');f.readFile(fp,(e,d)=>{if(e){r.writeHead(404);return r.end()}r.writeHead(200,{'Content-Type':T[p.extname(fp)]||'application/octet-stream'});r.end(d)})}).listen(8768)"],
+      "port": 8768
+    },
+    {
       "name": "site-built",
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "8767", "--directory", "build/site"],
