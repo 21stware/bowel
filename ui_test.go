@@ -146,6 +146,30 @@ func TestHomeBoard(t *testing.T) {
 	}
 }
 
+// Switching between expanded cells changes the exit summary from 17pt to
+// 24pt. Its fourth character must stay on the first line throughout.
+func TestDirectExitStaysOnOneLine(t *testing.T) {
+	u := fixtureUI()
+	u.snap.Mode = "direct"
+	u.home.x = "routes"
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	u.home.x = "mode"
+	tt.Frame()
+	for elapsed := time.Duration(0); elapsed < time.Second; elapsed += 16 * time.Millisecond {
+		im := tt.Image()
+		// Below the title's first line, the direct exit has no subtitle.
+		for y := 120; y < 150; y++ {
+			for x := 18; x < 116; x++ {
+				if im.RGBAAt(x, y).R < 96 {
+					t.Fatalf("ink below the direct exit title at %v (%d,%d)", elapsed, x, y)
+				}
+			}
+		}
+		tt.Advance(16 * time.Millisecond)
+	}
+}
+
 // Not taken over is the same board: nothing moves or goes away when the
 // last way in is turned off, and the cells still open.
 func TestBoardStaysWhenOff(t *testing.T) {

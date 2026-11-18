@@ -1015,7 +1015,8 @@ func (u *UI) compactView(c *ui.Context, p *pal, id, v string) {
 			u.share(c, exitMatch{"default"}, "exit", func(c *ui.Context) ui.Element {
 				text := func() ui.Element {
 					t := disp(ui.Text(c, val), p).FontSize(size).FontWeight(600).TextColor(p.ink).ContentTransition(morphText)
-					if v == "mini" || v == "strip" {
+					// The larger status text can briefly inherit the narrow summary's width.
+					if !flag || v == "mini" || v == "strip" {
 						t.NoWrap()
 					} else {
 						t.MaxLines(2).Ellipsis("…").Tooltip(val)
