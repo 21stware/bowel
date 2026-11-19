@@ -44,6 +44,17 @@ func firewallTipOn(goos string) string {
 		"A firewall (ufw or firewalld) is on: if other devices can't look up names or reach the network, open port 53 and allow traffic from the LAN to be forwarded.")
 }
 
+// shortcutLabel is how a shortcut held with ui.Cmd is written beside what
+// it does: ⌘ on a Mac, Ctrl on the other systems, where ui.Cmd is Control.
+func shortcutLabel(key string) string { return shortcutLabelOn(runtime.GOOS, key) }
+
+func shortcutLabelOn(goos, key string) string {
+	if goos == "darwin" {
+		return "⌘" + key
+	}
+	return "Ctrl+" + key
+}
+
 // toolSubOf is the line under a tool's name. The terminal's is its
 // shell, which is the one whose file bowel reads.
 func toolSubOf(t devtools.Tool) string {

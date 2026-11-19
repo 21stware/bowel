@@ -173,7 +173,7 @@ var gear = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewB
 // settingsButton is the title bar's last control: a gear and its name. It
 // opens the settings window.
 func (u *UI) settingsButton(c *ui.Context, p *pal) {
-	b := ui.ButtonBase(c.Key("settings")).Padding(4, 11).Radius(p.r(7)).Shrink(0).Tooltip(i18n.T("设置", "Settings") + " ⌘,")
+	b := ui.ButtonBase(c.Key("settings")).Padding(4, 11).Radius(p.r(7)).Shrink(0).Tooltip(i18n.T("设置", "Settings") + " " + shortcutLabel(","))
 	col := p.ink2
 	if b.Hovered() {
 		b.Background(p.hair2)
@@ -333,7 +333,7 @@ func (u *UI) settingsSidebar(c *ui.Context, p *pal) {
 		ui.Row(c).Shrink(0).Padding(0, 10, 10, 10).Children(func() {
 			ui.SearchField(c.Key("find"), &u.set.query).Bind(&u.set.findH).
 				Placeholder(i18n.T("搜索设置", "Search settings")).Label(i18n.T("搜索设置", "Search settings")).
-				Tooltip(i18n.T("搜索设置", "Search settings") + " ⌘F").Grow(1).Basis(0).MinWidth(0)
+				Tooltip(i18n.T("搜索设置", "Search settings") + " " + shortcutLabel("F")).Grow(1).Basis(0).MinWidth(0)
 		})
 		// While searching no page is chosen, so a click on any goes to it
 		// and ends the search.
