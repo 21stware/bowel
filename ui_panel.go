@@ -90,8 +90,8 @@ func (u *UI) panelView(c *ui.Context) {
 		u.panelMode(c, p)
 		panelRule(c, p)
 		u.panelCopyProxy(c, p)
-		panelCmd(c, p, "open", i18n.T("打开 bowel", "Open bowel"), "⌘O").OnClick(func() { u.panelShow(nil) })
-		panelCmd(c, p, "quit", i18n.T("退出 bowel", "Quit bowel"), "⌘Q").OnClick(u.askQuit)
+		panelCmd(c, p, "open", i18n.T("打开 bowel", "Open bowel"), shortcutLabel("O")).OnClick(func() { u.panelShow(nil) })
+		panelCmd(c, p, "quit", i18n.T("退出 bowel", "Quit bowel"), shortcutLabel("Q")).OnClick(u.askQuit)
 	})
 }
 

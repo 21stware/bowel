@@ -30,6 +30,22 @@ func TestPlatformLines(t *testing.T) {
 	}
 }
 
+// A shortcut is written with the key the system's keyboard has: ⌘ on a
+// Mac, Ctrl elsewhere, which is the key ui.Cmd binds there.
+func TestShortcutLabel(t *testing.T) {
+	for _, c := range []struct{ goos, key, want string }{
+		{"darwin", "O", "⌘O"},
+		{"darwin", ",", "⌘,"},
+		{"windows", "O", "Ctrl+O"},
+		{"windows", ",", "Ctrl+,"},
+		{"linux", "Q", "Ctrl+Q"},
+	} {
+		if got := shortcutLabelOn(c.goos, c.key); got != c.want {
+			t.Errorf("%s %q: %q, want %q", c.goos, c.key, got, c.want)
+		}
+	}
+}
+
 func TestToolSubOf(t *testing.T) {
 	for file, want := range map[string]string{"~/.zshenv": "zsh", "~/.bashrc": "bash", "": ""} {
 		if got := toolSubOf(devtools.Tool{ID: devtools.Shell, File: file}); got != want {

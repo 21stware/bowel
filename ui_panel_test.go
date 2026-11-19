@@ -30,7 +30,7 @@ func TestPanelNormal(t *testing.T) {
 	shot(t, tt, "panel")
 	// The nodes, the switch and the mode are all on the first level.
 	wantTexts(t, tt, "正常", "接管", "节点", "自动", "最快 + 故障转移", "当前", "香港 03 IPLC", "41 ms", "全部节点…", "8 个",
-		"规则", "全局", "直连", "打开 bowel", "⌘O", "退出 bowel", "⌘Q")
+		"规则", "全局", "直连", "打开 bowel", shortcutLabel("O"), "退出 bowel", shortcutLabel("Q"))
 	// No routes in the panel.
 	for _, s := range []string{"路由", "AI 服务", "流媒体", "开发"} {
 		if tt.HasText(s) {
