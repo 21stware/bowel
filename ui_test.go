@@ -653,3 +653,44 @@ func TestHomeBackInPlace(t *testing.T) {
 		t.Errorf("back on 代理 the board is out of place on its first frame:\n%v\n%v", back, settled)
 	}
 }
+
+// On the system proxy alone, an app that ignores it never reaches bowel,
+// and the board has to say beside TUN's switch that TUN is what takes it.
+// The word about the one authorization gives way: the card and the system's
+// own prompt say that.
+func TestBoardSaysWhatTunIsForBesideItsSwitch(t *testing.T) {
+	const hint = "不认系统代理的应用要开它"
+	u := fixtureUI() // the system proxy in use, TUN never authorized
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	if !tt.HasText(hint) {
+		t.Errorf("system proxy alone: no %q on the board: %q", hint, tt.Texts())
+	}
+
+	u.snap.Takeover.Tun = Entry{Wanted: true, Status: "on"}
+	tt.Frame()
+	tt.Advance(time.Second)
+	if tt.HasText(hint) {
+		t.Errorf("TUN in use: the board still says %q", hint)
+	}
+
+	// Nothing taken over: the rows say where they stand, as before.
+	u.snap.Takeover.Tun = Entry{Status: "install"}
+	u.snap.Takeover.On, u.snap.State = false, StateOff
+	tt.Frame()
+	tt.Advance(2 * time.Second)
+	if tt.HasText(hint) || !tt.HasText("未使用 · 首次需要授权") {
+		t.Errorf("not taken over: TUN's row should say it needs authorizing once: %q", tt.Texts())
+	}
+}
+
+// The card has the room to name one such app.
+func TestTakeoverCardNamesAnAppThatIgnoresTheSystemProxy(t *testing.T) {
+	u := fixtureUI()
+	u.home.x = "takeover"
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(2 * time.Second)
+	if !tt.HasText("所有应用，包括不认系统代理的，比如 EA App") {
+		t.Errorf("TUN's line in the card: %q", tt.Texts())
+	}
+}

@@ -2176,6 +2176,10 @@ func (u *UI) entryWord(c *ui.Context, p *pal, id, word string, e Entry) {
 				dot, text, tcol = p.signal, e.Detail, p.signal
 			case active:
 				dot, text = p.good, i18n.T("生效中", "Active")
+			case id == "tun" && t.On && t.System.Wanted && !e.Wanted:
+				// On the system proxy alone, what TUN adds is what there is to
+				// say beside its switch. The one authorization is in the card.
+				text = i18n.T("不认系统代理的应用要开它", "For apps that ignore the system proxy")
 			case id == "tun" && e.Status == "install":
 				text = i18n.T("未使用 · 首次需要授权", "Not in use · Needs approval once")
 			}
@@ -2235,7 +2239,7 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 				u.do(func() error { return u.app.setSystemProxy(on) })
 			}
 		})
-		section(c, p, "TUN", i18n.T("所有应用，包括不认系统代理的", "All apps, including those that ignore the system proxy"), func() {
+		section(c, p, "TUN", i18n.T("所有应用，包括不认系统代理的，比如 EA App", "All apps, including those that ignore the system proxy, such as EA App"), func() {
 			status := i18n.T("未使用", "Not in use")
 			switch {
 			case u.pending("entry:tun") && t.Tun.Status == "install":
