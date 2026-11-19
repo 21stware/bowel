@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -69,6 +70,21 @@ func TestOptionsValidate(t *testing.T) {
 		fn(&o)
 		if o.Validate() == nil {
 			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// TestTunStacks: every stack offered is one the options take, mips among
+// them (#210).
+func TestTunStacks(t *testing.T) {
+	if !slices.Contains(TunStacks, "mips") {
+		t.Errorf("no mips in %v", TunStacks)
+	}
+	for _, stack := range TunStacks {
+		o := DefaultOptions.Clone()
+		o.TunStack = stack
+		if err := o.Validate(); err != nil {
+			t.Errorf("%s: %v", stack, err)
 		}
 	}
 }

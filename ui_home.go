@@ -2311,6 +2311,8 @@ func tunStackText(stack string) string {
 		return i18n.T("system（系统协议栈）", "system (the system's own stack)")
 	case "gvisor":
 		return i18n.T("gVisor（用户态协议栈）", "gVisor (userspace stack)")
+	case "mips":
+		return i18n.T("mips（内核自己的协议栈）", "mips (the core's own stack)")
 	}
 	return stack
 }
