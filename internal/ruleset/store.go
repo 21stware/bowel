@@ -222,6 +222,16 @@ func Fetch(ctx context.Context, client *http.Client, source string) (*Checked, e
 	return &Checked{Source: source, Set: set}, nil
 }
 
+// withoutLink is err without the link Go quotes in it. A rule set's link
+// can hold a token, and the error is shown and kept for the set's row.
+func withoutLink(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return ue.Err
+	}
+	return err
+}
+
 func read(ctx context.Context, client *http.Client, source string) ([]byte, error) {
 	tooBig := errors.New(i18n.T("规则集太大了", "That rule set is too big"))
 	var r io.Reader
@@ -237,11 +247,11 @@ func read(ctx context.Context, client *http.Client, source string) ([]byte, erro
 		defer cancel()
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
 		if err != nil {
-			return nil, err
+			return nil, withoutLink(err)
 		}
 		resp, err := client.Do(req)
 		if err != nil {
-			return nil, err
+			return nil, withoutLink(err)
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {

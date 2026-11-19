@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -220,4 +221,39 @@ func TestStaleAndKeep(t *testing.T) {
 	if _, ok := st.Get("s1"); !ok {
 		t.Error("s1 lost")
 	}
+}
+
+// refusing fails every request the way a transport that cannot connect does.
+type refusing struct{}
+
+func (refusing) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("dial tcp 127.0.0.1:7890: connect: connection refused")
+}
+
+// A rule set's link can hold a token (a private repository's raw link),
+// and what fails is kept and shown on its row.
+func TestDownloadErrorLeavesTheLinkOut(t *testing.T) {
+	const link = "https://rules.example/private/list.yaml?token=FAKETOKEN123"
+	client := &http.Client{Transport: refusing{}}
+	clean := func(what, msg string) {
+		t.Helper()
+		if strings.Contains(msg, "FAKETOKEN123") || strings.Contains(msg, "/private/list.yaml") {
+			t.Errorf("%s shows the link: %s", what, msg)
+		}
+		if !strings.Contains(msg, "connection refused") {
+			t.Errorf("%s doesn't say what went wrong: %s", what, msg)
+		}
+	}
+	if _, err := Fetch(context.Background(), client, link); err == nil {
+		t.Fatal("fetch: no error")
+	} else {
+		clean("fetch", err.Error())
+	}
+	st, _ := Open(t.TempDir())
+	if err := st.Update(context.Background(), client, "s1", link); err == nil {
+		t.Fatal("update: no error")
+	} else {
+		clean("update", err.Error())
+	}
+	clean("the error kept for the set's row", st.meta["s1"].Error)
 }

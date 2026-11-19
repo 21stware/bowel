@@ -289,3 +289,54 @@ func TestPastedConfigNames(t *testing.T) {
 		t.Errorf("after the first is removed: %q", p.Name)
 	}
 }
+
+// refusing fails every request the way a transport that cannot connect does.
+type refusing struct{}
+
+func (refusing) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("dial tcp 127.0.0.1:7890: connect: connection refused")
+}
+
+// A subscription's link holds its token, and what fails is shown in the
+// window and the terminal, where it ends up in screenshots.
+func TestDownloadErrorLeavesTheLinkOut(t *testing.T) {
+	const link = "https://sub.example/api/v1/sub?access_token=FAKETOKEN123"
+	client := &http.Client{Transport: refusing{}}
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	clean := func(what, msg string) {
+		t.Helper()
+		if strings.Contains(msg, "FAKETOKEN123") || strings.Contains(msg, "/api/v1/sub") {
+			t.Errorf("%s shows the link: %s", what, msg)
+		}
+		if !strings.Contains(msg, "connection refused") {
+			t.Errorf("%s doesn't say what went wrong: %s", what, msg)
+		}
+	}
+	if _, err := s.Add(context.Background(), client, link); err == nil {
+		t.Fatal("add: no error")
+	} else {
+		clean("add", err.Error())
+	}
+	p, err := s.create(Provider{Kind: Subscription, Source: link, Enabled: true}, []byte("proxies: []\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Update(context.Background(), client, p.ID); err == nil {
+		t.Fatal("update: no error")
+	} else {
+		clean("update", err.Error())
+	}
+	got, _ := s.Get(p.ID)
+	clean("the error kept for the provider's row", got.Error)
+
+	// A link that cannot be read at all is quoted by the error too.
+	bad := "https://sub.example/api/v1/sub?access_token=FAKETOKEN123\x7f"
+	if _, _, _, err := fetch(context.Background(), client, bad); err == nil {
+		t.Fatal("unreadable link: no error")
+	} else if strings.Contains(err.Error(), "FAKETOKEN123") {
+		t.Errorf("unreadable link shows the link: %s", err)
+	}
+}
