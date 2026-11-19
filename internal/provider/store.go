@@ -465,18 +465,29 @@ func looksLikeNodes(data []byte) error {
 	return errors.New(i18n.T("没有找到节点：内容既不是 Clash 配置，也不是节点链接或 Base64 订阅", "No nodes found: the content is not a Clash config, node links or a Base64 subscription"))
 }
 
+// withoutLink is err without the link Go quotes in it. A subscription's
+// link holds its token, and the error is shown in the window and the
+// terminal and kept for the provider's row.
+func withoutLink(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return ue.Err
+	}
+	return err
+}
+
 func fetch(ctx context.Context, client *http.Client, u string) ([]byte, *Usage, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", withoutLink(err)
 	}
 	// Providers answer Clash Meta clients with a Clash profile.
 	req.Header.Set("User-Agent", "clash.meta/moho")
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf(i18n.T("下载订阅失败: %w", "Downloading the subscription failed: %w"), err)
+		return nil, nil, "", fmt.Errorf(i18n.T("下载订阅失败: %w", "Downloading the subscription failed: %w"), withoutLink(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
