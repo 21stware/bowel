@@ -349,6 +349,7 @@ func (u *UI) showChangelog(from string, next bool) {
 		Title: i18n.T("更新内容", "What's new"), Width: 560, Height: 620, MinWidth: 420, MinHeight: 360,
 		TitleBarStyle: mygo.TitleBarHidden, StateKey: "changelog",
 		TrafficLightPosition: &mygo.Point{X: 18, Y: 18},
+		TitleBarHeight:       50, // as the main window: the controls fill the bar on Windows and Linux
 		BackgroundColor:      "light-dark(#f6f4ef, #171615)",
 		DisableMinimize:      true, DisableFullScreen: true,
 		Content: ui.View(u.changelogView),

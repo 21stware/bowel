@@ -370,8 +370,12 @@ func (a *App) openWindow() {
 		// they sit in its middle: with 14pt buttons, 50, as ui.go's
 		// titleBar, so they line up with the tabs.
 		TrafficLightPosition: &mygo.Point{X: 18, Y: 18},
-		BackgroundColor:      "light-dark(#f6f4ef, #171615)",
-		Content:              ui.View(u.view),
+		// The same 50 for the controls Windows and Linux put at the top
+		// corner: left at their own height (32 on Windows) they sit above
+		// the middle of the bar, higher than the tabs and 设置.
+		TitleBarHeight:  50,
+		BackgroundColor: "light-dark(#f6f4ef, #171615)",
+		Content:         ui.View(u.view),
 		// Opened at login, Moho can stay in the menu bar.
 		Hidden: a.settings.Get().StartHidden && mygo.App.WasOpenedAtLogin(),
 	})
