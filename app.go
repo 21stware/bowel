@@ -217,7 +217,7 @@ func newApp() (*App, error) {
 		dataDir: data, settings: st, providers: ps, ruleSets: sets, core: cm,
 		mon:  monitor.New(filepath.Join(data, "stats.json")),
 		loc:  locate.New(filepath.Join(data, "locations.json")),
-		http: &http.Client{Transport: netproxy.Transport()}, coreBin: bin, tunBin: tunBin, probePort: probe,
+		http: &http.Client{Transport: directWhenProxyIsDown(netproxy.Transport())}, coreBin: bin, tunBin: tunBin, probePort: probe,
 		pending: map[string]bool{}, locating: map[string]bool{}, proxies: map[string]mihomo.Proxy{},
 		provNodes: map[string][]string{}, lastNode: map[string]string{}, routeBytes: map[string]int64{},
 		gw: gateway.New(osGateway(), filepath.Join(data, "gateway-before.json")),
