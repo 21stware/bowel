@@ -32,6 +32,7 @@ func TestTunCardStack(t *testing.T) {
 		"mixed":  "mixed（TCP 用 system，UDP 用 gVisor）",
 		"system": "system（系统协议栈）",
 		"gvisor": "gVisor（用户态协议栈）",
+		"mips":   "mips（内核自己的协议栈）",
 	}
 	for _, stack := range core.TunStacks {
 		tt := tunCard(t, func(s *settings.Settings) { s.TunStack = stack })

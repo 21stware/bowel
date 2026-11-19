@@ -579,7 +579,8 @@ func TestTunDNSRuleNotAskedWhereRefused(t *testing.T) {
 
 // TestTunStackFirewallNote: issue 117's later finding. With ufw's default
 // on, the system and mixed stacks lose the TCP that doesn't use the proxy
-// port, and gVisor doesn't. The TUN entry says so, naming the stack in
+// port; gVisor and mips keep it in the core and don't (#210, the four
+// stacks behind such a firewall). The TUN entry says so, naming the stack in
 // use and the way to gVisor; the title bar doesn't, since a firewall that
 // lets the device in is fine and can't be read without root.
 func TestTunStackFirewallNote(t *testing.T) {
@@ -591,8 +592,10 @@ func TestTunStackFirewallNote(t *testing.T) {
 			t.Errorf("%s, no firewall: %q", stack, d)
 		}
 	}
-	if d := tunStackDetail("gvisor", true); d != "" {
-		t.Errorf("gvisor behind a firewall: %q", d)
+	for _, stack := range []string{"gvisor", "mips"} {
+		if d := tunStackDetail(stack, true); d != "" {
+			t.Errorf("%s behind a firewall: %q", stack, d)
+		}
 	}
 	saved := osTun
 	defer func() { osTun = saved }()

@@ -1022,7 +1022,7 @@ func (u *UI) snifferSection(c *ui.Context, p *pal, s settings.Settings) {
 
 func (u *UI) tunSection(c *ui.Context, p *pal, s settings.Settings) {
 	sectionNote(c, p, i18n.T("在「代理」页的接管里开关", "Turned on and off under Takeover on the Proxy page"))
-	optRow(c, p, i18n.T("协议栈", "Stack"), i18n.T("mixed：TCP 用 system，UDP 用 gVisor", "mixed: system for TCP, gVisor for UDP"), func() {
+	optRow(c, p, i18n.T("协议栈", "Stack"), i18n.T("mixed：TCP 用 system，UDP 用 gVisor；mips：内核自己的协议栈", "mixed: system for TCP, gVisor for UDP; mips: the core's own stack"), func() {
 		u.optChoice(c, p, "stack", core.TunStacks, s.TunStack, func(v string) {
 			u.setOpt(func(s *settings.Settings) { s.TunStack = v })
 		})

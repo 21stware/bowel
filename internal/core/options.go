@@ -84,7 +84,7 @@ type Options struct {
 	PreferH3       bool     `json:"preferH3"`
 
 	// TUN.
-	TunStack               string   `json:"tunStack"` // mixed, system, gvisor
+	TunStack               string   `json:"tunStack"` // mixed, system, gvisor, mips
 	StrictRoute            bool     `json:"strictRoute"`
 	TunDevice              string   `json:"tunDevice"` // "" the system's choice
 	TunMTU                 int      `json:"tunMtu"`
@@ -167,7 +167,7 @@ func (m *IPv6Mode) UnmarshalJSON(b []byte) error {
 var (
 	IPv6Modes    = []string{string(IPv6Off), string(IPv6Auto), string(IPv6On)}
 	DNSModes     = []string{"fake-ip", "redir-host"}
-	TunStacks    = []string{"mixed", "system", "gvisor"}
+	TunStacks    = []string{"mixed", "system", "gvisor", "mips"}
 	FindProcess  = []string{"always", "strict", "off"}
 	Fingerprints = []string{"", "chrome", "firefox", "safari", "ios", "android", "edge", "random"}
 )
