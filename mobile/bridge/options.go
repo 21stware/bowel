@@ -5,9 +5,11 @@ package bridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -148,11 +150,11 @@ func fetchGeoFiles(ctx context.Context, dir, siteURL, ipURL string) error {
 func fetchGeoFile(ctx context.Context, dir, from, name string, limit int64) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, from, nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%s: %w", name, withoutLink(err))
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%s: %w", name, withoutLink(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -228,6 +230,16 @@ func decodeQR(path string) decodedData {
 		return decodedData{Error: i18n.T("图片里没有二维码", "No QR code in that picture")}
 	}
 	return decodedData{Text: texts[0]}
+}
+
+// withoutLink is err without the link it was for: the http client quotes the
+// whole link in its errors, and a private list's link can carry a token.
+func withoutLink(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return ue.Err
+	}
+	return err
 }
 
 // canUpdateGeo: every platform can now; iOS downloads in the app.

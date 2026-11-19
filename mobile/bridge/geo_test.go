@@ -75,3 +75,29 @@ func TestFetchGeoKeepsOldDataOnFailure(t *testing.T) {
 		})
 	}
 }
+
+// The link can carry a token, and the error is shown on the 设置 page.
+func TestFetchGeoErrorLeavesTheLinkOut(t *testing.T) {
+	srv := geoServer(t, nil)
+	down := srv.URL + "/private/geosite.dat?access_token=FAKETOKEN123"
+	srv.Close()
+	for name, link := range map[string]string{
+		"server down":     down,
+		"unreadable link": "http://bad host/private/geosite.dat?access_token=FAKETOKEN123",
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := fetchGeoFiles(context.Background(), t.TempDir(), link, link)
+			if err == nil {
+				t.Fatal("accepted")
+			}
+			for _, part := range []string{"FAKETOKEN123", "/private/geosite.dat"} {
+				if strings.Contains(err.Error(), part) {
+					t.Fatalf("the error shows %q: %v", part, err)
+				}
+			}
+			if !strings.HasPrefix(err.Error(), "GeoSite.dat: ") {
+				t.Fatalf("the error doesn't say which file: %v", err)
+			}
+		})
+	}
+}
