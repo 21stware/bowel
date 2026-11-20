@@ -531,7 +531,7 @@ func (a *App) refresh() {
 	a.probeTunDNS()
 	// The system proxy is judged only while it is wanted: otherwise no
 	// scutil every 2 s for nothing.
-	if st := a.settings.Get(); a.takeoverOn(st) && st.SystemProxy {
+	if st := a.settings.Get(); a.proxyWanted(st) {
 		if s, err := sysproxy.Check(st.MixedPort); err == nil {
 			a.mu.Lock()
 			a.sys = s
@@ -660,6 +660,20 @@ func tunEntry(wanted, on, installed bool, fault string, state core.State) Entry 
 
 func (a *App) takeoverOn(s settings.Settings) bool { return !s.Paused && (s.SystemProxy || s.Tun) }
 
+// guarding says whether the exit lock holds while takeover is off: a route
+// group of bowel's own has it, so the system proxy stays on the core, which
+// lets everything out directly but that group's traffic, which it refuses
+// (core.Input.Guard).
+func (a *App) guarding(s settings.Settings) bool {
+	return !a.takeoverOn(s) && s.ImportedRouting == "" && s.Routing.AnyLocked()
+}
+
+// proxyWanted says whether the system proxy is to point at the core: for
+// takeover, or for the exit lock while takeover is off.
+func (a *App) proxyWanted(s settings.Settings) bool {
+	return a.takeoverOn(s) && s.SystemProxy || a.guarding(s)
+}
+
 // applyConfig rebuilds the runtime config and makes the core use it.
 func (a *App) applyConfig() error { return a.applyConfigKeep(false) }
 
@@ -750,6 +764,7 @@ func (a *App) buildConfig(s settings.Settings, dev devnet.Overlay, im *core.Impo
 	return core.BuildConfig(core.Input{
 		Providers: refs, RuleSets: a.ruleSetRefs(s), Routes: all, UserRules: routes.Active(all, s.Rules), Scopes: scopes, Orders: orders, Mode: s.Mode, MixedPort: s.MixedPort, AllowLan: s.AllowLan,
 		Tun:      a.tunOn(s),
+		Guard:    a.guarding(s),
 		Gateway:  a.gatewayOn(s),
 		LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
 		Options: s.Options, Dev: dev, IPv6Usable: a.devEnv().IPv6.Usable, Imported: im,
@@ -786,7 +801,7 @@ func (a *App) applySystemProxy(prev ...int) {
 		return // shutdown has put the system proxy back: it stays so
 	}
 	s := a.settings.Get()
-	want := a.takeoverOn(s) && s.SystemProxy
+	want := a.proxyWanted(s)
 	cur, err := sysproxy.Check(s.MixedPort)
 	if err != nil {
 		return
@@ -1210,6 +1225,16 @@ func (a *App) setMode(mode string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	// With the exit lock the core stays in rule mode: the mode is in the
+	// rules (core.BuildConfig).
+	if s := a.settings.Get(); s.ImportedRouting == "" && s.Routing.AnyLocked() {
+		if err := a.applyConfig(); err != nil {
+			return err
+		}
+		_ = c.CloseAllConnections(ctx) // old connections keep their old route otherwise
+		a.refresh()
+		return nil
+	}
 	if s := a.settings.Get(); !s.DevOff {
 		// The mode is part of the rules then, so they are what changes.
 		dev := overlayOf(s, a.devEnv())
@@ -1392,12 +1417,15 @@ func (a *App) updateSettingsAnd(fn func(*settings.Settings), reapply bool) error
 	}
 	if next.MixedPort != old.MixedPort {
 		a.applySystemProxy(old.MixedPort) // points the system at the new port
-	} else if !slices.Equal(next.Bypass, old.Bypass) && a.takeoverOn(next) && next.SystemProxy {
+	} else if !slices.Equal(next.Bypass, old.Bypass) && a.proxyWanted(next) {
 		if cur, err := sysproxy.Check(next.MixedPort); err == nil && cur.Ours {
 			if err := a.enableProxy(next); err != nil {
 				return err
 			}
 		}
+	}
+	if next.MixedPort == old.MixedPort && a.guarding(next) != a.guarding(old) {
+		a.applySystemProxy() // the exit lock, with takeover off, holds by it
 	}
 	a.refresh()
 	return nil
@@ -1986,6 +2014,19 @@ func (a *App) closeUnmatched() int {
 	return 0
 }
 
+// setLocked turns route group id's exit lock on or off, and closes its
+// connections, so that they open again the way the lock says.
+func (a *App) setLocked(id string, on bool) error {
+	if !routes.Lockable(id) {
+		return fmt.Errorf(i18n.T("路由组 %s 不能锁定出口", "Route group %s can't have its exit locked"), id)
+	}
+	if err := a.updateSettings(func(s *settings.Settings) { s.Routing.SetLocked(id, on) }); err != nil {
+		return err
+	}
+	a.closeRoute(id)
+	return nil
+}
+
 // closeRoute closes the connections on route group id, so that a change of
 // where it leaves shows. It reports how many it closed.
 func (a *App) closeRoute(id string) int {
@@ -2450,6 +2491,18 @@ func (a *App) snapshot() Snapshot {
 			tk.System.Status, tk.System.Detail = "hijacked", i18n.T("系统代理被关掉了", "The system proxy was turned off")
 		}
 	}
+	// The exit lock while takeover is off: it holds by the system proxy.
+	guard := a.guarding(s)
+	if guard {
+		tk.Lock = &Entry{Wanted: true, Status: "on"}
+		switch {
+		case sys.Ours:
+		case proxyErr != "":
+			tk.Lock.Status, tk.Lock.Detail = "error", proxyErr
+		default:
+			tk.Lock.Status, tk.Lock.Detail = "error", i18n.T("系统代理没有指向 bowel，锁定的路由组这时拦不住", "The system proxy doesn't point at bowel, so the locked groups aren't held now")
+		}
+	}
 	fault := ""
 	if f := a.tunFault.Load(); f != nil {
 		fault = *f
@@ -2547,6 +2600,8 @@ func (a *App) snapshot() Snapshot {
 		rv.Rules += rv.Mine
 		if im != nil {
 			rv.Group = routes.Group(r)
+		} else if r.Locked {
+			rv.Locked, rv.Refused = true, guard
 		}
 		if !r.Direct {
 			rv.Policy, rv.Auto = r.Policy, r.Policy.Mode == routes.ModeAuto

@@ -47,8 +47,15 @@ func TestDefaultGoesDirect(t *testing.T) {
 }
 
 // goesBy runs the real core on routes all and asks it for each host of
-// want, which is to go the way the core's log then says.
+// want, which is to go the way the core's log then says. A host to go
+// "REJECT" is to be refused, not answered.
 func goesBy(t *testing.T, all []routes.Route, users []routes.UserRule, want map[string]string) {
+	t.Helper()
+	goesByIn(t, all, users, want, nil)
+}
+
+// goesByIn is goesBy with change applied to the core's input.
+func goesByIn(t *testing.T, all []routes.Route, users []routes.UserRule, want map[string]string, change func(*Input)) {
 	t.Helper()
 	bin, geo := bundledMihomo(t)
 	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok "+r.Host) }))
@@ -66,6 +73,9 @@ func goesBy(t *testing.T, all []routes.Route, users []routes.UserRule, want map[
 	in.Routes, in.UserRules = all, users
 	in.MixedPort, in.ProbePort, in.FindProcess = port, probe, "off"
 	in.Options.NameserverPolicy = []string{"+.bowel-test.dev=" + answerDNS(t)}
+	if change != nil {
+		change(&in)
+	}
 	b, err := BuildConfig(in)
 	if err != nil {
 		t.Fatal(err)
@@ -100,6 +110,16 @@ func goesBy(t *testing.T, all []routes.Route, users []routes.UserRule, want map[
 	proxy, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
 	client := &http.Client{Timeout: 8 * time.Second, Transport: &http.Transport{Proxy: http.ProxyURL(proxy), DisableKeepAlives: true}}
 	for host, via := range want {
+		if via == "REJECT" {
+			if res, err := client.Get("http://" + host + ":" + webPort + "/"); err == nil {
+				body, _ := io.ReadAll(res.Body)
+				res.Body.Close()
+				if res.StatusCode == 200 && strings.HasPrefix(string(body), "ok ") {
+					t.Errorf("%s was answered, not refused:\n%s", host, log.String())
+				}
+			}
+			continue
+		}
 		// The core's port opens a moment before its resolver is ready.
 		var res *http.Response
 		var body []byte

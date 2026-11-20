@@ -80,9 +80,21 @@ type Input struct {
 	// name route groups it doesn't have, are left out with the rest.
 	Imported *Imported
 
+	// Guard is takeover turned off while a route group has the exit lock:
+	// the system proxy still points at the core, which sends everything
+	// direct but the locked groups' traffic, which it refuses.
+	Guard bool
+
 	// Options are the 设置 window's; zero values fall back to Moho's.
 	Options
 }
+
+// locks says whether the exit lock is on for one of bowel's own route
+// groups. A provider's routing has none of them.
+func (in Input) locks() bool { return in.Imported == nil && routes.AnyLocked(in.Routes) }
+
+// guarding says whether the core is to refuse the locked groups' traffic.
+func (in Input) guarding() bool { return in.Guard && in.locks() }
 
 func providerName(id string) string { return "p-" + id }
 
@@ -152,8 +164,9 @@ func BuildConfig(in Input) ([]byte, error) {
 	dev := in.Dev
 	// The core ignores rules outside rule mode, and with them the way to
 	// this machine's own networks; see rulesFor.
+	// So does it the exit lock's: a locked group's rules hold in every mode.
 	mode := in.Mode
-	if !dev.Empty() {
+	if !dev.Empty() || in.locks() {
 		mode = "rule"
 	}
 	cfg := map[string]any{
@@ -333,7 +346,8 @@ func BuildConfig(in Input) ([]byte, error) {
 	// names one of the config's own groups. One that names nothing that is
 	// there stays closed.
 	for _, e := range o.ExtraPorts {
-		exit, ok := exitOf(in.Routes, e.Route)
+		// A port is a way in to its group of its own, takeover or not.
+		exit, ok := exitOf(in.Routes, e.Route, false)
 		if im := in.Imported; im != nil {
 			exit = e.Route
 			_, ok = im.GroupOf(e.Route)
@@ -472,7 +486,9 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 			mainURL = in.TestURL
 		}
 		auto := map[string]any{"name": routes.Auto(r), "type": "url-test", "url": mainURL, "interval": o.URLTestInterval, "tolerance": o.URLTestTolerance, "lazy": true}
-		if names, scoped := in.Scopes[r.ID]; !scoped {
+		if names, scoped := in.Scopes[r.ID]; !scoped && r.Locked && len(use) == 0 {
+			auto["proxies"] = []string{"REJECT"} // no node at all: a locked group never goes DIRECT for want of one
+		} else if !scoped {
 			auto = withNodes(auto)
 		} else if len(names) == 0 {
 			auto["proxies"] = []string{"REJECT"} // nothing in range: no way out, not another way out
@@ -505,14 +521,27 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 	if len(sets) > 0 {
 		cfg["rule-providers"] = sets
 	}
+	// With the exit lock, rule mode's list is kept outside it too, and while
+	// takeover is off (guard): a group that isn't locked sends its traffic
+	// where the mode (or, off, no bowel) would, and a locked one's rules keep
+	// their place, so that a more specific rule elsewhere still comes first.
+	guard := in.guarding()
+	lockMode := in.locks() && (guard || in.Mode != "rule")
+	other := modeTarget(in.Mode)
+	if guard {
+		other = "DIRECT"
+	}
 	var mine, rest []string
 	for _, l := range routes.Lines(in.Routes, in.UserRules) {
 		if _, ok := sets[routes.RuleSetProvider(l.Set)]; l.Set != "" && !ok {
 			continue
 		}
-		target, ok := exitOf(in.Routes, l.Route)
+		target, ok := exitOf(in.Routes, l.Route, guard)
 		if !ok {
 			continue
+		}
+		if lockMode && !isLocked(in.Routes, l.Route) {
+			target = other
 		}
 		if l.Mine && dev.Covers(l.Text) {
 			mine = append(mine, withTarget(l.Text, target))
@@ -533,18 +562,46 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 	if def.Direct {
 		match = "DIRECT"
 	}
+	if lockMode {
+		return groups, slices.Concat(mine, ownRules(dev), rest, []string{"MATCH," + other}), nil
+	}
 	return groups, rulesFor(in.Mode, dev, mine, rest, match), nil
 }
 
+// modeTarget is where a mode other than rule sends everything.
+func modeTarget(mode string) string {
+	if mode == "global" {
+		return "GLOBAL"
+	}
+	return "DIRECT"
+}
+
+// ownRules are the developer networks' rules, with their targets.
+func ownRules(dev devnet.Overlay) []string {
+	var own []string
+	for _, r := range dev.Rules {
+		own = append(own, withTarget(r.Text, r.Target))
+	}
+	return own
+}
+
+// isLocked says whether route id has the exit lock.
+func isLocked(all []routes.Route, id string) bool {
+	return slices.ContainsFunc(all, func(r routes.Route) bool { return r.ID == id && r.Locked })
+}
+
 // exitOf is what the core sends route id's traffic to: the route's group,
-// or DIRECT or REJECT for a route that has none. False if there is no such
-// route.
-func exitOf(all []routes.Route, id string) (string, bool) {
+// or DIRECT or REJECT for a route that has none. A locked route's is
+// REJECT where it has no node to go by: while guard says takeover is off,
+// and when it goes direct by choice. False if there is no such route.
+func exitOf(all []routes.Route, id string, guard bool) (string, bool) {
 	for _, r := range all {
 		if r.ID != id {
 			continue
 		}
 		switch {
+		case r.Locked && (guard || r.Direct):
+			return "REJECT", true
 		case r.Reject:
 			return "REJECT", true
 		case r.OwnExit(): // DIRECT, by its own group
@@ -584,10 +641,7 @@ func tsnetProxy(name string, t devnet.Tsnet) map[string]any {
 // line and the routes' rules are left out: the way to this machine's own
 // networks stays, and all else goes as the mode says.
 func rulesFor(mode string, dev devnet.Overlay, mine, rest []string, def string) []string {
-	var own []string
-	for _, r := range dev.Rules {
-		own = append(own, withTarget(r.Text, r.Target))
-	}
+	own := ownRules(dev)
 	switch {
 	case dev.Empty() || mode == "rule":
 		return slices.Concat(mine, own, rest, []string{"MATCH," + def})

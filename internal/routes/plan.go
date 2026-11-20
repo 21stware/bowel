@@ -57,6 +57,10 @@ type GroupConf struct {
 	ID     string `json:"id"`
 	Name   string `json:"name,omitempty"` // what the user calls it; "" keeps a built-in's
 	Policy Policy `json:"policy"`
+	// Locked is the exit lock: the group's traffic leaves by a node or not
+	// at all, whatever the mode, and while takeover is off too. Only the
+	// groups Lockable allows keep it.
+	Locked bool `json:"locked,omitempty"`
 }
 
 // ServiceConf is what differs from what Moho ships for a built-in service,
@@ -236,6 +240,7 @@ func Build(p Plan, users []UserRule) []Route {
 		if g.Policy.Direct && ChoosesExit(g.ID) {
 			r.Direct = true
 		}
+		r.Locked = g.Locked && Lockable(g.ID)
 		out = append(out, r)
 	}
 	at := func(id string) int { return slices.IndexFunc(out, func(r Route) bool { return r.ID == id }) }
@@ -515,6 +520,40 @@ func (p *Plan) SetStrategy(id, mode, current string) {
 		}
 		q.Mode = mode
 	})
+}
+
+// SetLocked turns group id's exit lock on or off. Locking a group that
+// goes direct by choice puts it back on its nodes: the lock says it leaves
+// by one. False if the group can't be locked.
+func (p *Plan) SetLocked(id string, on bool) bool {
+	if !Lockable(id) {
+		return false
+	}
+	g := p.group(id)
+	if g == nil {
+		return false
+	}
+	g.Locked = on
+	if on {
+		g.Policy.Direct = false
+	}
+	return true
+}
+
+// AnyLocked says whether a group has the exit lock, as Build would say of
+// the routes, without building them.
+func (p Plan) AnyLocked() bool {
+	return slices.ContainsFunc(p.Groups, func(g GroupConf) bool { return g.Locked && Lockable(g.ID) })
+}
+
+// Locked says whether group id has the exit lock.
+func (p Plan) Locked(id string) bool {
+	for _, g := range p.Groups {
+		if g.ID == id {
+			return g.Locked && Lockable(id)
+		}
+	}
+	return false
 }
 
 // PickNode pins group id to node; "" goes back to the fastest.

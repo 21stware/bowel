@@ -2119,7 +2119,32 @@ func (u *UI) takeoverNormal(c *ui.Context, p *pal) {
 				ui.Box(c).Height(1).BorderStyle(ui.BorderDashed).BorderWidth(1, 0, 0, 0).BorderColor(p.hair)
 				u.gatewayWord(c, p)
 			}
+			u.lockWord(c, p)
 		})
+	})
+}
+
+// lockWord is the exit lock's line under the entries while takeover is off
+// and a group is locked: which groups it refuses, or why it can't.
+func (u *UI) lockWord(c *ui.Context, p *pal) {
+	l := u.snap.Takeover.Lock
+	if l == nil {
+		return
+	}
+	var names []string
+	for _, r := range u.snap.Routes {
+		if r.Locked {
+			names = append(names, r.Name)
+		}
+	}
+	text, col := i18n.T("出口锁定 · 正在拦下 ", "Exit lock · refusing ")+strings.Join(names, i18n.T("、", ", ")), p.ink2
+	if l.Status == "error" {
+		text, col = l.Detail, p.signal
+	}
+	ui.Box(c).Height(1).BorderStyle(ui.BorderDashed).BorderWidth(1, 0, 0, 0).BorderColor(p.hair)
+	ui.Row(c.Key("lock-word")).Gap(6).Padding(6, 0).AlignItems(ui.Center).Children(func() {
+		ui.Icon(c, lockIcon).Size(11, 11).Shrink(0).TextColor(col)
+		ui.Text(c, text).FontSize(11.5).TextColor(col).SingleLine().Shrink(1).MinWidth(0).Tooltip(text)
 	})
 }
 
@@ -2405,6 +2430,13 @@ func (u *UI) routeRow(c *ui.Context, p *pal, r RouteView, nameW float32, cut boo
 			}
 			return t
 		})
+		// The lock's slot, on every row once one is locked, so that the
+		// exits stay in a column.
+		if r.Locked {
+			lockMark(c, p, r, 11).Margin(0, 0, 0, -4)
+		} else if u.anyLocked() {
+			ui.Box(c).Size(11, 11).Shrink(0).Margin(0, 0, 0, -4)
+		}
 		name, delay := i18n.T("直接连接", "Direct"), i18n.T("国内 · 局域网", "Domestic · LAN")
 		n, hasNode := u.node(r.Node)
 		n = n.On(r.ID)
@@ -2484,6 +2516,9 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 					u.share(c, routeNameMatch{rid}, "route:"+rid, func(c *ui.Context) ui.Element {
 						return ui.Text(c, r.Name).FontSize(16).FontWeight(700).TextColor(p.ink).NoWrap()
 					})
+					if r.Locked {
+						lockMark(c, p, r, 13)
+					}
 				})
 				summary := r.Summary
 				if r.Mine > 0 {
@@ -2493,8 +2528,12 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 				if other {
 					line = summary
 				}
+				col := p.mute
+				if r.Refused {
+					line, col = refusedSay(), p.signal
+				}
 				ui.Text(c, line).
-					FontSize(12).TextColor(p.mute).SingleLine().Shrink(1).Margin(0, 0, 0, 22)
+					FontSize(12).TextColor(col).SingleLine().Shrink(1).Margin(0, 0, 0, 22)
 			})
 			name := noNodeWord(r)
 			n, hasNode := u.node(r.Node)

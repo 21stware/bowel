@@ -29,6 +29,9 @@ import (
 type UI struct {
 	// quitOpen: the dialog saying what quitting will break is up.
 	quitOpen bool
+	// lockAsk is the route group whose exit lock, the first one, waits for
+	// the dialog saying what it does; "" when none does.
+	lockAsk string
 	// panelCopied is when the panel last copied the terminal proxy command.
 	panelCopied time.Time
 	app         *App
@@ -371,6 +374,7 @@ func (u *UI) view(c *ui.Context) {
 		}
 		skinDeco(c, p)
 		u.quitDialog(c, p)
+		u.lockDialog(c, p)
 	})
 }
 

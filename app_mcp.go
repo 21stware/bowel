@@ -421,6 +421,10 @@ type mcpRoute struct {
 	Node      string `json:"node,omitempty"`
 	NodeLabel string `json:"nodeLabel,omitempty"`
 	UserRules int    `json:"userRules"`
+	// Locked is the exit lock (lock_route); Refused, that its traffic is
+	// refused now, takeover being off.
+	Locked  bool `json:"locked,omitempty"`
+	Refused bool `json:"refused,omitempty"`
 }
 
 type mcpNode struct {
@@ -436,7 +440,7 @@ type mcpNode struct {
 func (a *App) mcpRoutes(snap Snapshot) []mcpRoute {
 	out := make([]mcpRoute, 0, len(snap.Routes))
 	for _, r := range snap.Routes {
-		v := mcpRoute{ID: r.ID, Name: r.Name, Summary: r.Summary, Direct: r.Direct, Reject: r.Reject, Auto: r.Auto, Node: r.Node, UserRules: r.Mine}
+		v := mcpRoute{ID: r.ID, Name: r.Name, Summary: r.Summary, Direct: r.Direct, Reject: r.Reject, Auto: r.Auto, Node: r.Node, UserRules: r.Mine, Locked: r.Locked, Refused: r.Refused}
 		if r.Node != "" {
 			v.NodeLabel = a.display(r.Node)
 		}
@@ -933,6 +937,39 @@ func (a *App) mcpServer() *mcp.Server {
 				},
 			},
 			{
+				Name: "lock_route", Title: "Lock or unlock a route's exit",
+				Description: "The exit lock of a route group: locked, its traffic only goes through a node, and is refused rather than sent direct when no node can carry it, in global and direct mode it keeps its own rules and node, and while takeover is off the system proxy stays on bowel so that its traffic is refused. Not for the default route, direct or reject, nor under an imported config.",
+				Input:       obj(map[string]any{"route": routeArg, "locked": map[string]any{"type": "boolean"}}, "route", "locked"),
+				Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
+					var p struct {
+						Route  string
+						Locked bool
+					}
+					if err := mcp.Args(raw, &p); err != nil {
+						return nil, err
+					}
+					if a.importedNow() != nil {
+						return nil, errors.New(i18n.T("导入的配置里没有 bowel 的路由组，不能锁定出口", "An imported config has none of bowel's route groups, so no exit can be locked"))
+					}
+					r, err := a.findRoute(p.Route)
+					if err != nil {
+						return nil, err
+					}
+					if !routes.Lockable(r.ID) {
+						return nil, fmt.Errorf(i18n.T("路由组 %s 不能锁定出口", "Route group %s can't have its exit locked"), r.ID)
+					}
+					word, verb := words{"锁定出口", "Lock the exit"}, i18n.T("锁定", "locked")
+					if !p.Locked {
+						word, verb = words{"解除出口锁定", "Unlock the exit"}, i18n.T("解锁", "unlocked")
+					}
+					err = a.change(ctx, s, word, routes.Title(r), func() error { return a.setLocked(r.ID, p.Locked) })
+					if err != nil {
+						return nil, err
+					}
+					return fmt.Sprintf("%s %s.", r.ID, verb), nil
+				},
+			},
+			{
 				Name: "add_rule", Title: "Add a rule",
 				Description: "Sends traffic to a route with a rule of the user's, which wins over the built-in ones. It replaces a rule for the same traffic. Open connections it now sends elsewhere are closed, so the change shows at once. kind: suffix (the domain and its subdomains; the default for names), domain (that name only), keyword (names containing it), ip (an address or CIDR; the default for addresses), app (everything a program on this computer connects to, by its process name as list_connections shows it, e.g. Telegram.exe, or on macOS the bundle, e.g. Telegram.app; a path is taken too; never guessed, comes before every other rule; not for devices using this computer as a gateway, and not on Android or iOS).",
 				Input: obj(map[string]any{
@@ -1277,7 +1314,7 @@ const mcpInstructions = `bowel is the user's macOS client for the mihomo proxy c
 
 Read freely: get_status first, then get_settings, list_routes, list_rules, explain, list_connections, get_logs, get_whitelists, get_dev_network.
 
-Changes (set_mode, set_takeover, retake_system_proxy, select_node, add_rule, remove_rule, whitelist_add/remove, update_settings, update_providers, flush_dns) follow the user's policy: by default bowel asks the user in a dialog, which may take a while; they may also be always allowed or always refused. A refusal is the user's decision: don't retry it, tell the user. Prefer the narrowest change: to send a site somewhere, add_rule; to let a site skip the proxy, whitelist_add to direct.`
+Changes (set_mode, set_takeover, retake_system_proxy, select_node, lock_route, add_rule, remove_rule, whitelist_add/remove, update_settings, update_providers, flush_dns) follow the user's policy: by default bowel asks the user in a dialog, which may take a while; they may also be always allowed or always refused. A refusal is the user's decision: don't retry it, tell the user. Prefer the narrowest change: to send a site somewhere, add_rule; to let a site skip the proxy, whitelist_add to direct.`
 
 var mcpStop context.CancelFunc
 

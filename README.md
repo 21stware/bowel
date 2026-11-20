@@ -90,6 +90,7 @@ Sixteen skins that change the look of the whole interface.
 - **Developer tools** (macOS, Linux): Docker, the terminal and Git ignore the system proxy. bowel lists which ones aren't connected, writes their own config in one click, and removes it cleanly when you undo.
 - **Download sources**: Measures the official source and each mirror for npm, pip, Go and Cargo, and switches in one click. When the current source stops answering, one click moves you to the fastest one that does, or sends it through a node again.
 - **Private networks**: Addresses on your LAN, Tailscale and company VPN go direct automatically, in global mode too.
+- **Exit lock**: Lock a route group, such as AI, from its page on the board: its traffic then only goes through a node. When no node can carry it, it's cut rather than sent direct; in global and direct mode it keeps its own node; and with takeover off, everything else goes direct as usual while the locked group is refused, the system proxy staying on bowel for that. Once bowel quits, nothing is refused. `bowel route lock ai` does the same.
 - **MCP**: Built-in MCP server for Claude Code and other agents to read status and troubleshoot connections. It asks you before changing settings by default. The command below is for macOS; on Windows and Linux, use the path of the bowel program.
   ```bash
   claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp

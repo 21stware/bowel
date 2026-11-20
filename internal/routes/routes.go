@@ -31,6 +31,18 @@ type Route struct {
 	Custom   bool      `json:"-"` // made by the user
 	Policy   Policy    `json:"-"`
 	Services []Service `json:"-"`
+	// Locked is the exit lock (GroupConf.Locked): a node, or REJECT.
+	Locked bool `json:"-"`
+}
+
+// Lockable says whether group id can have the exit lock: the groups that
+// choose between a node and going direct, but for the default one, whose
+// lock would be the whole machine's.
+func Lockable(id string) bool { return ChoosesExit(id) && id != Default }
+
+// AnyLocked says whether one of the routes has the exit lock.
+func AnyLocked(all []Route) bool {
+	return slices.ContainsFunc(all, func(r Route) bool { return r.Locked })
 }
 
 // Default is the route that takes what no rule matched.
