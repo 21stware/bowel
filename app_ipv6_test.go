@@ -100,7 +100,7 @@ func TestAutoIPv6FollowsTheNetwork(t *testing.T) {
 	osProxy.restore = func(context.Context, sysproxy.Saved) error { return nil }
 	defer func() { osProxy = savedProxy }()
 	savedDetect, savedWatch := devDetect, ipv6Watch
-	devDetect = func(context.Context) devnet.Env { return devnet.Env{PrimaryIface: "en0"} }
+	devDetect = func(context.Context, bool) devnet.Env { return devnet.Env{PrimaryIface: "en0"} }
 	f := &fakeIPv6{state: ipv6Down}
 	ipv6Watch = f
 	defer func() { devDetect, ipv6Watch = savedDetect, savedWatch }()

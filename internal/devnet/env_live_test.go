@@ -31,7 +31,7 @@ func TestDetectLive(t *testing.T) {
 		t.Errorf("primary interface %q", e.PrimaryIface)
 	}
 	var d Detector
-	env := d.Detect(ctx)
+	env := d.Detect(ctx, true)
 	if env.PrimaryIface != e.PrimaryIface {
 		t.Errorf("Detect's primary interface %q", env.PrimaryIface)
 	}

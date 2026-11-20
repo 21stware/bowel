@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -93,13 +94,20 @@ type Detector struct {
 const tailscaleEvery = 2 * time.Minute
 
 // Detect reads what it can. What cannot be read is left out: a machine it
-// knows nothing about gets just the catalog.
-func (d *Detector) Detect(ctx context.Context) Env {
+// knows nothing about gets just the catalog. timed lets what Tailscale's CLI
+// said be renewed every tailscaleEvery, for when something wants its peers:
+// otherwise it is asked only when a tailnet address comes or goes.
+func (d *Detector) Detect(ctx context.Context, timed bool) Env {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	tunnel, _ := cgnatTunnel()
-	if d.at.IsZero() || tunnel != d.tunnel || time.Since(d.at) > tailscaleEvery {
-		d.ts, d.tunnel, d.at = detectTailscale(ctx), tunnel, time.Now()
+	bin := tailscaleBin()
+	if tunnel == "" {
+		// No tailnet address: there is nothing the CLI could add, and
+		// asking would bring up the Mac app's menu bar icon for nothing.
+		d.ts, d.tunnel, d.at = Tailscale{Installed: bin != ""}, "", time.Now()
+	} else if askTailscale(d.at.IsZero() || tunnel != d.tunnel, time.Since(d.at), timed && !opensApp(bin)) {
+		d.ts, d.tunnel, d.at = detectTailscale(ctx, bin), tunnel, time.Now()
 	}
 	routes, resolvers, defaultDNS := osDetect(ctx)
 	e := Env{Tailscale: d.ts, Resolvers: resolvers, DefaultDNS: defaultDNS}
@@ -108,6 +116,12 @@ func (d *Detector) Detect(ctx context.Context) Env {
 	}
 	e.applyRoutes(routes)
 	return e
+}
+
+// askTailscale says whether to run its CLI: when the tailnet address came,
+// went or changed, or, timed, when what it said is old.
+func askTailscale(changed bool, age time.Duration, timed bool) bool {
+	return changed || timed && age > tailscaleEvery
 }
 
 // Detected says whether anything beyond the catalog was found to act on.
@@ -125,12 +139,31 @@ var tailscaleBins = []string{
 	`C:\Program Files\Tailscale\tailscale.exe`,
 }
 
-func detectTailscale(ctx context.Context) Tailscale {
+// tailscaleBin is its CLI's path, "" if there is none. Looking runs nothing.
+func tailscaleBin() string {
 	for _, bin := range tailscaleBins {
-		path, err := exec.LookPath(bin)
-		if err != nil {
-			continue
+		if path, err := exec.LookPath(bin); err == nil {
+			return path
 		}
+	}
+	return ""
+}
+
+// opensApp says whether running bin starts the Mac app: the Standalone and
+// App Store builds' CLI is the app itself, or a link to it, and its icon
+// comes up in the menu bar while it answers.
+func opensApp(bin string) bool {
+	if bin == "" {
+		return false
+	}
+	if real, err := filepath.EvalSymlinks(bin); err == nil {
+		bin = real
+	}
+	return strings.Contains(filepath.ToSlash(bin), ".app/")
+}
+
+func detectTailscale(ctx context.Context, path string) Tailscale {
+	if path != "" {
 		c, cancel := context.WithTimeout(ctx, 3*time.Second)
 		out, err := nowindow.CommandContext(c, path, "status", "--json").Output()
 		cancel()
