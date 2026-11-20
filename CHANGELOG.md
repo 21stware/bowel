@@ -4,6 +4,10 @@
 它随应用打包，显示在“更新内容”窗口里；`mygo build` 也从这里取升级包的说明，
 签名发布时缺少当前版本的一节会构建失败。发版时把 Unreleased 改成版本号。
 
+## [Unreleased]
+
+- 订阅快到期、已经过期或流量用完时，首页标题栏和菜单栏面板的提示能直接去续费：提示旁的「去续费」用浏览器打开提供商的官网，地址取自订阅返回的 `profile-web-page-url`、订阅里「官网：」这类信息节点，都没有时用订阅链接的域名（不带 token）。已过期或流量用完时，这条提示排在它引起的「节点不可用」「路由组连不上」之前，说清是套餐到期了；7 天内到期会写出还剩几天，趁节点还能用去续费，免得过期后连官网都打不开。以前只说「快到期了」，过期后也这样写，而且被节点故障的提示盖住。停用的提供商不再提醒。Android 上也一样，非 https 的官网地址会复制到剪贴板。只跑了测试，没有用真实的过期订阅在 app 里点过
+
 ## [0.4.6] - 2026-11-20
 
 - TUN 的协议栈可以选 mips 了（#210）：mihomo 自己的 IP 协议栈，随附的内核（v1.19.33）已经带着，bowel 以前只让选 mixed、system 和 gVisor。在「设置 → TUN → 协议栈」里选，或 `bowel settings set tunStack mips`；默认仍是 mixed。mips 和 gVisor 一样在内核里处理 TCP，所以 Linux 上开着 ufw 或 firewalld 时没有 mixed、system 那种不走代理端口的 TCP 超时（#117），选了 mips 时 TUN 的状态里不再给那条防火墙提示。在 Linux（Arch）上用随附的内核、在隔离的网络命名空间里实测过四种协议栈：TCP（50 MB，校验一致）和 UDP 都通；加上和 ufw 默认一样的入站规则后，mixed 和 system 的 TCP 超时，gVisor 和 mips 正常。没有在 bowel 里开着 TUN 用 mips 跑过；macOS 上在设置窗口里选过，内核的配置检查通过，没有开 TUN；Windows 只做了编译和 vet。手机版不变，仍是 gVisor

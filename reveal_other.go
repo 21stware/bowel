@@ -14,3 +14,8 @@ func revealFile(path string) error {
 
 // revealLabel is what the button says on this system.
 func revealLabel() string { return i18n.T("在 Finder 中显示", "Show in Finder") }
+
+// openURL opens a website in the default browser.
+func openURL(u string) error {
+	return nowindow.Command("open", u).Run()
+}

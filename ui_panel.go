@@ -163,6 +163,8 @@ func (u *UI) panelIssueAction(action string) {
 		}
 	case "activity", "providers":
 		u.panelShow(func() { u.page = action })
+	default:
+		u.openSite(action)
 	}
 }
 

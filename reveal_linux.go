@@ -50,3 +50,13 @@ func showItemsArgs(path string) []string {
 
 // revealLabel is what the button says on this system.
 func revealLabel() string { return i18n.T("在文件管理器中显示", "Show in file manager") }
+
+// openURL opens a website in the default browser.
+func openURL(u string) error {
+	cmd := nowindow.Command("xdg-open", u)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go cmd.Wait() // xdg-open may stay until the browser exits
+	return nil
+}

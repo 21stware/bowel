@@ -456,7 +456,7 @@ func provUsage(c *ui.Context, p *pal, pv ProviderView) {
 			return
 		}
 		col, strong := p.mute, p.ink
-		if pv.Warn == "quota" || pv.Warn == "expire" {
+		if pv.Warn != "" {
 			col, strong = p.warn, p.warn
 		}
 		used := us.Upload + us.Download
@@ -468,7 +468,7 @@ func provUsage(c *ui.Context, p *pal, pv ProviderView) {
 			})
 			frac := min(1, float32(used)/float32(us.Total))
 			bar := p.ink
-			if pv.Warn == "quota" {
+			if pv.Warn == provider.Quota || pv.Warn == provider.Spent {
 				bar = p.warn
 			}
 			ui.Box(c).Height(3).Radius(p.r(2)).Background(p.hair).Children(func() {
@@ -481,7 +481,7 @@ func provUsage(c *ui.Context, p *pal, pv ProviderView) {
 		ecol := p.mute
 		if us.Expire > 0 {
 			exp = provExpiry(time.Unix(us.Expire, 0))
-			if pv.Warn == "expire" {
+			if pv.Warn == provider.Expire || pv.Warn == provider.Expired {
 				ecol = p.warn
 			}
 		}

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show Clipboard, MissingPluginException;
+import 'package:flutter/services.dart' show Clipboard, ClipboardData, MissingPluginException;
 import 'package:flutter/widgets.dart' show AppLifecycleListener, AppLifecycleState, BuildContext, Element, GlobalKey, NavigatorState, TextEditingController, Widget, WidgetsBinding;
 
 import 'core.dart';
@@ -491,6 +491,19 @@ class AppState extends ChangeNotifier {
     } else if (action.startsWith('fix:')) {
       selectTab(3);
       openGroupPage?.call(action.substring(4));
+    } else if (action.startsWith('site:')) {
+      _openSite(action.substring(5));
+    }
+  }
+
+  /// Opens a provider's website to renew; Android opens only https, so
+  /// another link is copied for the user to paste into a browser.
+  Future<void> _openSite(String url) async {
+    try {
+      await Shell.instance.openURL(url);
+    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: url));
+      _toast(tr('已复制官网地址', 'Website address copied'));
     }
   }
 
@@ -1008,7 +1021,13 @@ class AppState extends ChangeNotifier {
     final count = p['nodes'] as int? ?? 0;
     final used = p['used'] as int? ?? 0, total = p['total'] as int? ?? 0, expire = p['expire'] as int? ?? 0;
     final enabled = p['enabled'] as bool? ?? true;
-    final warnKind = switch (p['warnKind']) { 'quota' => tr('流量快用完了', 'Almost out of data'), 'expire' => tr('快到期了', 'Expires soon'), _ => null };
+    final warnKind = switch (p['warnKind']) {
+      'expired' => tr('已过期', 'Expired'),
+      'spent' => tr('流量用完了', 'Out of data'),
+      'quota' => tr('流量快用完了', 'Almost out of data'),
+      'expire' => tr('快到期了', 'Expires soon'),
+      _ => null,
+    };
     final own = nodes.where((n) => n.providerId == p['id']);
     return ProviderInfo(
       id: p['id'] as String,

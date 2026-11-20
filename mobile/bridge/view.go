@@ -40,7 +40,7 @@ type viewData struct {
 }
 
 // issueData is what the 代理 page says is wrong, the desktop's title bar.
-// Action is providers, activity or fix:<route id>; "" has none.
+// Action is providers, activity, fix:<route id> or site:<url>; "" has none.
 type issueData struct {
 	Level  string `json:"level"`
 	Text   string `json:"text"`
@@ -116,7 +116,10 @@ type providerData struct {
 	// AutoUpdate is in hours; 0 is off.
 	AutoUpdate int      `json:"autoUpdate"`
 	Source     string   `json:"source,omitempty"`   // a subscription's host, never its token
-	Warn       string   `json:"warnKind,omitempty"` // quota, expire
+	Warn       string   `json:"warnKind,omitempty"` // what provider.Usage.Warn says
+	// usage and site are what judge's reminder needs, set when Warn is.
+	usage provider.Usage
+	site  string
 	UsedBy     []string `json:"usedBy,omitempty"`   // the routes on one of its nodes now
 	// Dots is the health of a short list's nodes, when the view only carries
 	// some of them; empty means work it out from the nodes.
@@ -212,10 +215,8 @@ func (x *bridge) view() viewData {
 			Enabled: p.Enabled, AutoUpdate: p.AutoUpdate, Source: maskSource(p), UsedBy: used[p.ID], Hidden: p.Hidden, Routing: x.providerRouting(p, st.ImportedRouting)}
 		if u := p.Usage; u != nil {
 			pv.Used, pv.Total, pv.Expire = u.Upload+u.Download, u.Total, u.Expire
-			if u.Total > 0 && float64(u.Upload+u.Download)/float64(u.Total) > .9 {
-				pv.Warn = "quota"
-			} else if u.Expire > 0 && time.Until(time.Unix(u.Expire, 0)) < 7*24*time.Hour {
-				pv.Warn = "expire"
+			if pv.Warn = u.Warn(time.Now()); pv.Warn != "" && p.Enabled {
+				pv.usage, pv.site = *u, x.store.Site(p)
 			}
 		}
 		v.Providers = append(v.Providers, pv)
@@ -306,6 +307,11 @@ func judge(mode string, v viewData, sw *switchNote) *issueData {
 	if len(v.Nodes) == 0 && mode != "direct" {
 		return &issueData{Level: "warn", Text: i18n.T("还没有节点，流量正在直连", "No nodes yet; traffic is going direct"), Action: "providers", Label: i18n.T("添加提供商", "Add Provider")}
 	}
+	// A plan that has ended is why its nodes are down: said before the
+	// groups and switches that follow from it.
+	if is := renewIssue(v.Providers, provider.Expired, provider.Spent); is != nil {
+		return is
+	}
 	if sw != nil && time.Since(sw.at) < 10*time.Minute {
 		name := sw.route
 		if i := slices.IndexFunc(v.Routes, func(r routeData) bool { return r.ID == sw.route }); i >= 0 {
@@ -343,13 +349,22 @@ func judge(mode string, v viewData, sw *switchNote) *issueData {
 			}
 		}
 	}
-	for _, p := range v.Providers {
-		switch p.Warn {
-		case "quota":
-			return &issueData{Level: "warn", Text: fmt.Sprintf(i18n.T("%s 流量快用完了", "%s is almost out of data"), p.Name), Action: "providers", Label: i18n.T("查看", "View")}
-		case "expire":
-			return &issueData{Level: "warn", Text: fmt.Sprintf(i18n.T("%s 快到期了", "%s expires soon"), p.Name), Action: "providers", Label: i18n.T("查看", "View")}
+	return renewIssue(v.Providers, provider.Quota, provider.Expire)
+}
+
+// renewIssue is the reminder about the first enabled provider whose plan
+// warns of one of warns, with the way to its website when there is one.
+func renewIssue(provs []providerData, warns ...string) *issueData {
+	for _, p := range provs {
+		if !p.Enabled || !slices.Contains(warns, p.Warn) {
+			continue
 		}
+		text, detail := provider.Reminder(p.Name, p.Warn, &p.usage, time.Now())
+		is := &issueData{Level: "warn", Text: text, Detail: detail, Action: "providers", Label: i18n.T("查看", "View")}
+		if p.site != "" {
+			is.Action, is.Label = "site:"+p.site, i18n.T("去续费", "Renew")
+		}
+		return is
 	}
 	return nil
 }
