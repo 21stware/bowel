@@ -222,10 +222,12 @@ class _FlightView extends StatelessWidget {
         final t = easeCard.transform(c.value);
         final r = Offset.lerp(f.from.rect.topLeft, f.to.rect.topLeft, t)!;
         final style = _lerp(f.from.style!, f.to.style!, t);
-        final landing = _floating(f.to.tag.build(style));
+        // the width eases too, so a long name ends in its ellipsis as it lands
+        final width = f.from.rect.width + (f.to.rect.width - f.from.rect.width) * t;
+        final landing = _floating(f.to.tag.build(style), width);
         if (f.same) return Positioned(left: r.dx, top: r.dy, child: landing);
         // new words on the way: the old roll up where they were, the new roll in
-        final out = _revealFromBottom(_floating(f.from.tag.build(f.from.style)), ms, 220);
+        final out = _revealFromBottom(_floating(f.from.tag.build(f.from.style), f.from.rect.width), ms, 220);
         final inn = _Reveal(t: easeCard.transform(((ms - 80) / 300).clamp(0.0, 1.0)), child: landing);
         return Stack(children: [
           Positioned(left: f.from.rect.left, top: f.from.rect.top, child: out),
@@ -240,11 +242,11 @@ class _FlightView extends StatelessWidget {
     final rect = f.to.rect;
     final inT = easeCard.transform(((ms - 90) / 420).clamp(0.0, 1.0));
     return Stack(children: [
-      Positioned(left: f.from.rect.left, top: f.from.rect.top, child: _revealFromBottom(_floating(f.from.tag.build(f.from.style)), ms, 260, rise: .45)),
+      Positioned(left: f.from.rect.left, top: f.from.rect.top, child: _revealFromBottom(_floating(f.from.tag.build(f.from.style), f.from.rect.width), ms, 260, rise: .45)),
       Positioned(
         left: rect.left,
         top: rect.top,
-        child: FractionalTranslation(translation: Offset(0, .45 * (1 - inT)), child: _Reveal(t: inT, child: _floating(f.to.tag.build(f.to.style)))),
+        child: FractionalTranslation(translation: Offset(0, .45 * (1 - inT)), child: _Reveal(t: inT, child: _floating(f.to.tag.build(f.to.style), rect.width))),
       ),
     ]);
   }
@@ -254,7 +256,11 @@ class _FlightView extends StatelessWidget {
     return FractionalTranslation(translation: Offset(0, -rise * t), child: ClipRect(clipper: _BottomUp(1 - t), child: child));
   }
 
-  Widget _floating(Widget child) => IgnorePointer(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 800), child: child));
+  /// Holds a piece to the width it has at that moment of the flight: the
+  /// width it was measured at, with a pixel spare so rounding never cuts a
+  /// name that fits whole.
+  Widget _floating(Widget child, double width) =>
+      IgnorePointer(child: ConstrainedBox(constraints: BoxConstraints(maxWidth: width + 1), child: child));
 
   TextStyle _lerp(TextStyle a, TextStyle b, double t) => b.copyWith(
         fontSize: a.fontSize! + (b.fontSize! - a.fontSize!) * t,
