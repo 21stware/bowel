@@ -34,3 +34,13 @@ func revealLine(path string) string { return `explorer.exe /select,"` + path + `
 
 // revealLabel is what the button says on this system.
 func revealLabel() string { return i18n.T("在资源管理器中显示", "Show in Explorer") }
+
+// openURL opens a website in the default browser. url.dll is handed the
+// URL as it is, without a shell that would read & and ^ in it.
+func openURL(u string) error {
+	cmd := exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", u)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Process.Release()
+}

@@ -334,7 +334,7 @@ func TestDownloadErrorLeavesTheLinkOut(t *testing.T) {
 
 	// A link that cannot be read at all is quoted by the error too.
 	bad := "https://sub.example/api/v1/sub?access_token=FAKETOKEN123\x7f"
-	if _, _, _, err := fetch(context.Background(), client, bad); err == nil {
+	if _, err := fetch(context.Background(), client, bad); err == nil {
 		t.Fatal("unreadable link: no error")
 	} else if strings.Contains(err.Error(), "FAKETOKEN123") {
 		t.Errorf("unreadable link shows the link: %s", err)

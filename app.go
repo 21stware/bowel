@@ -2740,6 +2740,11 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 	if len(snap.Nodes) == 0 && s.Mode != "direct" {
 		return StateDegraded, &Issue{Level: "warn", Text: i18n.T("还没有节点，流量正在直连", "No nodes yet; traffic is going direct"), Action: "providers", Label: i18n.T("添加提供商", "Add Provider")}
 	}
+	// A plan that has ended is why its nodes are down: said before the
+	// groups and switches that follow from it.
+	if is := a.renewIssue(snap.Providers, provider.Expired, provider.Spent); is != nil {
+		return StateDegraded, is
+	}
 	if sw != nil {
 		return StateDegraded, &Issue{Level: "warn", Text: fmt.Sprintf(i18n.T("%s：%s 不可用，已换到 %s", "%s: %s is down, switched to %s"), sw.title, sw.from, sw.to), Action: "activity", Label: i18n.T("查看", "View")}
 	}
@@ -2762,13 +2767,8 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 			}
 		}
 	}
-	for _, p := range snap.Providers {
-		switch p.Warn {
-		case "quota":
-			return StateDegraded, &Issue{Level: "warn", Text: fmt.Sprintf(i18n.T("%s 流量快用完了", "%s is almost out of data"), p.Name), Action: "providers", Label: i18n.T("查看", "View")}
-		case "expire":
-			return StateDegraded, &Issue{Level: "warn", Text: fmt.Sprintf(i18n.T("%s 快到期了", "%s expires soon"), p.Name), Action: "providers", Label: i18n.T("查看", "View")}
-		}
+	if is := a.renewIssue(snap.Providers, provider.Quota, provider.Expire); is != nil {
+		return StateDegraded, is
 	}
 	if is := a.importedIssue(s, snap); is != nil {
 		return StateOK, is
@@ -2796,13 +2796,32 @@ func (a *App) providerView(p provider.Provider) ProviderView {
 	v.Routing = a.providerRouting(p)
 	if u := p.Usage; u != nil {
 		v.Usage = &Usage{Upload: u.Upload, Download: u.Download, Total: u.Total, Expire: u.Expire}
-		if u.Total > 0 && float64(u.Upload+u.Download)/float64(u.Total) > .9 {
-			v.Warn = "quota"
-		} else if u.Expire > 0 && time.Until(time.Unix(u.Expire, 0)) < 7*24*time.Hour {
-			v.Warn = "expire"
-		}
+		v.Warn = u.Warn(time.Now())
 	}
 	return v
+}
+
+// renewIssue is the reminder about the first enabled provider whose plan
+// warns of one of warns, with the way to its website when there is one.
+func (a *App) renewIssue(provs []ProviderView, warns ...string) *Issue {
+	for _, pv := range provs {
+		if !pv.Enabled || pv.Usage == nil || !slices.Contains(warns, pv.Warn) {
+			continue
+		}
+		u := provider.Usage{Upload: pv.Usage.Upload, Download: pv.Usage.Download, Total: pv.Usage.Total, Expire: pv.Usage.Expire}
+		text, detail := provider.Reminder(pv.Name, pv.Warn, &u, time.Now())
+		is := &Issue{Level: "warn", Text: text, Detail: detail, Action: "providers", Label: i18n.T("查看", "View")}
+		if a.providers == nil {
+			return is
+		}
+		if p, ok := a.providers.Get(pv.ID); ok {
+			if site := a.providers.Site(p); site != "" {
+				is.Action, is.Label = "site:"+site, i18n.T("去续费", "Renew")
+			}
+		}
+		return is
+	}
+	return nil
 }
 
 // maskSource hides a subscription's token: only scheme and host are shown.
