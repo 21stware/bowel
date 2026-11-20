@@ -62,6 +62,9 @@ type Provider struct {
 	// it back; a name the content no longer has stays here, harmlessly,
 	// until it is restored.
 	Hidden []string `json:"hidden,omitempty"`
+	// Site is the provider's own website as its subscription's
+	// profile-web-page-url header gives it, "" when it gives none.
+	Site string `json:"site,omitempty"`
 }
 
 // Store keeps providers in a directory: index.json and one file each.
@@ -73,6 +76,8 @@ type Store struct {
 	// provider's file. An error keeps the last good file and is the
 	// update's failure.
 	Vet func(id string, data []byte) error
+	// sites remembers namedSite's answers, under mu.
+	sites map[string]siteSeen
 }
 
 func Open(dir string) (*Store, error) {
@@ -163,16 +168,16 @@ func (s *Store) Add(ctx context.Context, client *http.Client, input string) (Pro
 	var data []byte
 	switch kind {
 	case Subscription:
-		d, usage, filename, err := fetch(ctx, client, t)
+		f, err := fetch(ctx, client, t)
 		if err != nil {
 			return Provider{}, err
 		}
-		if err := looksLikeNodes(d); err != nil {
+		if err := looksLikeNodes(f.data); err != nil {
 			return Provider{}, err
 		}
 		u, _ := url.Parse(t)
-		p.Source, p.Usage, p.AutoUpdate, data = t, usage, 12, d
-		p.Name = firstNonEmpty(filename, u.Host)
+		p.Source, p.Usage, p.Site, p.AutoUpdate, data = t, f.usage, f.site, 12, f.data
+		p.Name = firstNonEmpty(f.filename, u.Host)
 	case Link:
 		data = []byte(t)
 		p.Name = linkName(t)
@@ -234,22 +239,22 @@ func (s *Store) Update(ctx context.Context, client *http.Client, id string) (Pro
 	if p.Kind != Subscription {
 		return p, nil
 	}
-	data, usage, _, err := fetch(ctx, client, p.Source)
+	f, err := fetch(ctx, client, p.Source)
 	if err == nil {
-		err = looksLikeNodes(data)
+		err = looksLikeNodes(f.data)
 	}
 	if err == nil && s.Vet != nil {
-		err = s.Vet(id, data)
+		err = s.Vet(id, f.data)
 	}
 	if err != nil {
 		p, _ = s.update(id, func(p *Provider) { p.Error = err.Error() })
 		return p, err
 	}
-	if err := os.WriteFile(s.Path(id), data, 0o600); err != nil {
+	if err := os.WriteFile(s.Path(id), f.data, 0o600); err != nil {
 		return p, err
 	}
 	return s.update(id, func(p *Provider) {
-		p.UpdatedAt, p.Usage, p.Error = time.Now(), usage, ""
+		p.UpdatedAt, p.Usage, p.Site, p.Error = time.Now(), f.usage, f.site, ""
 	})
 }
 
@@ -476,28 +481,38 @@ func withoutLink(err error) error {
 	return err
 }
 
-func fetch(ctx context.Context, client *http.Client, u string) ([]byte, *Usage, string, error) {
+// fetched is what downloading a subscription brings.
+type fetched struct {
+	data     []byte
+	usage    *Usage
+	filename string // from Content-Disposition
+	site     string // from profile-web-page-url, as SiteURL accepts it
+}
+
+func fetch(ctx context.Context, client *http.Client, u string) (fetched, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, nil, "", withoutLink(err)
+		return fetched{}, withoutLink(err)
 	}
 	// Providers answer Clash Meta clients with a Clash profile.
 	req.Header.Set("User-Agent", "clash.meta/moho")
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf(i18n.T("下载订阅失败: %w", "Downloading the subscription failed: %w"), withoutLink(err))
+		return fetched{}, fmt.Errorf(i18n.T("下载订阅失败: %w", "Downloading the subscription failed: %w"), withoutLink(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, nil, "", fmt.Errorf(i18n.T("下载订阅失败: %s", "Downloading the subscription failed: %s"), resp.Status)
+		return fetched{}, fmt.Errorf(i18n.T("下载订阅失败: %s", "Downloading the subscription failed: %s"), resp.Status)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if err != nil {
-		return nil, nil, "", err
+		return fetched{}, err
 	}
-	return data, parseUsage(resp.Header.Get("Subscription-Userinfo")), filenameOf(resp.Header.Get("Content-Disposition")), nil
+	return fetched{data: data, usage: parseUsage(resp.Header.Get("Subscription-Userinfo")),
+		filename: filenameOf(resp.Header.Get("Content-Disposition")),
+		site:     SiteURL(resp.Header.Get("Profile-Web-Page-Url"))}, nil
 }
 
 // parseUsage reads "upload=1; download=2; total=3; expire=4".

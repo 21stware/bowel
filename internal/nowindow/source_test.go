@@ -23,6 +23,7 @@ var allowed = map[string]string{
 	// hide flag makes it open its window invisible, and the folder never
 	// shows.
 	"reveal_windows.go: revealFile": "explorer.exe is a GUI program: no console would flash, but the hide flag makes its window open hidden",
+	"reveal_windows.go: openURL":    "rundll32.exe is a GUI program: no console would flash, and the hide flag could pass on to the browser it starts the way it does to Explorer",
 }
 
 // starters are the ways os/exec makes a command.

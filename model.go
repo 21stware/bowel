@@ -128,7 +128,8 @@ type Issue struct {
 	Text  string `json:"text"`  // short: it sits in the title bar
 	// Detail says more, on hover.
 	Detail string `json:"detail,omitempty"`
-	// Action is what the button does: "retake", "activity", "providers", "".
+	// Action is what the button does: "retake", "activity", "providers",
+	// "fix:<route id>", "site:<url>" (opens a provider's website), "".
 	Action string `json:"action"`
 	Label  string `json:"label"`
 }
@@ -361,7 +362,7 @@ type ProviderView struct {
 	// Hidden are the nodes the user removed, by their names in the
 	// provider's content; they come back with 恢复.
 	Hidden []string `json:"hidden,omitempty"`
-	// Warn: "quota" (over 90% used), "expire" (within 7 days), "".
+	// Warn is what Usage.Warn says: provider.Expired, Spent, Quota, Expire or "".
 	Warn string `json:"warn,omitempty"`
 	// Routing is about the groups and rules its content brings, if any.
 	Routing ProviderRouting `json:"routing"`

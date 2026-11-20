@@ -22,6 +22,7 @@ import (
 
 	"github.com/oboo/moho/internal/geo"
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/provider"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
 )
@@ -532,7 +533,22 @@ func (u *UI) issueAction(action string) {
 		if id, ok := strings.CutPrefix(action, "fix:"); ok {
 			u.fixRoute(id)
 		}
+		u.openSite(action)
 	}
+}
+
+// openSite opens the website a "site:<url>" action names, and says whether
+// action was one. The URL came from a subscription, so it is checked again
+// here, where it is handed to the system.
+func (u *UI) openSite(action string) bool {
+	s, ok := strings.CutPrefix(action, "site:")
+	if !ok {
+		return false
+	}
+	if s = provider.SiteURL(s); s != "" {
+		u.do(func() error { return openURL(s) })
+	}
+	return true
 }
 
 // fixRoute opens where a broken group's strategy can be changed: its card

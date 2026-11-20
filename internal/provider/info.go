@@ -21,5 +21,12 @@ const InfoPattern = `剩[余餘]流量|流量剩[余餘]|已用流量|[总總]�
 
 var infoName = regexp.MustCompile(InfoPattern)
 
+// siteNames find the information entries that give the provider's
+// website, the official one before mirrors and release pages (siteFromNames).
+var siteNames = []*regexp.Regexp{
+	regexp.MustCompile(`官[网網]|官方[网網]站|(?i:website|homepage)`),
+	regexp.MustCompile(`最新[网網]址|[备備]用[网網]址|[发發][布佈][页頁]`),
+}
+
 // IsInfo says whether a node name is one of those InfoPattern describes.
 func IsInfo(name string) bool { return infoName.MatchString(name) }
