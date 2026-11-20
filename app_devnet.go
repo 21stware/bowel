@@ -65,8 +65,8 @@ func (a *App) devEnv() devnet.Env {
 func (a *App) detectDev(limit time.Duration) devnet.Env {
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
-	env := devDetect(ctx)
 	s := a.settings.Get()
+	env := devDetect(ctx, meshOn(s))
 	env.IPv6 = readIPv6(s, env.PrimaryIface)
 	env.LocalDNS = a.localDNS(s, env, true)
 	outside := dnsOutside(env.DefaultDNS, overlayOf(s, env).TunExclude)
@@ -74,6 +74,12 @@ func (a *App) detectDev(limit time.Duration) devnet.Env {
 	a.dev.env, a.dev.at, a.dev.dnsOutside = env, time.Now(), outside
 	a.dev.mu.Unlock()
 	return env
+}
+
+// meshOn says whether Tailscale's peers are wanted, so that its CLI is asked
+// about them on a timer: not with developer networks or the mesh one off.
+func meshOn(s settings.Settings) bool {
+	return !s.DevOff && !slices.Contains(s.DevOffScenarios, devnet.Mesh)
 }
 
 // readIPv6 asks about the network only for Auto, the one mode that needs it.
