@@ -227,3 +227,59 @@ func TestLockImported(t *testing.T) {
 		t.Error("imported routing counted the lock")
 	}
 }
+
+// TestLockNoNodeInProviders: a subscription that is there but holds no node
+// (it failed to come down, or the node a group is kept to is gone) leaves
+// the core's group empty, and the core fills an empty group with
+// COMPATIBLE, which goes direct. A locked group's automatic group and its
+// backup steps hold REJECT for then; an unlocked one's don't.
+func TestLockNoNodeInProviders(t *testing.T) {
+	_, _, groups := lockConfig(t, Input{Routes: lockedAI(t), Mode: "rule"})
+	if !has(groups["AI 服务·自动"], "REJECT") {
+		t.Errorf("locked auto group holds %v", groups["AI 服务·自动"])
+	}
+	if has(groups["流媒体·自动"], "REJECT") {
+		t.Errorf("unlocked auto group holds %v", groups["流媒体·自动"])
+	}
+	scoped := Input{Routes: lockedAI(t), Mode: "rule", Scopes: map[string][]string{"ai": {"n" + NodeSep + "a"}}}
+	if _, _, groups := lockConfig(t, scoped); !has(groups["AI 服务·自动"], "REJECT") {
+		t.Errorf("locked auto group kept to a node holds %v", groups["AI 服务·自动"])
+	}
+	ordered := Input{Routes: lockedAI(t), Mode: "rule", Orders: map[string][]string{"ai": {"n" + NodeSep + "a"}}}
+	_, _, groups = lockConfig(t, ordered)
+	steps := 0
+	for name, members := range groups {
+		if strings.HasPrefix(name, "AI 服务·备用·") {
+			steps++
+			if !has(members, "REJECT") {
+				t.Errorf("locked group's %s holds %v", name, members)
+			}
+		}
+	}
+	if steps == 0 {
+		t.Errorf("no backup step in %v", groups)
+	}
+}
+
+// Through the real core: a locked group whose subscription file isn't there
+// refuses its traffic, whether it takes any node, is kept to one, or goes
+// by a backup order.
+func TestLockNoNodeInProvidersRuns(t *testing.T) {
+	users := []routes.UserRule{{Kind: routes.KindSuffix, Value: "held.bowel-test.dev", Route: "ai"}}
+	var p routes.Plan
+	p.SetLocked("ai", true)
+	all := routes.Build(p, users)
+	node := "n" + NodeSep + "a"
+	for name, change := range map[string]func(*Input){
+		"any node": func(in *Input) {},
+		"kept to":  func(in *Input) { in.Scopes = map[string][]string{"ai": {node}} },
+		"by order": func(in *Input) { in.Orders = map[string][]string{"ai": {node}} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			goesByIn(t, all, users, map[string]string{"held.bowel-test.dev": "REJECT"}, func(in *Input) {
+				in.Providers = []ProviderRef{{ID: "a", Path: "missing.yaml"}}
+				change(in)
+			})
+		})
+	}
+}

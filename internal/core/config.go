@@ -486,14 +486,22 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 			mainURL = in.TestURL
 		}
 		auto := map[string]any{"name": routes.Auto(r), "type": "url-test", "url": mainURL, "interval": o.URLTestInterval, "tolerance": o.URLTestTolerance, "lazy": true}
-		if names, scoped := in.Scopes[r.ID]; !scoped && r.Locked && len(use) == 0 {
-			auto["proxies"] = []string{"REJECT"} // no node at all: a locked group never goes DIRECT for want of one
+		// A group the core finds no node in is given COMPATIBLE, which goes
+		// direct: a subscription that failed to come down, or a node that is
+		// gone from it, would let a locked group out. REJECT among its members
+		// is what it is left with then; with a node that answers, the test
+		// picks the node.
+		if names, scoped := in.Scopes[r.ID]; !scoped && r.Locked {
+			auto = withNodes(auto, "REJECT")
 		} else if !scoped {
 			auto = withNodes(auto)
 		} else if len(names) == 0 {
 			auto["proxies"] = []string{"REJECT"} // nothing in range: no way out, not another way out
 		} else {
 			auto["use"], auto["filter"] = use, exactly(names)
+			if r.Locked {
+				auto["proxies"] = []string{"REJECT"}
+			}
 		}
 		groups = append(groups, auto)
 		members := []string{routes.Auto(r)}
@@ -503,7 +511,14 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 			for i, n := range order {
 				step := routes.BackupStep(r, i)
 				steps = append(steps, step)
-				groups = append(groups, map[string]any{"name": step, "type": "select", "use": []string{providerName(providerOf(n))}, "filter": exactly([]string{n})})
+				g := map[string]any{"name": step, "type": "select", "use": []string{providerName(providerOf(n))}, "filter": exactly([]string{n})}
+				if r.Locked {
+					// A step whose node is gone would be COMPATIBLE, which
+					// goes direct and passes the fallback's test. A select
+					// would take REJECT first; a test takes the node.
+					g["type"], g["url"], g["interval"], g["lazy"], g["proxies"] = "url-test", mainURL, o.URLTestInterval, true, []string{"REJECT"}
+				}
+				groups = append(groups, g)
 			}
 			if len(steps) == 0 {
 				steps = []string{"REJECT"}
