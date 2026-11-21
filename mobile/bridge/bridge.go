@@ -589,7 +589,9 @@ func (x *bridge) setMode(ctx context.Context, mode string) error {
 	if c, _ := x.core(); c != nil {
 		// With the tailnet's rules the core stays in rule mode, and the mode
 		// is the list's last line (core.BuildConfig): it takes a new config.
-		if !tailnetOverlay(s.Tailnet).Empty() {
+		// So it does with an exit lock, whose groups keep their rules in
+		// every mode.
+		if !tailnetOverlay(s.Tailnet).Empty() || s.ImportedRouting == "" && s.Routing.AnyLocked() {
 			err = x.reload(ctx, c)
 		} else {
 			err = c.Patch(ctx, map[string]any{"mode": mode})

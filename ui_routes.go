@@ -270,11 +270,17 @@ func (u *UI) exitChoice(c *ui.Context, p *pal, rid string) {
 					u.setExitDirect(rid, false)
 				}
 			})
-			opt("direct", i18n.T("直接连接", "Direct"), i18n.T("不经过节点，用本机网络", "No node, this machine's network"), q.Direct, func() {
-				if !q.Direct {
-					u.setExitDirect(rid, true)
-				}
-			})
+			// A locked group never goes direct: its lock comes off first.
+			if u.shownSettings().Routing.Locked(rid) {
+				opt("direct", i18n.T("直接连接", "Direct"), i18n.T("已锁定出口，先关掉出口锁定", "The exit is locked; turn the lock off first"), false, func() {})
+			} else {
+				opt("direct", i18n.T("直接连接", "Direct"), i18n.T("不经过节点，用本机网络", "No node, this machine's network"), q.Direct, func() {
+					if !q.Direct {
+						u.setExitDirect(rid, true)
+					}
+				})
+			}
+			u.lockChip(c, p, rid)
 		})
 		if q.Direct {
 			text := i18n.T("没命中规则的网站会用本机网络访问。当前网络打不开的网站，需要加规则送到走节点的路由组。", "Sites no rule matches use this machine's network. A site that won't open on it needs a rule sending it to a route group with a node.")

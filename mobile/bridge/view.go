@@ -63,6 +63,7 @@ type routeData struct {
 	Color  string  `json:"color"`
 	Direct bool    `json:"direct"`
 	Reject bool    `json:"reject,omitempty"`
+	Locked bool    `json:"locked,omitempty"` // its exit lock: by a node or not at all
 	Auto   bool    `json:"auto"`
 	Policy string  `json:"policy"`           // auto, order, fixed
 	Broken string  `json:"broken,omitempty"` // scope, order, fixed; "" when it has a way out
@@ -114,13 +115,13 @@ type providerData struct {
 	Updated int64  `json:"updated"`
 	Enabled bool   `json:"enabled"`
 	// AutoUpdate is in hours; 0 is off.
-	AutoUpdate int      `json:"autoUpdate"`
-	Source     string   `json:"source,omitempty"`   // a subscription's host, never its token
-	Warn       string   `json:"warnKind,omitempty"` // what provider.Usage.Warn says
+	AutoUpdate int    `json:"autoUpdate"`
+	Source     string `json:"source,omitempty"`   // a subscription's host, never its token
+	Warn       string `json:"warnKind,omitempty"` // what provider.Usage.Warn says
 	// usage and site are what judge's reminder needs, set when Warn is.
-	usage provider.Usage
-	site  string
-	UsedBy     []string `json:"usedBy,omitempty"`   // the routes on one of its nodes now
+	usage  provider.Usage
+	site   string
+	UsedBy []string `json:"usedBy,omitempty"` // the routes on one of its nodes now
 	// Dots is the health of a short list's nodes, when the view only carries
 	// some of them; empty means work it out from the nodes.
 	Dots []int `json:"dots,omitempty"`
@@ -243,7 +244,7 @@ func (x *bridge) view() viewData {
 		}
 	}
 	for _, r := range all {
-		rv := routeData{ID: r.ID, Name: routes.Title(r), Color: routeColor(r.Color), Direct: r.Direct, Reject: r.Reject, Policy: r.Policy.Mode, Rules: x.routeRules(r), Detail: routes.Describe(r)}
+		rv := routeData{ID: r.ID, Name: routes.Title(r), Color: routeColor(r.Color), Direct: r.Direct, Reject: r.Reject, Locked: r.Locked && im == nil, Policy: r.Policy.Mode, Rules: x.routeRules(r), Detail: routes.Describe(r)}
 		v.RuleCount += rv.Rules
 		if im != nil {
 			x.importedRoute(&rv, &v, r, im, px, prov, rd)

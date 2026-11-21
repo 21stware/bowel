@@ -192,8 +192,10 @@ type groupData struct {
 	Direct    bool            `json:"direct"`
 	Reject    bool            `json:"reject"`
 	Custom    bool            `json:"custom"`
-	Movable   bool            `json:"movable"` // not one of the fixed groups, which keep their place
-	Chooses   bool            `json:"chooses"` // between a node and going direct, which Direct then says
+	Movable   bool            `json:"movable"`  // not one of the fixed groups, which keep their place
+	Chooses   bool            `json:"chooses"`  // between a node and going direct, which Direct then says
+	Locked    bool            `json:"locked"`   // its exit lock: by a node or not at all
+	Lockable  bool            `json:"lockable"` // whether the lock can be put on it
 	Mode      string          `json:"mode"`
 	Regions   []string        `json:"regions"`
 	Providers []string        `json:"providers"`
@@ -286,11 +288,11 @@ func (x *bridge) routing() routingData {
 	}
 	slices.SortFunc(out.Regions, func(a, b regionData) int { return b.Count - a.Count })
 	for _, r := range all {
-		g := groupData{ID: r.ID, Name: routes.Title(r), Summary: routes.Describe(r), Direct: r.Direct, Reject: r.Reject, Custom: r.Custom, Movable: !routes.Fixed(r.ID), Chooses: choosesExit(r.ID),
+		g := groupData{ID: r.ID, Name: routes.Title(r), Summary: routes.Describe(r), Direct: r.Direct, Reject: r.Reject, Custom: r.Custom, Movable: !routes.Fixed(r.ID), Chooses: choosesExit(r.ID), Locked: r.Locked, Lockable: routes.Lockable(r.ID),
 			Mode: r.Policy.Mode, Regions: nonNil(r.Policy.Regions), Providers: nonNil(r.Policy.Providers), Order: nonNil(r.Policy.Order), Fixed: r.Policy.Fixed,
 			Services: []serviceData{}, Targets: []routes.Target{}, Sites: []siteDelay{}}
 		if im != nil {
-			g.Movable, g.Chooses = false, false
+			g.Movable, g.Chooses, g.Locked, g.Lockable = false, false, false, false
 		}
 		if !r.Direct && !r.Reject {
 			node := x.nodeOf(px, prov, r, im)
@@ -496,7 +498,21 @@ func (x *bridge) routeOp(ctx context.Context, a callArgs) error {
 		if !choosesExit(a.ID) {
 			return errors.New(i18n.T("没有这条路由", "No such route"))
 		}
+		if a.On && x.set.Get().Routing.Locked(a.ID) {
+			return errors.New(i18n.T("已锁定出口，先关掉出口锁定", "The exit is locked; turn the lock off first"))
+		}
 		if err := x.change(ctx, func(s *settings.Settings) { s.Routing.ChangePolicy(a.ID, func(q *routes.Policy) { q.Direct = a.On }) }); err != nil {
+			return err
+		}
+		x.closeRoute(ctx, a.ID)
+		return nil
+	case "setLocked":
+		// The exit lock, as on the desktop: the group leaves by a node or
+		// not at all. With the VPN off the phone has nothing to refuse it by.
+		if !routes.Lockable(a.ID) || x.importedNow() != nil {
+			return errors.New(i18n.T("没有这条路由", "No such route"))
+		}
+		if err := x.change(ctx, func(s *settings.Settings) { s.Routing.SetLocked(a.ID, a.On) }); err != nil {
 			return err
 		}
 		x.closeRoute(ctx, a.ID)

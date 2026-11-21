@@ -221,7 +221,7 @@ func (a *App) syncBypass() {
 		return
 	}
 	s := a.settings.Get()
-	if !a.takeoverOn(s) || !s.SystemProxy {
+	if !a.proxyWanted(s) {
 		return
 	}
 	a.retryWrite(s)

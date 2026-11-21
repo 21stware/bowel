@@ -60,6 +60,12 @@ func tree() *Command {
 				{Name: "use", Args: i18n.T("<路由> <节点|auto>", "<route> <node|auto>"), Min: 2, Max: 2,
 					Short:    words{"让一条路由使用某个节点，auto 为自动选最快的", "Make a route use a node; auto picks the fastest"},
 					Examples: []string{"bowel route use ai auto", `bowel route use default "🇯🇵 Tokyo 02"`}, Run: runRouteUse},
+				{Name: "lock", Args: i18n.T("<路由>", "<route>"), Min: 1, Max: 1,
+					Short:    words{"锁定出口：只走节点，走不了就断开，关闭接管后也拦下", "Lock the exit: only through a node, cut when none can carry it, refused while takeover is off"},
+					Examples: []string{"bowel route lock ai"}, Run: runRouteLock(true)},
+				{Name: "unlock", Args: i18n.T("<路由>", "<route>"), Min: 1, Max: 1,
+					Short:    words{"解除出口锁定", "Unlock the exit"},
+					Examples: []string{"bowel route unlock ai"}, Run: runRouteLock(false)},
 			}},
 			{Name: "nodes", Short: words{"列出节点和延迟", "List the nodes and their delays"},
 				Flags: []Flag{
@@ -198,6 +204,8 @@ type route struct {
 	Node      string `json:"node"`
 	NodeLabel string `json:"nodeLabel"`
 	UserRules int    `json:"userRules"`
+	Locked    bool   `json:"locked"`
+	Refused   bool   `json:"refused"`
 }
 
 type node struct {
@@ -238,6 +246,16 @@ type status struct {
 
 // nodeText is where a route goes, in a few words.
 func (c *Ctx) nodeText(r route) cell {
+	if r.Refused {
+		return cell{i18n.T("拦下（出口锁定，接管已关）", "Refused (exit lock, takeover off)"), gray}
+	}
+	if r.Locked {
+		in := r
+		in.Locked = false
+		e := c.nodeText(in)
+		e.text += i18n.T(" · 出口锁定", " · exit locked")
+		return e
+	}
 	switch {
 	case r.Reject:
 		return cell{i18n.T("拒绝", "Reject"), gray}
@@ -471,6 +489,21 @@ func runRoutes(c *Ctx) error {
 		}
 	}
 	return nil
+}
+
+func runRouteLock(on bool) func(*Ctx) error {
+	return func(c *Ctx) error {
+		raw, err := c.call("lock_route", map[string]any{"route": c.args[0], "locked": on})
+		if err != nil {
+			return err
+		}
+		say := i18n.T("%s 的出口已锁定", "%s's exit is locked")
+		if !on {
+			say = i18n.T("%s 的出口已解锁", "%s's exit is unlocked")
+		}
+		c.done(raw, fmt.Sprintf(say, c.args[0]))
+		return nil
+	}
 }
 
 func runRouteUse(c *Ctx) error {

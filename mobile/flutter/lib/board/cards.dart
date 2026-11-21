@@ -609,7 +609,8 @@ class _RoutesCard extends StatelessWidget {
     var width = 62.0;
     for (final r in routes) {
       final p = TextPainter(text: TextSpan(text: r.name, style: style), textDirection: TextDirection.ltr, maxLines: 1)..layout();
-      if (p.width.ceilToDouble() > width) width = p.width.ceilToDouble();
+      final w = p.width.ceilToDouble() + (r.locked ? 16 : 0);
+      if (w > width) width = w;
       p.dispose();
     }
     return width > 112 ? 112 : width;
@@ -622,7 +623,13 @@ class _RoutesCard extends StatelessWidget {
       child: Row(children: [
         Square(l.route(r.id)),
         const SizedBox(width: 9),
-        SizedBox(width: nameWidth, child: Align(alignment: Alignment.centerLeft, child: _flyText('rn-${r.id}', r.name, l.text(14.5, weight: 600, lh: 20)))),
+        SizedBox(
+          width: nameWidth,
+          child: Row(children: [
+            Flexible(child: _flyText('rn-${r.id}', r.name, l.text(14.5, weight: 600, lh: 20))),
+            if (r.locked) ...[const SizedBox(width: 4), lockMark(l)],
+          ]),
+        ),
         const SizedBox(width: 9),
         Expanded(child: Align(alignment: Alignment.centerLeft, child: Shim(active: s.pending == 'node:${r.id}', child: _flyExit('exit-${r.id}', n, l.text(14.5, weight: 600, lh: 20))))),
         const SizedBox(width: 8),
@@ -645,6 +652,7 @@ class _RoutesCard extends StatelessWidget {
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
                 _flyText('rn-${r.id}', r.name, l.text(15, weight: 600, lh: 20)),
+                if (r.locked) ...[const SizedBox(width: 4), lockMark(l)],
                 const SizedBox(width: 8),
                 Expanded(
                   child: Align(

@@ -19,6 +19,9 @@ class RouteCfg {
   bool auto;
   String policy = 'auto';
 
+  /// Its exit lock: it leaves by a node or not at all.
+  bool locked = false;
+
   /// scope, order or fixed when the group has no way out; null when it has.
   String? broken;
 }
@@ -1081,6 +1084,7 @@ class AppState extends ChangeNotifier {
       final policy = v['policy'] as String? ?? '';
       r.policy = policy.isEmpty ? 'auto' : policy;
       r.broken = v['broken'] as String?;
+      r.locked = v['locked'] == true;
       if (v['reject'] == true) {
         blocked = r;
         continue;
