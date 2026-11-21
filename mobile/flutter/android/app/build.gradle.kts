@@ -56,6 +56,9 @@ android {
                 storePassword = key.getProperty("storePassword")
                 keyAlias = key.getProperty("keyAlias")
                 keyPassword = key.getProperty("keyPassword")
+                // With minSdk 26 the v1 (JAR) signature is off by default, and
+                // some phones' installers (vivo, HONOR) reject an APK without it.
+                enableV1Signing = true
             }
         }
     }
