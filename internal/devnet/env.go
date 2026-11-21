@@ -102,9 +102,11 @@ func (d *Detector) Detect(ctx context.Context, timed bool) Env {
 	defer d.mu.Unlock()
 	tunnel, _ := cgnatTunnel()
 	bin := tailscaleBin()
-	if tunnel == "" {
-		// No tailnet address: there is nothing the CLI could add, and
-		// asking would bring up the Mac app's menu bar icon for nothing.
+	if tunnel == "" && opensApp(bin) {
+		// No tailnet address and the CLI is the Mac app: asking would
+		// bring up its menu bar icon for little. Any other CLI is still
+		// asked, so a logged-out Tailscale, or a tailnet off 100.64/10,
+		// is still told apart.
 		d.ts, d.tunnel, d.at = Tailscale{Installed: bin != ""}, "", time.Now()
 	} else if askTailscale(d.at.IsZero() || tunnel != d.tunnel, time.Since(d.at), timed && !opensApp(bin)) {
 		d.ts, d.tunnel, d.at = detectTailscale(ctx, bin), tunnel, time.Now()
