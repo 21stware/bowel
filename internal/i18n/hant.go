@@ -95,6 +95,7 @@ var hantTable = map[string]string{
 	" 二维码.png":   " QR 碼.png",
 	"模板里没有默认路由":  "範本裡沒有預設路由",
 	"配置检查失败: %s": "設定檢查失敗: %s",
+	"内核 30 秒内没有给出结果": "核心在 30 秒內沒有給出結果",
 	"找不到 mihomo 内核 (%s)，先运行 scripts/fetch-core.sh": "找不到 mihomo 核心 (%s)，先執行 scripts/fetch-core.sh",
 	"内核意外退出":            "核心意外結束",
 	"内核启动超时: ":          "核心啟動逾時: ",
