@@ -25,7 +25,11 @@ const _icons = {
   'up': '<path d="m6 15 6-6 6 6"/>',
   'down': '<path d="m6 9 6 6 6-6"/>',
   'copy': '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5.500 15H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v.500"/>',
+  'lock': '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
 };
+
+/// The exit lock beside a route group's name: it leaves by a node or not at all.
+Widget lockMark(Look l, {double size = 12}) => Semantics(label: tr('出口锁定', 'Exit lock'), child: Ic('lock', size: size, color: l.mute));
 
 class Ic extends StatelessWidget {
   const Ic(this.name, {super.key, this.size = 20, this.color});

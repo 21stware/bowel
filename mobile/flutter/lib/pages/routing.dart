@@ -245,7 +245,10 @@ class _RoutesPageState extends State<RoutesPage> {
             const SizedBox(width: 10),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Line1(g['name'] as String? ?? id, l.text(15, lh: 21)),
+                Row(children: [
+                  Flexible(child: Line1(g['name'] as String? ?? id, l.text(15, lh: 21))),
+                  if (g['locked'] == true) ...[const SizedBox(width: 5), lockMark(l)],
+                ]),
                 if (direct)
                   Line1('${_noNodeWord(g)} · ${tr('{0} 个服务', count == 1 ? '{0} service' : '{0} services', [count])}', small)
                 else
@@ -482,8 +485,57 @@ class _GroupPageState extends State<GroupPage> {
           value: direct,
           padH: 14,
           onChanged: (v) {
-            if (v != direct) app.routeOp('setDirect', {'id': id, 'on': v});
+            if (v == direct) return;
+            if (v && g['locked'] == true) return app.say(tr('已锁定出口，先关掉出口锁定', 'The exit is locked; turn the lock off first'));
+            app.routeOp('setDirect', {'id': id, 'on': v});
           },
+        ),
+      ),
+    );
+  }
+
+  /// The exit lock, as on the desktop: the group leaves by a node or not at
+  /// all. The first lock says what it does, and what the phone can't do,
+  /// before it is put on.
+  Widget _lock(Look l, Map g) {
+    final on = g['locked'] == true;
+    void set(bool v) => app.routeOp('setLocked', {'id': id, 'on': v});
+    void tap() {
+      if (on) return set(false);
+      if (_list(app.routing, 'groups').any((x) => x['locked'] == true)) return set(true);
+      confirmSheet(
+        app,
+        tr('锁定「{0}」的出口', 'Lock the exit of {0}', [g['name'] as String? ?? id]),
+        tr('锁定', 'Lock'),
+        () => set(true),
+        body: '${tr('这个路由组的流量只走节点：节点全部连不上时，它的连接会断开，不会改走手机网络；在全局或直连模式下，它也仍走自己的节点。', "This group's traffic only goes through a node: when no node can be reached, its connections are cut rather than sent over the phone's network, and in global or direct mode it still goes by its own node.")}\n'
+            '${tr('关闭 VPN 后 bowel 拦不住它。想在 VPN 断开时也不漏，可以在系统设置的 VPN 里为 bowel 打开「始终开启的 VPN」和「屏蔽未使用 VPN 的连接」，那会拦下手机上的全部流量。', "With the VPN off, bowel can't hold it back. To keep it from leaking then too, turn on \"Always-on VPN\" and \"Block connections without VPN\" for bowel in the system's VPN settings, which holds back all of the phone's traffic.")}',
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+      child: hairBottom(
+        l,
+        Tap(
+          onTap: tap,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 52),
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(children: [
+              Ic('lock', size: 16, color: l.ink),
+              const SizedBox(width: 8),
+              Expanded(
+                child: rowLabel(
+                  l,
+                  tr('出口锁定', 'Exit lock'),
+                  on ? tr('已锁定 · 走不了节点就断开，不改走直连', "Locked · cut if no node can carry it, never sent direct") : tr('只走节点，不改走直连', 'Node only, never direct'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Toggle(on: on, onTap: tap, scale: .82, label: tr('出口锁定', 'Exit lock')),
+            ]),
+          ),
         ),
       ),
     );
@@ -988,6 +1040,7 @@ class _GroupPageState extends State<GroupPage> {
           children: [
             Padding(padding: const EdgeInsets.fromLTRB(16, 2, 16, 0), child: Text(_countLine(g), style: l.text(13, color: l.mute, lh: 18))),
             if (chooses) _exit(l, g),
+            if (g['lockable'] == true) _lock(l, g),
             if (reject)
               _note(l, tr('命中这里规则的连接会被拒绝，不经过节点，所以没有节点策略。', "Connections matching the rules here are refused, with no node, so there's no node strategy."))
             else if (direct && chooses)

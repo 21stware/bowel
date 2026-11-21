@@ -90,7 +90,7 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 - **开发工具**（macOS、Linux）：Docker、终端和 Git 不读系统代理，bowel 列出哪些没有接入，点一下写好它们自己的配置，撤销时原样删除。
 - **下载源**：实测 npm、pip、Go 和 Cargo 的官方源与各个镜像，点一下换源；当前的源连不上时，一键换到最快的那个，或让它重新走节点。
 - **内网直连**：局域网、Tailscale 和公司 VPN 的地址自动直连，全局模式下也一样。
-- **出口锁定**：在首页路由组的页面上锁定一个路由组（比如 AI 服务），它的流量就只走节点。节点都走不了时直接断开，不会改走直连；全局和直连模式下它仍走自己的节点；关闭接管后，其他流量照常直连，只有它被拦下，为此系统代理仍指向 bowel。退出 bowel 后不再拦截。也可以用 `bowel route lock ai`。
+- **出口锁定**：在首页路由组的页面上锁定一个路由组（比如 AI 服务），它的流量就只走节点。节点都走不了时直接断开，不会改走直连；全局和直连模式下它仍走自己的节点；关闭接管后，其他流量照常直连，只有它被拦下，为此系统代理仍指向 bowel。退出 bowel 后不再拦截。也可以用 `bowel route lock ai`。Android 版在路由组页面上也有这个开关；手机关掉 VPN 后拦不住它，第一次锁定时会指向系统的「屏蔽未使用 VPN 的连接」。
 - **MCP**：内置 MCP 服务器，供 Claude Code 等 Agent 读取状态、排查网络问题，改设置前默认先问你。下面是 macOS 的命令，Windows 和 Linux 上请换成 bowel 程序所在的路径。
   ```bash
   claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp

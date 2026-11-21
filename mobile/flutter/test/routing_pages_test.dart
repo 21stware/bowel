@@ -59,6 +59,8 @@ Map _group(String id, String name, List<Map> services, {bool direct = false, boo
       'custom': false,
       'movable': !const {'default', 'direct', 'reject'}.contains(id),
       'chooses': !const {'default', 'direct', 'reject'}.contains(id),
+      'lockable': !const {'default', 'direct', 'reject'}.contains(id),
+      'locked': id == 'ai' && _aiLocked,
       'mode': mode,
       'regions': <String>[],
       'providers': <String>[],
@@ -72,6 +74,9 @@ Map _group(String id, String name, List<Map> services, {bool direct = false, boo
 
 /// Whether AI 服务 goes direct by the user's choice.
 bool _aiDirect = false;
+
+/// Whether AI 服务 has the exit lock.
+bool _aiLocked = false;
 
 Map _routing() => {
       'groups': [
@@ -230,6 +235,7 @@ void main() {
     _targetImported = false;
     _sets = [];
     _aiDirect = false;
+    _aiLocked = false;
     language = 'zh';
     _fakeCore();
   });
@@ -762,5 +768,53 @@ void main() {
     await tester.tap(find.text('走节点'));
     await _settle(tester);
     expect(_ops.last, {'op': 'setDirect', 'id': 'ai', 'on': false});
+  });
+
+  testWidgets('a route group can lock its exit, asked the first time, as on the desktop', (tester) async {
+    final app = _app();
+    for (final id in ['default', 'direct', 'reject']) {
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(_host(app, GroupPage(app: app, id: id)));
+      await _settle(tester);
+      expect(find.text('出口锁定'), findsNothing, reason: id);
+    }
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai')));
+    await _settle(tester);
+    expect(find.text('只走节点，不改走直连'), findsOneWidget);
+    await tester.tap(find.text('出口锁定'));
+    await _settle(tester);
+    expect(_ops, isEmpty, reason: 'the first lock is asked first');
+    expect(find.text('锁定「AI 服务」的出口'), findsOneWidget);
+    expect(find.textContaining('关闭 VPN 后 bowel 拦不住它'), findsOneWidget, reason: "it says what the phone can't do");
+    await tester.tap(find.text('锁定'));
+    await _settle(tester);
+    expect(_ops.last, {'op': 'setLocked', 'id': 'ai', 'on': true});
+
+    _aiLocked = true;
+    app.routing = _routing();
+    app.notifyListeners();
+    await _settle(tester);
+    expect(find.textContaining('已锁定 · '), findsOneWidget);
+    final before = _ops.length;
+    await tester.tap(find.text('直接连接'));
+    await _settle(tester);
+    expect(_ops.length, before, reason: "a locked group doesn't go direct");
+    await tester.tap(find.text('出口锁定'));
+    await _settle(tester);
+    expect(_ops.last, {'op': 'setLocked', 'id': 'ai', 'on': false}, reason: 'unlocking is a tap');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'solo')));
+    await _settle(tester);
+    await tester.tap(find.text('出口锁定'));
+    await _settle(tester);
+    expect(_ops.last, {'op': 'setLocked', 'id': 'solo', 'on': true}, reason: 'a lock after the first is a tap');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(_host(app, RoutesPage(app: app)));
+    await _settle(tester);
+    expect(find.bySemanticsLabel('出口锁定'), findsOneWidget, reason: 'the list marks the locked group');
+    expect(tester.takeException(), isNull);
   });
 }
