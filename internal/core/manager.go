@@ -264,7 +264,15 @@ func (m *Manager) Test(path string) error {
 	setProcAttr(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf(i18n.T("配置检查失败: %s", "The config check failed: %s"), coreSaid(string(out)))
+		why := coreSaid(string(out))
+		if why == "" {
+			// It printed nothing: say how it ended, so the reason isn't blank.
+			why = err.Error()
+			if ctx.Err() != nil {
+				why = i18n.T("内核 30 秒内没有给出结果", "The core gave no answer within 30 seconds")
+			}
+		}
+		return fmt.Errorf(i18n.T("配置检查失败: %s", "The config check failed: %s"), why)
 	}
 	return nil
 }
