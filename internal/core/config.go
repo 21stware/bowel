@@ -555,13 +555,20 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 		if !ok {
 			continue
 		}
-		if lockMode && !isLocked(in.Routes, l.Route) {
+		locked := isLocked(in.Routes, l.Route)
+		if lockMode && !locked {
 			target = other
 		}
+		lines := []string{withTarget(l.Text, target)}
+		if locked && target != "REJECT" {
+			if hold, ok := udpHold(l.Text); ok {
+				lines = append(lines, hold)
+			}
+		}
 		if l.Mine && dev.Covers(l.Text) {
-			mine = append(mine, withTarget(l.Text, target))
+			mine = append(mine, lines...)
 		} else {
-			rest = append(rest, withTarget(l.Text, target))
+			rest = append(rest, lines...)
 		}
 	}
 	var def routes.Route
@@ -603,6 +610,64 @@ func ownRules(dev devnet.Overlay) []string {
 // isLocked says whether route id has the exit lock.
 func isLocked(all []routes.Route, id string) bool {
 	return slices.ContainsFunc(all, func(r routes.Route) bool { return r.ID == id && r.Locked })
+}
+
+// udpHold is the line that goes right after a locked group's rule, so
+// that its UDP leaves by the node or not at all. The core passes over a
+// rule whose group can't carry UDP, its node having none, and tries the
+// next: QUIC or a call would then take another group's rule, or MATCH,
+// and go out by another node or by none. This refuses it instead, and
+// QUIC falls back to TCP, which the node carries. TCP fails its first
+// condition at once. False for a rule it can't be written for.
+func udpHold(rule string) (string, bool) {
+	sub, ok := logicSafe(rule)
+	if !ok {
+		return "", false
+	}
+	return "AND,((NETWORK,UDP),(" + sub + ")),REJECT", true
+}
+
+// logicSafe is rule as it can stand inside a logic rule, which the core
+// cuts up at its parentheses. A value with a parenthesis in it, as an
+// app's name or a keyword can have, is written as the same match by a
+// regular expression, with each character but letters and digits by its
+// code. Domains, addresses and rule sets never have one.
+func logicSafe(rule string) (string, bool) {
+	if !strings.ContainsAny(rule, "()") {
+		return rule, true
+	}
+	kind, value, _ := strings.Cut(rule, ",")
+	switch kind {
+	case "PROCESS-NAME":
+		return "PROCESS-NAME-REGEX,^" + quoteRegex(value) + "$", true
+	case "PROCESS-PATH-WILDCARD":
+		parts := strings.Split(value, "*")
+		for i, part := range parts {
+			parts[i] = strings.ReplaceAll(quoteRegex(part), `\x3f`, ".")
+		}
+		return "PROCESS-PATH-REGEX,^" + strings.Join(parts, ".*") + "$", true
+	case "DOMAIN-KEYWORD":
+		return "DOMAIN-REGEX," + quoteRegex(value), true
+	case "DOMAIN":
+		return "DOMAIN-REGEX,^" + quoteRegex(value) + "$", true
+	}
+	return "", false
+}
+
+// quoteRegex is s as a regular expression that matches it alone: every
+// ASCII character but a letter or a digit by its code, so that none is
+// a parenthesis, a comma or anything else the core or the expression
+// would read. The core's expressions ignore case, as its names do.
+func quoteRegex(s string) string {
+	var b strings.Builder
+	for _, c := range s {
+		if c < 0x80 && !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9') {
+			fmt.Fprintf(&b, `\x%02x`, c)
+		} else {
+			b.WriteRune(c)
+		}
+	}
+	return b.String()
 }
 
 // exitOf is what the core sends route id's traffic to: the route's group,
