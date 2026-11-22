@@ -225,8 +225,11 @@ go tool mygo build -platform linux/amd64 .
 ```bash
 ./mobile/android/build.sh       # Android：mihomo、启动器和桥接层
 ./mobile/bridge/build.sh        # iOS：桥接层和隧道
+go generate ./...               # 从桌面端生成 App 的翻译和皮肤
 cd mobile/flutter && flutter run
 ```
+
+Flutter App 的翻译表和皮肤由桌面端的 Go 代码生成，过期时 `go test` 会失败。桌面端没有的、App 自己的文案在 `internal/i18n/flutter.go`。
 
 - 工作原理与代码结构：[docs/architecture.md](docs/architecture.md)
 - 产品信息架构：[docs/product-ia.md](docs/product-ia.md)
