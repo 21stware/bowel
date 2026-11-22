@@ -854,16 +854,35 @@ func (m *Manager) env() []string {
 	return env
 }
 
-// FreePort returns a loopback TCP port nothing listens on now.
+// FreePort returns a loopback port nothing listens on now, by TCP or UDP.
 func FreePort() (int, error) { return freePort() }
 
+// listenUDP is net.ListenPacket; a test has it refuse ports.
+var listenUDP = net.ListenPacket
+
+// freePort takes a loopback TCP port from the system and keeps it only if
+// UDP can have it too, since a mixed listener such as the location
+// probe's needs both. Windows reserves blocks of ports for UDP alone
+// (Hyper-V, WSL and Docker ask for them) and still hands out the same
+// numbers for TCP; the core then fails to listen on them. A port that
+// fails stays held until the end, so the system offers another one.
 func freePort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
+	var err error
+	for range 20 {
+		l, e := net.Listen("tcp", "127.0.0.1:0")
+		if e != nil {
+			return 0, e
+		}
+		defer l.Close()
+		port := l.Addr().(*net.TCPAddr).Port
+		u, e := listenUDP("udp", "127.0.0.1:"+strconv.Itoa(port))
+		if e == nil {
+			u.Close()
+			return port, nil
+		}
+		err = e
 	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port, nil
+	return 0, err
 }
 
 func randomHex(n int) string {
