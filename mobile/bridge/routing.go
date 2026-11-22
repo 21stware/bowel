@@ -257,7 +257,11 @@ func (x *bridge) routing() routingData {
 	rd := readingOf(s, im)
 	out := routingData{Groups: []groupData{}, Nodes: []pickData{}, Regions: []regionData{}, Providers: []providerPick{}, Kinds: []kindData{}}
 	out.Imported = x.imported(s, im, all, px, prov)
-	for _, k := range routes.Kinds {
+	kinds := routes.Kinds
+	if routes.AppRules { // an app's package, on Android from 10
+		kinds = routes.AllKinds()
+	}
+	for _, k := range kinds {
 		out.Kinds = append(out.Kinds, kindData{k, routes.KindName(k)})
 	}
 	count := map[string]int{}
@@ -561,6 +565,11 @@ func (x *bridge) routeOp(ctx context.Context, a callArgs) error {
 		if err != nil {
 			return err
 		}
+		if a.Op == "addRule" { // a rule moved here is one there already
+			if err := appRuleWorks(r); err != nil {
+				return err
+			}
+		}
 		all := x.routes()
 		if a.Service != "" && a.Service != routes.MineID(a.Route) {
 			r.Service = a.Service
@@ -647,7 +656,17 @@ func (x *bridge) setRule(ctx context.Context, r routes.UserRule, removed bool) e
 	if removed {
 		keep = ""
 	}
-	x.rerouteBy(ctx, r.Matches, keep)
+	x.reroute(ctx, r, keep)
+	return nil
+}
+
+// appRuleWorks refuses a new rule for an app where the core can't tell apps
+// apart (SetAppRules): on iOS, and on Android before 10. One brought over
+// from a desktop stays, and can be removed.
+func appRuleWorks(r routes.UserRule) error {
+	if r.Kind == routes.KindApp && !routes.AppRules {
+		return errors.New(i18n.T("这个系统上内核认不出连接来自哪个应用，按应用的规则不会生效", "On this system the core can't tell which app opened a connection, so a rule for an app would never match"))
+	}
 	return nil
 }
 
@@ -657,6 +676,9 @@ func (x *bridge) setRule(ctx context.Context, r routes.UserRule, removed bool) e
 func (x *bridge) editRule(ctx context.Context, old routes.UserRule, kind, text, route string) error {
 	next, err := routes.ParseRule(kind, text, route)
 	if err != nil {
+		return err
+	}
+	if err := appRuleWorks(next); err != nil {
 		return err
 	}
 	if next.Mihomo() != old.Mihomo() {
@@ -670,14 +692,36 @@ func (x *bridge) editRule(ctx context.Context, old routes.UserRule, kind, text, 
 	if err := x.change(ctx, func(s *settings.Settings) { s.Rules = routes.Edit(s.Rules, old, next) }); err != nil {
 		return err
 	}
-	x.rerouteBy(ctx, old.Matches, "")
-	x.rerouteBy(ctx, next.Matches, next.Route)
+	x.reroute(ctx, old, "")
+	x.reroute(ctx, next, next.Route)
 	return nil
 }
 
-// rerouteBy closes the open connections that match and go elsewhere than the
-// route keep, so that a change of rules shows at once.
+// reroute closes the open connections r matches that go elsewhere than the
+// route keep: an app's by the app the core found for them, which it looks
+// for only while a rule for an app is there. One opened before the first
+// such rule goes on as it was until it closes.
+func (x *bridge) reroute(ctx context.Context, r routes.UserRule, keep string) {
+	if r.Kind == routes.KindApp {
+		x.rerouteWhere(ctx, func(cn mihomo.Connection) bool { return r.MatchesApp(cn.Metadata.Process, cn.Metadata.ProcessPath) }, keep)
+		return
+	}
+	x.rerouteBy(ctx, r.Matches, keep)
+}
+
+// rerouteBy closes the open connections whose host or address match and go
+// elsewhere than the route keep, so that a change of rules shows at once.
 func (x *bridge) rerouteBy(ctx context.Context, match func(host, ip string) bool, keep string) {
+	x.rerouteWhere(ctx, func(cn mihomo.Connection) bool {
+		host := cn.Metadata.Host
+		if host == "" {
+			host = cn.Metadata.SniffHost
+		}
+		return match(host, cn.Metadata.DestinationIP)
+	}, keep)
+}
+
+func (x *bridge) rerouteWhere(ctx context.Context, match func(mihomo.Connection) bool, keep string) {
 	c, err := x.core()
 	if err != nil {
 		return
@@ -691,11 +735,7 @@ func (x *bridge) rerouteBy(ctx context.Context, match func(host, ip string) bool
 		byGroup[routes.Group(g)] = g.ID
 	}
 	for _, cn := range snap.Connections {
-		host := cn.Metadata.Host
-		if host == "" {
-			host = cn.Metadata.SniffHost
-		}
-		if !match(host, cn.Metadata.DestinationIP) {
+		if !match(cn) {
 			continue
 		}
 		group := ""

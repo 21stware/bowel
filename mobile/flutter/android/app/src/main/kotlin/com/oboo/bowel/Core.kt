@@ -2,6 +2,7 @@ package com.oboo.bowel
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import bridge.Bridge
@@ -36,6 +37,9 @@ object Core : Sink {
     @Synchronized
     fun start(context: Context) {
         if (started) return
+        // The VPN can say which app owns a connection from Android 10
+        // (ConnectionOwners), so rules for apps work from there.
+        Bridge.setAppRules(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
         Bridge.start(dir(context).path, this)
         started = true
     }

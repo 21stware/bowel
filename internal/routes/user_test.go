@@ -257,3 +257,22 @@ func TestAppRuleMatches(t *testing.T) {
 		t.Error("Same: an application's name goes without regard to case, within its kind")
 	}
 }
+
+// TestAndroidPackageRule: on Android a rule for an app names its package,
+// which the core gets from the VPN service as the connection's process
+// (mobile/android/owner). A package is no bundle on any system.
+func TestAndroidPackageRule(t *testing.T) {
+	for _, macOS := range []bool{false, true} {
+		asOn(t, macOS)
+		r, err := ParseRule(KindApp, "com.openai.chatgpt", "ai")
+		if err != nil || r.Mihomo() != "PROCESS-NAME,com.openai.chatgpt" || r.Valid() != nil {
+			t.Fatalf("ParseRule = %+v, %v", r, err)
+		}
+		if !r.MatchesApp("com.openai.chatgpt", "") || r.MatchesApp("com.openai.chatgpt.beta", "") {
+			t.Errorf("MatchesApp of a package, by name alone")
+		}
+		if !r.Matched("ProcessName", "com.openai.chatgpt") {
+			t.Errorf("the connection's rule is not recognised")
+		}
+	}
+}

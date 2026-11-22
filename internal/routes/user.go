@@ -48,9 +48,11 @@ func AllKinds() []string { return append(slices.Clone(Kinds), KindApp) }
 // the core can tell which program opened a connection. It can on Windows
 // and Linux, and on macOS, where two things make it so: the core is not
 // the app's child (core.startCore) and it is signed under an identifier
-// with a dot in it (core.BinName). On Android and iOS no app may read
-// another's sockets. A rule saved elsewhere stays valid here; it only
-// never matches.
+// with a dot in it (core.BinName). On iOS no app may read another's
+// sockets, nor on Android, but from Android 10 the VPN app may ask who owns
+// a connection: the phone's bridge turns this on there (bridge.SetAppRules),
+// and a rule names the app's package. A rule saved elsewhere stays valid
+// here; it only never matches.
 var AppRules = runtime.GOOS == "windows" || runtime.GOOS == "linux" || runtime.GOOS == "darwin"
 
 // Same reports whether two rules match the same traffic, whatever their

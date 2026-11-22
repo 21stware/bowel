@@ -1,6 +1,7 @@
 #!/bin/bash
 # Builds what the Android app ships besides Dart and Kotlin:
-#   jniLibs/arm64-v8a/libmihomo.so    mihomo itself, as its own executable
+#   jniLibs/arm64-v8a/libmihomo.so    mihomo itself, as its own executable,
+#                                     with the owner module to tell apps apart
 #   jniLibs/arm64-v8a/liblauncher.so  hands it the TUN descriptor
 #   libs/bridge.aar                   mobile/bridge, which does not link mihomo
 #
@@ -46,6 +47,24 @@ if cmp -s "$src/$android_tun" "$patched/$android_tun"; then
 	echo "buildAndroidRules not found in mihomo $MIHOMO_VERSION" >&2
 	exit 1
 fi
+
+# A rule for an app needs the app's package name, which from Android 10 only
+# the VPN service can ask for. The owner module asks it (see its doc), and
+# owner_android.go puts that in mihomo's main package as its package-name
+# resolver. mihomo asks that resolver only after reading the kernel's socket
+# tables, which apps may not do from Android 10, unless it is built as Clash
+# Meta for Android; so with a resolver it is asked alone, as there.
+tunnel_go=tunnel/tunnel.go
+perl -0pi -e 's/if !features\.CMFA \{(\n\s*\/\/ normal check for process)/if !features.CMFA && process.DefaultPackageNameResolver == nil {$1/' \
+	"$patched/$tunnel_go"
+if cmp -s "$src/$tunnel_go" "$patched/$tunnel_go"; then
+	echo "the process lookup not found in mihomo $MIHOMO_VERSION" >&2
+	exit 1
+fi
+cp "$here/owner/_mihomo/owner_android.go" "$patched/"
+(cd "$patched" && go mod edit \
+	-require=github.com/oboo/moho/mobile/android/owner@v0.0.0 \
+	-replace=github.com/oboo/moho/mobile/android/owner="$here/owner")
 
 echo "building mihomo $MIHOMO_VERSION"
 (cd "$patched" && env "${build_env[@]}" go build -trimpath -buildmode=pie -tags with_gvisor \

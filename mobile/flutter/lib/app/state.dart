@@ -477,6 +477,22 @@ class AppState extends ChangeNotifier {
     set(() => vpnOnDemand = want);
   }
 
+  /// The packages 分应用代理 keeps out of the VPN: no rule sees their traffic.
+  Set<String> get excludedApps => {for (final s in vpnExcluded.split(',')) if (s.isNotEmpty) s};
+
+  /// The name of the route group a rule of the user's sends app `id` to, by
+  /// the routing last read; null when there is none.
+  String? appRuleGroup(String id) {
+    for (final g in ((routing?['groups'] as List?) ?? const []).cast<Map>()) {
+      for (final s in ((g['services'] as List?) ?? const []).cast<Map>()) {
+        for (final r in ((s['rules'] as List?) ?? const []).cast<Map>()) {
+          if (r['kind'] == 'app' && r['value'] == id) return g['name'] as String? ?? '';
+        }
+      }
+    }
+    return null;
+  }
+
   void setExcluded(Set<String> ids) {
     final text = ids.join(',');
     Shell.instance.setPref('vpnExcluded', text);

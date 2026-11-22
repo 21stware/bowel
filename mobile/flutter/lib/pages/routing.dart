@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 
+import '../app/app_list.dart';
 import '../app/i18n.dart';
 import '../app/sample.dart';
+import '../app/shell.dart';
 import '../app/shown.dart';
 import '../app/state.dart';
 import '../ui/atoms.dart';
@@ -16,8 +18,16 @@ List<Map> _groups(AppState app) => ((app.routing?['groups'] as List?) ?? const [
 List<Map> _list(Map? m, String key) => ((m?[key] as List?) ?? const []).cast<Map>();
 
 /// Whether a rule of the user's can be edited here: one of the kinds the
-/// phone offers. An application's, brought over from a desktop, only goes.
+/// phone offers. An application's, brought over from a desktop, only goes,
+/// except on Android from 10, where the bridge offers apps.
 bool _editable(AppState app, Map r) => _list(app.routing, 'kinds').any((k) => k['id'] == r['kind']);
+
+/// Whether rule `r` is an app's that 分应用代理 keeps out of the VPN, where no
+/// rule sees its traffic.
+bool _skipsVpn(AppState app, Map r) => r['kind'] == 'app' && app.excludedApps.contains(r['value']);
+
+/// Says a rule never matches, as [_skipsVpn] finds.
+String _skipsWord() => tr('已在「分应用代理」里关掉，不会生效', 'Off in Per-app proxy, never matches');
 
 /// Opens the rule sheet on rule `r` of service `s` in group `route`.
 void _editRule(AppState app, String route, Map s, Map r) {
@@ -832,9 +842,10 @@ class _GroupPageState extends State<GroupPage> {
   /// `fixed` is a rule of a rule set: its source keeps it, so it only shows.
   Widget _ruleRow(Look l, Map s, Map r, {bool fixed = false}) {
     final builtin = r['builtin'] == true, off = r['off'] == true || s['off'] == true;
+    final skips = _skipsVpn(app, r);
     final label = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Line1(r['shown'] as String? ?? '', l.text(14, color: off ? l.mute : l.ink, lh: 20)),
-      Text(r['kindName'] as String? ?? '', style: l.text(12, color: l.mute, lh: 16)),
+      Line1(r['shown'] as String? ?? '', l.text(14, color: off || skips ? l.mute : l.ink, lh: 20)),
+      Text(skips ? '${r['kindName']} · ${_skipsWord()}' : r['kindName'] as String? ?? '', style: l.text(12, color: skips ? l.warnT : l.mute, lh: 16)),
     ]);
     return Container(
       constraints: const BoxConstraints(minHeight: 44),
@@ -1089,8 +1100,14 @@ class _RuleSheetState extends State<_RuleSheet> {
   String? _error, _conflict;
   bool _busy = false;
   int _asked = 0;
+  List<({String id, String name})>? _apps; // the installed ones, once listed
+  bool _listing = false;
 
   bool get _editing => widget.old != null;
+
+  /// A rule for an app, by its package: the field then also searches the
+  /// installed apps listed under it.
+  bool get _app => _kind == 'app';
 
   @override
   void initState() {
@@ -1101,7 +1118,23 @@ class _RuleSheetState extends State<_RuleSheet> {
       _c.text = old['value'] as String? ?? '';
       _changed();
     }
+    if (_app) _loadApps();
   }
+
+  Future<void> _loadApps() async {
+    if (_apps != null || _listing) return;
+    _listing = true;
+    var list = const <({String id, String name})>[];
+    try {
+      list = await Shell.instance.listApps();
+    } catch (_) {
+      // No list: a package name can still be typed.
+    }
+    if (mounted) setState(() => _apps = list);
+  }
+
+  /// Why app `name` takes no rule.
+  String _skipsWhy(String name) => tr('{0} 在「分应用代理」里关掉了，它的连接不经过 bowel，这条规则不会生效。先在那里打开它。', '{0} is off in Per-app proxy: its connections skip bowel, so this rule would never match. Turn it on there first.', [name]);
 
   /// A link to a rule file. As a rule it would only give its domain.
   static final _setLink = RegExp(r'^https?://[^/\s]+/\S*\.(ya?ml|list|txt|mrs|conf)(\?\S*)?$', caseSensitive: false);
@@ -1123,6 +1156,17 @@ class _RuleSheetState extends State<_RuleSheet> {
       });
       return;
     }
+    if (_app) {
+      // What's typed may be a search: only a whole package becomes the rule.
+      final name = _list(widget.app.routing, 'kinds').where((k) => k['id'] == 'app').firstOrNull?['name'];
+      final skips = widget.app.excludedApps.contains(text);
+      setState(() {
+        _preview = isPackage(text) && !skips ? {'value': text, 'kindName': name ?? ''} : null;
+        _error = skips ? _skipsWhy(_apps?.where((a) => a.id == text).firstOrNull?.name ?? text) : null;
+        _conflict = null;
+      });
+      return;
+    }
     final out = await widget.app.previewRule(_kind, text);
     if (!mounted || ask != _asked) return;
     setState(() {
@@ -1133,7 +1177,17 @@ class _RuleSheetState extends State<_RuleSheet> {
   }
 
   Future<void> _save() async {
-    if (_busy || _c.text.trim().isEmpty) return;
+    final text = _c.text.trim();
+    if (_busy || text.isEmpty) return;
+    if (_app && !isPackage(text)) {
+      setState(() => _error = tr('选一个 App，或写完整的包名', 'Pick an app, or type its full package name'));
+      return;
+    }
+    if (_app && widget.app.excludedApps.contains(text)) {
+      final name = _apps?.where((a) => a.id == text).firstOrNull?.name ?? text;
+      setState(() => _error = _skipsWhy(name));
+      return;
+    }
     setState(() => _busy = true);
     final out = await (_editing ? widget.app.editServiceRule(_args) : widget.app.addServiceRule(_args));
     if (!mounted) return;
@@ -1205,6 +1259,57 @@ class _RuleSheetState extends State<_RuleSheet> {
     ];
   }
 
+  /// The installed apps whose name or package has what's typed, to pick one
+  /// by. One 分应用代理 keeps out of the VPN shows, and says why it takes no rule.
+  Widget _appList(Look l) {
+    final apps = _apps;
+    final small = l.text(13, color: l.mute, lh: 18);
+    if (apps == null) {
+      return Padding(padding: const EdgeInsets.only(top: 8), child: Shim(active: true, child: Text(tr('正在列出 App…', 'Listing apps…'), style: small)));
+    }
+    final q = _c.text.trim().toLowerCase();
+    final rows = [for (final a in apps) if (q.isEmpty || a.name.toLowerCase().contains(q) || a.id.toLowerCase().contains(q)) a];
+    if (rows.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Text(isPackage(q) ? tr('列表里没有这个包名，也可以照样添加。', "It isn't in the list; it can be added all the same.") : tr('没有名字含「{0}」的 App。', 'No app has “{0}” in its name.', [_c.text.trim()]), style: small),
+      );
+    }
+    final out = widget.app.excludedApps;
+    Widget row(({String id, String name}) a) {
+      final skips = out.contains(a.id), picked = _c.text.trim() == a.id;
+      return Tap(
+        label: a.name,
+        onTap: () {
+          if (skips) {
+            setState(() => _error = _skipsWhy(a.name));
+            return;
+          }
+          _c.value = TextEditingValue(text: a.id, selection: TextSelection.collapsed(offset: a.id.length));
+          _changed();
+        },
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          child: Row(children: [
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Line1(a.name, l.text(14, color: skips ? l.mute : l.ink, lh: 20)),
+                Line1(skips ? '${a.id} · ${tr('不走 bowel', 'skips bowel')}' : a.id, l.text(12, color: l.mute, lh: 16)),
+              ]),
+            ),
+            if (picked) Ic('check', size: 16, color: l.ink2),
+          ]),
+        ),
+      );
+    }
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 240),
+      child: ListView(shrinkWrap: true, padding: const EdgeInsets.only(top: 4), children: [for (final a in rows) row(a)]),
+    );
+  }
+
   Future<void> _move() async {
     final args = _args;
     setState(() => _busy = true);
@@ -1223,6 +1328,7 @@ class _RuleSheetState extends State<_RuleSheet> {
             on: _kind == kind,
             onTap: () {
               _kind = kind;
+              if (_app) _loadApps();
               _changed();
             },
           ),
@@ -1234,7 +1340,7 @@ class _RuleSheetState extends State<_RuleSheet> {
       Text(_editing ? tr('编辑规则', 'Edit rule') : tr('添加规则', 'Add rule'), style: l.text(15, weight: 700, lh: 21)),
       Text(widget.serviceName, maxLines: 1, overflow: TextOverflow.ellipsis, style: l.text(12.5, color: l.mute, lh: 17)),
       const SizedBox(height: 8),
-      if (conflict == null && !_editing && uri != null && _setLink.hasMatch(link))
+      if (conflict == null && !_editing && !_app && uri != null && _setLink.hasMatch(link))
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1260,7 +1366,9 @@ class _RuleSheetState extends State<_RuleSheet> {
           child: Text(
             _error ??
                 (_preview == null
-                    ? tr('粘贴链接也可以，会自动提取域名。', 'A pasted link works too: the domain is taken from it.')
+                    ? (_app
+                        ? tr('这个 App 的所有连接都走这个路由组，不管连到哪里，排在其他规则之前。', 'All of the app\'s connections go by this group, wherever they go, ahead of other rules.')
+                        : tr('粘贴链接也可以，会自动提取域名。', 'A pasted link works too: the domain is taken from it.'))
                     : _editing
                         ? tr('保存后：{0} · {1}', 'Will save: {0} · {1}', [_preview!['value'], _preview!['kindName']])
                         : tr('添加后：{0} · {1}', 'Will add: {0} · {1}', [_preview!['value'], _preview!['kindName']])),
@@ -1279,8 +1387,15 @@ class _RuleSheetState extends State<_RuleSheet> {
         constraints: const BoxConstraints(minHeight: 44),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
         decoration: BoxDecoration(color: l.paper2, borderRadius: l.br(11)),
-        child: BareField(hint: tr('域名、IP 或链接', 'A domain, IP or link'), controller: _c, autofocus: !_editing, keyboardType: TextInputType.url, onChanged: (_) => _changed(), onSubmitted: (_) => _save()),
+        child: BareField(
+            hint: _app ? tr('搜索 App，或写包名', 'Search apps, or type a package name') : tr('域名、IP 或链接', 'A domain, IP or link'),
+            controller: _c,
+            autofocus: !_editing,
+            keyboardType: _app ? TextInputType.text : TextInputType.url,
+            onChanged: (_) => _changed(),
+            onSubmitted: (_) => _save()),
       ),
+      if (_app) _appList(l),
       if (_editing) ..._via(l),
       const SizedBox(height: 10),
       Btn(_editing ? tr('保存', 'Save') : tr('添加', 'Add'), kind: BtnKind.accent, expand: true, minH: 44, onTap: _busy ? null : _save),
@@ -1570,7 +1685,7 @@ class _MyRulesPageState extends State<MyRulesPage> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Builder(builder: (_) {
-                        final label = rowLabel(l, r['shown'] as String? ?? '', '${r['kindName']} · ${g['name']}${s['mine'] == true ? '' : ' · ${s['name']}'}');
+                        final label = rowLabel(l, r['shown'] as String? ?? '', '${r['kindName']} · ${g['name']}${s['mine'] == true ? '' : ' · ${s['name']}'}${_skipsVpn(app, r) ? ' · ${_skipsWord()}' : ''}');
                         if (!_editable(app, r)) return label;
                         return Tap(label: tr('编辑规则', 'Edit rule'), onTap: () => _editRule(app, g['id'] as String, s, r), child: SizedBox(width: double.infinity, child: label));
                       }),
