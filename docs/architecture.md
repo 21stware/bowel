@@ -65,7 +65,8 @@ internal/tun               the one authorisation TUN takes: setuid (macOS), file
 internal/gateway           IPv4 forwarding, LAN detection, the gateway's checks
 internal/dhcp              who hands out addresses on the LAN, and handing them out: the gateway's automatic step
 internal/qr                QR decoding
-internal/i18n              简体中文, 繁體中文, English, 日本語
+internal/i18n              简体中文, 繁體中文, English, 日本語; flutter.go has the Flutter app's own words
+internal/dartgen           what the Flutter app takes from here: go generate writes its table (internal/i18n) and skins (skins.go), go test checks them
 internal/settings          settings.json
 internal/mcp               a small MCP server (stdio framing over a unix socket) and the `bowel mcp` bridge
 app_mcp.go, ui_mcp.go      the agents' tools and their policy; 设置 > MCP
