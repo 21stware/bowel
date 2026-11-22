@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -161,6 +162,16 @@ func BuildConfig(in Input) ([]byte, error) {
 	// False also takes IPv6 off the TUN: the core then gives it no address,
 	// and without one it doesn't route 2000::/3 or the rest of ::/0.
 	ipv6 := o.IPv6.Enabled(in.IPv6Usable)
+	// That IPv6 goes around the TUN, and with it around the exit lock: an
+	// app that finds an IPv6 address by itself (its own DoH, an address it
+	// knows) connects over this machine's network. So while a group is
+	// locked under TUN, the TUN takes IPv6 too, and it meets the rules as
+	// IPv4 does: a locked group's goes by the node or not at all, the rest
+	// where it went before, out of this machine. DNS still answers no IPv6
+	// addresses while IPv6 is off (the dns section's ipv6), so that apps
+	// keep to IPv4 as they did. Off, IPv6 isn't probed, so whether this
+	// network has it is unknown here; without it nothing more gets out.
+	coreIPv6 := ipv6 || ipv6Leaks && in.Tun && in.locks()
 	dev := in.Dev
 	// The core ignores rules outside rule mode, and with them the way to
 	// this machine's own networks; see rulesFor.
@@ -174,7 +185,7 @@ func BuildConfig(in Input) ([]byte, error) {
 		"allow-lan":           in.AllowLan,
 		"mode":                mode,
 		"log-level":           in.LogLevel,
-		"ipv6":                ipv6,
+		"ipv6":                coreIPv6,
 		"unified-delay":       o.UnifiedDelay,
 		"tcp-concurrent":      o.TCPConcurrent,
 		"find-process-mode":   o.FindProcess,
@@ -379,6 +390,10 @@ func BuildConfig(in Input) ([]byte, error) {
 		o.DNSMode = "fake-ip"
 	}
 	policy := dnsPolicy(o.NameserverPolicy, dev.Policy)
+	// A locked group's names are asked by its node. A pattern the user or a
+	// developer network gave exactly keeps its servers (addAbsent); a wider
+	// one doesn't take a locked name, whose pattern is the more specific.
+	locked := lockedDNS(in, o)
 	switch {
 	case in.Tun || o.DNS:
 		dns := map[string]any{
@@ -408,6 +423,7 @@ func BuildConfig(in Input) ([]byte, error) {
 				policy[pattern] = local
 			}
 		}
+		addAbsent(policy, locked)
 		if len(policy) > 0 {
 			dns["nameserver-policy"] = policy
 		}
@@ -423,6 +439,7 @@ func BuildConfig(in Input) ([]byte, error) {
 		// Without a resolver of its own the core asks the system's servers
 		// directly, which knows nothing of split DNS: this resolver is the
 		// system's too, but for the domains that have servers of their own.
+		addAbsent(policy, locked)
 		dns := map[string]any{
 			"enable": true, "ipv6": ipv6, "enhanced-mode": "normal", "nameserver": []string{"system"},
 			"use-hosts": o.UseHosts, "use-system-hosts": o.UseSystemHosts, "nameserver-policy": policy,
@@ -446,6 +463,7 @@ func BuildConfig(in Input) ([]byte, error) {
 			"enable": true, "ipv6": ipv6, "enhanced-mode": "normal", "nameserver": ns,
 			"use-hosts": o.UseHosts, "use-system-hosts": o.UseSystemHosts,
 		}
+		addAbsent(policy, locked)
 		if len(policy) > 0 {
 			dns["nameserver-policy"] = policy
 		}
@@ -555,13 +573,20 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 		if !ok {
 			continue
 		}
-		if lockMode && !isLocked(in.Routes, l.Route) {
+		locked := isLocked(in.Routes, l.Route)
+		if lockMode && !locked {
 			target = other
 		}
+		lines := []string{withTarget(l.Text, target)}
+		if locked && target != "REJECT" {
+			if hold, ok := udpHold(l.Text); ok {
+				lines = append(lines, hold)
+			}
+		}
 		if l.Mine && dev.Covers(l.Text) {
-			mine = append(mine, withTarget(l.Text, target))
+			mine = append(mine, lines...)
 		} else {
-			rest = append(rest, withTarget(l.Text, target))
+			rest = append(rest, lines...)
 		}
 	}
 	var def routes.Route
@@ -600,9 +625,72 @@ func ownRules(dev devnet.Overlay) []string {
 	return own
 }
 
+// ipv6Leaks says whether IPv6 the TUN doesn't take gets out around it.
+// Android's VPN refuses a family it was given no address or route of
+// (VpnService.Builder.allowFamily), and bowel's gives it IPv4 alone.
+var ipv6Leaks = runtime.GOOS != "android"
+
 // isLocked says whether route id has the exit lock.
 func isLocked(all []routes.Route, id string) bool {
 	return slices.ContainsFunc(all, func(r routes.Route) bool { return r.ID == id && r.Locked })
+}
+
+// udpHold is the line that goes right after a locked group's rule, so
+// that its UDP leaves by the node or not at all. The core passes over a
+// rule whose group can't carry UDP, its node having none, and tries the
+// next: QUIC or a call would then take another group's rule, or MATCH,
+// and go out by another node or by none. This refuses it instead, and
+// QUIC falls back to TCP, which the node carries. TCP fails its first
+// condition at once. False for a rule it can't be written for.
+func udpHold(rule string) (string, bool) {
+	sub, ok := logicSafe(rule)
+	if !ok {
+		return "", false
+	}
+	return "AND,((NETWORK,UDP),(" + sub + ")),REJECT", true
+}
+
+// logicSafe is rule as it can stand inside a logic rule, which the core
+// cuts up at its parentheses. A value with a parenthesis in it, as an
+// app's name or a keyword can have, is written as the same match by a
+// regular expression, with each character but letters and digits by its
+// code. Domains, addresses and rule sets never have one.
+func logicSafe(rule string) (string, bool) {
+	if !strings.ContainsAny(rule, "()") {
+		return rule, true
+	}
+	kind, value, _ := strings.Cut(rule, ",")
+	switch kind {
+	case "PROCESS-NAME":
+		return "PROCESS-NAME-REGEX,^" + quoteRegex(value) + "$", true
+	case "PROCESS-PATH-WILDCARD":
+		parts := strings.Split(value, "*")
+		for i, part := range parts {
+			parts[i] = strings.ReplaceAll(quoteRegex(part), `\x3f`, ".")
+		}
+		return "PROCESS-PATH-REGEX,^" + strings.Join(parts, ".*") + "$", true
+	case "DOMAIN-KEYWORD":
+		return "DOMAIN-REGEX," + quoteRegex(value), true
+	case "DOMAIN":
+		return "DOMAIN-REGEX,^" + quoteRegex(value) + "$", true
+	}
+	return "", false
+}
+
+// quoteRegex is s as a regular expression that matches it alone: every
+// ASCII character but a letter or a digit by its code, so that none is
+// a parenthesis, a comma or anything else the core or the expression
+// would read. The core's expressions ignore case, as its names do.
+func quoteRegex(s string) string {
+	var b strings.Builder
+	for _, c := range s {
+		if c < 0x80 && !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9') {
+			fmt.Fprintf(&b, `\x%02x`, c)
+		} else {
+			b.WriteRune(c)
+		}
+	}
+	return b.String()
 }
 
 // exitOf is what the core sends route id's traffic to: the route's group,
@@ -682,4 +770,97 @@ func dnsPolicy(user []string, dev []devnet.Policy) map[string][]string {
 		}
 	}
 	return policy
+}
+
+// addAbsent adds to policy the patterns of more it has no servers for.
+func addAbsent(policy, more map[string][]string) {
+	for k, v := range more {
+		if _, ok := policy[k]; !ok {
+			policy[k] = v
+		}
+	}
+}
+
+// lockedDNS is the nameserver-policy that asks a locked group's names of
+// DNS servers by the group: the core's own servers, through its node. The
+// core answers an app's A and AAAA questions itself under fake-ip, but asks
+// upstream the others (the HTTPS records browsers want, TXT) and, in other
+// modes, all of them: from this machine's address, to servers it can see,
+// for names that are to leave by the node alone. Through the group they
+// leave by the node, or, with none to go by, not at all.
+//
+// Only rules that name domains have a pattern: suffixes, whole names,
+// GeoSite lists, rule sets of domains. A keyword has none in the policy,
+// nor has an app: its questions go as before. A group whose name the core
+// would read as a server's options (& or =) gets none either.
+func lockedDNS(in Input, o Options) map[string][]string {
+	if !in.locks() || in.guarding() {
+		return nil
+	}
+	servers := proxiable(o.Nameservers)
+	if len(servers) == 0 {
+		servers = DefaultNameservers
+	}
+	behavior := map[string]string{}
+	for _, s := range in.RuleSets {
+		behavior[s.ID] = s.Behavior
+	}
+	out := map[string][]string{}
+	for _, l := range routes.Lines(in.Routes, in.UserRules) {
+		i := slices.IndexFunc(in.Routes, func(r routes.Route) bool { return r.ID == l.Route })
+		if i < 0 || !in.Routes[i].Locked || in.Routes[i].Direct {
+			continue
+		}
+		group := routes.Group(in.Routes[i])
+		key := policyPattern(l, behavior)
+		if _, taken := out[key]; key == "" || taken || strings.ContainsAny(group, "&=") {
+			continue
+		}
+		via := make([]string, len(servers))
+		for j, s := range servers {
+			// The core reads the part after # as the proxy, unescaped.
+			via[j] = s + "#" + strings.ReplaceAll(group, "%", "%25")
+		}
+		out[key] = via
+	}
+	return out
+}
+
+// policyPattern is the nameserver-policy pattern of the names a rule line
+// matches, or "" when it matches none the policy can say.
+func policyPattern(l routes.Line, behavior map[string]string) string {
+	if l.Set != "" {
+		// A rule set's file that isn't there is left out of the rules, and
+		// the core refuses one of addresses as a policy.
+		if b, ok := behavior[l.Set]; !ok || b == "ipcidr" {
+			return ""
+		}
+		return "rule-set:" + routes.RuleSetProvider(l.Set)
+	}
+	kind, rest, _ := strings.Cut(l.Text, ",")
+	value, _, _ := strings.Cut(rest, ",")
+	switch kind {
+	case "DOMAIN-SUFFIX":
+		return "+." + value
+	case "DOMAIN":
+		return value
+	case "GEOSITE":
+		return "geosite:" + value
+	}
+	return ""
+}
+
+// proxiable are the servers of list that can be asked through a proxy:
+// not the system's, nor DHCP's, nor a tailnet's, nor one the user already
+// sends by a proxy of its own.
+func proxiable(list []string) []string {
+	var out []string
+	for _, s := range list {
+		scheme, _, found := strings.Cut(strings.ToLower(s), "://")
+		if s == "system" || strings.Contains(s, "#") || found && !slices.Contains([]string{"udp", "tcp", "tls", "https", "quic"}, scheme) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
