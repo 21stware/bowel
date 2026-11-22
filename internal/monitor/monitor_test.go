@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -748,6 +749,67 @@ func TestPollEvery(t *testing.T) {
 	}
 	m.Wake()
 	wait("after Wake")
+}
+
+// Issue 200: RunFed polls as Run does but opens no log stream, and what
+// Feed is given counts as what Run's stream would have read.
+func TestRunFed(t *testing.T) {
+	polls := make(chan struct{}, 10)
+	var streams atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/connections" {
+			polls <- struct{}{}
+			io.WriteString(w, `{"downloadTotal":0,"uploadTotal":0,"connections":[]}`)
+			return
+		}
+		streams.Add(1)
+		<-r.Context().Done() // the log stream
+	}))
+	defer srv.Close()
+	c := mihomo.NewTCP(strings.TrimPrefix(srv.URL, "http://"), "")
+	wait := func(what string) {
+		t.Helper()
+		select {
+		case <-polls:
+		case <-time.After(3 * time.Second):
+			t.Fatalf("no poll %s", what)
+		}
+	}
+
+	m := New("")
+	m.Every = func() time.Duration { return time.Hour }
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { m.RunFed(ctx, c); close(done) }()
+	wait("at the start")
+	refused := "[TCP] dial DIRECT 127.0.0.1:50000(curl) --> 127.0.0.1:1 error: connect: connection refused"
+	m.Feed(mihomo.Log{Type: "warning", Payload: refused})
+	if l := m.Logs(0); len(l) != 1 || l[0].Level != "warning" || l[0].Text != refused {
+		t.Errorf("logs %+v", l)
+	}
+	if cs := m.Conns(); len(cs) != 1 || cs[0].Status != "failed" || cs[0].Port != 1 || cs[0].App != "curl" {
+		t.Errorf("conns %+v", cs)
+	}
+	m.Wake()
+	wait("after Wake")
+	cancel()
+	<-done
+	if n := streams.Load(); n != 0 {
+		t.Errorf("RunFed opened %d log streams", n)
+	}
+
+	// Run does stream, as the server sees it.
+	ctx, cancel = context.WithCancel(context.Background())
+	done = make(chan struct{})
+	go func() { m.Run(ctx, c); close(done) }()
+	defer func() { cancel(); <-done }()
+	deadline := time.Now().Add(3 * time.Second)
+	for streams.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := streams.Load(); n != 1 {
+		t.Errorf("Run opened %d log streams", n)
+	}
 }
 
 func TestNote(t *testing.T) {

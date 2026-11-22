@@ -235,6 +235,7 @@ func newApp() (*App, error) {
 	a.revive = &reviver{state: func() core.State { return cm.Status().State }, quitting: a.isQuitting, apply: a.applyConfig, sleep: time.Sleep}
 	cm.OnStatus = func(s core.Status) { a.onCoreStatus(s) }
 	cm.OnListenError = func() { a.emit() }
+	cm.OnLog = a.mon.Feed // the log of a core Spawn started: see onCoreStatus
 	a.mon.OnTick(a.onTick)
 	return a, nil
 }
@@ -624,7 +625,15 @@ func (a *App) onCoreStatus(s core.Status) {
 			a.mu.Lock()
 			a.monCancel = cancel
 			a.mu.Unlock()
-			go a.mon.Run(ctx, c)
+			run := a.mon.Run
+			if a.core.LogStreamed() {
+				// The core manager streams this core's log already (Windows'
+				// TUN core, which prints to no one) and feeds the monitor
+				// with it: a second stream would have the core send every
+				// entry twice (#200).
+				run = a.mon.RunFed
+			}
+			go run(ctx, c)
 		}
 		go func() {
 			a.applySystemProxy()
