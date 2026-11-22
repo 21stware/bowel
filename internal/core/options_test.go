@@ -117,6 +117,12 @@ func TestEveryOptionPassesCore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The dashboards' controller, unless Moho's own took TCP (on Windows,
+	// or a socket path too long), which then wins (TestOwnTCPControllerWins).
+	controller := []string{"external-controller: 127.0.0.1:19090", "secret: s3cret"}
+	if addr := m.TCPAddr(); addr != "" {
+		controller = []string{"external-controller: " + addr, "secret: " + m.ControllerFields()["secret"].(string)}
+	}
 	for _, tun := range []bool{false, true} {
 		in := Input{Routes: routes.Template(), Mode: "rule", MixedPort: 17899, LogLevel: "info", AllowLan: true,
 			TestURL: "https://www.gstatic.com/generate_204", ProbePort: 17900, Controller: m.ControllerFields(),
@@ -128,12 +134,12 @@ func TestEveryOptionPassesCore(t *testing.T) {
 			t.Fatal(err)
 		}
 		s := string(cfg)
-		for _, want := range []string{
+		for _, want := range append([]string{
 			"port: 17801", "socks-port: 17802", "- me:secret", "skip-auth-prefixes", "global-client-fingerprint: chrome",
 			"find-process-mode: strict", "keep-alive-interval: 30", "interval: 120", "tolerance: 50", "interval: 900",
 			"respect-rules: true", "geosite:cn:", "- 119.29.29.29", "router.lan: 192.168.1.1", "sniffer:", "8080-8880",
-			"geo-update-interval: 48", "external-controller: 127.0.0.1:19090", "secret: s3cret",
-		} {
+			"geo-update-interval: 48",
+		}, controller...) {
 			if !strings.Contains(s, want) {
 				t.Errorf("tun %v: config lacks %q", tun, want)
 			}
