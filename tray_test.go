@@ -240,45 +240,59 @@ func TestTrayLines(t *testing.T) {
 
 // The icon with the rates in it is as wide for every rate, so the menu bar
 // item never moves its neighbors, is the menu bar's height, and has the
-// rates on both lines in full ink, whether taken over or not.
+// rates on both lines in full ink, whether taken over or not: in the
+// system font, and in Go Medium where that cannot be had.
 func TestTrayRatesIcon(t *testing.T) {
-	width := -1
-	for _, b := range []int64{0, 7, 1000, 60 << 10, 1363149, 300 << 20, 2254857830} {
-		for _, on := range []bool{false, true} {
-			img, err := png.Decode(bytes.NewReader(trayRatesIcon(on, false, trayLines("darwin", true, Tick{Up: b, Down: b / 3}))))
-			if err != nil {
-				t.Fatal(err)
-			}
-			bd := img.Bounds()
-			if bd.Dy() != 36 {
-				t.Fatalf("the icon is %d px tall", bd.Dy())
-			}
-			if width < 0 {
-				width = bd.Dx()
-			}
-			if bd.Dx() != width {
-				t.Errorf("%d B/s: %d px wide, others are %d", b, bd.Dx(), width)
-			}
-			for half := range 2 {
-				var maxA uint8
-				for y := half * 18; y < half*18+18; y++ {
-					for x := 36; x < bd.Dx(); x++ {
-						maxA = max(maxA, color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA).A)
-					}
+	fonts := []struct {
+		name string
+		draw func(on bool, lines [2]string) []byte
+	}{
+		{"the system font", func(on bool, lines [2]string) []byte { return trayRatesIcon(on, false, lines) }},
+		{"Go Medium", func(on bool, lines [2]string) []byte { return drawRatesIcon(goRateFace(), on, false, lines) }},
+	}
+	for _, f := range fonts {
+		width := -1
+		for _, b := range []int64{0, 7, 1000, 60 << 10, 1363149, 300 << 20, 2254857830} {
+			for _, on := range []bool{false, true} {
+				img, err := png.Decode(bytes.NewReader(f.draw(on, trayLines("darwin", true, Tick{Up: b, Down: b / 3}))))
+				if err != nil {
+					t.Fatal(err)
 				}
-				if maxA != 255 {
-					t.Errorf("%d B/s on %v: line %d's strongest alpha is %d", b, on, half+1, maxA)
+				bd := img.Bounds()
+				if bd.Dy() != 36 {
+					t.Fatalf("%s: the icon is %d px tall", f.name, bd.Dy())
+				}
+				if width < 0 {
+					width = bd.Dx()
+				}
+				if bd.Dx() != width {
+					t.Errorf("%s, %d B/s: %d px wide, others are %d", f.name, b, bd.Dx(), width)
+				}
+				// The arrow, and the rate after it.
+				for _, from := range []int{36, 36 + trayRateGap + trayArrowBox + trayArrowGap} {
+					for half := range 2 {
+						var maxA uint8
+						for y := half * 18; y < half*18+18; y++ {
+							for x := from; x < bd.Dx(); x++ {
+								maxA = max(maxA, color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA).A)
+							}
+						}
+						if maxA < 240 {
+							t.Errorf("%s, %d B/s on %v: line %d's strongest alpha from x %d is %d", f.name, b, on, half+1, from, maxA)
+						}
+					}
 				}
 			}
 		}
-	}
-	// Narrower than the one line it replaces, at about 7 px per character
-	// of the menu bar's font: eleven characters, 119 pt (#186).
-	if width/2 >= 18+119 {
-		t.Errorf("two lines are %d pt wide with the logo, no narrower than one", width/2)
+		// Narrower than the one line it replaces, at about 7 px per
+		// character of the menu bar's font: eleven characters, 119 pt (#186).
+		if width/2 >= 18+119 {
+			t.Errorf("%s: two lines are %d pt wide with the logo, no narrower than one", f.name, width/2)
+		}
+		t.Logf("%s: %d px wide", f.name, width)
 	}
 	if os.Getenv("TRAY_RATES_PNG") != "" {
-		_ = os.WriteFile(os.Getenv("TRAY_RATES_PNG"), trayRatesIcon(true, false, [2]string{"↑ 60K", "↓1.3M"}), 0o644)
+		_ = os.WriteFile(os.Getenv("TRAY_RATES_PNG"), trayRatesIcon(true, false, [2]string{"↑\u2007 60K", "↓\u20071.3M"}), 0o644)
 	}
 }
 
