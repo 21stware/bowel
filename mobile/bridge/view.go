@@ -32,6 +32,9 @@ type viewData struct {
 	RuleCount int `json:"ruleCount"`
 	// UserRules is how many rules the user added, the 我的规则 row.
 	UserRules int `json:"userRules"`
+	// AppRules says a rule can name an app here (SetAppRules), which the
+	// 我的规则 row then says.
+	AppRules bool `json:"appRules"`
 	// Core is what the 设置 page says about mihomo.
 	Core string `json:"core"`
 	// Imported is there while a provider's own routing is in use, without
@@ -236,6 +239,7 @@ func (x *bridge) view() viewData {
 		}
 	}
 	v.UserRules = len(st.Rules)
+	v.AppRules = routes.AppRules
 	v.Core = i18n.T("mihomo · 未运行", "mihomo · stopped")
 	if vpn == "on" {
 		v.Core = i18n.T("mihomo · 运行中", "mihomo · running")
