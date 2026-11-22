@@ -225,8 +225,11 @@ The mobile apps are in `mobile/` and need Flutter and gomobile; Android also nee
 ```bash
 ./mobile/android/build.sh       # Android: mihomo, the launcher and the bridge
 ./mobile/bridge/build.sh        # iOS: the bridge and the tunnel
+go generate ./...               # the app's translations and skins, from the desktop's
 cd mobile/flutter && flutter run
 ```
+
+The Flutter app's translation table and skins are written from the desktop's Go, and `go test` fails when they are out of date. Its own strings, the ones the desktop does not have, are in `internal/i18n/flutter.go`.
 
 - How it works and where the code is: [docs/architecture.md](docs/architecture.md)
 - The product's information architecture: [docs/product-ia.md](docs/product-ia.md)

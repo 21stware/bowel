@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
@@ -16,7 +15,9 @@ import (
 )
 
 // outside is a core started as Windows' task starts it: not through the
-// manager, and printing to no one.
+// manager, and printing to no one. It stops as a child does: SIGTERM, or
+// under Windows, which has no signal to ask with, ended outright, as the
+// task's /End ends it.
 type outside struct {
 	cmd   *exec.Cmd
 	stops atomic.Int32
@@ -24,27 +25,30 @@ type outside struct {
 
 func (o *outside) Pid() int    { return o.cmd.Process.Pid }
 func (o *outside) Wait() error { return o.cmd.Wait() }
-func (o *outside) Stop()       { o.stops.Add(1); _ = o.cmd.Process.Signal(syscall.SIGTERM) }
+func (o *outside) Stop()       { o.stops.Add(1); interrupt(o.cmd) }
 
 // A core that Spawn starts is waited for, stopped and listened to as a
 // child is: its status follows it, and its log comes from the controller.
 func TestSpawnedCore(t *testing.T) {
-	if _, err := exec.LookPath("sh"); err != nil {
-		t.Skip("no sh")
-	}
 	bin := coreBin(t)
 	dir, err := os.MkdirTemp("", "moho")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(dir)
+	var proc *outside
+	// Whatever becomes of the stop below, no core outlives the test.
+	defer func() {
+		if proc != nil {
+			_ = proc.cmd.Process.Kill()
+		}
+	}()
 	geo(t, dir)
 	_ = os.WriteFile(filepath.Join(dir, "a.txt"), []byte(yamlNodes), 0o600)
 	m, err := New(bin, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var proc *outside
 	asked := ""
 	m.Spawn = func(b string) (Process, error) {
 		asked = b

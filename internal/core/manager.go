@@ -86,6 +86,10 @@ type Manager struct {
 	// runs, which unlike OnStatus says the core itself did not change.
 	OnListenError func()
 	OnTraffic     func(mihomo.Traffic)
+	// OnLog, if set, is called from the manager's goroutine with each entry
+	// of the log it streams from the controller of a core Spawn started
+	// (see LogStreamed).
+	OnLog func(mihomo.Log)
 
 	// Spawn, if set, is asked first to start the core at bin some other
 	// way than as a child of the app, and returns nil when bin is not its
@@ -101,6 +105,7 @@ type Manager struct {
 
 	mu        sync.Mutex
 	cmd       Process
+	spawned   bool // cmd is Spawn's: its log comes from the controller
 	exited    chan struct{}
 	client    *mihomo.Client
 	status    Status
@@ -523,7 +528,7 @@ func (m *Manager) run() error {
 	exited := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
 	m.mu.Lock()
-	m.cmd, m.exited, m.cancel = cmd, exited, cancel
+	m.cmd, m.spawned, m.exited, m.cancel = cmd, spawned, exited, cancel
 	closed := m.closed
 	m.mu.Unlock()
 
@@ -536,7 +541,7 @@ func (m *Manager) run() error {
 		defer close(exited)
 		m.mu.Lock()
 		stopping := m.stopping
-		m.cmd, m.client, m.loaded = nil, nil, nil
+		m.cmd, m.spawned, m.client, m.loaded = nil, false, nil, nil
 		m.mu.Unlock()
 		_ = os.Remove(filepath.Join(m.Dir, "mihomo.pid"))
 		if stopping {
@@ -670,13 +675,29 @@ func (m *Manager) Logs() []string { return m.logs.all() }
 // called.
 func (m *Manager) Subscribe(fn func(string)) (off func()) { return m.logs.subscribe(fn) }
 
+// LogStreamed reports whether the manager streams the running core's log
+// from its controller and passes each entry to OnLog: a core Spawn
+// started, which prints to no one. Whoever would stream that log too
+// should take it from OnLog instead, or the core encodes and sends every
+// entry twice for as long as it runs (#200). It holds from the OnStatus
+// call that says the core is running.
+func (m *Manager) LogStreamed() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.cmd != nil && m.spawned && m.OnLog != nil
+}
+
 // streamLogs writes what the controller says of a core that prints to no
-// one where readLogs reads it, until ctx ends (the core exited or is being
-// stopped). What the core said before its controller answered is lost.
+// one where readLogs reads it, and passes it to OnLog, until ctx ends (the
+// core exited or is being stopped). What the core said before its
+// controller answered is lost.
 func (m *Manager) streamLogs(ctx context.Context, c *mihomo.Client, w io.Writer) {
 	for ctx.Err() == nil {
 		_ = c.StreamLogs(ctx, "info", func(l mihomo.Log) {
 			fmt.Fprintf(w, "level=%s msg=%q\n", l.Type, l.Payload)
+			if fn := m.OnLog; fn != nil {
+				fn(l)
+			}
 		})
 		select {
 		case <-ctx.Done():

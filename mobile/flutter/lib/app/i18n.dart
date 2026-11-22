@@ -27,14 +27,3 @@ String tr(String zh, String en, [List<Object?> args = const []]) {
   }
   return s;
 }
-
-/// A skin's name; `skinDefs` holds the Chinese.
-String skinName(String id) => switch (id) {
-      'paper' => tr('纸墨', 'Paper'),
-      'broadsheet' => tr('报刊', 'Broadsheet'),
-      'phosphor' => tr('荧光屏', 'Phosphor'),
-      'neon' => tr('霓虹', 'Neon'),
-      'blueprint' => tr('蓝图', 'Blueprint'),
-      'sakura' => tr('樱', 'Sakura'),
-      _ => id,
-    };

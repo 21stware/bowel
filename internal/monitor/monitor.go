@@ -162,7 +162,18 @@ func New(statsPath string) *Monitor {
 // second (or Every) and streams its log at level "info". Call it again with a new
 // client when the core restarts; a second Run waits for the previous one
 // to return.
-func (m *Monitor) Run(ctx context.Context, c *mihomo.Client) {
+func (m *Monitor) Run(ctx context.Context, c *mihomo.Client) { m.run(ctx, c, true) }
+
+// RunFed is Run for a core whose log someone streams from its controller
+// already and passes on through Feed: it polls, and opens no stream of its
+// own, so that the core does not send every entry twice (#200).
+func (m *Monitor) RunFed(ctx context.Context, c *mihomo.Client) { m.run(ctx, c, false) }
+
+// Feed keeps one entry of the core's log as Run's own stream does, failed
+// dials and refusals included. Safe from any goroutine.
+func (m *Monitor) Feed(l mihomo.Log) { m.addLog(l, time.Now()) }
+
+func (m *Monitor) run(ctx context.Context, c *mihomo.Client, logs bool) {
 	m.runMu.Lock()
 	defer m.runMu.Unlock()
 	ctx, cancel := context.WithCancel(ctx)
@@ -174,7 +185,9 @@ func (m *Monitor) Run(ctx context.Context, c *mihomo.Client) {
 	m.mu.Unlock()
 
 	var wg sync.WaitGroup
-	wg.Go(func() { m.streamLogs(ctx, c) })
+	if logs {
+		wg.Go(func() { m.streamLogs(ctx, c) })
+	}
 
 	t := time.NewTimer(pollEvery)
 	defer t.Stop()

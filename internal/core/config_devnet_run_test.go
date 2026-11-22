@@ -111,6 +111,23 @@ func answerDNS(t *testing.T) string {
 	return pc.LocalAddr().String()
 }
 
+// loopback is this system's name for its loopback interface: lo0 on macOS,
+// lo on Linux, "Loopback Pseudo-Interface 1" on Windows.
+func loopback(t *testing.T) string {
+	t.Helper()
+	ifs, err := net.Interfaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, i := range ifs {
+		if i.Flags&net.FlagLoopback != 0 && i.Flags&net.FlagUp != 0 {
+			return i.Name
+		}
+	}
+	t.Skip("no loopback interface")
+	return ""
+}
+
 type lockedBuf struct {
 	mu sync.Mutex
 	b  bytes.Buffer
@@ -138,7 +155,7 @@ func TestOverlayRuns(t *testing.T) {
 	_, webPort, _ := net.SplitHostPort(web.Listener.Addr().String())
 
 	env := devnet.Env{
-		Tailscale: devnet.Tailscale{Installed: true, State: "Running", Iface: "lo0", Suffix: "tail.example",
+		Tailscale: devnet.Tailscale{Installed: true, State: "Running", Iface: loopback(t), Suffix: "tail.example",
 			Peers: []devnet.Peer{{Name: "mybox", FQDN: "mybox.tail.example", IPs: []netip.Addr{netip.MustParseAddr("127.0.0.1")}}}},
 		Resolvers: []devnet.Resolver{{Domain: "corp-test", Servers: []string{answerDNS(t)}}},
 	}
