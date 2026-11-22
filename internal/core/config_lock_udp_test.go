@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -208,7 +209,7 @@ func TestLockUDPRuns(t *testing.T) {
 	bin, geo := bundledMihomo(t)
 	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok") }))
 	defer web.Close()
-	node := connectProxy(t)
+	node, _ := connectProxy(t)
 	echo := udpEcho(t)
 	users := []routes.UserRule{{Kind: routes.KindIP, Value: "127.0.0.1/32", Route: "ai"}}
 	for _, lock := range []bool{false, true} {
@@ -300,14 +301,17 @@ func runCore(t *testing.T, bin, dir string, in Input) (int, *lockedBuf) {
 }
 
 // connectProxy is an HTTP proxy that only does CONNECT: a node that
-// carries TCP and no UDP. It returns its port.
-func connectProxy(t *testing.T) int {
+// carries TCP and no UDP. It returns its port, and how many times it was
+// asked for each host:port.
+func connectProxy(t *testing.T) (int, func(target string) int) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { ln.Close() })
+	var mu sync.Mutex
+	asked := map[string]int{}
 	go func() {
 		for {
 			c, err := ln.Accept()
@@ -321,6 +325,9 @@ func connectProxy(t *testing.T) int {
 				if err != nil || req.Method != http.MethodConnect {
 					return
 				}
+				mu.Lock()
+				asked[req.Host]++
+				mu.Unlock()
 				up, err := net.Dial("tcp", req.Host)
 				if err != nil {
 					io.WriteString(c, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
@@ -333,7 +340,11 @@ func connectProxy(t *testing.T) int {
 			}()
 		}
 	}()
-	return ln.Addr().(*net.TCPAddr).Port
+	return ln.Addr().(*net.TCPAddr).Port, func(target string) int {
+		mu.Lock()
+		defer mu.Unlock()
+		return asked[target]
+	}
 }
 
 // udpEcho sends every datagram back where it came from.
