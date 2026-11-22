@@ -146,6 +146,12 @@ func Start(dir string, sink Sink) error {
 	return nil
 }
 
+// SetAppRules says, before Start, whether the core can tell which app opened
+// a connection: on Android from 10, where the VPN service answers it
+// (mobile/android/owner). Only then is a rule for an app offered, and the
+// core asks.
+func SetAppRules(on bool) { routes.AppRules = on }
+
 // SetVPNStatus is how the host reports NEVPNStatus changes.
 func SetVPNStatus(status, errText string) {
 	bMu.Lock()
@@ -763,6 +769,10 @@ func (x *bridge) config(s settings.Settings, im *core.Imported) (map[string]any,
 	scopes, orders := x.nodeLists(all)
 	opts := s.Options.Clone()
 	opts.FindProcess, opts.Interface = "off", ""
+	if routes.AppRules {
+		// Asked only for the connections a rule for an app looks at.
+		opts.FindProcess = "strict"
+	}
 	if opts.IPv6 == core.IPv6Auto {
 		opts.IPv6 = core.IPv6On // nothing here reads the network: as it always was
 	}
@@ -788,10 +798,6 @@ func (x *bridge) config(s settings.Settings, im *core.Imported) (map[string]any,
 	// starts the core next writes its own number over this one.
 	if fd, ok := x.tunFD(); ok {
 		tun["file-descriptor"] = fd
-	}
-	if runtime.GOOS == "android" {
-		// An app cannot read other apps' sockets on Android.
-		cfg["find-process-mode"] = "off"
 	}
 	delete(cfg, "mixed-port")
 	addTailnetListener(cfg, s.Tailnet)
@@ -1040,6 +1046,8 @@ func ruleText(kind, payload string) string {
 	switch kind {
 	case "", "Match":
 		return i18n.T("未命中，归其他流量", "No rule matched, Other")
+	case "ProcessName": // on Android, the app's package
+		return fmt.Sprintf(i18n.T("应用 %s", "App %s"), payload)
 	case "DomainSuffix":
 		return i18n.T("域名后缀 ", "Domain suffix ") + payload
 	case "Domain":

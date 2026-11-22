@@ -18,6 +18,14 @@ void main() {
     expect(parsePackages('hello world 1.2.3 com'), isEmpty);
   });
 
+  test('tells a whole package name from a search', () {
+    expect(isPackage('com.openai.chatgpt'), isTrue);
+    expect(isPackage('tv.danmaku.bili'), isTrue);
+    for (final s in ['chat', 'com.', '.com.x', 'com.x y', 'ChatGPT com.openai.chatgpt', '1com.x', '']) {
+      expect(isPackage(s), isFalse, reason: s);
+    }
+  });
+
   test('writes them sorted, one per line', () {
     expect(packagesText({'com.z.z', '', 'com.a.a'}), 'com.a.a\ncom.z.z');
     expect(parsePackages(packagesText({'com.z.z', 'com.a.a'})), {'com.z.z', 'com.a.a'});

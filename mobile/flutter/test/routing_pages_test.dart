@@ -78,11 +78,19 @@ bool _aiDirect = false;
 /// Whether AI 服务 has the exit lock.
 bool _aiLocked = false;
 
+/// Whether the bridge offers rules for apps, as on Android from 10.
+bool _appKind = false;
+
+/// The rules of AI 服务's 我的规则.
+List<Map> _myAiRules = [];
+
+Map _appRule(String id) => {'text': 'PROCESS-NAME,$id', 'kind': 'app', 'kindName': '应用', 'value': id, 'shown': id, 'builtin': false, 'off': false};
+
 Map _routing() => {
       'groups': [
         _group('default', '默认', [_service('mine:default', '我的规则', mine: true)]),
         _group('ai', 'AI 服务', direct: _aiDirect, [
-          _service('mine:ai', '我的规则', mine: true),
+          {..._service('mine:ai', '我的规则', mine: true), 'rules': _myAiRules},
           _service('openai', 'OpenAI', builtin: true, rules: ['openai.com', 'chatgpt.com', 'oaistatic.com']),
           _service('work', '工作', rules: ['work.example.com']),
         ]),
@@ -107,6 +115,7 @@ Map _routing() => {
         {'id': 'domain', 'name': '域名'},
         {'id': 'keyword', 'name': '域名关键词'},
         {'id': 'ip', 'name': 'IP 段'},
+        if (_appKind) {'id': 'app', 'name': '应用'},
       ],
     };
 
@@ -146,7 +155,16 @@ Map _checked(Map args) {
 }
 
 void _fakeCore() {
-  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(const MethodChannel('bowel/shell'), (call) async => call.method == 'pickFile' ? '/cache/picked/1/ChinaDNS.yaml' : null);
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(const MethodChannel('bowel/shell'), (call) async {
+    return switch (call.method) {
+      'pickFile' => '/cache/picked/1/ChinaDNS.yaml',
+      'listApps' => [
+          {'id': 'com.openai.chatgpt', 'name': 'ChatGPT'},
+          {'id': 'com.google.android.gm', 'name': 'Gmail'},
+        ],
+      _ => null,
+    };
+  });
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(const MethodChannel('bowel/core'), (call) async {
     final method = call.arguments['method'] as String;
     final args = jsonDecode(call.arguments['payload'] as String) as Map;
@@ -236,6 +254,8 @@ void main() {
     _sets = [];
     _aiDirect = false;
     _aiLocked = false;
+    _appKind = false;
+    _myAiRules = [];
     language = 'zh';
     _fakeCore();
   });
@@ -816,5 +836,124 @@ void main() {
     await _settle(tester);
     expect(find.bySemanticsLabel('出口锁定'), findsOneWidget, reason: 'the list marks the locked group');
     expect(tester.takeException(), isNull);
+  });
+
+  Future<void> openAppSheet(WidgetTester tester, AppState app) async {
+    await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai', service: 'work')));
+    await _settle(tester);
+    await tester.tap(find.text('添加规则').last);
+    await _settle(tester);
+    // The last of the kinds, past the edge of a narrow phone.
+    final chips = find.ancestor(of: find.widgetWithText(Chip, '自动识别'), matching: find.byType(Scrollable)).first;
+    await tester.drag(chips, const Offset(-600, 0));
+    await _settle(tester);
+    await tester.tap(find.widgetWithText(Chip, '应用'));
+    await _settle(tester);
+  }
+
+  testWidgets('an app is picked from the installed ones and its package becomes the rule', (tester) async {
+    _appKind = true;
+    final app = _app();
+    await openAppSheet(tester, app);
+    expect(find.text('ChatGPT'), findsOneWidget);
+    expect(find.text('Gmail'), findsOneWidget);
+    await tester.enterText(find.byType(EditableText), 'chat');
+    await _settle(tester);
+    expect(find.text('Gmail'), findsNothing, reason: 'the field searches the list');
+    await tester.tap(find.text('ChatGPT'));
+    await _settle(tester);
+    expect(tester.widget<EditableText>(find.byType(EditableText)).controller.text, 'com.openai.chatgpt');
+    expect(find.text('添加后：com.openai.chatgpt · 应用'), findsOneWidget);
+    await tester.tap(find.text('添加').last);
+    await _settle(tester);
+    expect(_ops.single, {'op': 'addRule', 'kind': 'app', 'text': 'com.openai.chatgpt', 'route': 'ai', 'service': 'work'});
+    expect(app.sheet, isNull);
+  });
+
+  testWidgets('a search that is no package is not added as an app', (tester) async {
+    _appKind = true;
+    final app = _app();
+    await openAppSheet(tester, app);
+    await tester.enterText(find.byType(EditableText), 'chat');
+    await _settle(tester);
+    await tester.tap(find.text('添加').last);
+    await _settle(tester);
+    expect(_ops, isEmpty);
+    expect(find.text('选一个 App，或写完整的包名'), findsOneWidget);
+    await tester.enterText(find.byType(EditableText), 'org.example.sync');
+    await _settle(tester);
+    expect(find.text('列表里没有这个包名，也可以照样添加。'), findsOneWidget);
+    await tester.tap(find.text('添加').last);
+    await _settle(tester);
+    expect(_ops.single['text'], 'org.example.sync', reason: 'a package not in the launcher list still takes a rule');
+  });
+
+  testWidgets('an app kept out of the VPN takes no rule, and says why', (tester) async {
+    _appKind = true;
+    final app = _app()..vpnExcluded = 'com.google.android.gm';
+    await openAppSheet(tester, app);
+    expect(find.text('com.google.android.gm · 不走 bowel'), findsOneWidget);
+    await tester.tap(find.text('Gmail'));
+    await _settle(tester);
+    final why = find.textContaining('Gmail 在「分应用代理」里关掉了');
+    expect(why, findsOneWidget);
+    expect(tester.widget<EditableText>(find.byType(EditableText)).controller.text, isEmpty, reason: 'it is not picked');
+    await tester.enterText(find.byType(EditableText), 'com.google.android.gm');
+    await _settle(tester);
+    expect(why, findsOneWidget, reason: 'typed, it says so at once');
+    expect(find.textContaining('添加后：'), findsNothing);
+    await tester.tap(find.text('添加').last);
+    await _settle(tester);
+    expect(_ops, isEmpty, reason: 'and is refused');
+    expect(why, findsOneWidget);
+  });
+
+  testWidgets('a rule for an app kept out of the VPN says it never matches', (tester) async {
+    _appKind = true;
+    _myAiRules = [_appRule('com.google.android.gm'), _appRule('com.openai.chatgpt')];
+    final app = _app()..vpnExcluded = 'com.google.android.gm';
+    await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai', service: 'mine:ai')));
+    await _settle(tester);
+    expect(find.text('应用 · 已在「分应用代理」里关掉，不会生效'), findsOneWidget, reason: 'only the one kept out');
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(_host(app, MyRulesPage(app: app)));
+    await _settle(tester);
+    expect(find.text('应用 · AI 服务 · 已在「分应用代理」里关掉，不会生效'), findsOneWidget);
+    expect(find.text('应用 · AI 服务'), findsOneWidget);
+  });
+
+  testWidgets('a rule for an app opens to be edited with the app picked', (tester) async {
+    _appKind = true;
+    _myAiRules = [_appRule('com.openai.chatgpt')];
+    final app = _app();
+    await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai', service: 'mine:ai')));
+    await _settle(tester);
+    await tester.tap(find.text('com.openai.chatgpt'));
+    await _settle(tester);
+    expect(find.text('编辑规则'), findsOneWidget);
+    expect(find.text('ChatGPT'), findsOneWidget);
+    expect(find.text('保存后：com.openai.chatgpt · 应用'), findsOneWidget);
+    await tester.tap(find.text('保存'));
+    await _settle(tester);
+    expect(_ops.single['op'], 'editRule');
+    expect([_ops.single['kind'], _ops.single['text']], ['app', 'com.openai.chatgpt']);
+  });
+
+  testWidgets('without rules for apps, as before Android 10, there is no app kind and its rules only go', (tester) async {
+    _myAiRules = [_appRule('com.openai.chatgpt')];
+    final app = _app();
+    await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai', service: 'mine:ai')));
+    await _settle(tester);
+    await tester.tap(find.text('com.openai.chatgpt'));
+    await _settle(tester);
+    expect(app.sheet, isNull, reason: "it doesn't open to be edited");
+    await tester.tap(find.text('添加规则').first);
+    await _settle(tester);
+    expect(find.text('添加'), findsWidgets, reason: 'the sheet is open');
+    final chips = find.ancestor(of: find.widgetWithText(Chip, '自动识别'), matching: find.byType(Scrollable)).first;
+    await tester.drag(chips, const Offset(-600, 0));
+    await _settle(tester);
+    expect(find.widgetWithText(Chip, 'IP 段'), findsOneWidget, reason: 'the end of the kinds');
+    expect(find.widgetWithText(Chip, '应用'), findsNothing);
   });
 }

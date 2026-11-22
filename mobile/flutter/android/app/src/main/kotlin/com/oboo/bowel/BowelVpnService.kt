@@ -94,6 +94,11 @@ class BowelVpnService : VpnService() {
             Thread({ log.readAll(core) }, "bowel-core-log").start()
             sendDescriptor(File(dir, "tunfd.sock"), tun, core)
             waitForController(File(dir, "c.sock"), core)
+            // Rules for apps: only from Android 10 does Android say which app
+            // owns a connection. Before, the bridge offers no such rule.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ConnectionOwners(this, File(dir, ConnectionOwners.SOCKET)) { !stopping && core.isAlive }.start()
+            }
             if (!stopping) Core.setStatus("on")
             val code = core.waitFor()
             if (!stopping) failure = log.fatal ?: log.lastLines().ifEmpty { "core exited with $code" }

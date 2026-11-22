@@ -535,6 +535,7 @@ type controller struct {
 	mu     sync.Mutex
 	asked  []string
 	refuse string // a request answered with an error
+	conns  string // what GET /connections answers, when not {}
 }
 
 func (c *controller) saw(what string) bool {
@@ -561,10 +562,15 @@ func withCore(t *testing.T, x *bridge) *controller {
 		c.mu.Lock()
 		c.asked = append(c.asked, what)
 		refuse := c.refuse == what
+		conns := c.conns
 		c.mu.Unlock()
 		if refuse {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = io.WriteString(w, `{"message":"refused"}`)
+			return
+		}
+		if what == "GET /connections" && conns != "" {
+			_, _ = io.WriteString(w, conns)
 			return
 		}
 		_, _ = io.WriteString(w, "{}")

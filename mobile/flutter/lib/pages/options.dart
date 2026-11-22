@@ -224,6 +224,8 @@ class _AppsPageState extends State<AppsPage> {
   void initState() {
     super.initState();
     _load();
+    // Which apps have rules of their own, to say what turning one off does.
+    if (widget.app.routing == null) widget.app.refreshRouting();
   }
 
   Future<void> _load() async {
@@ -310,6 +312,11 @@ class _AppsPageState extends State<AppsPage> {
                     final next = {...out};
                     next.contains(a.id) ? next.remove(a.id) : next.add(a.id);
                     app.setExcluded(next);
+                    // Its rule sees none of its traffic once it skips bowel.
+                    final group = app.appRuleGroup(a.id);
+                    if (group != null && next.contains(a.id)) {
+                      app.say(tr('{0} 有一条走「{1}」的规则，关掉后它不经过 bowel，这条规则不会生效。', '{0} has a rule to {1}; once off it skips bowel, so that rule never matches.', [a.name, group]), ms: 4000);
+                    }
                   }, sub: a.id),
               ]),
             ),

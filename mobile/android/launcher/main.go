@@ -24,6 +24,8 @@ import (
 const (
 	fdSocket     = "tunfd.sock"
 	ctlSocket    = "c.sock"
+	ownerSocket  = "owner.sock"         // BowelVpnService connects to it
+	ownerEnv     = "BOWEL_OWNER_SOCKET" // owner.SocketEnv
 	sourceConfig = "config.yaml"
 	runConfig    = "run.yaml"
 	tunFDFile    = "tun.fd"
@@ -61,7 +63,10 @@ func main() {
 		fail(fmt.Errorf("prctl: %w", e))
 	}
 	args := []string{"mihomo", "-d", dir, "-f", run, "-ext-ctl-unix", ctl}
-	if err := syscall.Exec(core, args, os.Environ()); err != nil {
+	// Where the core asks the VPN service which app opened a connection
+	// (mobile/android/owner): it listens there from its start.
+	env := append(os.Environ(), ownerEnv+"="+filepath.Join(dir, ownerSocket))
+	if err := syscall.Exec(core, args, env); err != nil {
 		fail(fmt.Errorf("exec core: %w", err))
 	}
 }
