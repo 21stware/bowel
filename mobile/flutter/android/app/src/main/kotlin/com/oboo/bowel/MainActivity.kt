@@ -61,6 +61,7 @@ class MainActivity : FlutterActivity() {
             "openVPNSettings" -> openVpnSettings(result)
             "openURL" -> openUrl(call.argument<String>("url").orEmpty(), result)
             "listApps" -> offMain(result) { launcherApps() }
+            "canSeeApp" -> offMain(result) { canSee(call.argument<String>("id").orEmpty()) }
             "appVersion" -> result.success(packageManager.getPackageInfo(packageName, 0).versionName.orEmpty())
             else -> result.notImplemented()
         }
@@ -181,6 +182,18 @@ class MainActivity : FlutterActivity() {
             .distinctBy { it.packageName }
             .map { mapOf("id" to it.packageName, "name" to it.loadLabel(packageManager).toString()) }
             .sortedWith(compareBy(Collator.getInstance()) { it.getValue("name") })
+    }
+
+    // Whether this app can see package id. From Android 11 it sees only
+    // what the manifest's <queries> name (the apps with a launcher icon) and
+    // what Android shows to every app, and ConnectionOwners names a
+    // connection's app by the same rule: a rule for one it can't see never
+    // matches.
+    private fun canSee(id: String): Boolean = try {
+        packageManager.getPackageInfo(id, 0)
+        true
+    } catch (_: PackageManager.NameNotFoundException) {
+        false
     }
 
     private fun onCore(call: MethodCall, result: MethodChannel.Result) {

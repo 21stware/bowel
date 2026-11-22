@@ -7,6 +7,8 @@ package bridge
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -142,6 +144,84 @@ func TestAppRuleMovesTheAppsConnections(t *testing.T) {
 	}
 	if !c.saw("DELETE /connections/chat-ai") || c.saw("DELETE /connections/mail") {
 		t.Fatalf("removing closed %v", c.asked)
+	}
+}
+
+// Until the first rule for an app the core looks no app up, so a connection
+// opened before has none and no rule could move it. That rule closes them,
+// those that went direct too (the core closes those by a node itself as it
+// reloads), and not bowel's own. With the core looking already, the next
+// rule for an app closes only its app's.
+func TestFirstAppRuleClosesWhatWasNeverLookedUp(t *testing.T) {
+	withAppRules(t, true)
+	x := testBridge(t)
+	ctx := context.Background()
+	c := withCore(t, x)
+	conn := func(id, kind, process string, chains ...string) map[string]any {
+		return map[string]any{"id": id, "chains": chains, "metadata": map[string]any{"network": "tcp", "type": kind, "process": process, "host": "x.example.com"}}
+	}
+	snap, _ := json.Marshal(map[string]any{"connections": []any{
+		conn("direct", "Tun", "", "DIRECT"),
+		conn("by-node", "Tun", "", "东京 01", "默认"),
+		conn("probe", "Inner", "", "东京 01"),
+		conn("update", "Mixed", "", "东京 01"),
+	}})
+	c.mu.Lock()
+	c.conns = string(snap)
+	c.mu.Unlock()
+
+	mine := routes.UserRule{Kind: routes.KindSuffix, Value: "chat.example.com", Route: "ai"}
+	if err := x.routeOp(ctx, callArgs{Op: "addRule", Kind: mine.Kind, Text: mine.Value, Route: mine.Route}); err != nil {
+		t.Fatal(err)
+	}
+	if c.saw("DELETE /connections/direct") || c.saw("DELETE /connections/by-node") {
+		t.Fatalf("a rule for a domain closed %v", c.asked)
+	}
+	if err := x.routeOp(ctx, callArgs{Op: "addRule", Kind: routes.KindApp, Text: chatgpt, Route: "ai"}); err != nil {
+		t.Fatal(err)
+	}
+	if !c.saw("DELETE /connections/direct") || !c.saw("DELETE /connections/by-node") {
+		t.Fatalf("the first rule for an app left open what it never looked up: %v", c.asked)
+	}
+	if c.saw("DELETE /connections/probe") || c.saw("DELETE /connections/update") {
+		t.Fatalf("the first rule for an app closed bowel's own: %v", c.asked)
+	}
+
+	c.mu.Lock()
+	c.asked = nil
+	c.mu.Unlock()
+	if err := x.routeOp(ctx, callArgs{Op: "addRule", Kind: routes.KindApp, Text: "com.android.chrome", Route: "ai"}); err != nil {
+		t.Fatal(err)
+	}
+	if c.saw("DELETE /connections/direct") || c.saw("DELETE /connections/by-node") {
+		t.Fatalf("a second rule for an app closed connections not its app's: %v", c.asked)
+	}
+}
+
+func TestFindsApps(t *testing.T) {
+	dir := t.TempDir()
+	for name, tc := range map[string]struct {
+		cfg  string
+		want bool
+	}{
+		"no file":             {"", false},
+		"off":                 {"find-process-mode: off\nrules:\n  - PROCESS-NAME,a.b,x\n", false},
+		"always":              {"find-process-mode: always\nrules:\n  - MATCH,x\n", true},
+		"strict, no app rule": {"find-process-mode: strict\nrules:\n  - DOMAIN-SUFFIX,a.b,x\n  - MATCH,x\n", false},
+		"strict, app rule":    {"find-process-mode: strict\nrules:\n  - PROCESS-NAME,a.b,x\n  - MATCH,x\n", true},
+		"strict, uid":         {"find-process-mode: strict\nrules:\n  - UID,10234,x\n", true},
+		"strict, in a logic":  {"find-process-mode: strict\nrules:\n  - AND,((NETWORK,udp),(PROCESS-NAME-REGEX,a.*)),x\n", true},
+		"strict, in sub-rule": {"find-process-mode: strict\nrules:\n  - SUB-RULE,(NETWORK,tcp),s\nsub-rules:\n  s:\n    - PROCESS-PATH,/a,x\n", true},
+	} {
+		path := filepath.Join(dir, strings.ReplaceAll(name, " ", "_")+".yaml")
+		if tc.cfg != "" {
+			if err := os.WriteFile(path, []byte(tc.cfg), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := findsApps(path); got != tc.want {
+			t.Errorf("%s: findsApps = %v, want %v", name, got, tc.want)
+		}
 	}
 }
 

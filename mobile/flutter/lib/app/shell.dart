@@ -102,6 +102,17 @@ class Shell {
     return [for (final raw in list) (id: (raw as Map)['id'] as String, name: raw['name'] as String)];
   }
 
+  /// Whether bowel can see package `id` on this phone, which a rule for it
+  /// needs: not when it isn't installed, nor when Android keeps it from
+  /// other apps. Null where that can't be asked.
+  Future<bool?> canSeeApp(String id) async {
+    try {
+      return await _channel.invokeMethod<bool>('canSeeApp', {'id': id});
+    } catch (_) {
+      return null;
+    }
+  }
+
   void setPref(String key, String value) {
     if (!kIsWeb) _channel.invokeMethod('setPref', {'key': key, 'value': value});
   }

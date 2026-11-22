@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
 	"github.com/oboo/moho/internal/speed"
+	"gopkg.in/yaml.v3"
 )
 
 const siteTimeout = 5 * time.Second
@@ -699,14 +701,65 @@ func (x *bridge) editRule(ctx context.Context, old routes.UserRule, kind, text, 
 
 // reroute closes the open connections r matches that go elsewhere than the
 // route keep: an app's by the app the core found for them, which it looks
-// for only while a rule for an app is there. One opened before the first
-// such rule goes on as it was until it closes.
+// for only while a rule for an app is there. Those opened before the first
+// such rule have no app: reload closes them (closeUnlooked).
 func (x *bridge) reroute(ctx context.Context, r routes.UserRule, keep string) {
 	if r.Kind == routes.KindApp {
 		x.rerouteWhere(ctx, func(cn mihomo.Connection) bool { return r.MatchesApp(cn.Metadata.Process, cn.Metadata.ProcessPath) }, keep)
 		return
 	}
 	x.rerouteBy(ctx, r.Matches, keep)
+}
+
+// findsApps says whether the config at path has the core look up which app
+// opened a connection: on "always", or on "strict" with a rule that names an
+// app. A rule inside a rule set is not seen; bowel writes none there.
+func findsApps(path string) bool {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var cfg struct {
+		Mode     string              `yaml:"find-process-mode"`
+		Rules    []string            `yaml:"rules"`
+		SubRules map[string][]string `yaml:"sub-rules"`
+	}
+	if yaml.Unmarshal(raw, &cfg) != nil {
+		return false
+	}
+	switch cfg.Mode {
+	case "always":
+		return true
+	case "strict":
+	default:
+		return false
+	}
+	all := slices.Concat(cfg.Rules, slices.Concat(slices.Collect(maps.Values(cfg.SubRules))...))
+	return slices.ContainsFunc(all, func(r string) bool {
+		// PROCESS-NAME, PROCESS-PATH and their -REGEX and -WILDCARD forms,
+		// and UID, also inside AND, OR and NOT.
+		return strings.Contains(r, "PROCESS-") || strings.HasPrefix(r, "UID,") || strings.Contains(r, "(UID,")
+	})
+}
+
+// closeUnlooked closes the connections the TUN brought in that the core
+// never looked an app up for: it had no rule for one when they opened. The
+// core starts looking with the first such rule, and every connection opened
+// before would otherwise keep its route until it closed, whatever its app.
+// The core closes those that went by a node itself, as it reloads the
+// nodes; this closes the rest, which went direct. Bowel's own (the probe,
+// the update's listener) did not come in by the TUN and are left alone.
+func (x *bridge) closeUnlooked(ctx context.Context, c *mihomo.Client) {
+	snap, err := c.Connections(ctx)
+	if err != nil {
+		return
+	}
+	for _, cn := range snap.Connections {
+		if cn.Metadata.Type == "Tun" && cn.Metadata.Process == "" && cn.Metadata.ProcessPath == "" {
+			_ = c.CloseConnection(ctx, cn.ID)
+		}
+	}
+	x.mon.Wake()
 }
 
 // rerouteBy closes the open connections whose host or address match and go

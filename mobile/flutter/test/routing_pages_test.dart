@@ -84,6 +84,14 @@ bool _appKind = false;
 /// The rules of AI 服务's 我的规则.
 List<Map> _myAiRules = [];
 
+/// The installed apps the phone lists, and the package it hides from bowel.
+List<Map> _installed = [];
+const _twoApps = [
+  {'id': 'com.openai.chatgpt', 'name': 'ChatGPT'},
+  {'id': 'com.google.android.gm', 'name': 'Gmail'},
+];
+const _hidden = 'com.oplus.framework.network.drs';
+
 Map _appRule(String id) => {'text': 'PROCESS-NAME,$id', 'kind': 'app', 'kindName': '应用', 'value': id, 'shown': id, 'builtin': false, 'off': false};
 
 Map _routing() => {
@@ -158,10 +166,8 @@ void _fakeCore() {
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(const MethodChannel('bowel/shell'), (call) async {
     return switch (call.method) {
       'pickFile' => '/cache/picked/1/ChinaDNS.yaml',
-      'listApps' => [
-          {'id': 'com.openai.chatgpt', 'name': 'ChatGPT'},
-          {'id': 'com.google.android.gm', 'name': 'Gmail'},
-        ],
+      'listApps' => _installed,
+      'canSeeApp' => (call.arguments as Map)['id'] != _hidden,
       _ => null,
     };
   });
@@ -196,11 +202,11 @@ void _fakeCore() {
   });
 }
 
-Widget _host(AppState app, Widget page, {double width = 360, double height = 760}) => Localizations(
+Widget _host(AppState app, Widget page, {double width = 360, double height = 760, double keyboard = 0}) => Localizations(
       locale: const Locale('en'),
       delegates: const [DefaultMaterialLocalizations.delegate, DefaultWidgetsLocalizations.delegate],
       child: MediaQuery(
-        data: MediaQueryData(size: Size(width, height)),
+        data: MediaQueryData(size: Size(width, height), viewInsets: EdgeInsets.only(bottom: keyboard)),
         child: Skin(
           look: Look.of('paper', false),
           child: Frame(
@@ -256,6 +262,7 @@ void main() {
     _aiLocked = false;
     _appKind = false;
     _myAiRules = [];
+    _installed = [..._twoApps];
     language = 'zh';
     _fakeCore();
   });
@@ -838,18 +845,58 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  Future<void> openAppSheet(WidgetTester tester, AppState app) async {
-    await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai', service: 'work')));
+  Future<void> openAppSheet(WidgetTester tester, AppState app, {double width = 360, double height = 760, double keyboard = 0}) async {
+    await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai', service: 'work'), width: width, height: height, keyboard: keyboard));
     await _settle(tester);
     await tester.tap(find.text('添加规则').last);
-    await _settle(tester);
-    // The last of the kinds, past the edge of a narrow phone.
-    final chips = find.ancestor(of: find.widgetWithText(Chip, '自动识别'), matching: find.byType(Scrollable)).first;
-    await tester.drag(chips, const Offset(-600, 0));
     await _settle(tester);
     await tester.tap(find.widgetWithText(Chip, '应用'));
     await _settle(tester);
   }
+
+  testWidgets('应用 shows next to 自动识别, on screen on a narrow phone', (tester) async {
+    _appKind = true;
+    tester.view.physicalSize = const Size(360, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final app = _app();
+    await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai', service: 'work')));
+    await _settle(tester);
+    await tester.tap(find.text('添加规则').last);
+    await _settle(tester);
+    final detect = tester.getRect(find.widgetWithText(Chip, '自动识别')), apps = tester.getRect(find.widgetWithText(Chip, '应用'));
+    expect(apps.left > detect.left && apps.left - detect.right < 10, isTrue, reason: '应用 at $apps, 自动识别 at $detect');
+    expect(apps.right <= 360, isTrue, reason: 'no scrolling to find it');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('with the keyboard up, a long app list gives way and Add stays on screen', (tester) async {
+    _appKind = true;
+    _installed = [for (var i = 0; i < 30; i++) {'id': 'com.example.app$i', 'name': 'App $i'}];
+    // The phone it was seen on: 412 × 898 dp, its keyboard 350 dp tall.
+    tester.view.physicalSize = const Size(412, 898);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final app = _app();
+    await openAppSheet(tester, app, width: 412, height: 898, keyboard: 350);
+    expect(tester.takeException(), isNull);
+    final add = tester.getRect(find.text('添加').last);
+    expect(add.bottom <= 898 - 350, isTrue, reason: 'Add at $add, above the keyboard');
+    expect(find.text('App 0'), findsOneWidget, reason: 'the list is there, shorter');
+  });
+
+  testWidgets('a typed package bowel cannot see says the rule would not match, and still takes it', (tester) async {
+    _appKind = true;
+    final app = _app();
+    await openAppSheet(tester, app);
+    await tester.enterText(find.byType(EditableText), _hidden);
+    await _settle(tester);
+    expect(find.text('bowel 看不到这个 App：没装，或者系统对其他 App 隐藏了它。看不到时，这条规则不会生效。'), findsOneWidget);
+    expect(find.text('列表里没有这个包名，也可以照样添加。'), findsNothing);
+    await tester.tap(find.text('添加').last);
+    await _settle(tester);
+    expect(_ops.single['text'], _hidden, reason: 'it may be installed, or shown, later');
+  });
 
   testWidgets('an app is picked from the installed ones and its package becomes the rule', (tester) async {
     _appKind = true;

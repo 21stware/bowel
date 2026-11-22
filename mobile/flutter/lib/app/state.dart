@@ -106,6 +106,9 @@ class AppState extends ChangeNotifier {
   // from the core
   int userRules = 6;
 
+  /// Whether a rule can name an app: on Android 10 and later.
+  bool appRules = false;
+
   /// The provider whose own routing is in use, without its groups (the
   /// 路由组 page has those); null with bowel's.
   Map? imported;
@@ -936,6 +939,7 @@ class AppState extends ChangeNotifier {
     final raised = v['issue'] as Map?;
     alert = raised == null ? null : Alert(raised['level'] as String? ?? 'warn', raised['text'] as String? ?? '', raised['detail'] as String?, raised['action'] as String?, raised['label'] as String?);
     userRules = v['userRules'] as int? ?? 0;
+    appRules = v['appRules'] as bool? ?? false;
     imported = v['imported'] as Map?;
     final at = v['you'] as Map?;
     you = at == null ? null : Place((at['lat'] as num).toDouble(), (at['lon'] as num).toDouble(), at['city'] as String? ?? '');

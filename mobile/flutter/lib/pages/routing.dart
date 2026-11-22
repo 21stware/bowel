@@ -1102,6 +1102,7 @@ class _RuleSheetState extends State<_RuleSheet> {
   int _asked = 0;
   List<({String id, String name})>? _apps; // the installed ones, once listed
   bool _listing = false;
+  final _seen = <String, bool?>{}; // whether bowel can see a typed package; null while asked or unknown
 
   bool get _editing => widget.old != null;
 
@@ -1131,6 +1132,16 @@ class _RuleSheetState extends State<_RuleSheet> {
       // No list: a package name can still be typed.
     }
     if (mounted) setState(() => _apps = list);
+  }
+
+  /// Asks once whether bowel can see a typed package the list does not have:
+  /// the list is the apps with an icon, and Android hides some others from
+  /// it, whose connections then never name their app.
+  Future<void> _see(String id) async {
+    if (_seen.containsKey(id) || (_apps?.any((a) => a.id == id) ?? false)) return;
+    _seen[id] = null;
+    final v = await Shell.instance.canSeeApp(id);
+    if (mounted) setState(() => _seen[id] = v);
   }
 
   /// Why app `name` takes no rule.
@@ -1165,6 +1176,7 @@ class _RuleSheetState extends State<_RuleSheet> {
         _error = skips ? _skipsWhy(_apps?.where((a) => a.id == text).firstOrNull?.name ?? text) : null;
         _conflict = null;
       });
+      if (isPackage(text)) _see(text);
       return;
     }
     final out = await widget.app.previewRule(_kind, text);
@@ -1243,18 +1255,20 @@ class _RuleSheetState extends State<_RuleSheet> {
         ),
       ),
       if (_picking)
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 220),
-          child: ListView(shrinkWrap: true, padding: const EdgeInsets.only(top: 4), children: [
-            for (final g in groups)
-              row(g['id'] as String, g['name'] as String? ?? '',
-                  trailing: g['id'] == _route ? Ic('check', size: 16, color: l.ink2) : null,
-                  onTap: () => setState(() {
-                        _route = g['id'] as String;
-                        _picking = false;
-                        _conflict = _error = null;
-                      })),
-          ]),
+        Flexible(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 220),
+            child: ListView(shrinkWrap: true, padding: const EdgeInsets.only(top: 4), children: [
+              for (final g in groups)
+                row(g['id'] as String, g['name'] as String? ?? '',
+                    trailing: g['id'] == _route ? Ic('check', size: 16, color: l.ink2) : null,
+                    onTap: () => setState(() {
+                          _route = g['id'] as String;
+                          _picking = false;
+                          _conflict = _error = null;
+                        })),
+            ]),
+          ),
         ),
     ];
   }
@@ -1270,9 +1284,19 @@ class _RuleSheetState extends State<_RuleSheet> {
     final q = _c.text.trim().toLowerCase();
     final rows = [for (final a in apps) if (q.isEmpty || a.name.toLowerCase().contains(q) || a.id.toLowerCase().contains(q)) a];
     if (rows.isEmpty) {
+      final typed = _c.text.trim();
+      if (isPackage(typed) && _seen[typed] == false) {
+        // Flexible, as the list is: the keyboard leaves little room.
+        return Flexible(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(tr('bowel 看不到这个 App：没装，或者系统对其他 App 隐藏了它。看不到时，这条规则不会生效。', "bowel can't see this app: it isn't installed, or Android hides it from other apps. While bowel can't see it, the rule won't match."), style: l.text(13, color: l.warnT, lh: 18)),
+          ),
+        );
+      }
       return Padding(
         padding: const EdgeInsets.only(top: 8),
-        child: Text(isPackage(q) ? tr('列表里没有这个包名，也可以照样添加。', "It isn't in the list; it can be added all the same.") : tr('没有名字含「{0}」的 App。', 'No app has “{0}” in its name.', [_c.text.trim()]), style: small),
+        child: Text(isPackage(q) ? tr('列表里没有这个包名，也可以照样添加。', "It isn't in the list; it can be added all the same.") : tr('没有名字含「{0}」的 App。', 'No app has “{0}” in its name.', [typed]), style: small),
       );
     }
     final out = widget.app.excludedApps;
@@ -1304,9 +1328,13 @@ class _RuleSheetState extends State<_RuleSheet> {
       );
     }
 
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 240),
-      child: ListView(shrinkWrap: true, padding: const EdgeInsets.only(top: 4), children: [for (final a in rows) row(a)]),
+    // Flexible: with the keyboard up the sheet has less room than the list
+    // would take, and the list gives way rather than push the Add button off.
+    return Flexible(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 240),
+        child: ListView(shrinkWrap: true, padding: const EdgeInsets.only(top: 4), children: [for (final a in rows) row(a)]),
+      ),
     );
   }
 
@@ -1379,7 +1407,9 @@ class _RuleSheetState extends State<_RuleSheet> {
         height: 36,
         child: ListView(scrollDirection: Axis.horizontal, children: [
           chip('', tr('自动识别', 'Detect')),
-          for (final k in kinds) chip(k['id'] as String, k['name'] as String),
+          // 应用 next, where a narrow phone shows it: last, it sat past the
+          // edge, and a second row of kinds would take room the keyboard leaves.
+          for (final k in [...kinds.where((k) => k['id'] == 'app'), ...kinds.where((k) => k['id'] != 'app')]) chip(k['id'] as String, k['name'] as String),
         ]),
       ),
       const SizedBox(height: 8),

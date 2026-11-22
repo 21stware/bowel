@@ -1008,11 +1008,16 @@ func (x *bridge) addRule(ctx context.Context, host, routeID string) error {
 }
 
 func (x *bridge) reload(ctx context.Context, c *mihomo.Client) error {
+	path := filepath.Join(x.dir, "config.yaml")
+	looked := findsApps(path) // the config the core has now
 	if err := x.writeConfig(); err != nil {
 		return err
 	}
-	err := c.Reload(ctx, filepath.Join(x.dir, "config.yaml"))
+	err := c.Reload(ctx, path)
 	x.tests.Forget() // the core has none of its results any more
+	if err == nil && !looked && findsApps(path) {
+		x.closeUnlooked(ctx, c)
+	}
 	return err
 }
 
