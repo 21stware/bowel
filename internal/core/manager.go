@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	mrand "math/rand/v2"
 	"net"
 	"os"
 	"os/exec"
@@ -860,29 +861,47 @@ func FreePort() (int, error) { return freePort() }
 // listenUDP is net.ListenPacket; a test has it refuse ports.
 var listenUDP = net.ListenPacket
 
+// freePortTries is how many ports freePort tries before it gives up.
+const freePortTries = 32
+
 // freePort takes a loopback TCP port from the system and keeps it only if
 // UDP can have it too, since a mixed listener such as the location
 // probe's needs both. Windows reserves blocks of ports for UDP alone
 // (Hyper-V, WSL and Docker ask for them) and still hands out the same
-// numbers for TCP; the core then fails to listen on them. A port that
-// fails stays held until the end, so the system offers another one.
+// numbers for TCP; the core then fails to listen on them. Windows also
+// hands its ports out one after another, even across processes, and such
+// a block can run several hundred long, so asking it again would only
+// walk through the block. Each later try is drawn at random from the
+// dynamic range instead.
 func freePort() (int, error) {
 	var err error
-	for range 20 {
-		l, e := net.Listen("tcp", "127.0.0.1:0")
-		if e != nil {
-			return 0, e
+	port := 0
+	for range freePortTries {
+		var p int
+		if p, err = bindBoth(port); err == nil {
+			return p, nil
 		}
-		defer l.Close()
-		port := l.Addr().(*net.TCPAddr).Port
-		u, e := listenUDP("udp", "127.0.0.1:"+strconv.Itoa(port))
-		if e == nil {
-			u.Close()
-			return port, nil
-		}
-		err = e
+		port = 49152 + mrand.IntN(65536-49152)
 	}
-	return 0, err
+	return 0, fmt.Errorf("no loopback port binds for both tcp and udp: %w", err)
+}
+
+// bindBoth listens on port of 127.0.0.1 for TCP, 0 letting the system
+// choose, and then for UDP on that same port while it holds the first. It
+// releases both and returns the port.
+func bindBoth(port int) (int, error) {
+	l, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+	port = l.Addr().(*net.TCPAddr).Port
+	u, err := listenUDP("udp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		return 0, err
+	}
+	u.Close()
+	return port, nil
 }
 
 func randomHex(n int) string {
