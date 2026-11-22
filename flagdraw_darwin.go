@@ -28,6 +28,10 @@ var (
 	ctLineDraw                  func(line, ctx uintptr)
 	cfRelease                   func(ref uintptr)
 	ctFontAttributeName         uintptr // kCTFontAttributeName
+
+	// The rates in the menu bar measure their text too (tray_rates_darwin.go).
+	ctFontGetCapHeight         func(font uintptr) float64
+	ctLineGetTypographicBounds func(line uintptr, ascent, descent, leading *float64) float64
 )
 
 func flagDrawLoad() bool {
@@ -62,6 +66,8 @@ func flagDrawLoad() bool {
 	purego.RegisterLibFunc(&ctLineCreateWithAttrString, ct, "CTLineCreateWithAttributedString")
 	purego.RegisterLibFunc(&ctLineDraw, ct, "CTLineDraw")
 	purego.RegisterLibFunc(&cfRelease, cf, "CFRelease")
+	purego.RegisterLibFunc(&ctFontGetCapHeight, ct, "CTFontGetCapHeight")
+	purego.RegisterLibFunc(&ctLineGetTypographicBounds, ct, "CTLineGetTypographicBounds")
 	return true
 }
 

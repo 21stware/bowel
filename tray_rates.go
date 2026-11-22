@@ -3,7 +3,8 @@ package main
 // The rates on two lines (Settings.TraySpeedTwoLines, #188). A menu bar
 // item's title is one line of the menu bar's font, too tall for two, so
 // the two lines are drawn into the icon, beside the logo, in a smaller
-// monospaced font: every rate is as wide, and the item never changes width.
+// size of the system's sans-serif font (tray_rates_darwin.go): every rate
+// is as wide, and the item never changes width.
 
 import (
 	"bytes"
@@ -11,11 +12,11 @@ import (
 	"image/color"
 	"image/png"
 	"math"
+	"strings"
 	"sync"
-	"unicode/utf8"
 
 	"golang.org/x/image/font"
-	"golang.org/x/image/font/gofont/gomono"
+	"golang.org/x/image/font/gofont/gomedium"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 	"golang.org/x/image/vector"
@@ -24,7 +25,11 @@ import (
 const (
 	// trayRateSize is the font's size in the icon's pixels, which are half
 	// a point: the icon is 36 px for the menu bar's 18 pt.
-	trayRateSize = 16
+	trayRateSize = 17
+	// trayRateWeight is the system font's weight, as NSFont has it:
+	// semibold. At this size the regular weight is a hairline beside the
+	// logo's stroke and the arrows.
+	trayRateWeight = 0.3 // NSFontWeightSemibold
 	// trayRateGap is the room between the logo and the rates, in pixels.
 	trayRateGap = 6
 	// trayArrowBox is the arrow's width, and trayArrowGap the room after it.
@@ -32,72 +37,148 @@ const (
 	trayArrowGap = 3
 )
 
-// trayRateFont is the face the rates are drawn in, and the lock that keeps
-// it to one drawing at a time.
+// rateUnits are the units fmtRateShort ends a rate with.
+const rateUnits = "BKMGT"
+
+// A rateRun is text to draw, the left end of its baseline at x, y: the
+// icon's pixels, from its top left.
+type rateRun struct {
+	s    string
+	x, y float64
+}
+
+// A rateFont draws the rates' characters. widths gives each string's
+// width as drawn, and the height of the digits; draw puts the runs in dst.
+type rateFont interface {
+	widths(ss []string) (w []float64, capH float64)
+	draw(dst *image.Alpha, runs []rateRun)
+}
+
+// trayRateFont keeps the drawing of the rates to one at a time; goFace is
+// the fallback's face, made once.
 var trayRateFont = struct {
-	once sync.Once
 	sync.Mutex
-	face font.Face
+	once   sync.Once
+	goFace font.Face
 }{}
 
-func rateFace() font.Face {
+// rateFace is the font the rates are drawn in: the system's
+// (systemRateFont), or Go Medium where that cannot be had.
+func rateFace() rateFont {
+	if f := systemRateFont(); f != nil {
+		return f
+	}
+	return goRateFace()
+}
+
+// goRateFace is Go Medium, or nil if it cannot be parsed.
+func goRateFace() rateFont {
 	trayRateFont.once.Do(func() {
-		f, err := opentype.Parse(gomono.TTF)
+		f, err := opentype.Parse(gomedium.TTF)
 		if err != nil {
 			return
 		}
-		trayRateFont.face, _ = opentype.NewFace(f, &opentype.FaceOptions{Size: trayRateSize, DPI: 72, Hinting: font.HintingFull})
+		trayRateFont.goFace, _ = opentype.NewFace(f, &opentype.FaceOptions{Size: trayRateSize, DPI: 72, Hinting: font.HintingFull})
 	})
-	return trayRateFont.face
+	if trayRateFont.goFace == nil {
+		return nil
+	}
+	return goRateFont{trayRateFont.goFace}
+}
+
+// goRateFont draws in a face of golang.org/x/image.
+type goRateFont struct{ face font.Face }
+
+func (g goRateFont) widths(ss []string) ([]float64, float64) {
+	w := make([]float64, len(ss))
+	for i, s := range ss {
+		w[i] = float64(font.MeasureString(g.face, s)) / 64
+	}
+	return w, float64(g.face.Metrics().CapHeight) / 64
+}
+
+func (g goRateFont) draw(dst *image.Alpha, runs []rateRun) {
+	d := font.Drawer{Dst: dst, Src: image.Opaque, Face: g.face}
+	for _, r := range runs {
+		d.Dot = fixed.Point26_6{X: fixed.Int26_6(math.Round(r.x * 64)), Y: fixed.Int26_6(math.Round(r.y * 64))}
+		d.DrawString(r.s)
+	}
+}
+
+// rateParts parses a line of trayLines: its arrow, then a rate padded with
+// figure spaces, its number and its unit.
+func rateParts(l string) (up bool, num, unit string) {
+	up = strings.HasPrefix(l, "↑")
+	l = strings.TrimLeft(strings.TrimLeft(strings.TrimLeft(l, "↑"), "↓"), "  ")
+	if l == "" {
+		return up, "", ""
+	}
+	return up, l[:len(l)-1], l[len(l)-1:]
 }
 
 // trayRatesIcon is trayIcon with lines (trayLines) drawn on its right, one
-// over the other, each centered on its half of the icon's height. The arrow
-// has a box of its own (drawArrow), every other character takes one cell
-// of the monospaced font, and a figure space is an empty one, so the image
-// is as wide for every pair of rates (#175, #186).
+// over the other, each centered on its half of the icon's height.
 func trayRatesIcon(on, white bool, lines [2]string) []byte {
-	const n = 36
 	trayRateFont.Lock()
 	defer trayRateFont.Unlock()
-	face := rateFace()
-	if face == nil {
+	f := rateFace()
+	if f == nil {
 		return trayIcon(on, white)
 	}
-	cells := 0
-	for _, l := range lines {
-		cells = max(cells, utf8.RuneCountInString(l))
-	}
-	adv, _ := face.GlyphAdvance('0')
-	// The arrow has a box of its own, and room after it; the rate's
-	// characters take a cell each.
-	w := n + trayRateGap + trayArrowBox + trayArrowGap + (adv * fixed.Int26_6(cells-1)).Ceil()
+	return drawRatesIcon(f, on, white, lines)
+}
 
-	text := image.NewAlpha(image.Rect(0, 0, w, n))
-	d := font.Drawer{Dst: text, Src: image.Opaque, Face: face}
-	capH := face.Metrics().CapHeight
+// drawRatesIcon draws trayRatesIcon in f. Each line is an arrow in a box of
+// its own (drawArrow), the number right-aligned in a box three digits wide,
+// and the unit in a box as wide as the widest unit: the image is as wide
+// for every pair of rates (#175, #186), in a font whose letters and dot
+// are not all as wide as a digit, and the two lines' units stand one over
+// the other.
+func drawRatesIcon(f rateFont, on, white bool, lines [2]string) []byte {
+	const n = 36
+	// Every digit and unit is measured, for the boxes; then each line's
+	// number and unit, from index glyphs on.
+	const glyphs = 10 + len(rateUnits)
+	ss := make([]string, 0, glyphs+4)
+	for d := '0'; d <= '9'; d++ {
+		ss = append(ss, string(d))
+	}
+	for _, u := range rateUnits {
+		ss = append(ss, string(u))
+	}
+	var up [2]bool
 	for i, l := range lines {
-		// The digits' middle on the middle of the line's half.
-		y := fixed.I((fixed.I(i*n/2) + (fixed.I(n/2)+capH)/2).Round())
-		x := fixed.I(n + trayRateGap)
-		for _, r := range l {
-			if r == '↑' || r == '↓' {
-				drawArrow(text, f26(x)+trayArrowBox/2, f26(y), f26(capH), r == '↑')
-				x += fixed.I(trayArrowBox + trayArrowGap)
-				continue
-			}
-			if r != ' ' {
-				d.Dot = fixed.Point26_6{X: x, Y: y}
-				d.DrawString(string(r))
-			}
-			x += adv
-		}
+		var num, unit string
+		up[i], num, unit = rateParts(l)
+		ss = append(ss, num, unit)
 	}
+	w, capH := f.widths(ss)
+	var digit, unit float64
+	for _, v := range w[:10] {
+		digit = max(digit, v)
+	}
+	for _, v := range w[10:glyphs] {
+		unit = max(unit, v)
+	}
+	x0 := float64(n + trayRateGap)
+	numEnd := math.Ceil(x0 + trayArrowBox + trayArrowGap + 3*digit)
+	width := int(math.Ceil(numEnd + unit))
 
-	cov := make([]float64, w*n)
+	text := image.NewAlpha(image.Rect(0, 0, width, n))
+	var runs []rateRun
+	for i := range lines {
+		// The digits' middle on the middle of the line's half.
+		y := math.Round(float64(i*n/2) + (n/2+capH)/2)
+		drawArrow(text, float32(x0)+trayArrowBox/2, float32(y), float32(capH), up[i])
+		k := glyphs + 2*i
+		runs = append(runs, rateRun{ss[k], numEnd - w[k], y}, rateRun{ss[k+1], numEnd, y})
+	}
+	f.draw(text, runs)
+
+	cov := make([]float64, width*n)
 	const scale = 34.0 / (170 + logoWidth) // as in trayIcon
 	const o = 18 - 100*scale
-	strokeLogo(logoPoints, cov, w, n, scale, o, o, logoWidth)
+	strokeLogo(logoPoints, cov, width, n, scale, o, o, logoWidth)
 	ink := 1.0
 	if !on {
 		ink = .4
@@ -106,10 +187,10 @@ func trayRatesIcon(on, white bool, lines [2]string) []byte {
 	if white {
 		rgb = 255
 	}
-	img := image.NewNRGBA(image.Rect(0, 0, w, n))
+	img := image.NewNRGBA(image.Rect(0, 0, width, n))
 	for y := 0; y < n; y++ {
-		for x := 0; x < w; x++ {
-			c := math.Max(math.Min(1, cov[y*w+x])*ink, float64(text.AlphaAt(x, y).A)/255)
+		for x := 0; x < width; x++ {
+			c := math.Max(math.Min(1, cov[y*width+x])*ink, float64(text.AlphaAt(x, y).A)/255)
 			if c > 0 {
 				img.SetNRGBA(x, y, color.NRGBA{R: rgb, G: rgb, B: rgb, A: uint8(c * 255)})
 			}
@@ -119,8 +200,6 @@ func trayRatesIcon(on, white bool, lines [2]string) []byte {
 	_ = png.Encode(&buf, img)
 	return buf.Bytes()
 }
-
-func f26(v fixed.Int26_6) float32 { return float32(v) / 64 }
 
 // drawArrow draws an arrow centered on cx, standing on baseline y and as
 // tall as the digits (capH): a stem and a 45° head, one outline. It is
