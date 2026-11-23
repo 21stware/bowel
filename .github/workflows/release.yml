@@ -24,8 +24,9 @@
 #   MYGO_UPDATER_PRIVATE_KEY     contents of mygo-update.key (mygo keygen)
 #
 # After the release, one job each updates the APT and DNF repositories on the
-# Pages site of 21stware/packages, the Homebrew tap and the AUR. They are
-# separate so that one failing leaves the others done and can be re-run alone.
+# Pages site of 21stware/packages, the Homebrew tap, the MCP Registry
+# (mcp-registry.yml, which needs no secret) and the AUR. They are separate so
+# that one failing leaves the others done and can be re-run alone.
 # The AUR job runs once the repository variable AUR_ENABLED is true: it needs an
 # AUR account that holds the public half of AUR_SSH_PRIVATE_KEY.
 #
@@ -440,6 +441,15 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Casks/bowel.rb
           git diff --cached --quiet || { git commit -m "bowel $VERSION" && git push origin HEAD:main; }
+
+  mcp-registry:
+    needs: publish
+    uses: ./.github/workflows/mcp-registry.yml
+    with:
+      tag: ${{ github.ref_name }}
+    permissions:
+      contents: write
+      id-token: write
 
   aur:
     if: vars.AUR_ENABLED == 'true'

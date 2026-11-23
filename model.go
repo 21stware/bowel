@@ -165,9 +165,12 @@ type Takeover struct {
 	Written *sysproxy.Written `json:"written,omitempty"`
 	// Gateway is this Mac as the LAN's gateway, as it really is.
 	Gateway GatewayView `json:"gateway"`
-	// Lock is the exit lock holding while takeover is off, by the system
-	// proxy: status on, or error with why it doesn't hold. Nil when no
-	// group is locked or takeover is on.
+	// Lock is the exit lock where it holds by the system proxy alone, or
+	// does not hold: while takeover is off (status on: the locked groups
+	// are refused), while the TUN that takeover goes by is lost (status
+	// on with the detail saying so: they go by their nodes), and error
+	// with why when nothing brings their traffic to bowel. Nil when no
+	// group is locked, or takeover carries it as set.
 	Lock *Entry `json:"lock,omitempty"`
 }
 
@@ -273,9 +276,12 @@ type RouteView struct {
 	// Share is the route's part of today's download, 0–1.
 	Share float64 `json:"share"`
 	// Locked is the exit lock: a node, or nothing. Refused says its
-	// traffic is refused now, takeover being off.
+	// traffic is refused now, takeover being off; Unheld, that the lock
+	// does not hold now: neither TUN nor the system proxy brings the
+	// group's traffic to bowel, so it may leave directly.
 	Locked  bool `json:"locked,omitempty"`
 	Refused bool `json:"refused,omitempty"`
+	Unheld  bool `json:"unheld,omitempty"`
 }
 
 // Place is where something is on the map.

@@ -93,6 +93,45 @@ func isBundle(app string) bool {
 	return bundles && len(app) > 4 && strings.EqualFold(app[len(app)-4:], ".app")
 }
 
+// WebKitProcess is the program that connects for every web page macOS's
+// own WebKit shows: Safari's, and those of each app with a web view in it
+// (WKWebView). It lives in WebKit.framework, outside any app's bundle, and
+// one runs for each such app, all at the same path. The kernel knows which
+// app each works for (so_e_pid in its socket list), but the core goes by
+// the process that owns the socket (so_last_pid): to the core they are
+// one program, and a rule for Safari.app never sees a page. Tried on macOS
+// 27.2 with mihomo v1.19.33: a WKWebView app's page load was reported as
+// this process and matched PROCESS-NAME, not the app's bundle.
+const WebKitProcess = "com.apple.WebKit.Networking"
+
+// webKitApps are the bundles known to load their pages with WebKitProcess
+// and little else of their own: a rule for one of them alone is not what
+// its name says.
+var webKitApps = []string{"Safari.app", "Safari Technology Preview.app"}
+
+// IsWebKit reports whether a rule for app is one for WebKitProcess, which
+// takes the pages of every app that uses it.
+func IsWebKit(app string) bool { return bundles && strings.EqualFold(app, WebKitProcess) }
+
+// UsesWebKit reports whether app is known to leave its pages to
+// WebKitProcess, where a rule for app does not reach them.
+func UsesWebKit(app string) bool {
+	return bundles && slices.ContainsFunc(webKitApps, func(a string) bool { return strings.EqualFold(a, app) })
+}
+
+// AppNote says what a rule for app does that its name does not: a rule
+// for Safari leaves its pages out, one for WebKitProcess takes other apps'
+// pages in. "" when the rule is what it looks like, as far as is known.
+func AppNote(app string) string {
+	switch {
+	case UsesWebKit(app):
+		return fmt.Sprintf(i18n.T("%[1]s 的网页不是它自己连的，是 macOS 的 WebKit 网络进程（%[2]s）连的，这条规则管不到网页，只管 %[1]s 自己发出的连接。", "%[1]s doesn't load its pages itself: macOS's WebKit networking process (%[2]s) does, so this rule won't reach web pages, only what %[1]s itself connects to."), app, WebKitProcess)
+	case IsWebKit(app):
+		return i18n.T("这是 macOS 的 WebKit 网络进程：Safari 的网页，和所有用系统 WebKit 显示网页的应用，都由它连网。内核分不出它在替哪个应用连，这条规则会把它们一起管到。", "This is macOS's WebKit networking process: it connects for Safari's pages and for every app that shows web pages with the system's WebKit. The core can't tell which app it is working for, so this rule takes them all.")
+	}
+	return ""
+}
+
 // Describe is the rule in words: what it matches.
 func (r UserRule) Describe() string {
 	switch r.Kind {
@@ -103,6 +142,12 @@ func (r UserRule) Describe() string {
 	case KindIP:
 		return fmt.Sprintf(i18n.T("IP %s", "IP %s"), r.Value)
 	case KindApp:
+		switch {
+		case IsWebKit(r.Value):
+			return fmt.Sprintf(i18n.T("应用 %s（Safari 的网页和所有内嵌网页的应用）", "App %s (Safari's pages and every app with web pages in it)"), r.Value)
+		case UsesWebKit(r.Value):
+			return fmt.Sprintf(i18n.T("应用 %s（不含网页）", "App %s (not its web pages)"), r.Value)
+		}
 		return fmt.Sprintf(i18n.T("应用 %s", "App %s"), r.Value)
 	}
 	return fmt.Sprintf(i18n.T("%s 及其子域名", "%s and its subdomains"), r.Value)

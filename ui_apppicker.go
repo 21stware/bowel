@@ -12,6 +12,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/routes"
 )
 
 // appPicker is what the rule editor offers for a rule of kind 应用: the
@@ -162,6 +163,25 @@ func (u *UI) appChip(c *ui.Context, p *pal, a appChoice) {
 			}
 			ui.Text(c, displayApp(a.Name)).FontSize(12).FontWeight(w).TextColor(col).SingleLine().MinWidth(0)
 		})
+	})
+}
+
+// appNoteView says, under a new rule for app, what the rule does that the
+// name does not (routes.AppNote). For an app whose pages the WebKit process
+// loads it offers that process in its place, one click away.
+func (u *UI) appNoteView(c *ui.Context, p *pal, app string) {
+	note := routes.AppNote(app)
+	if note == "" {
+		return
+	}
+	st := &u.routes
+	ui.Row(c.Key("app-note")).Gap(10).AlignItems(ui.Center).Padding(7, 10).Radius(p.r(8)).Background(p.hair2).Children(func() {
+		ui.Text(c, note).FontSize(12).TextColor(p.ink).Grow(1).Basis(0).MinWidth(0)
+		if routes.UsesWebKit(app) {
+			btn(c.Key("use-webkit"), p, i18n.T("改用 WebKit 网络进程", "Use the WebKit process")).OnClick(func() {
+				st.rule, st.ruleErr, st.conflict, st.focusRule = routes.WebKitProcess, "", nil, true
+			})
+		}
 	})
 }
 

@@ -1382,6 +1382,9 @@ func (u *UI) ruleInput(c *ui.Context, p *pal, all []routes.Route, s routes.Servi
 	default:
 		ui.Text(c, fmt.Sprintf(i18n.T("添加后：%s · %s", "Will add: %s · %s"), r.Value, routes.KindName(r.Kind))).FontSize(11.5).TextColor(p.ink2)
 	}
+	if st.kind == routes.KindApp && typed && err == nil {
+		u.appNoteView(c, p, r.Value)
+	}
 	if st.kind == routes.KindApp {
 		u.appPickerView(c, p)
 	}
