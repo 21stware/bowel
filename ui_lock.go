@@ -21,15 +21,37 @@ func lockSay() string {
 
 // refusedSay is why a locked group's connections fail now.
 func refusedSay() string {
-	return i18n.T("接管已关闭，这个路由组的连接被拦下", "Takeover is off, so this group's connections are refused")
+	return i18n.T("接管已关闭，这个路由组走系统代理的连接被拦下", "Takeover is off, so this group's connections through the system proxy are refused")
+}
+
+// proxyOnlySay is what the lock cannot do without TUN.
+func proxyOnlySay() string {
+	return i18n.T("没开 TUN 时，出口锁定只管得住跟随系统代理的程序；不读系统代理的命令行工具、SDK 和应用仍会直连", "Without TUN the exit lock only holds programs that follow the system proxy; command-line tools, SDKs and apps that ignore it still go direct")
+}
+
+// lockNow is how a locked group's lock stands when that is not simply
+// "held": a word for its chip, a sentence for its row and tooltip. Both
+// are "" while it goes by a node as set.
+func lockNow(r RouteView) (word, say string) {
+	switch {
+	case !r.Locked:
+	case r.Unheld:
+		return i18n.T("现在没有守住", "Not holding now"), unheldSay()
+	case r.Refused:
+		return i18n.T("接管已关，正在拦下", "Takeover off, refusing"), refusedSay()
+	case r.Broken != "" && !r.Direct:
+		return i18n.T("没有可用节点，正在拦下", "No usable node, refusing"), lockedOutSay()
+	}
+	return "", ""
 }
 
 // lockMark is the lock beside a group's name: quiet while the group goes by
-// a node, in the signal color while its traffic is refused.
+// a node, in the signal color while its traffic is refused or the lock
+// does not hold.
 func lockMark(c *ui.Context, p *pal, r RouteView, size float32) ui.Element {
 	col, tip := p.mute, i18n.T("出口锁定：", "Exit lock: ")+lockSay()
-	if r.Refused {
-		col, tip = p.signal, refusedSay()
+	if _, say := lockNow(r); say != "" {
+		col, tip = p.signal, say
 	}
 	return ui.Icon(c, lockIcon).Size(size, size).Shrink(0).TextColor(col).Tooltip(tip).Label(tip)
 }
@@ -64,15 +86,11 @@ func (u *UI) lockChip(c *ui.Context, p *pal, rid string) {
 	r := u.route(rid)
 	on := u.shownSettings().Routing.Locked(rid)
 	sub, subCol := i18n.T("只走节点，不改走直连", "Node only, never direct"), p.mute
-	switch {
-	case on && r.Refused:
-		sub, subCol = i18n.T("接管已关，正在拦下", "Takeover off, refusing"), p.signal
-	case on:
-		sub = i18n.T("已锁定 · 走不了就断开", "Locked · cut if no node")
-	}
 	tip := lockSay()
-	if on && r.Refused {
-		tip = refusedSay()
+	if word, say := lockNow(r); on && word != "" {
+		sub, subCol, tip = word, p.signal, say
+	} else if on {
+		sub = i18n.T("已锁定 · 走不了就断开", "Locked · cut if no node")
 	}
 	b := ui.ButtonBase(c.Key("lock")).Column().Gap(1).Shrink(0).Padding(9, 12).Radius(p.r(8)).AlignItems(ui.Start).
 		Label(i18n.T("出口锁定", "Exit lock")).Tooltip(tip)
@@ -111,7 +129,8 @@ func (u *UI) lockDialog(c *ui.Context, p *pal) {
 				i18n.T("· 关闭接管时：其他流量照常直连，只有它被拦下", "· With takeover off: everything else goes direct as usual, only this is refused"),
 				i18n.T("· 节点全部连不上时", "· When no node can be reached"),
 				i18n.T("· 在全局或直连模式下，它仍走自己的节点", "· In global or direct mode it still goes by its own node"),
-				i18n.T("关闭接管后，系统代理仍会指向 bowel，用来拦下它。退出 bowel 后不再拦截。", "With takeover off, the system proxy still points at bowel, to refuse it. Once bowel quits, nothing is refused."),
+				"· " + proxyOnlySay() + i18n.T("。要全部管住，请开着 TUN", ". To hold everything, keep TUN on"),
+				i18n.T("关闭接管后，或者只开了 TUN 而 TUN 没有生效时，系统代理会指向 bowel 来守住它。退出 bowel 后不再拦截。", "With takeover off, or with only TUN on and TUN not working, the system proxy points at bowel to hold it. Once bowel quits, nothing is refused."),
 			} {
 				ui.Text(c, line).FontSize(12.5).TextColor(p.ink2)
 			}

@@ -274,10 +274,17 @@ func (a *App) brokenIssue(r RouteView, nodes []NodeView, also int) *Issue {
 		is.Text = fmt.Sprintf(i18n.T("「%s」备用列表里的节点都不通", "%s: every node on its list is down"), r.Name)
 		is.Detail = i18n.T("这个路由组现在连不上。", "This route group can't connect now.")
 		is.Label = i18n.T("调整顺序", "Edit order")
+	case "all":
+		is.Text = fmt.Sprintf(i18n.T("「%s」的节点都不通", "%s: every node is down"), r.Name)
+		is.Label = i18n.T("换节点", "Change node")
 	default:
 		is.Text = fmt.Sprintf(i18n.T("「%s」的范围（%s）里没有可用节点", "%s: no usable node in its range (%s)"), r.Name, scopeWord(r.Policy, a.providerTitle))
 		is.Detail = i18n.T("范围不会被悄悄放宽，这个路由组现在连不上。", "A range is never widened on its own, so this route group can't connect now.")
 		is.Label = i18n.T("改范围", "Change range")
+	}
+	if r.Locked {
+		// Not a group that merely can't connect: the lock is what refuses.
+		is.Detail = lockedOutSay()
 	}
 	if also > 0 {
 		is.Text += fmt.Sprintf(i18n.T("，另有 %d 个路由组也是", ", and %d more route groups"), also)
