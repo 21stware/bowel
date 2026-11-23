@@ -97,7 +97,7 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 </table>
 
 ### 其他
-- **自定义规则**：支持按域名、关键词或 IP 段添加分流规则并测试匹配结果；macOS、Windows 和 Linux 上还可以按应用分流。
+- **自定义规则**：支持按域名、关键词或 IP 段添加分流规则并测试匹配结果；macOS、Windows、Linux 和 Android 10 及以上还可以按应用分流：在路由组里添加一条「应用」规则，这个应用的所有连接都走这个路由组。
 - **出口位置实测**：通过 Cloudflare 请求实测节点真实的出口所在地。
 - **网关模式**（macOS、Linux）：支持作为局域网网关（旁路由）为电视、游戏机和手机提供代理服务。完整说明见 [docs/gateway.md](docs/gateway.md)，人和 agent 都可以照着做。
 - **TUN**（macOS、Windows、Linux）：接管不遵循系统代理设置的应用程序流量。
@@ -159,6 +159,10 @@ curl -fsSL https://21stware.github.io/packages/install.sh | sh
 | 用摄像头扫描二维码 | 支持 | 不支持 | 不支持 | 支持 |
 | MCP 服务器 | 支持 | 支持 | 支持 | 不支持 |
 | 命令行和 `bowel daemon` | 支持 | 支持 | 支持 | 不支持 |
+| 按 App 分流（规则） | 支持 | 支持，我们未在真机上运行过 | 支持 | Android 10 及以上 |
+| 不走 bowel 的 App（排除列表） | 没有 | 没有 | 没有 | 支持，重新连接后生效 |
+
+按 App 分流是路由组里的一种规则（「应用」），把一个 App 的所有连接交给指定的路由组；想让它只走一个节点，就把这个路由组的节点策略设成固定节点。Android 上的排除列表是另一回事：列表里的 App 完全不经过 VPN，直接联网，规则也管不到它；bowel 没有「只代理选中的 App」的模式。Android 8 和 9 只有排除列表。iOS 版暂未发布，两项都没有。
 
 第一次开启 TUN 时需要管理员授权一次：macOS 是系统自己的对话框，Windows 是用户账户控制（UAC），Linux 通过 polkit（`pkexec`）。在使用 systemd-resolved 的 Linux 上，这次授权还会留下一条 polkit 规则，允许当前用户把解析器指向 TUN 网卡（内核每次启动 TUN 都要这么做）；没有这条规则时（polkit 早于 0.106，不读取这类规则），每次启动 TUN 桌面都会连问三次密码。Linux 上的系统代理是 GNOME 的（Cinnamon、MATE、Budgie 等桌面共用它）或 KDE 的；其他桌面请使用 TUN，或让应用自行连接混合端口，默认是 7899。各系统具体有什么、缺什么，见 [docs/platform-parity.md](docs/platform-parity.md)。Android 版可以选择不经过 VPN 的应用。
 

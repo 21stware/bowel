@@ -179,7 +179,7 @@ class _SettingsHomeState extends State<_SettingsHome> {
               section(l, tr('接管', 'Connection'), top: 8, [
                 toggleRow(l, 'VPN', app.on, app.toggleTake, sub: app.on ? tr('生效中', 'Active') : tr('已关闭', 'Off')),
                 if (android) ...[
-                  navRow(l, tr('分应用代理', 'Per-app proxy'), out == 0 ? tr('全部 App', 'All apps') : tr('{0} 个不走', '{0} excluded', [out]), sub: tr('选择哪些 App 不走 bowel', 'Choose which apps skip bowel'), onTap: () => pushPage(context, AppsPage(app: app))),
+                  navRow(l, tr('不走 bowel 的 App', 'Apps that skip bowel'), out == 0 ? tr('无', 'None') : tr('{0} 个', '{0}', [out]), sub: tr('排除列表：这些 App 直接联网，不经过 VPN', 'Exclusion list: these apps connect directly, outside the VPN'), onTap: () => pushPage(context, AppsPage(app: app))),
                   navRow(l, tr('始终开启 VPN', 'Always-on VPN'), tr('系统设置', 'System Settings'), sub: tr('系统级，开机即接管', 'System-wide, on from startup'), onTap: Shell.instance.openVPNSettings),
                   navRow(l, 'Tailscale', '', sub: tr('不用官方 App 访问 tailnet', 'Reach your tailnet without the Tailscale app'), onTap: () => pushPage(context, TailnetPage(app: app))),
                 ] else
