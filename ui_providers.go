@@ -625,11 +625,30 @@ func (u *UI) provAuto(c *ui.Context, p *pal, pv ProviderView) {
 	})
 }
 
-// provOps is the row's one action — 更新 a subscription, 启用 a
-// disabled source — and the chevron. 停用 and 删除 sit in the open row.
+// provOpsW is the width of a row's actions: 测速, 更新 (or 重新读取)
+// and the chevron.
+const provOpsW = 176
+
+// provOps is the row's actions — 测速 its nodes, and 更新 a subscription
+// or 启用 a disabled source — and the chevron. 停用 and 删除 sit in the
+// open row.
 func (u *UI) provOps(c *ui.Context, p *pal, pv ProviderView, busy, open bool) {
 	id := pv.ID
-	ui.Row(c).Width(100).Gap(10).Justify(ui.End).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).Width(provOpsW).Gap(10).Justify(ui.End).AlignItems(ui.Center).Children(func() {
+		if pv.Enabled && pv.Nodes > 0 {
+			testing := u.pending("test-provider:" + id)
+			label := i18n.T("测速", "Test")
+			if testing {
+				label = i18n.T("测速中…", "Testing…")
+			}
+			b := u.provBtn(c.Key("test"), p, label, false).Disabled(testing).
+				Tooltip(i18n.T("测这个来源每个节点的 Ping 和延迟", "Test the ping and delay of every node of this source"))
+			b.OnClick(func() {
+				if u.app != nil && !testing {
+					u.do(func() error { return u.app.testProvider(bg(), id) })
+				}
+			})
+		}
 		switch {
 		case !pv.Enabled:
 			u.provBtn(c.Key("toggle"), p, i18n.T("启用", "Enable"), false).OnClick(func() {

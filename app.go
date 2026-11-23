@@ -1623,6 +1623,45 @@ func (a *App) testRoute(ctx context.Context, routeID string) error {
 	return nil
 }
 
+// testProvider tests, now, what a provider's row shows: each of its nodes
+// on the default route's main target, a few at a time, and their pings.
+func (a *App) testProvider(ctx context.Context, id string) error {
+	if _, err := a.core.Client(); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	px := a.proxies
+	a.mu.Unlock()
+	var nodes []string
+	for name := range px {
+		if providerOf(name) == id {
+			nodes = append(nodes, name)
+		}
+	}
+	if len(nodes) == 0 {
+		return errors.New(i18n.T("这个来源没有可测的节点", "This source has no nodes to test"))
+	}
+	slices.Sort(nodes)
+	done := a.begin("test-provider:" + id)
+	defer done()
+	ctx, cancel := context.WithTimeout(ctx, testWait)
+	defer cancel()
+	url := mainURLs(a.settings.Get())[routes.Default]
+	list := make([]speed.Target, len(nodes))
+	for i, n := range nodes {
+		list[i] = speed.Target{Node: n, URL: url}
+	}
+	var wg sync.WaitGroup
+	wg.Go(func() { a.pinger.Now(ctx, nodes) })
+	a.tests.Now(ctx, list)
+	wg.Wait()
+	a.readTests()
+	if ctx.Err() != nil {
+		return errors.New(i18n.T("还没有测完，其余的结果会陆续出来", "Not all tested yet; the rest of the results will follow"))
+	}
+	return nil
+}
+
 func (a *App) locate(ctx context.Context, node string) error {
 	_, err := a.probeErr(ctx, node)
 	return err
