@@ -67,6 +67,7 @@ type App struct {
 	// the bundled core runs in its place, with TUN out of its config.
 	tunFault  atomic.Pointer[string]
 	tunGone   atomic.Bool // what tunBin's installation stands for was removed: it is to be made again
+	lockFell  atomic.Bool // the exit lock's fallback to the system proxy, as refresh last found it
 	tunUp     tunUpProbe  // whether the core's TUN device is up, as last asked (app_tun.go); under mu
 	probePort int
 	gw        *gateway.Gateway
@@ -532,7 +533,16 @@ func (a *App) refresh() {
 	a.probeTunDNS()
 	// The system proxy is judged only while it is wanted: otherwise no
 	// scutil every 2 s for nothing.
-	if st := a.settings.Get(); a.proxyWanted(st) {
+	st := a.settings.Get()
+	// The lock's fallback follows TUN as it is, which no setting tells of:
+	// the system proxy is taken when TUN is lost and given back when it
+	// carries again. A core between two runs has said nothing yet.
+	if cs := a.core.Status(); cs.State == core.Running || cs.State == core.Failed {
+		if fb := a.lockFallback(st, cs); a.lockFell.Swap(fb) != fb {
+			a.applySystemProxy()
+		}
+	}
+	if a.proxyWanted(st) {
 		if s, err := sysproxy.Check(st.MixedPort); err == nil {
 			a.mu.Lock()
 			a.sys = s
@@ -674,13 +684,41 @@ func (a *App) takeoverOn(s settings.Settings) bool { return !s.Paused && (s.Syst
 // lets everything out directly but that group's traffic, which it refuses
 // (core.Input.Guard).
 func (a *App) guarding(s settings.Settings) bool {
-	return !a.takeoverOn(s) && s.ImportedRouting == "" && s.Routing.AnyLocked()
+	return !a.takeoverOn(s) && locks(s)
+}
+
+// locks says whether a route group of bowel's own has the exit lock.
+func locks(s settings.Settings) bool { return s.ImportedRouting == "" && s.Routing.AnyLocked() }
+
+// tunLost says whether TUN, which takeover is to go by, is known not to
+// carry traffic: it has no installation, its core did not start or is not
+// running, or the core could not bring the device up. A core that is
+// starting has lost nothing yet.
+func (a *App) tunLost(s settings.Settings, cs core.Status) bool {
+	if !s.Tun || !a.takeoverOn(s) {
+		return false
+	}
+	return !a.tunWanted(s) || cs.State == core.Failed || a.tunDown(cs) != ""
+}
+
+// lockFallback says whether the exit lock is left to the system proxy
+// though the user's takeover is by TUN alone: TUN is lost, so nothing
+// would bring the locked groups' traffic to the core, and it would leave
+// directly. The system proxy points at the core until TUN is back, as it
+// does for the lock while takeover is off; the core's rules stay
+// takeover's, so those groups go by their nodes.
+func (a *App) lockFallback(s settings.Settings, cs core.Status) bool {
+	return a.takeoverOn(s) && !s.SystemProxy && locks(s) && a.tunLost(s, cs)
 }
 
 // proxyWanted says whether the system proxy is to point at the core: for
-// takeover, or for the exit lock while takeover is off.
+// takeover, for the exit lock while takeover is off, or for the exit lock
+// while the TUN that takeover goes by is lost.
 func (a *App) proxyWanted(s settings.Settings) bool {
-	return a.takeoverOn(s) && s.SystemProxy || a.guarding(s)
+	if a.takeoverOn(s) && s.SystemProxy || a.guarding(s) {
+		return true
+	}
+	return a.takeoverOn(s) && s.Tun && locks(s) && a.lockFallback(s, a.core.Status())
 }
 
 // applyConfig rebuilds the runtime config and makes the core use it.
@@ -1433,8 +1471,8 @@ func (a *App) updateSettingsAnd(fn func(*settings.Settings), reapply bool) error
 			}
 		}
 	}
-	if next.MixedPort == old.MixedPort && a.guarding(next) != a.guarding(old) {
-		a.applySystemProxy() // the exit lock, with takeover off, holds by it
+	if cs := a.core.Status(); next.MixedPort == old.MixedPort && (a.guarding(next) != a.guarding(old) || a.lockFallback(next, cs) != a.lockFallback(old, cs)) {
+		a.applySystemProxy() // the exit lock, with takeover off or TUN lost, holds by it
 	}
 	a.refresh()
 	return nil
@@ -2539,18 +2577,7 @@ func (a *App) snapshot() Snapshot {
 			tk.System.Status, tk.System.Detail = "hijacked", i18n.T("系统代理被关掉了", "The system proxy was turned off")
 		}
 	}
-	// The exit lock while takeover is off: it holds by the system proxy.
 	guard := a.guarding(s)
-	if guard {
-		tk.Lock = &Entry{Wanted: true, Status: "on"}
-		switch {
-		case sys.Ours:
-		case proxyErr != "":
-			tk.Lock.Status, tk.Lock.Detail = "error", proxyErr
-		default:
-			tk.Lock.Status, tk.Lock.Detail = "error", i18n.T("系统代理没有指向 bowel，锁定的路由组这时拦不住", "The system proxy doesn't point at bowel, so the locked groups aren't held now")
-		}
-	}
 	fault := ""
 	if f := a.tunFault.Load(); f != nil {
 		fault = *f
@@ -2573,6 +2600,11 @@ func (a *App) snapshot() Snapshot {
 			}
 		}
 	}
+	// The exit lock, as it really holds: by TUN while that carries traffic,
+	// by the system proxy otherwise, and not at all when neither brings
+	// the locked groups' traffic to the core.
+	held := a.proxyWanted(s) && sys.Ours || on && s.Tun && !a.tunLost(s, cs)
+	tk.Lock = lockEntry(locks(s), guard, a.lockFallback(s, cs), held, proxyErr)
 	if s.AllowLan {
 		tk.LanAddr = lanAddr(s.MixedPort)
 	}
@@ -2649,7 +2681,7 @@ func (a *App) snapshot() Snapshot {
 		if im != nil {
 			rv.Group = routes.Group(r)
 		} else if r.Locked {
-			rv.Locked, rv.Refused = true, guard
+			rv.Locked, rv.Refused, rv.Unheld = true, guard && held, !held
 		}
 		if !r.Direct {
 			rv.Policy, rv.Auto = r.Policy, r.Policy.Mode == routes.ModeAuto
@@ -2664,6 +2696,9 @@ func (a *App) snapshot() Snapshot {
 			}
 			rv.Main, rv.Sites = rv.Targets[0], siteViews(rv.Targets[1:], through, stale, now)
 			rv.Broken = brokenWhy(r.Policy, snap.Nodes, r.ID)
+			if rv.Broken == "" && rv.Locked && noneAlive(snap.Nodes, r.ID) {
+				rv.Broken = "all" // the lock leaves it REJECT where another group would go direct
+			}
 		}
 		if total > 0 {
 			rv.Share = float64(routeBytes[r.ID]) / float64(total)
@@ -2779,14 +2814,25 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 	if tk.System.Status == "hijacked" {
 		return StateError, &Issue{Level: "error", Text: i18n.T("系统代理被其他程序改掉了", "Another program changed the system proxy"), Detail: i18n.T("网页流量现在没有经过 bowel。", "Web traffic isn't going through bowel now."), Action: "retake", Label: i18n.T("重新接管", "Take over again")}
 	}
+	if is := lockIssue(tk.Lock); is != nil {
+		if is.Level == "error" {
+			return StateError, is
+		}
+		return StateDegraded, is
+	}
 	if tk.Tun.Wanted && tk.Tun.Status == "error" && a.tunDown(cs) != "" {
 		return StateDegraded, &Issue{Level: "warn", Text: i18n.T("TUN 没有生效", "TUN isn't working"), Detail: tk.Tun.Detail}
 	}
 	if g := tk.Gateway; g.Status == "error" {
 		return StateDegraded, &Issue{Level: "warn", Text: i18n.T("网关模式没有生效", "Gateway mode isn't working"), Detail: g.Detail}
 	}
-	if len(snap.Nodes) == 0 && s.Mode != "direct" {
-		return StateDegraded, &Issue{Level: "warn", Text: i18n.T("还没有节点，流量正在直连", "No nodes yet; traffic is going direct"), Action: "providers", Label: i18n.T("添加提供商", "Add Provider")}
+	if names := lockedNames(snap.Routes); len(snap.Nodes) == 0 && (s.Mode != "direct" || names != "") {
+		is := &Issue{Level: "warn", Text: i18n.T("还没有节点，流量正在直连", "No nodes yet; traffic is going direct"), Action: "providers", Label: i18n.T("添加提供商", "Add Provider")}
+		if names != "" {
+			// Not all of it: what the lock holds has nowhere to go.
+			is.Detail = fmt.Sprintf(i18n.T("出口锁定正在拦下 %s 的连接，不会改走直连。添加节点，或解除出口锁定。", "The exit lock is refusing %s's connections rather than sending them direct. Add nodes, or unlock."), names)
+		}
+		return StateDegraded, is
 	}
 	// A plan that has ended is why its nodes are down: said before the
 	// groups and switches that follow from it.
@@ -2798,10 +2844,21 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 	}
 	var broken []RouteView
 	for _, r := range snap.Routes {
-		if r.Broken != "" && (s.Mode == "rule" || r.ID == routes.Default) {
+		// A locked group goes by its own node in every mode.
+		if r.Broken != "" && (s.Mode == "rule" || r.ID == routes.Default || r.Locked) {
 			broken = append(broken, r)
 		}
 	}
+	// What the lock refuses outright is said before what merely can't connect.
+	slices.SortStableFunc(broken, func(x, y RouteView) int {
+		switch {
+		case x.Locked == y.Locked:
+			return 0
+		case x.Locked:
+			return -1
+		}
+		return 1
+	})
 	if len(broken) > 0 {
 		return StateDegraded, a.brokenIssue(broken[0], snap.Nodes, len(broken)-1)
 	}

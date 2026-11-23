@@ -97,7 +97,7 @@ Sixteen skins that change the look of the whole interface.
 </table>
 
 ### Other
-- **Custom rules**: Route specific domains, keywords, or IP ranges, and test where addresses go; on macOS, Windows and Linux, route by application too.
+- **Custom rules**: Route specific domains, keywords, or IP ranges, and test where addresses go; on macOS, Windows, Linux and Android 10 or later, route by application too: add an App rule to a route group and all of that app's connections go through it.
 - **Measured exit locations**: Verify true exit locations through Cloudflare trace.
 - **Gateway mode** (macOS, Linux): Turn this computer into a LAN gateway for devices like TVs and consoles. The full guide, for people and agents, is [docs/gateway.md](docs/gateway.md).
 - **TUN** (macOS, Windows, Linux): Intercept traffic from applications that ignore system proxy settings.
@@ -159,6 +159,10 @@ Some features depend on the platform:
 | Scan QR codes with the camera | Yes | No | No | Yes |
 | MCP server | Yes | Yes | Yes | No |
 | Command line and `bowel daemon` | Yes | Yes | Yes | No |
+| Route by app (rules) | Yes | Yes, never run on a real machine by us | Yes | Android 10 or later |
+| Apps that skip bowel (exclusion list) | None | None | None | Yes, applies after a reconnect |
+
+Routing by app is a kind of rule in a route group (App): it hands all of one app's connections to that group, and pinning the group to a fixed node sends the app through one node. The exclusion list on Android is something else: an app on it stays outside the VPN altogether and connects directly, where no rule reaches it. bowel has no mode that proxies only the apps you select. Android 8 and 9 have the exclusion list only. The iOS app isn't released and has neither.
 
 TUN asks for an administrator once, the first time you turn it on: macOS in its own dialog, Windows in a User Account Control prompt, Linux through polkit (`pkexec`). On Linux with systemd-resolved, that authorization also leaves a polkit rule letting your user point the resolver at the TUN device, which the core does every time TUN starts; without it (polkit older than 0.106, which reads no such rules) the desktop asks for a password three times at each start. On Linux the system proxy is GNOME's, which Cinnamon, MATE, Budgie and others share, or KDE's; on another desktop use TUN, or point your applications at the mixed port, 7899 by default. What each system has and lacks is listed in [docs/platform-parity.md](docs/platform-parity.md). On Android, you can choose apps that stay outside the VPN.
 
