@@ -26,7 +26,7 @@ func TestSetupFirstStep(t *testing.T) {
 		tt.Advance(2 * time.Second)
 		suffix := map[bool]string{false: "", true: "-dark"}[dark]
 		shot(t, tt, "setup-add"+suffix)
-		for _, s := range []string{"欢迎使用 bowel", "连接两端世界", "扫码", "选择文件…", "添加", "稍后再添加", "设置"} {
+		for _, s := range []string{"欢迎使用 bowel", "为开发者，一通到底", "扫码", "选择文件…", "添加", "稍后再添加", "设置"} {
 			if !tt.HasText(s) {
 				t.Errorf("first step lacks %q: %q", s, tt.Texts())
 			}
