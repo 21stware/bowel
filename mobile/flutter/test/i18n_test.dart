@@ -11,7 +11,7 @@ final _slot = RegExp(r'\{\d\}');
 /// Chinese that is not words on screen: sample data, keys the code compares,
 /// and the source of each translation.
 const _notShown = {'lib/app/sample.dart', 'lib/app/i18n_tables.dart', 'lib/ui/skin_data.dart'};
-const _keys = {'默认', 'AI 服务', '流媒体', '开发', '直连', '香港 03 IPLC', '洛杉矶 VPS', '新加坡 01', '东京 01', 'mihomo · 运行中', '未知', '实测', '按名称', '简体中文', '繁體中文', '日本語'};
+const _keys = {'其他流量', 'AI 服务', '流媒体', '开发', '直连', '香港 03 IPLC', '洛杉矶 VPS', '新加坡 01', '东京 01', 'mihomo · 运行中', '未知', '实测', '按名称', '简体中文', '繁體中文', '日本語'};
 
 Iterable<File> get _sources => Directory('lib').listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.dart'));
 
