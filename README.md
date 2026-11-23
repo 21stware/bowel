@@ -193,36 +193,7 @@ bowel tui                         # all of it on a full screen
 bowel bar                         # a line a second for a status bar
 ```
 
-`bowel tui` is the same on a whole terminal: pages for the overview, connections, logs, rules, Providers and settings, kept current. The overview has the switches (takeover, system proxy, TUN, gateway mode, allow LAN) and the routes: Enter or Space turns a switch, Enter on a route chooses its node (`t` tests the delays), `m` switches the mode and `a` adds a subscription. The settings page changes any setting by key. `/` filters connections and `?` lists the keys. A change asks y/n first. It works over SSH: `ssh server -t bowel tui`.
-
-**In a status bar.** `bowel bar` prints a line a second for waybar (Omarchy's top bar, and Hyprland's and Sway's usual one): the speeds now as the text, the state, mode, takeover, each route's node and today's traffic in the tooltip, and the classes `on`, `off`, `paused` or `stopped`, plus `degraded` or `error`, to style it by. It is started once and goes on while bowel restarts or isn't running. Running the program again without a command brings the window up, so a click can open it:
-
-```jsonc
-// ~/.config/waybar/config.jsonc: add "custom/bowel" to a modules list too
-"custom/bowel": {
-  "exec": "/opt/bowel/bowel bar",
-  "return-type": "json",
-  "on-click": "/opt/bowel/bowel"
-}
-```
-
-`#custom-bowel.off`, `#custom-bowel.stopped` and the rest style it in `style.css`. For polybar, i3blocks and other bars that read plain text, `bowel bar --format text`; for one that runs a command on an interval, add `--once`. Under `bowel daemon` there is no window to open.
-
-**A port per route group.** Two programs on this computer can reach the same site by different exits when each is given a proxy port of its own: `bowel settings set extraPorts '[{"port":7901,"route":"ai"},{"port":7902,"route":"media"}]'` opens mixed ports on `127.0.0.1` whose traffic all goes to that route group (the IDs `bowel routes` lists), whatever the rules and the mode say. While an imported config's own routing is in use, `route` is the name of one of that config's groups instead, which `bowel routes` lists below the routes; a port whose group is not there stays closed. One name can be both a bowel route ID and a group of the config: such an entry is open under either routing, and its traffic goes to whichever group has that name there. They are never open to the LAN, are not part of an exported configuration, and have no place in the window; `'[]'` closes them.
-
-Every command has `--help` with examples. Reading commands take `--json`, and `logs -f` and `conns --watch` print one JSON object per line with it. Colors and progress go away when the output is not a terminal or `NO_COLOR` is set. Exit codes are 0 for done, 1 when it failed (for example bowel isn't running) and 2 for a wrong command line. `bowel completion bash|zsh|fish|powershell` prints a completion script.
-
-**Without a window.** `bowel daemon` runs bowel with no window, menu bar icon or Dock icon: the core, the monitors and the command line's socket only. It stays in the foreground and stops on SIGINT, SIGTERM or `bowel stop`, putting the system proxy back as the app does, so systemd, launchd or a service wrapper can keep it. `BOWEL_DATA_DIR` (or `--data-dir`) gives it a data folder of its own. The daemon does not update itself. Opening the app while the daemon runs does nothing: stop the daemon first.
-
-```ini
-# /etc/systemd/system/bowel.service
-[Service]
-ExecStart=/opt/bowel/bowel daemon
-Environment=BOWEL_DATA_DIR=/var/lib/bowel
-Restart=on-failure
-```
-
-**Agents.** Commands you type are not asked about. A command run by an agent (Claude Code, Codex, Cursor and others are recognised by their environment) follows the same policy as MCP: ask, allow or deny. The daemon has no window to ask in, so under "ask" it refuses an agent's change; allow them with `bowel settings set mcpPolicy allow`, which only you can run.
+Every command has `--help` with examples, and reading commands take `--json`. The full-screen `bowel tui`, `bowel bar` for waybar and other status bars, a proxy port per route group, exit codes, `bowel daemon` for running with no window, and what agents may do are in [docs/cli.md](docs/cli.md).
 
 ## Develop
 
