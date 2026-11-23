@@ -20,7 +20,6 @@ import (
 	"github.com/oboo/moho/internal/mihomo"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
-	"github.com/oboo/moho/internal/sysproxy"
 )
 
 // devDetect reads the machine's networks. Tests replace it.
@@ -231,7 +230,7 @@ func (a *App) syncBypass() {
 	if slices.Equal(last, a.bypassOf(s)) {
 		return
 	}
-	if cur, err := sysproxy.Check(s.MixedPort); err != nil || !cur.Ours {
+	if cur, err := osProxy.check(s.MixedPort); err != nil || !cur.Ours {
 		return
 	}
 	if err := a.enableProxy(s); err != nil {

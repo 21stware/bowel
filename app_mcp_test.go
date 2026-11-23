@@ -28,6 +28,9 @@ func mcpApp(t *testing.T) (a *App, asks *int, answer *[2]bool) {
 	osProxy.enable = func(string, int, []string) error { t.Error("the test tried to enable the system proxy"); return nil }
 	osProxy.disable = func() error { t.Error("the test tried to disable the system proxy"); return nil }
 	osProxy.snapshot = func() (sysproxy.Saved, error) { return sysproxy.Saved{}, nil }
+	// Off, whatever this machine's proxy is: a bowel running here on the
+	// default port would otherwise look like this App's own takeover.
+	osProxy.check = func(int) (sysproxy.Status, error) { return sysproxy.Status{}, nil }
 	osProxy.restore = func(context.Context, sysproxy.Saved) error {
 		t.Error("the test tried to restore the system proxy")
 		return nil

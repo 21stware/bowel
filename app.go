@@ -543,7 +543,7 @@ func (a *App) refresh() {
 		}
 	}
 	if a.proxyWanted(st) {
-		if s, err := sysproxy.Check(st.MixedPort); err == nil {
+		if s, err := osProxy.check(st.MixedPort); err == nil {
 			a.mu.Lock()
 			a.sys = s
 			if s.Ours {
@@ -837,7 +837,11 @@ var osProxy = struct {
 	listening func(ctx context.Context, host string, port int) bool
 	// written is what the last enable gave the OS, and what the OS refused.
 	written func() sysproxy.Written
-}{sysproxy.Enable, sysproxy.Disable, sysproxy.Snapshot, sysproxy.Restore, sysproxy.Listening, sysproxy.LastWrite}
+	// check reads the system proxy and tells whether it points at port.
+	// It is here so that a test does not read the proxy of the machine it
+	// runs on, which a running bowel may have pointed at the same port.
+	check func(port int) (sysproxy.Status, error)
+}{sysproxy.Enable, sysproxy.Disable, sysproxy.Snapshot, sysproxy.Restore, sysproxy.Listening, sysproxy.LastWrite, sysproxy.Check}
 
 // applySystemProxy makes the OS match the settings. prev are mixed ports
 // the system may still point at, as after the port changed.
@@ -849,7 +853,7 @@ func (a *App) applySystemProxy(prev ...int) {
 	}
 	s := a.settings.Get()
 	want := a.proxyWanted(s)
-	cur, err := sysproxy.Check(s.MixedPort)
+	cur, err := osProxy.check(s.MixedPort)
 	if err != nil {
 		return
 	}
@@ -880,7 +884,7 @@ func (a *App) enableProxy(s settings.Settings, prev ...int) error {
 	keep := false
 	if exists(a.proxyBackup()) {
 		for _, p := range ports {
-			if cur, err := sysproxy.Check(p); err == nil && cur.Ours {
+			if cur, err := osProxy.check(p); err == nil && cur.Ours {
 				keep = true
 			}
 		}
@@ -1003,7 +1007,7 @@ func (a *App) retryWrite(s settings.Settings) {
 		f.wait--
 		return
 	}
-	cur, err := sysproxy.Check(s.MixedPort)
+	cur, err := osProxy.check(s.MixedPort)
 	if err != nil || cur.Ours {
 		return // the next refresh clears the failure of a proxy that is ours
 	}
@@ -1054,7 +1058,7 @@ func (a *App) disableProxy(ctx context.Context, port int) error {
 			return err
 		}
 		// Never leave it pointing at Moho, whatever else failed.
-		if cur, cerr := sysproxy.Check(port); cerr == nil && cur.Ours {
+		if cur, cerr := osProxy.check(port); cerr == nil && cur.Ours {
 			_ = osProxy.disable()
 		}
 		a.dropProxyBackup()
@@ -1465,7 +1469,7 @@ func (a *App) updateSettingsAnd(fn func(*settings.Settings), reapply bool) error
 	if next.MixedPort != old.MixedPort {
 		a.applySystemProxy(old.MixedPort) // points the system at the new port
 	} else if !slices.Equal(next.Bypass, old.Bypass) && a.proxyWanted(next) {
-		if cur, err := sysproxy.Check(next.MixedPort); err == nil && cur.Ours {
+		if cur, err := osProxy.check(next.MixedPort); err == nil && cur.Ours {
 			if err := a.enableProxy(next); err != nil {
 				return err
 			}

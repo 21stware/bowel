@@ -35,7 +35,6 @@ import (
 	"github.com/oboo/moho/internal/nowindow"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
-	"github.com/oboo/moho/internal/sysproxy"
 )
 
 // mcpSocket is where the app serves MCP: in its data folder, or, when that
@@ -884,7 +883,7 @@ func (a *App) mcpServer() *mcp.Server {
 					if !a.takeoverOn(st) || !st.SystemProxy {
 						return nil, errors.New("bowel is not set to use the system proxy: turn it on with set_takeover")
 					}
-					cur, err := sysproxy.Check(st.MixedPort)
+					cur, err := osProxy.check(st.MixedPort)
 					if err != nil {
 						return nil, err
 					}

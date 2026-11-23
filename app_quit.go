@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oboo/moho/internal/sysproxy"
-
 	"github.com/egoist/mygo"
 )
 
@@ -139,7 +137,7 @@ func (a *App) quitSystemProxy(ctx context.Context) {
 	a.proxyMu.Lock()
 	defer a.proxyMu.Unlock()
 	port := a.settings.Get().MixedPort
-	s, err := sysproxy.Check(port)
+	s, err := osProxy.check(port)
 	if err != nil {
 		log.Println("system proxy:", err)
 		return
