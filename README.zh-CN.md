@@ -5,7 +5,7 @@
 <h1 align="center">bowel</h1>
 
 <p align="center">
-bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> 客户端。
+bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com/MetaCubeX/mihomo">mihomo</a>（Clash Meta）客户端，原生应用，不基于 Electron，也不用 WebView。
 </p>
 
 <p align="center">
@@ -16,6 +16,11 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 </p>
 
 <p align="center">
+  <a href="https://github.com/21stware/bowel/releases/latest"><img src="https://img.shields.io/github/v/release/21stware/bowel?label=release" alt="最新版本"></a>
+  <a href="https://github.com/21stware/bowel/releases"><img src="https://img.shields.io/github/downloads/21stware/bowel/total?label=downloads" alt="下载量"></a>
+</p>
+
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="site/shots/home-zh-dark.webp">
     <img src="site/shots/home-zh.webp" width="880" alt="bowel 主窗口">
@@ -23,6 +28,15 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 </p>
 
 桌面版界面使用 Go 开发并通过 GPU 渲染，不使用 WebView。Android 版使用 Flutter 开发，卡片和皮肤与桌面版相同。
+
+## 有什么不同
+
+- **按用途分配节点。** AI 服务、流媒体、开发等各是一条路由，各用各的节点，可以手选，也可以按测速自动选。
+- **Clash 配置直接用。** 订阅链接、节点链接、二维码，以及完整的 Clash 或 mihomo 配置都能导入，完整配置可以沿用它自带的路由组和规则。
+- **为开发者的电脑做的。** macOS 和 Linux 上，Docker、终端和 Git 一键接入代理；npm、pip、Go 和 Cargo 的镜像源实测后一键切换；局域网、Tailscale 和公司 VPN 自动直连。
+- **命令行、TUI 和 daemon。** `bowel` 命令操作运行中的应用，`--json` 方便写脚本；`bowel tui` 通过 SSH 也能用；`bowel daemon` 不开窗口运行。
+- **给 Agent 用的 MCP 服务器。** Claude Code 等 Agent 可以读取状态、排查连接，改动之前先问你。
+- **网关模式。** 一台 Mac 或 Linux 电脑给局域网里的电视和游戏机当旁路由。
 
 ## 界面与功能
 
@@ -39,7 +53,7 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 <img src="site/shots/activity-zh.webp" width="880" alt="连接日志">
 
 ### 提供商
-支持添加订阅链接、节点链接、YAML 配置或扫码导入，并显示流量与到期时间。
+支持添加订阅链接、节点链接、Clash 或 mihomo 的 YAML 配置，或扫码导入，并显示流量与到期时间。
 
 <img src="site/shots/providers-zh.webp" width="880" alt="提供商">
 
@@ -147,6 +161,16 @@ curl -fsSL https://21stware.github.io/packages/install.sh | sh
 | 命令行和 `bowel daemon` | 支持 | 支持 | 支持 | 不支持 |
 
 第一次开启 TUN 时需要管理员授权一次：macOS 是系统自己的对话框，Windows 是用户账户控制（UAC），Linux 通过 polkit（`pkexec`）。在使用 systemd-resolved 的 Linux 上，这次授权还会留下一条 polkit 规则，允许当前用户把解析器指向 TUN 网卡（内核每次启动 TUN 都要这么做）；没有这条规则时（polkit 早于 0.106，不读取这类规则），每次启动 TUN 桌面都会连问三次密码。Linux 上的系统代理是 GNOME 的（Cinnamon、MATE、Budgie 等桌面共用它）或 KDE 的；其他桌面请使用 TUN，或让应用自行连接混合端口，默认是 7899。各系统具体有什么、缺什么，见 [docs/platform-parity.md](docs/platform-parity.md)。Android 版可以选择不经过 VPN 的应用。
+
+## 常见问题
+
+**从 Clash Verge Rev、Mihomo Party、FlClash、ClashX Meta 或 Clash for Windows 换过来？** 在 Provider 里添加同一个订阅链接，或者直接导入配置文件。订阅或文件是一份自带路由组和规则的完整配置时，bowel 会问你是按它的路由分流，还是只用它的节点。同一时间只应有一个客户端接管系统代理或 TUN，所以先退出原来的客户端。
+
+**支持哪些协议？** 和 mihomo 内核一致：Shadowsocks、ShadowsocksR、VMess、VLESS（含 Reality）、Trojan、Hysteria 和 Hysteria2、TUIC、WireGuard、AnyTLS、Snell、Mieru、SOCKS5 和 HTTP，可以来自订阅、Clash 配置，或 `vless://`、`hy2://`、`trojan://` 这样的节点链接。
+
+**bowel 会收集数据吗？** 不会。没有遥测、没有统计，也不需要账号。订阅链接、节点和设置都保存在本机 bowel 的数据目录里，它们和你的流量都不会发给项目方。检查更新时访问的是本仓库的 Releases。
+
+**bowel 是开源的吗？** 源码公开，可以阅读，也可以自己编译。但它的许可证 [PolyForm Noncommercial License 1.0.0](LICENSE) 不是 OSI 认可的开源许可证：个人和其他非商业用途免费，商业用途（比如在公司里工作时使用）需要[商业授权](#许可证)。
 
 ## 命令行
 

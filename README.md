@@ -5,7 +5,7 @@
 <h1 align="center">bowel</h1>
 
 <p align="center">
-bowel is a <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> client for macOS, Windows, Linux and Android.
+bowel is a <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> (Clash Meta) client for macOS, Windows, Linux and Android: a native app, not Electron or a WebView.
 </p>
 
 <p align="center">
@@ -16,6 +16,11 @@ bowel is a <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> client for m
 </p>
 
 <p align="center">
+  <a href="https://github.com/21stware/bowel/releases/latest"><img src="https://img.shields.io/github/v/release/21stware/bowel?label=release" alt="Latest release"></a>
+  <a href="https://github.com/21stware/bowel/releases"><img src="https://img.shields.io/github/downloads/21stware/bowel/total?label=downloads" alt="Downloads"></a>
+</p>
+
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="site/shots/home-en-dark.webp">
     <img src="site/shots/home-en.webp" width="880" alt="bowel main window">
@@ -23,6 +28,15 @@ bowel is a <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> client for m
 </p>
 
 The desktop interface is built in Go and rendered directly via the GPU, with no WebView. The Android app is built with Flutter and has the same cards and skins.
+
+## What's different
+
+- **A node for each purpose.** AI services, streaming, development and the rest are separate routes, each with its own node, chosen by hand or by speed.
+- **Clash configs as they are.** Subscription links, node links, QR codes and complete Clash or mihomo configs, which can keep their own groups and rules.
+- **Built for developers' machines.** On macOS and Linux, Docker, the terminal and Git are set up in one click; npm, pip, Go and Cargo mirrors are measured and switched; the LAN, Tailscale and company VPNs go direct.
+- **A command line, a TUI and a daemon.** `bowel` drives the running app, with `--json` for scripts; `bowel tui` works over SSH; `bowel daemon` runs with no window.
+- **An MCP server for agents.** Claude Code and other agents read the state and troubleshoot connections, and ask you before they change anything.
+- **Gateway mode.** One Mac or Linux computer carries the TVs and consoles on the LAN.
 
 ## Features
 
@@ -39,7 +53,7 @@ Inspect the app, destination, rule, exit, and speed for each connection, or rero
 <img src="site/shots/activity-en.webp" width="880" alt="Connections log">
 
 ### Providers
-Import subscription links, node URLs, YAML configs, or QR codes, with data usage and expiry shown for each source.
+Import subscription links, node URLs, Clash or mihomo YAML configs, or QR codes, with data usage and expiry shown for each source.
 
 <img src="site/shots/providers-en.webp" width="880" alt="Providers">
 
@@ -147,6 +161,16 @@ Some features depend on the platform:
 | Command line and `bowel daemon` | Yes | Yes | Yes | No |
 
 TUN asks for an administrator once, the first time you turn it on: macOS in its own dialog, Windows in a User Account Control prompt, Linux through polkit (`pkexec`). On Linux with systemd-resolved, that authorization also leaves a polkit rule letting your user point the resolver at the TUN device, which the core does every time TUN starts; without it (polkit older than 0.106, which reads no such rules) the desktop asks for a password three times at each start. On Linux the system proxy is GNOME's, which Cinnamon, MATE, Budgie and others share, or KDE's; on another desktop use TUN, or point your applications at the mixed port, 7899 by default. What each system has and lacks is listed in [docs/platform-parity.md](docs/platform-parity.md). On Android, you can choose apps that stay outside the VPN.
+
+## Questions
+
+**Coming from Clash Verge Rev, Mihomo Party, FlClash, ClashX Meta or Clash for Windows?** Add the same subscription link under Providers, or import the config file. When a subscription or a file is a complete config with route groups and rules of its own, bowel asks whether to route by them or only use its nodes. Only one client should take over the system proxy or TUN at a time, so quit the old one first.
+
+**Which protocols does it support?** Those of the mihomo core: Shadowsocks, ShadowsocksR, VMess, VLESS (with Reality), Trojan, Hysteria and Hysteria2, TUIC, WireGuard, AnyTLS, Snell, Mieru, SOCKS5 and HTTP, from a subscription, a Clash config or node links such as `vless://`, `hy2://` and `trojan://`.
+
+**Does bowel collect any data?** No. It has no telemetry, no analytics and no account. Subscription links, nodes and settings stay in bowel's data folder on your device, and nothing about them or your traffic is sent to the project. Updates are checked against this repository's releases.
+
+**Is bowel open source?** Its source is public, and you can read it and build it. Its license, the [PolyForm Noncommercial License 1.0.0](LICENSE), is not an OSI open-source license, though: bowel is free for personal and other noncommercial use, and commercial use, such as work for a company, needs a [commercial license](#license).
 
 ## Command line
 
