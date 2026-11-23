@@ -38,7 +38,7 @@ func TestRoutesPickApp(t *testing.T) {
 		icons: map[string]*ui.Bitmap{"/Applications/Claude.app": ui.NewBitmap(icon)},
 	}
 	claude := displayApp("Claude.app")
-	tt := ui.NewTester(u.view, 1060, 1400)
+	tt := ui.NewTester(u.view, 1060, 2200)
 	tt.Advance(time.Second)
 	for _, s := range []string{"有连接的应用", "正在运行的应用", claude, "Telegram.exe", displayApp("Zed.app")} {
 		if !tt.HasText(s) {
@@ -102,7 +102,7 @@ func TestRoutesPickAppNone(t *testing.T) {
 	u.routes.svc = routes.MineID("ai")
 	u.routes.kind = routes.KindApp
 	u.routes.picker = appPicker{at: time.Now()}
-	tt := ui.NewTester(u.view, 1060, 1400)
+	tt := ui.NewTester(u.view, 1060, 2200)
 	tt.Advance(time.Second)
 	if hasTextPart(tt, "在下面点一个正在运行的应用") || !hasTextPart(tt, "写应用或进程的名字") {
 		t.Errorf("hint with nothing to pick: %q", tt.Texts())

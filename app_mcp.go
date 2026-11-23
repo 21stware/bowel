@@ -422,9 +422,11 @@ type mcpRoute struct {
 	NodeLabel string `json:"nodeLabel,omitempty"`
 	UserRules int    `json:"userRules"`
 	// Locked is the exit lock (lock_route); Refused, that its traffic is
-	// refused now, takeover being off.
+	// refused now, takeover being off; Unheld, that the lock does not hold
+	// now, nothing bringing the group's traffic to bowel.
 	Locked  bool `json:"locked,omitempty"`
 	Refused bool `json:"refused,omitempty"`
+	Unheld  bool `json:"unheld,omitempty"`
 }
 
 type mcpNode struct {
@@ -440,7 +442,7 @@ type mcpNode struct {
 func (a *App) mcpRoutes(snap Snapshot) []mcpRoute {
 	out := make([]mcpRoute, 0, len(snap.Routes))
 	for _, r := range snap.Routes {
-		v := mcpRoute{ID: r.ID, Name: r.Name, Summary: r.Summary, Direct: r.Direct, Reject: r.Reject, Auto: r.Auto, Node: r.Node, UserRules: r.Mine, Locked: r.Locked, Refused: r.Refused}
+		v := mcpRoute{ID: r.ID, Name: r.Name, Summary: r.Summary, Direct: r.Direct, Reject: r.Reject, Auto: r.Auto, Node: r.Node, UserRules: r.Mine, Locked: r.Locked, Refused: r.Refused, Unheld: r.Unheld}
 		if r.Node != "" {
 			v.NodeLabel = a.display(r.Node)
 		}

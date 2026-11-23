@@ -1611,6 +1611,8 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32, lead func(
 			switch {
 			case picking:
 				note(i18n.T("勾选的节点就是范围，自动最快只在它们之间选；一个都不勾就是地区和来源里的全部。订阅更新后按名字保留。", "The ticked nodes are the range, and the fastest is picked among them; none ticked is every node the regions and sources allow. Picks are kept by name when a subscription updates."), false)
+			case r.Broken == "all":
+				note(lockedOutSay(), true)
 			case r.Broken != "":
 				note(i18n.T("这个范围里没有可用节点，放宽地区、来源或勾选的节点。范围不会被悄悄放宽。", "No usable node in this range: widen the regions, sources or picked nodes. A range is never widened on its own."), true)
 			default:
@@ -1629,6 +1631,9 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32, lead func(
 			if r.Broken != "" {
 				note(fmt.Sprintf(i18n.T("%s 不通。固定节点不会自动切换，换一个能用的。", "%s is down. A fixed node doesn't switch by itself: pick one that works."), u.nodeDisplay(q.Fixed)), true)
 			}
+		}
+		if r.Locked && r.Broken != "" && r.Broken != "all" {
+			note(lockedOutSay(), true) // the lock is what refuses, not only a node that is down
 		}
 		u.siteStrip(c, p, r, testing)
 	}
@@ -2146,8 +2151,10 @@ func (u *UI) takeoverNormal(c *ui.Context, p *pal) {
 	})
 }
 
-// lockWord is the exit lock's line under the entries while takeover is off
-// and a group is locked: which groups it refuses, or why it can't.
+// lockWord is the exit lock's line under the entries where a group is
+// locked and the lock holds by the system proxy alone or not at all:
+// which groups it refuses while takeover is off, what stands in for a
+// TUN that is lost, or why it can't hold.
 func (u *UI) lockWord(c *ui.Context, p *pal) {
 	l := u.snap.Takeover.Lock
 	if l == nil {
@@ -2159,14 +2166,21 @@ func (u *UI) lockWord(c *ui.Context, p *pal) {
 			names = append(names, r.Name)
 		}
 	}
-	text, col := i18n.T("出口锁定 · 正在拦下 ", "Exit lock · refusing ")+strings.Join(names, i18n.T("、", ", ")), p.ink2
+	// Takeover is off, so there is no TUN: only what follows the system
+	// proxy reaches bowel to be refused. The line says by what it holds,
+	// before the names, which may be cut; the tooltip says what that leaves out.
+	text, col := i18n.T("出口锁定 · 经系统代理拦下 ", "Exit lock · refusing via the system proxy: ")+strings.Join(names, i18n.T("、", ", ")), p.ink2
+	tip := proxyOnlySay()
+	if l.Detail != "" {
+		text, tip = l.Detail, l.Detail
+	}
 	if l.Status == "error" {
-		text, col = l.Detail, p.signal
+		col = p.signal
 	}
 	ui.Box(c).Height(1).BorderStyle(ui.BorderDashed).BorderWidth(1, 0, 0, 0).BorderColor(p.hair)
 	ui.Row(c.Key("lock-word")).Gap(6).Padding(6, 0).AlignItems(ui.Center).Children(func() {
 		ui.Icon(c, lockIcon).Size(11, 11).Shrink(0).TextColor(col)
-		ui.Text(c, text).FontSize(11.5).TextColor(col).SingleLine().Shrink(1).MinWidth(0).Tooltip(text)
+		ui.Text(c, text).FontSize(11.5).TextColor(col).SingleLine().Shrink(1).MinWidth(0).Tooltip(tip)
 	})
 }
 
@@ -2564,8 +2578,8 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 					line = summary
 				}
 				col := p.mute
-				if r.Refused {
-					line, col = refusedSay(), p.signal
+				if _, say := lockNow(r); say != "" {
+					line, col = say, p.signal
 				}
 				ui.Text(c, line).
 					FontSize(12).TextColor(col).SingleLine().Shrink(1).Margin(0, 0, 0, 22)

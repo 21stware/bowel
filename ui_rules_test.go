@@ -149,7 +149,7 @@ func TestRoutesAddAppRule(t *testing.T) {
 	u.selectGroup("ai")
 	u.routes.svc = routes.MineID("ai")
 	u.routes.kind = routes.KindApp
-	tt := ui.NewTester(u.view, 1060, 1400) // 我添加的 is the last of the group's services
+	tt := ui.NewTester(u.view, 1060, 2000) // 我添加的 is the last of the group's services
 	tt.Advance(time.Second)
 	if !hasTextPart(tt, "只管这台电脑上的应用") {
 		t.Errorf("no word on what an app rule covers: %q", tt.Texts())
@@ -173,7 +173,7 @@ func TestRoutesAddAppRule(t *testing.T) {
 
 	// With process matching off the core never learns who connects.
 	u.setOpt(func(s *settings.Settings) { s.FindProcess = "off" })
-	tt = ui.NewTester(u.view, 1060, 1400)
+	tt = ui.NewTester(u.view, 1060, 2000)
 	tt.Advance(time.Second)
 	if !hasTextPart(tt, "按应用的规则不会生效") {
 		t.Errorf("no warning with process matching off: %q", tt.Texts())
@@ -214,7 +214,7 @@ func TestAppsUnknownSaysSo(t *testing.T) {
 		r.selectGroup("ai")
 		r.routes.svc = routes.MineID("ai")
 		r.routes.kind = routes.KindApp
-		tt = ui.NewTester(r.view, 1060, 1400)
+		tt = ui.NewTester(r.view, 1060, 2000)
 		tt.Advance(time.Second)
 		if tt.HasText(note) != unknown || hasTextPart(tt, "只管这台电脑上的应用") == unknown {
 			t.Errorf("unknown %v: the editor says %q", unknown, tt.Texts())

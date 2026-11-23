@@ -30,18 +30,50 @@ func sv(id, name, group, rules string) builtin {
 }
 
 var builtins = []builtin{
-	sv("openai", "OpenAI", "ai", "openai.com chatgpt.com oaistatic.com oaiusercontent.com sora.com"),
-	sv("claude", "Claude", "ai", "anthropic.com claude.ai claude.com claudeusercontent.com claudemcpclient.com claudemcpcontent.com"),
-	sv("gemini", "Gemini", "ai", "gemini.google.com generativelanguage.googleapis.com aistudio.google.com notebooklm.google.com bard.google.com"),
-	sv("perplexity", "Perplexity", "ai", "perplexity.ai"),
-	sv("grok", "Grok", "ai", "x.ai grok.com"),
-	sv("cursor", "Cursor", "ai", "cursor.com cursor.sh cursorapi.com"),
-	sv("poe", "Poe", "ai", "poe.com"),
+	// The ai group's domains are the ones GeoSite's per-service lists hold
+	// (openai, anthropic, google-gemini, github-copilot and so on), written
+	// out so that a rule switched off stays off; Replicate, Copilot's
+	// origin-tracker and Vertex's aiplatform come from their own docs.
+	// Hosts a service shares with others stay out: Google's sign-in and
+	// static hosts, api.github.com, LiveKit's and Azure's shared ones.
+	// DeepSeek is in the mainland list and stays 国内网站.
+	sv("openai", "OpenAI", "ai", "openai.com chatgpt.com oaistatic.com oaiusercontent.com sora.com"+
+		" chat.com openai.org oaistatsig.com chatgpt.site crixet.com chatgpt.livekit.cloud"),
+	sv("claude", "Claude", "ai", "anthropic.com claude.ai claude.com claudeusercontent.com claudemcpclient.com claudemcpcontent.com"+
+		" claude.app claude.dev claude.new claude.site clau.de claudepages.dev claudestudio.com claudeacademy.com"+
+		" anthropic.team ant.dev antspace.dev chatbotclaude.com"),
+	sv("gemini", "Gemini", "ai", "gemini.google.com generativelanguage.googleapis.com aistudio.google.com notebooklm.google.com bard.google.com"+
+		" gemini.google gemini.gstatic.com geminiweb-pa.clients.google.com geminiweb-pa.clients6.google.com"+
+		" ai.google.dev ai.studio makersuite.google.com generativeai.google"+
+		" alkalicore-pa.clients6.google.com alkalimakersuite-pa.clients6.google.com"+
+		" notebooklm.google notebook.google notebook.google.com notebooklm.googleapis.com notebooklm-pa.googleapis.com"+
+		// Gemini CLI, Code Assist, Gemini in Workspace and Cloud, Vertex.
+		" cloudcode-pa.googleapis.com daily-cloudcode-pa.googleapis.com cloudaicompanion.googleapis.com"+
+		" aicode.googleapis.com aida.googleapis.com aiplatform.googleapis.com"+
+		" appsgenaiserver-pa.clients.google.com appsgenaiserver-pa.clients6.google.com appsgenaiserver-pa.googleapis.com"+
+		" proactivebackend-pa.googleapis.com geller-pa.googleapis.com robinfrontend-pa.googleapis.com"+
+		// Jules, Antigravity, Labs and its tools, DeepMind.
+		" jules.google jules.google.com antigravity.google antigravity-unleash.goog antigravity.googleapis.com antigravity-pa.googleapis.com"+
+		" labs.google labs.google.com flow.google flow.google.com opal.google opal.google.com stitch.withgoogle.com"+
+		" aisandbox-pa.googleapis.com labstailwind.pa.googleapis.com deepmind.google deepmind.com"),
+	sv("perplexity", "Perplexity", "ai", "perplexity.ai perplexity.com pplx.ai"),
+	sv("grok", "Grok", "ai", "x.ai grok.com grok.x.com grokipedia.com grokbot.com"),
+	sv("cursor", "Cursor", "ai", "cursor.com cursor.sh cursorapi.com cursor-cdn.com cursorvm.com"),
+	sv("poe", "Poe", "ai", "poe.com poecdn.net"),
 	sv("mistral", "Mistral", "ai", "mistral.ai"),
-	sv("hf", "Hugging Face", "ai", "huggingface.co"),
+	sv("hf", "Hugging Face", "ai", "huggingface.co hf.co hf.space"),
 	sv("openrouter", "OpenRouter", "ai", "openrouter.ai"),
 	sv("midjourney", "Midjourney", "ai", "midjourney.com"),
 	sv("characterai", "Character.AI", "ai", "character.ai"),
+	// Copilot's own hosts under githubusercontent.com are more specific
+	// than GitHub's suffix; its sign-in and token stay on github.com.
+	sv("copilot", "GitHub Copilot", "ai", "githubcopilot.com copilot-proxy.githubusercontent.com origin-tracker.githubusercontent.com copilot-workspace.githubnext.com"),
+	sv("mscopilot", "Microsoft Copilot", "ai", "copilot.microsoft.com copilot.cloud.microsoft copilot.com"),
+	sv("windsurf", "Windsurf", "ai", "windsurf.com windsurf.build codeium.com codeiumdata.com"),
+	sv("groq", "Groq", "ai", "groq.com"),
+	sv("metaai", "Meta AI", "ai", "meta.ai metaaiusercontent.com metaaivm.com"),
+	sv("replicate", "Replicate", "ai", "replicate.com replicate.delivery"),
+	sv("elevenlabs", "ElevenLabs", "ai", "elevenlabs.io elevenlabs.com"),
 
 	sv("youtube", "YouTube", "media", "geo:youtube"),
 	sv("netflix", "Netflix", "media", "geo:netflix netflix.com nflxvideo.net"),
