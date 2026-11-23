@@ -822,3 +822,27 @@ func TestNote(t *testing.T) {
 	var none *Monitor
 	none.Note("x") // an app without a monitor yet
 }
+
+func TestSplit(t *testing.T) {
+	m := New("")
+	y, mo, d := time.Now().Date()
+	t0 := time.Date(y, mo, d, 12, 0, 0, 0, time.Local)
+	start := t0.Add(-time.Minute)
+	poll := func(at time.Time, scale int64) {
+		m.apply(mihomo.Snapshot{Connections: []mihomo.Connection{
+			fakeConn("node", 1000*scale, 100*scale, start, "Tokyo 01", "AI"),
+			// A route group set to go direct: its group, then DIRECT.
+			fakeConn("group", 300*scale, 30*scale, start, "DIRECT", "Streaming"),
+			fakeConn("bare", 200*scale, 20*scale, start),
+		}}, at)
+	}
+	poll(t0, 1)
+	if s := m.Split(); s != (Split{}) {
+		t.Fatalf("first poll is history, not a rate: %+v", s)
+	}
+	poll(t0.Add(time.Second), 2)
+	want := Split{ProxyDown: 1000, ProxyUp: 100, DirectDown: 500, DirectUp: 50}
+	if s := m.Split(); s != want {
+		t.Errorf("split = %+v, want %+v", s, want)
+	}
+}

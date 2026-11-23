@@ -143,6 +143,11 @@ type tickData struct {
 	Active    int                `json:"active"`
 	TodayDown int64              `json:"todayDown"`
 	TodayUp   int64              `json:"todayUp"`
+	// The rates split by exit, through a node or not, for the notification.
+	ProxyDown  int64 `json:"proxyDown"`
+	ProxyUp    int64 `json:"proxyUp"`
+	DirectDown int64 `json:"directDown"`
+	DirectUp   int64 `json:"directUp"`
 	// GoNanos and PrevBytes are the previous tick's work in Go and its size.
 	GoNanos   int64 `json:"goNanos"`
 	PrevBytes int   `json:"prevBytes"`

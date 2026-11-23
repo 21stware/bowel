@@ -8,4 +8,6 @@
     <string name="camera_needed">扫描二维码需要相机权限。</string>
     <string name="open_settings">去设置</string>
     <string name="vpn_disconnect">断开</string>
+    <string name="speed_proxy">代理</string>
+    <string name="speed_direct">直连</string>
 </resources>

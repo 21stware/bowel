@@ -13,6 +13,7 @@ import android.net.LocalSocketAddress
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.util.Log
 import bridge.Bridge
 import java.io.File
@@ -32,6 +33,13 @@ class BowelVpnService : VpnService() {
     @Volatile
     private var process: Process? = null
     private var worker: Thread? = null
+
+    // The notification as last built, which each tick's speeds redraw. Under
+    // lock, so that no late tick puts it back once the service has taken it
+    // down.
+    private val lock = Any()
+    private var builder: Notification.Builder? = null
+    private var shownSpeed = ""
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -70,7 +78,11 @@ class BowelVpnService : VpnService() {
     }
 
     private fun finish() {
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        synchronized(lock) {
+            Core.onSpeed = null
+            builder = null
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        }
         stopSelf()
     }
 
@@ -205,22 +217,50 @@ class BowelVpnService : VpnService() {
         val disconnect = PendingIntent.getService(
             this, 0, Intent(this, BowelVpnService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE,
         )
-        val notification = Notification.Builder(this, CHANNEL)
+        val b = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_bowel)
             .setContentTitle("bowel")
             .setContentText(getString(R.string.vpn_running))
             .setContentIntent(open)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
             .addAction(
                 Notification.Action.Builder(
                     Icon.createWithResource(this, R.drawable.ic_stat_bowel), getString(R.string.vpn_disconnect), disconnect,
                 ).build(),
             )
-            .build()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        synchronized(lock) {
+            builder = b
+            shownSpeed = ""
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(NOTIFICATION_ID, b.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            } else {
+                startForeground(NOTIFICATION_ID, b.build())
+            }
+            Core.onSpeed = ::showSpeed
+        }
+    }
+
+    /**
+     * Puts the proxy and direct speeds in the notification, on the bridge's
+     * thread, once a second. Only once the core runs, only when they read
+     * differently, and not while the screen is off, where nobody sees them.
+     */
+    private fun showSpeed(s: Speed) {
+        if (stopping || !Core.vpnOn) return
+        if (!getSystemService(PowerManager::class.java).isInteractive) return
+        val proxy = getString(R.string.speed_proxy)
+        val direct = getString(R.string.speed_direct)
+        val short = "$proxy ↓${Speed.text(s.proxyDown)} · $direct ↓${Speed.text(s.directDown)}"
+        val long = "$proxy  ↓${Speed.text(s.proxyDown)}  ↑${Speed.text(s.proxyUp)}\n" +
+            "$direct  ↓${Speed.text(s.directDown)}  ↑${Speed.text(s.directUp)}"
+        synchronized(lock) {
+            val b = builder ?: return
+            if (long == shownSpeed) return
+            shownSpeed = long
+            b.setContentText(short).setStyle(Notification.BigTextStyle().bigText(long))
+            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, b.build())
         }
     }
 

@@ -376,6 +376,32 @@ func (m *Monitor) Rates() []Rate {
 	return out
 }
 
+// Split is what the active connections carry now, by how they leave:
+// through a node, or directly.
+type Split struct {
+	ProxyDown, ProxyUp, DirectDown, DirectUp int64
+}
+
+// Split adds up the active connections' rates by their exit, the first of
+// their chains. That says where the traffic really goes, whichever route it
+// matched: a route group set to go direct leaves through DIRECT too.
+func (m *Monitor) Split() Split {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var s Split
+	for _, t := range m.active {
+		c := &t.Conn
+		if len(c.Chains) == 0 || c.Chains[0] == "DIRECT" {
+			s.DirectDown += c.DownRate
+			s.DirectUp += c.UpRate
+		} else {
+			s.ProxyDown += c.DownRate
+			s.ProxyUp += c.UpRate
+		}
+	}
+	return s
+}
+
 // Events returns up to n events, newest first; n <= 0 means all kept.
 func (m *Monitor) Events(n int) []Event {
 	m.mu.Lock()

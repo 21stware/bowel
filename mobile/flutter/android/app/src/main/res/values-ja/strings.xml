@@ -8,4 +8,6 @@
     <string name="camera_needed">QR コードの読み取りにはカメラへのアクセスが必要です。</string>
     <string name="open_settings">設定を開く</string>
     <string name="vpn_disconnect">切断</string>
+    <string name="speed_proxy">プロキシ</string>
+    <string name="speed_direct">直接接続</string>
 </resources>

@@ -353,6 +353,8 @@ func (x *bridge) tick() {
 	for _, r := range x.routes() {
 		tk.ByRoute[r.ID] = s.ByGroup[routes.Group(r)]
 	}
+	sp := x.mon.Split()
+	tk.ProxyDown, tk.ProxyUp, tk.DirectDown, tk.DirectUp = sp.ProxyDown, sp.ProxyUp, sp.DirectDown, sp.DirectUp
 	tk.Today = x.todayShare(s.GroupBytes)
 	tk.Ranges = x.trafficRanges(began)
 	var conns []connData

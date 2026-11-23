@@ -8,4 +8,6 @@
     <string name="camera_needed">Allow camera access to scan a QR code.</string>
     <string name="open_settings">Open Settings</string>
     <string name="vpn_disconnect">Disconnect</string>
+    <string name="speed_proxy">Proxy</string>
+    <string name="speed_direct">Direct</string>
 </resources>
