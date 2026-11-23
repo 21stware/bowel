@@ -166,6 +166,21 @@ func TestBuildConfigDirectNameservers(t *testing.T) {
 		t.Fatalf("split DNS: %v", dns)
 	}
 
+	// Under TUN "system" is bowel's placeholder, a public server: the
+	// network's own servers stand for it (#241).
+	local := devInput("rule", devnet.Overlay{SystemDNS: []string{"+.lan"}, LocalDNS: []string{"192.168.50.1"}})
+	local.Options.DirectNameservers = []string{"system", "10.0.0.53"}
+	local.Tun = true
+	dns, _ = build(t, local)["dns"].(map[string]any)
+	if got := strs(dns["direct-nameserver"]); !slices.Equal(got, []string{"192.168.50.1", "10.0.0.53"}) {
+		t.Fatalf("system under TUN: %v", got)
+	}
+	local.Tun, local.DNS = false, true
+	dns, _ = build(t, local)["dns"].(map[string]any)
+	if got := strs(dns["direct-nameserver"]); !slices.Equal(got, []string{"system", "10.0.0.53"}) {
+		t.Fatalf("system without TUN: %v", got)
+	}
+
 	// A server known by name that only these use still has its address.
 	in.Options.Nameservers = []string{"223.5.5.5"}
 	in.Options.DirectNameservers = []string{"tls://dot.pub"}
