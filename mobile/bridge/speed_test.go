@@ -393,11 +393,11 @@ func TestOldFailureIsNotTested(t *testing.T) {
 	}
 	q := routes.Policy{Mode: routes.ModeFixed, Fixed: "n"}
 	fresh := nodeView("n", "a", failed(time.Minute), rd)
-	if !fresh.Tested || brokenWhy(q, []nodeData{fresh}, routes.Default) != "fixed" {
+	if !fresh.Tested || brokenWhy(q, []nodeData{fresh}, routes.Default, false) != "fixed" {
 		t.Errorf("a failure a minute ago: %+v", fresh)
 	}
 	old := nodeView("n", "a", failed(time.Hour), rd)
-	if old.Tested || brokenWhy(q, []nodeData{old}, routes.Default) != "" {
+	if old.Tested || brokenWhy(q, []nodeData{old}, routes.Default, false) != "" {
 		t.Errorf("a failure an hour ago: %+v", old)
 	}
 }
@@ -407,10 +407,10 @@ func TestOldFailureIsNotTested(t *testing.T) {
 func TestBrokenWhyReadsTheRoutesOwnTest(t *testing.T) {
 	n := nodeData{Name: "n", Tested: true, Delay: 80, Routes: map[string]int{"ai": 0}}
 	q := routes.Policy{Mode: routes.ModeFixed, Fixed: "n"}
-	if why := brokenWhy(q, []nodeData{n}, routes.Default); why != "" {
+	if why := brokenWhy(q, []nodeData{n}, routes.Default, false); why != "" {
 		t.Errorf("default: %q", why)
 	}
-	if why := brokenWhy(q, []nodeData{n}, "ai"); why != "fixed" {
+	if why := brokenWhy(q, []nodeData{n}, "ai", false); why != "fixed" {
 		t.Errorf("ai: %q", why)
 	}
 }

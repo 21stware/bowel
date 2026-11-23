@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oboo/moho/internal/mihomo"
 	"github.com/oboo/moho/internal/routes"
 )
 
@@ -67,5 +68,51 @@ func TestGroupLocks(t *testing.T) {
 	}
 	if cfg := config(t, x); cfg["mode"] != "direct" {
 		t.Fatalf("unlocked, the core is in %v, want direct", cfg["mode"])
+	}
+}
+
+// A locked group left on the REJECT it holds has no node to name: the
+// page must not show REJECT as an exit, nor a switch to it.
+func TestLockedGroupOnRejectNamesNoNode(t *testing.T) {
+	r := routes.Route{ID: "ai", Name: "AI 服务", Locked: true}
+	px := map[string]mihomo.Proxy{
+		routes.Group(r): {Now: routes.Auto(r)},
+		routes.Auto(r):  {Now: "REJECT"},
+	}
+	if n := currentNode(px, r); n != "" {
+		t.Errorf("currentNode = %q, want none", n)
+	}
+	px[routes.Auto(r)] = mihomo.Proxy{Now: "hop"}
+	if n := currentNode(px, r); n != "hop" {
+		t.Errorf("currentNode = %q, want hop", n)
+	}
+}
+
+// With every node down, a group that picks among all of them is broken
+// only when locked, and then the page says the lock is what refuses, in
+// direct mode too, where a locked group still goes by its node.
+func TestLockedGroupWithNoNodeIsSaid(t *testing.T) {
+	dead := nodeData{Name: "n", Tested: true, Delay: 0, Routes: map[string]int{"ai": 0}}
+	live := nodeData{Name: "m", Tested: true, Delay: 80, Routes: map[string]int{"ai": 80}}
+	q := routes.Policy{}
+	if why := brokenWhy(q, []nodeData{dead}, "ai", false); why != "" {
+		t.Errorf("unlocked: %q", why)
+	}
+	if why := brokenWhy(q, []nodeData{dead, live}, "ai", true); why != "" {
+		t.Errorf("locked with a live node: %q", why)
+	}
+	if why := brokenWhy(q, []nodeData{dead}, "ai", true); why != "all" {
+		t.Fatalf("locked: %q, want all", why)
+	}
+	v := viewData{Nodes: []nodeData{dead}, Routes: []routeData{{ID: "ai", Name: "AI 服务", Locked: true, Broken: "all"}}}
+	for _, mode := range []string{"rule", "direct", "global"} {
+		is := judge(mode, v, nil)
+		if is == nil || is.Level != "error" || !strings.Contains(is.Text, "AI 服务") || !strings.Contains(is.Detail, "出口锁定正在拦下") {
+			t.Errorf("%s mode: %+v", mode, is)
+		}
+	}
+	v.Routes[0].Locked = false
+	if is := judge("direct", v, nil); is != nil && strings.Contains(is.Text, "AI 服务") {
+		t.Errorf("an unlocked group is not in use in direct mode: %+v", is)
 	}
 }

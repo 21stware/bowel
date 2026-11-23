@@ -576,7 +576,8 @@ class _GroupPageState extends State<GroupPage> {
           Padding(
             padding: const EdgeInsets.only(top: 2),
             child: Text(
-              switch (broken) {
+              switch (rc?.locked == true ? 'locked' : broken) {
+                'locked' => tr('出口锁定正在拦下这个路由组的连接，不会改走直连。换一个能用的节点，或解除出口锁定。', "The exit lock is refusing this group's connections rather than sending them direct. Pick a node that works, or unlock."),
                 'fixed' => tr('固定节点不会自动切换，这个路由组现在连不上。', "A fixed node doesn't switch by itself, so this route group can't connect now."),
                 'scope' => tr('范围不会被悄悄放宽，这个路由组现在连不上。', "A range is never widened on its own, so this route group can't connect now."),
                 _ => tr('这个路由组现在连不上。', "This route group can't connect now."),

@@ -1117,6 +1117,10 @@ class AppState extends ChangeNotifier {
       if (core.isNotEmpty) {
         r.node = _nodeNames[core] ?? core;
         r.auto = v['auto'] as bool? ?? r.auto;
+      } else if (r.locked && r.broken != null) {
+        // A locked group with no node that works refuses while the VPN is
+        // on: the node it was on last is not where its traffic goes.
+        r.node = on ? tr('没有可用节点，正在拦下', 'No usable node, refusing') : tr('未连接', 'Not connected');
       } else if (!_seenView || r.node == null) { // or back from going direct
         r.node = tr('未连接', 'Not connected');
         r.auto = true;
