@@ -200,7 +200,7 @@ class _RoutesPageState extends State<RoutesPage> {
         final imported = app.routing?['imported'];
         if (imported is Map) return _ImportedRoutes(app: app, data: imported);
         final all = _groups(app);
-        // The fixed groups keep their place, so a group moves among the rest.
+        // The default route keeps its place, so a group moves among the rest.
         final movable = [for (final g in all) if (g['movable'] == true) g['id'] as String];
         var services = 0, rules = 0;
         for (final g in all) {

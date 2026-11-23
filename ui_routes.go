@@ -612,29 +612,61 @@ type (
 	setDrag   string
 )
 
+// sortsGroup makes group id's row b one to drag to another group's place,
+// and the place of a group dragged to it. mark, called among the row's
+// children, draws the edge the dragged group would come in at: under this
+// one if it comes from above, over it if from below.
+func (u *UI) sortsGroup(c *ui.Context, p *pal, b ui.Element, id string) (mark func()) {
+	b.Drag(groupDrag(id)).Tooltip(i18n.T("拖动调整顺序", "Drag to reorder"))
+	if b.Dragging() {
+		b.Opacity(.35)
+	}
+	if d, ok := ui.Drop[groupDrag](b); ok && string(d) != id {
+		u.changeRouting(func(s *settings.Settings) { s.Routing.MoveGroup(string(d), id) }, nil)
+	}
+	d, over := ui.DragOver[groupDrag](b)
+	return func() {
+		if !over || string(d) == id {
+			return
+		}
+		order := u.shownSettings().Routing.GroupOrder()
+		line := ui.Box(c.Key("drop")).Absolute().Left(0).Right(0).Height(2).Radius(1).Background(p.accentLine).IgnoreInput(true).AccessHidden(true)
+		if slices.Index(order, string(d)) < slices.Index(order, id) {
+			line.Bottom(0)
+		} else {
+			line.Top(0)
+		}
+	}
+}
+
+// grip is three bars, the mark of a row that can be dragged, in a box of
+// size.
+func grip(c *ui.Context, col ui.Color, size float32) ui.Element {
+	return ui.Column(c).Size(size, size).Shrink(0).Justify(ui.Center).AlignItems(ui.Stretch).Gap(2.5).IgnoreInput(true).AccessHidden(true).Children(func() {
+		for range 3 {
+			ui.Box(c).Height(1.5).Radius(1).Background(col)
+		}
+	})
+}
+
 func (u *UI) routesItem(c *ui.Context, p *pal, r routes.Route) {
 	st := &u.routes
 	on := st.group == r.ID
 	v := u.route(r.ID)
 	b := ui.ButtonBase(c.Key(r.ID)).Column().Gap(2).Padding(8, 10).Radius(p.r(8)).AlignItems(ui.Stretch)
-	over := false
-	if !routes.Fixed(r.ID) { // the fixed groups stay where they are, after the others
-		b.Drag(groupDrag(r.ID))
-		if id, ok := ui.Drop[groupDrag](b); ok {
-			u.changeRouting(func(s *settings.Settings) { s.Routing.MoveGroup(string(id), r.ID) }, nil)
-		}
-		id, ok := ui.DragOver[groupDrag](b)
-		over = ok && string(id) != r.ID
-	}
 	switch {
-	case over: // it would take this one's place
-		b.Background(p.hair)
 	case on:
 		b.Background(p.hair2)
 	case b.Hovered():
 		b.Background(p.hover)
 	}
+	movable := routes.Movable(r.ID)
+	mark := func() {}
+	if movable {
+		mark = u.sortsGroup(c, p, b, r.ID)
+	}
 	b.OnClick(func() { u.selectGroup(r.ID) }).Children(func() {
+		mark()
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			swatch(c, p.routeColor(r.ID), 9).Shrink(0)
 			ui.Text(c, routes.Title(r)).FontSize(13).FontWeight(600).TextColor(p.ink).SingleLine().Grow(1).Basis(0).MinWidth(0)
@@ -653,7 +685,16 @@ func (u *UI) routesItem(c *ui.Context, p *pal, r routes.Route) {
 		if v.Broken != "" {
 			col = p.signal
 		}
-		shimmer(ui.Text(c, line).FontSize(11.5).TextColor(col).SingleLine(), u.pending("node:"+r.ID), p).Margin(0, 0, 0, 17)
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			shimmer(ui.Text(c, line).FontSize(11.5).TextColor(col).SingleLine(), u.pending("node:"+r.ID), p).Margin(0, 0, 0, 17).Grow(1).Basis(0).MinWidth(0)
+			if movable {
+				gc := p.faint
+				if b.Hovered() {
+					gc = p.ink2
+				}
+				grip(c, gc, 10)
+			}
+		})
 	})
 }
 

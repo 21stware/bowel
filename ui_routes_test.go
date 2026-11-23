@@ -697,8 +697,9 @@ func dragOnto(t *testing.T, tt *ui.Tester, from, to string) {
 }
 
 // TestDragToReorder: a route group dragged onto another takes its place,
-// and so does a rule set within its group; the fixed groups neither move
-// nor take one. The list says what the order means.
+// and so does a rule set within its group; 直连 and 拦截 move too, only
+// 其他流量 neither moves nor takes a place. The list says what the order
+// means.
 func TestDragToReorder(t *testing.T) {
 	u := routesFixture()
 	plan := &u.snap.Settings.Routing
@@ -726,12 +727,25 @@ func TestDragToReorder(t *testing.T) {
 	if got, want := order(), []string{routes.Default, "ai", "media", "dev", g, "direct", routes.Reject}; !slices.Equal(got, want) {
 		t.Errorf("after dragging down: %v, want %v", got, want)
 	}
-	before := order()
+	dragOnto(t, tt, "拦截", "AI 服务")
+	if got, want := order(), []string{routes.Default, routes.Reject, "ai", "media", "dev", g, "direct"}; !slices.Equal(got, want) {
+		t.Errorf("after dragging 拦截 to the top: %v, want %v", got, want)
+	}
 	dragOnto(t, tt, "OpenAI", "直连")
-	dragOnto(t, tt, "拦截", "流媒体")
+	if got, want := order(), []string{routes.Default, routes.Reject, "ai", "media", "dev", "direct", g}; !slices.Equal(got, want) {
+		t.Errorf("after dragging past 直连: %v, want %v", got, want)
+	}
+	shot(t, tt, "routes-reordered-fixed")
+	before := order()
 	dragOnto(t, tt, "其他流量", "流媒体")
+	dragOnto(t, tt, "流媒体", "其他流量")
 	if got := order(); !slices.Equal(got, before) {
-		t.Errorf("a fixed group moved or gave up its place: %v", got)
+		t.Errorf("the default route moved or gave up its place: %v", got)
+	}
+	dragOnto(t, tt, "OpenAI", "直连") // back where the rest of the test has it
+	dragOnto(t, tt, "拦截", "直连")
+	if got, want := order(), []string{routes.Default, "ai", "media", "dev", g, "direct", routes.Reject}; !slices.Equal(got, want) {
+		t.Fatalf("back again: %v, want %v", got, want)
 	}
 
 	if err := tt.Click("AI 服务"); err != nil {
@@ -762,6 +776,53 @@ func TestDragToReorder(t *testing.T) {
 	dragOnto(t, tt, "窄的规则集", "Claude") // a service and a set are not one another's place
 	if got := sets(); !slices.Equal(got, []string{second, first}) {
 		t.Errorf("sets after a drag onto a service: %v", got)
+	}
+}
+
+// TestHomeRoutesDrag: on 今日's route board the groups are dragged to
+// reorder them as in the tab, 直连 and 拦截 too, and shown in the new
+// order at once; a press that doesn't move still opens a group.
+func TestHomeRoutesDrag(t *testing.T) {
+	u := routesFixture()
+	u.page, u.home.x = "", "routes"
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(2 * time.Second)
+	above := func(a, b string) bool {
+		t.Helper()
+		ra, ok := tt.Find(a)
+		rb, ok2 := tt.Find(b)
+		if !ok || !ok2 {
+			t.Fatalf("no %q or %q: %q", a, b, tt.Texts())
+		}
+		return ra.Y < rb.Y
+	}
+	order := func() []string { return u.shownSettings().Routing.GroupOrder() }
+	dragOnto(t, tt, "拦截", "AI 服务")
+	tt.Advance(time.Second) // the names glide to their rows
+	if got, want := order(), []string{routes.Default, routes.Reject, "ai", "media", "dev", "direct"}; !slices.Equal(got, want) {
+		t.Errorf("after dragging 拦截 onto AI 服务: %v, want %v", got, want)
+	}
+	if !above("拦截", "AI 服务") {
+		t.Error("拦截 isn't shown above AI 服务")
+	}
+	dragOnto(t, tt, "直连", "流媒体")
+	tt.Advance(time.Second)
+	if got, want := order(), []string{routes.Default, routes.Reject, "ai", "direct", "media", "dev"}; !slices.Equal(got, want) {
+		t.Errorf("after dragging 直连 onto 流媒体: %v, want %v", got, want)
+	}
+	shot(t, tt, "home-routes-dragged")
+	if u.home.sub != "" {
+		t.Errorf("a drag opened group %q", u.home.sub)
+	}
+	dragOnto(t, tt, "AI 服务", "其他流量")
+	if got, want := order(), []string{routes.Default, routes.Reject, "ai", "direct", "media", "dev"}; !slices.Equal(got, want) {
+		t.Errorf("after a drop on 其他流量: %v", got)
+	}
+	r, _ := tt.Find("AI 服务")
+	tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+	tt.Frame()
+	if u.home.sub != "ai" {
+		t.Errorf("a click no longer opens the group: sub %q", u.home.sub)
 	}
 }
 
