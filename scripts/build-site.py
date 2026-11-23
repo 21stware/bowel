@@ -29,8 +29,11 @@ SITE = "https://bowel.dev/"
 # Each language: its directory, its <html lang>, its Open Graph locale, and
 # its name in itself. The key is also what its screenshots and card are
 # named by (shots/home-ja.webp, og-ja.png), as the app names its languages.
+# "card" is the language a page's link preview is in, when not its own:
+# bowel.dev/ is the address people share, to readers of any language, so
+# it shows the English card, as /en/ does.
 LANGS = {
-    "zh": {"dir": "", "html": "zh-CN", "og": "zh_CN", "name": "简体中文"},
+    "zh": {"dir": "", "html": "zh-CN", "og": "zh_CN", "name": "简体中文", "card": "en"},
     "zh-Hant": {"dir": "zh-tw/", "html": "zh-TW", "og": "zh_TW", "name": "繁體中文"},
     "en": {"dir": "en/", "html": "en", "og": "en_US", "name": "English"},
     "ja": {"dir": "ja/", "html": "ja", "og": "ja_JP", "name": "日本語"},
@@ -45,6 +48,7 @@ RELATIVE = re.compile(r'\b(src|href)="(?!#|/|\.\./|[a-z][a-z0-9+.-]*:)([^"]+)"')
 # The Chinese in a head block: the title, and quoted values.
 HEAD_TEXT = re.compile(r'(<title>)([^<]*)(</title>)|(")([^"\n]*[一-鿿][^"\n]*)(")')
 LOCALE = re.compile(r'<meta property="og:type"')
+CARD = re.compile(r'<meta property="og:(title|description|image)" content="([^"]*)">')
 HTML_TAG = re.compile(r'<html lang="zh-CN" class="zh">')
 NOW = re.compile(r"(<summary[^>]*>.*?<b>)[^<]*(</b></summary>)", re.S)
 
@@ -99,6 +103,7 @@ def head(block, lang, tr):
 
 def render(html, lang):
     info = LANGS[lang]
+    src = html
     tr = None if lang in WRITTEN else Table(lang)
     base = lang if lang in WRITTEN else "zh"
     other = "en" if base == "zh" else "zh"
@@ -116,8 +121,20 @@ def render(html, lang):
     html, n = HTML_TAG.subn('<html lang="%s" class="%s">' % (info["html"], lang if lang in WRITTEN else lang.lower()), html)
     if n != 1:
         sys.exit("build-site: index.html's <html> tag is not the one this script expects")
-    locales = '<meta property="og:locale" content="%s">\n' % info["og"]
-    locales += "".join('<meta property="og:locale:alternate" content="%s">\n' % v["og"] for k, v in LANGS.items() if k != lang)
+    card = info.get("card", lang)
+    if card != lang:
+        # The preview's title, description and picture from that language's
+        # head block; the page's own title and description stay.
+        block = BLOCK[card].search(src)
+        theirs = dict(CARD.findall(block.group(1))) if block else {}
+        if set(theirs) != {"title", "description", "image"}:
+            sys.exit("build-site: the %s head block has no og:title, og:description and og:image to show" % card)
+        html, n = CARD.subn(lambda m: '<meta property="og:%s" content="%s">' % (m.group(1), theirs[m.group(1)]), html)
+        if n != 3:
+            sys.exit("build-site: the %s page has %d of og:title, og:description and og:image" % (lang, n))
+    first = LANGS[card]["og"]
+    locales = '<meta property="og:locale" content="%s">\n' % first
+    locales += "".join('<meta property="og:locale:alternate" content="%s">\n' % v["og"] for v in LANGS.values() if v["og"] != first)
     html, n = LOCALE.subn(lambda m: locales + m.group(0), html, count=1)
     if n != 1:
         sys.exit("build-site: no og:type to put the locales before")
