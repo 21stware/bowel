@@ -92,7 +92,9 @@ func (u *UI) routeExit(rv RouteView) string {
 // the site (api.openai.com → openai.com and what is under it); the
 // submenu, the one name. A connection with no name gets a rule for its IP.
 // Where the core knows who connects (routes.AppRules), a second submenu
-// sends everything of the connection's application.
+// sends everything of the connection's application, saying under it when
+// that is more or less than the name promises (routes.AppNote): a page in
+// Safari is the WebKit process's connection, shared with other apps.
 func (u *UI) actRouteBtn(c *ui.Context, p *pal, cn Conn) {
 	mine, hasMine := u.ruleOf(cn)
 	btn(c.Key("route"), p, i18n.T("让它走…", "Send via…")).PopoverMenuButton(func(m *ui.Menu) {
@@ -131,6 +133,9 @@ func (u *UI) actRouteBtn(c *ui.Context, p *pal, cn Conn) {
 		if app, err := routes.ParseRule(routes.KindApp, cn.Process, ""); err == nil && routes.AppRules {
 			m.Separator()
 			m.Submenu(fmt.Sprintf(i18n.T("让 %s 的所有连接走…", "Everything from %s via…"), app.Value), func(m *ui.Menu) { items(m, app) })
+			if note := appMenuNote(app.Value); note != "" {
+				m.Item(note).Disabled(true)
+			}
 			if u.tick.AppsUnknown { // the name may be bowel's own lookup's
 				m.Item(appsUnknownNote()).Disabled(true)
 			}
@@ -146,6 +151,18 @@ func (u *UI) actRouteBtn(c *ui.Context, p *pal, cn Conn) {
 			u.openRules(cmp.Or(cn.Route, routes.Default))
 		}
 	})
+}
+
+// appMenuNote is routes.AppNote short enough for a menu's line: what a
+// rule for Safari leaves out, and what one for the WebKit process takes in.
+func appMenuNote(app string) string {
+	switch {
+	case routes.IsWebKit(app):
+		return i18n.T("Safari 和内嵌网页的应用都算在内", "Covers Safari and all apps with web views")
+	case routes.UsesWebKit(app):
+		return i18n.T("管不到网页：网页由 WebKit 网络进程连接", "Not its pages: the WebKit process loads them")
+	}
+	return ""
 }
 
 // appsUnknownNote says what Tick.AppsUnknown means for the user.

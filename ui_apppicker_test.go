@@ -3,6 +3,9 @@ package main
 import (
 	"image"
 	"image/color"
+	"runtime"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -104,4 +107,83 @@ func TestRoutesPickAppNone(t *testing.T) {
 	if hasTextPart(tt, "在下面点一个正在运行的应用") || !hasTextPart(tt, "写应用或进程的名字") {
 		t.Errorf("hint with nothing to pick: %q", tt.Texts())
 	}
+}
+
+// webKitPath is where the core says the WebKit networking process is, on
+// macOS 27.2: under the system's cryptex, outside every app's bundle.
+const webKitPath = "/System/Volumes/Preboot/Cryptexes/OS/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+
+// TestRoutesAppNoteSafari: a rule for Safari says, before it is added, that
+// it leaves Safari's pages out, and offers the WebKit process, which says
+// what else it takes.
+func TestRoutesAppNoteSafari(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("bundles and the WebKit process are macOS's")
+	}
+	withAppRules(t, true)
+	u := routesFixture()
+	u.selectGroup("ai")
+	u.routes.svc = routes.MineID("ai")
+	u.routes.kind = routes.KindApp
+	u.routes.picker = appPicker{at: time.Now(), apps: []appChoice{{Name: "Safari.app", Bundle: "/Applications/Safari.app"}, {Name: "Zed.app", Bundle: "/Applications/Zed.app"}}}
+	tt := ui.NewTester(u.view, 1060, 2200)
+	tt.Advance(time.Second)
+	if hasTextPart(tt, "WebKit") {
+		t.Fatalf("a note before anything is chosen: %q", tt.Texts())
+	}
+	if err := tt.Click("Zed.app"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if hasTextPart(tt, "WebKit") {
+		t.Fatalf("a note for an app that connects for itself: %q", tt.Texts())
+	}
+	if err := tt.Click("Safari.app"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if !hasTextPart(tt, "这条规则管不到网页") {
+		t.Fatalf("no word that Safari's rule misses its pages: %q", tt.Texts())
+	}
+	shot(t, tt, "routes-app-note-safari")
+	if err := tt.Click("改用 WebKit 网络进程"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if u.routes.rule != routes.WebKitProcess {
+		t.Fatalf("the rule is %q, want the WebKit process", u.routes.rule)
+	}
+	if !hasTextPart(tt, "这条规则会把它们一起管到") || tt.HasText("改用 WebKit 网络进程") {
+		t.Errorf("the WebKit process's rule doesn't say what it takes: %q", tt.Texts())
+	}
+	shot(t, tt, "routes-app-note-webkit")
+}
+
+// TestActivityWebKitMenu: a page in Safari is the WebKit process's
+// connection, so 让它走… offers a rule for that process, never one for
+// Safari.app that would not match, and says what else the rule takes.
+func TestActivityWebKitMenu(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the WebKit process is macOS's")
+	}
+	withAppRules(t, true)
+	u := actUI()
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	if err := tt.Click("www.bilibili.com:443"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if err := tt.Click("让它走…"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(300 * time.Millisecond)
+	m := tt.Menu()
+	if !slices.Contains(m, "让 "+routes.WebKitProcess+" 的所有连接走…") || !slices.Contains(m, "Safari 和内嵌网页的应用都算在内") {
+		t.Fatalf("the menu doesn't offer the WebKit process with its note: %q", m)
+	}
+	if slices.ContainsFunc(m, func(s string) bool { return strings.Contains(s, "Safari.app") }) {
+		t.Errorf("the menu offers a rule for Safari.app: %q", m)
+	}
+	shot(t, tt, "activity-route-menu-webkit")
 }

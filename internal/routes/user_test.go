@@ -2,6 +2,7 @@ package routes
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -274,5 +275,41 @@ func TestAndroidPackageRule(t *testing.T) {
 		if !r.Matched("ProcessName", "com.openai.chatgpt") {
 			t.Errorf("the connection's rule is not recognised")
 		}
+	}
+}
+
+// TestWebKitProcess: on macOS a page in Safari is connected by the WebKit
+// networking process, outside Safari.app. The rule for the bundle doesn't
+// take it and says so; the path the core reports gives a rule for the
+// process, which does, and says whose pages come with it.
+func TestWebKitProcess(t *testing.T) {
+	const path = "/System/Volumes/Preboot/Cryptexes/OS/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking"
+	asOn(t, true)
+	safari := UserRule{Kind: KindApp, Value: "Safari.app", Route: "ai"}
+	if safari.Mihomo() != "PROCESS-PATH-WILDCARD,*/Safari.app/*" || safari.MatchesApp(WebKitProcess, path) {
+		t.Errorf("Safari.app's rule: %q, takes the WebKit process: %v", safari.Mihomo(), safari.MatchesApp(WebKitProcess, path))
+	}
+	if !UsesWebKit("safari.app") || AppNote("Safari.app") == "" || !strings.Contains(AppNote("Safari.app"), WebKitProcess) {
+		t.Errorf("Safari.app's note: %q", AppNote("Safari.app"))
+	}
+	wk, err := ParseRule(KindApp, path, "ai")
+	if err != nil || wk.Value != WebKitProcess || wk.Mihomo() != "PROCESS-NAME,"+WebKitProcess || !wk.MatchesApp(WebKitProcess, path) || !wk.MatchesApp("", path) {
+		t.Errorf("the process's rule: %+v %v %q", wk, err, wk.Mihomo())
+	}
+	if !IsWebKit(wk.Value) || AppNote(wk.Value) == "" || AppNote(wk.Value) == AppNote("Safari.app") {
+		t.Errorf("the process's note: %q", AppNote(wk.Value))
+	}
+	if safari.Describe() == "应用 Safari.app" || wk.Describe() == "应用 "+WebKitProcess {
+		t.Errorf("described as if they were what they look like: %q, %q", safari.Describe(), wk.Describe())
+	}
+	for _, app := range []string{"Google Chrome.app", "Telegram.exe", "curl"} {
+		if AppNote(app) != "" || (UserRule{Kind: KindApp, Value: app}).Describe() != "应用 "+app {
+			t.Errorf("%s: note %q", app, AppNote(app))
+		}
+	}
+	// Elsewhere these are names like any other.
+	asOn(t, false)
+	if AppNote("Safari.app") != "" || AppNote(WebKitProcess) != "" || IsWebKit(WebKitProcess) || UsesWebKit("Safari.app") {
+		t.Error("a note off macOS")
 	}
 }
