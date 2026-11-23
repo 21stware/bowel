@@ -90,7 +90,7 @@ func TestRoutesAddRule(t *testing.T) {
 	u := routesFixture()
 	u.selectGroup("ai")
 	u.routes.svc = "claude"
-	tt := ui.NewTester(u.view, 1060, 940) // room for the exit choice above the services, in any system's fonts
+	tt := ui.NewTester(u.view, 1060, 1500) // room for the exit choice above the services, in any system's fonts
 	tt.Advance(time.Second)
 
 	typeInto(t, tt, "新规则", "https://chat.example.com/x")
@@ -137,7 +137,7 @@ func TestRoutesEditRule(t *testing.T) {
 	u.snap.Settings.Rules = []routes.UserRule{mine, other}
 	u.selectGroup("ai")
 	u.routes.svc = "claude"
-	tt := ui.NewTester(u.view, 1060, 884)
+	tt := ui.NewTester(u.view, 1060, 1500)
 	tt.Advance(time.Second)
 
 	edit := func(value string) {
@@ -835,12 +835,12 @@ func TestRoutesOpeningKeepsTheRow(t *testing.T) {
 	u := routesFixture()
 	u.selectGroup("ai")
 	u.routes.svc = "openai"
-	tt := ui.NewTester(u.view, 1060, 860) // tall enough for Claude's editor once open, in any system's fonts
+	tt := ui.NewTester(u.view, 1060, 1400) // tall enough for Claude's editor once open, in any system's fonts
 	tt.Advance(time.Second)
-	tt.Wheel(700, 500, 0, 400) // OpenAI's editor above, partly scrolled away
+	tt.Wheel(700, 500, 0, 700) // OpenAI's editor above, partly scrolled away
 	tt.Advance(time.Second)
 	before, ok := tt.Find("Claude")
-	if !ok || !inView(before, 860) {
+	if !ok || !inView(before, 1400) {
 		t.Fatalf("Claude not in view: %v %v", before, ok)
 	}
 	tt.ClickAt(before.X+before.W/2, before.Y+before.H/2)

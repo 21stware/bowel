@@ -2,6 +2,7 @@ package routes
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -605,5 +606,81 @@ func TestTemplateGrows(t *testing.T) {
 	}
 	if groupOf(t, Build(p, nil), "g1").Label != "别的" {
 		t.Error("the user's group lost its name")
+	}
+}
+
+// TestAIServices: the ai group holds the AI services people use, by their
+// own hosts, and takes nothing from the hosts they share with others.
+func TestAIServices(t *testing.T) {
+	all := Build(Plan{}, nil)
+	for host, want := range map[string]string{
+		"api.individual.githubcopilot.com":     "copilot",
+		"copilot-proxy.githubusercontent.com":  "copilot",
+		"origin-tracker.githubusercontent.com": "copilot",
+		"copilot.microsoft.com":                "mscopilot",
+		"server.codeium.com":                   "windsurf",
+		"windsurf.com":                         "windsurf",
+		"api.groq.com":                         "groq",
+		"www.meta.ai":                          "metaai",
+		"api.replicate.com":                    "replicate",
+		"pbxt.replicate.delivery":              "replicate",
+		"api.elevenlabs.io":                    "elevenlabs",
+		"chat.com":                             "openai",
+		"ab.chatgpt.livekit.cloud":             "openai",
+		"claude.new":                           "claude",
+		"cloudcode-pa.googleapis.com":          "gemini",
+		"daily-cloudcode-pa.googleapis.com":    "gemini",
+		"cloudaicompanion.googleapis.com":      "gemini",
+		"aiplatform.googleapis.com":            "gemini",
+		"ai.google.dev":                        "gemini",
+		"www.gemini.gstatic.com":               "gemini",
+		"geminiweb-pa.clients6.google.com":     "gemini",
+		"www.perplexity.com":                   "perplexity",
+		"grok.x.com":                           "grok",
+		"us.cursorvm.com":                      "cursor",
+		"user-space.hf.space":                  "hf",
+	} {
+		route, rule, _, _ := Explain(host, nil, all)
+		s, ok := FindRule(all, rule)
+		if route != "ai" || !ok || s.ID != want {
+			t.Errorf("%s goes to %q by %q of %q, want ai / %s", host, route, rule, s.ID, want)
+		}
+	}
+	// Shared hosts keep their route: GitHub's stay 开发, Google's sign-in
+	// and static hosts and LiveKit's shared ones match no suffix.
+	for host, want := range map[string]string{
+		"api.github.com": "dev", "github.com": "dev", "raw.githubusercontent.com": "dev", "avatars.githubusercontent.com": "dev",
+		"accounts.google.com": "", "www.gstatic.com": "", "lh3.googleusercontent.com": "",
+		"oauth2.googleapis.com": "", "storage.googleapis.com": "", "www.google.com": "",
+		"turn.livekit.cloud": "", "www.bing.com": "", "x.com": "", "www.microsoft.com": "",
+	} {
+		if route, rule, _, _ := Explain(host, nil, all); route != want {
+			t.Errorf("%s goes to %q by %q, want %q", host, route, rule, want)
+		}
+	}
+	// No built-in rule is written twice, and every ai rule is a suffix.
+	seen := map[string]string{}
+	for _, b := range builtins {
+		for _, r := range b.rules {
+			if was, ok := seen[r]; ok {
+				t.Errorf("%s is in both %s and %s", r, was, b.id)
+			}
+			seen[r] = b.id
+			if b.group == "ai" && !strings.HasPrefix(r, "DOMAIN-SUFFIX,") {
+				t.Errorf("%s of %s is not a suffix", r, b.id)
+			}
+		}
+	}
+	// A service moved or switched off before this version stays so, and
+	// the hosts it gained go with it.
+	p := Plan{}
+	p.MoveService(nil, "claude", "dev")
+	p.ToggleService("gemini")
+	all = Build(p, nil)
+	if route, _, _, _ := Explain("claude.new", nil, all); route != "dev" {
+		t.Errorf("claude.new goes to %q after Claude moved to dev", route)
+	}
+	if route, _, _, _ := Explain("cloudcode-pa.googleapis.com", nil, all); route != "" {
+		t.Errorf("cloudcode-pa.googleapis.com goes to %q with Gemini off", route)
 	}
 }
