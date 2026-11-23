@@ -942,7 +942,7 @@ void main() {
     expect(find.text('com.google.android.gm · 不走 bowel'), findsOneWidget);
     await tester.tap(find.text('Gmail'));
     await _settle(tester);
-    final why = find.textContaining('Gmail 在「分应用代理」里关掉了');
+    final why = find.textContaining('Gmail 已设为不走 bowel');
     expect(why, findsOneWidget);
     expect(tester.widget<EditableText>(find.byType(EditableText)).controller.text, isEmpty, reason: 'it is not picked');
     await tester.enterText(find.byType(EditableText), 'com.google.android.gm');
@@ -961,11 +961,11 @@ void main() {
     final app = _app()..vpnExcluded = 'com.google.android.gm';
     await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai', service: 'mine:ai')));
     await _settle(tester);
-    expect(find.text('应用 · 已在「分应用代理」里关掉，不会生效'), findsOneWidget, reason: 'only the one kept out');
+    expect(find.text('应用 · 已设为不走 bowel，重新连接后规则不生效'), findsOneWidget, reason: 'only the one kept out');
     await tester.pumpWidget(const SizedBox());
     await tester.pumpWidget(_host(app, MyRulesPage(app: app)));
     await _settle(tester);
-    expect(find.text('应用 · AI 服务 · 已在「分应用代理」里关掉，不会生效'), findsOneWidget);
+    expect(find.text('应用 · AI 服务 · 已设为不走 bowel，重新连接后规则不生效'), findsOneWidget);
     expect(find.text('应用 · AI 服务'), findsOneWidget);
   });
 

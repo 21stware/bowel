@@ -22,12 +22,13 @@ List<Map> _list(Map? m, String key) => ((m?[key] as List?) ?? const []).cast<Map
 /// except on Android from 10, where the bridge offers apps.
 bool _editable(AppState app, Map r) => _list(app.routing, 'kinds').any((k) => k['id'] == r['kind']);
 
-/// Whether rule `r` is an app's that 分应用代理 keeps out of the VPN, where no
-/// rule sees its traffic.
+/// Whether rule `r` is an app's that 不走 bowel 的 App keeps out of the VPN by the
+/// saved list, which the running VPN takes up when it next starts: from then
+/// no rule sees its traffic.
 bool _skipsVpn(AppState app, Map r) => r['kind'] == 'app' && app.excludedApps.contains(r['value']);
 
-/// Says a rule never matches, as [_skipsVpn] finds.
-String _skipsWord() => tr('已在「分应用代理」里关掉，不会生效', 'Off in Per-app proxy, never matches');
+/// Says a rule stops matching, as [_skipsVpn] finds.
+String _skipsWord() => tr('已设为不走 bowel，重新连接后规则不生效', 'Set to skip bowel; rule stops matching after a reconnect');
 
 /// Opens the rule sheet on rule `r` of service `s` in group `route`.
 void _editRule(AppState app, String route, Map s, Map r) {
@@ -1145,7 +1146,7 @@ class _RuleSheetState extends State<_RuleSheet> {
   }
 
   /// Why app `name` takes no rule.
-  String _skipsWhy(String name) => tr('{0} 在「分应用代理」里关掉了，它的连接不经过 bowel，这条规则不会生效。先在那里打开它。', '{0} is off in Per-app proxy: its connections skip bowel, so this rule would never match. Turn it on there first.', [name]);
+  String _skipsWhy(String name) => tr('{0} 已设为不走 bowel（设置 ›「不走 bowel 的 App」），重新连接 VPN 后它的连接不经过 bowel，这条规则不会生效。先在那里打开它。', '{0} is set to skip bowel (Settings › Apps that skip bowel): once the VPN reconnects its connections bypass bowel and this rule would not match. Turn it on there first.', [name]);
 
   /// A link to a rule file. As a rule it would only give its domain.
   static final _setLink = RegExp(r'^https?://[^/\s]+/\S*\.(ya?ml|list|txt|mrs|conf)(\?\S*)?$', caseSensitive: false);
@@ -1274,7 +1275,7 @@ class _RuleSheetState extends State<_RuleSheet> {
   }
 
   /// The installed apps whose name or package has what's typed, to pick one
-  /// by. One 分应用代理 keeps out of the VPN shows, and says why it takes no rule.
+  /// by. One 不走 bowel 的 App keeps out of the VPN shows, and says why it takes no rule.
   Widget _appList(Look l) {
     final apps = _apps;
     final small = l.text(13, color: l.mute, lh: 18);

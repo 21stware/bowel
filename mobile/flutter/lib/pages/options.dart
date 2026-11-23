@@ -9,6 +9,7 @@ import '../app/shell.dart';
 import '../app/state.dart';
 import '../ui/atoms.dart';
 import '../ui/skin.dart';
+import 'routing.dart';
 import 'rows.dart';
 import 'sheet.dart';
 
@@ -292,10 +293,17 @@ class _AppsPageState extends State<AppsPage> {
         final q = _q.trim().toLowerCase();
         final rows = [for (final a in _apps ?? const <({String id, String name})>[]) if (q.isEmpty || a.name.toLowerCase().contains(q) || a.id.contains(q)) a];
         return SubPage(
-          title: tr('分应用代理', 'Per-app proxy'),
+          title: tr('不走 bowel 的 App', 'Apps that skip bowel'),
           dockChild: SearchField(hint: tr('搜索 App', 'Search apps'), label: tr('搜索 App', 'Search apps'), onChanged: (v) => setState(() => _q = v)),
           children: [
-            Padding(padding: const EdgeInsets.fromLTRB(16, 4, 16, 6), child: Text(tr('关掉的 App 不走 bowel，直接联网。下次开启 VPN 时生效。导入导出的是不走 bowel 的包名，每行一个；别的客户端"只代理选中 App"的列表，在这里意思正好相反。', 'Apps turned off skip bowel and connect directly. Applies the next time VPN turns on. Import and export carry the package names that skip bowel, one per line; another client\'s list of apps to proxy means the opposite here.'), style: l.text(13, color: l.mute, lh: 18))),
+            Padding(padding: const EdgeInsets.fromLTRB(16, 4, 16, 6), child: Text(tr('关掉的 App 不走 bowel，直接联网，规则也管不到它。改动在重新连接 VPN 后生效。', 'Apps turned off skip bowel and connect directly; no rule reaches them. Changes apply after the VPN reconnects.'), style: l.text(13, color: l.mute, lh: 18))),
+            // Sending an app somewhere is a rule's work, which is what other clients' page of this kind does.
+            Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 6), child: Text(tr('这里不能给 App 指定节点。想让某个 App 走指定的路由组或节点，在路由组里给它加一条「应用」规则（需要 Android 10 及以上）。', 'This list doesn\'t choose a node for an app. To send an app through a route group or node of your choice, add an “App” rule to that route group (Android 10 or later).'), style: l.text(13, color: l.mute, lh: 18))),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+              child: Row(children: [Btn(tr('去路由组', 'Open route groups'), onTap: () => pushPage(context, RoutesPage(app: app)), minH: 34, fontSize: 13)]),
+            ),
+            Padding(padding: const EdgeInsets.fromLTRB(16, 4, 16, 6), child: Text(tr('导入导出的是不走 bowel 的包名，每行一个；别的客户端"只代理选中 App"的列表，在这里意思正好相反。', 'Import and export carry the package names that skip bowel, one per line; another client\'s list of apps to proxy means the opposite here.'), style: l.text(13, color: l.mute, lh: 18))),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
               child: Row(children: [
@@ -315,7 +323,7 @@ class _AppsPageState extends State<AppsPage> {
                     // Its rule sees none of its traffic once it skips bowel.
                     final group = app.appRuleGroup(a.id);
                     if (group != null && next.contains(a.id)) {
-                      app.say(tr('{0} 有一条走「{1}」的规则，关掉后它不经过 bowel，这条规则不会生效。', '{0} has a rule to {1}; once off it skips bowel, so that rule never matches.', [a.name, group]), ms: 4000);
+                      app.say(tr('{0} 有一条走「{1}」的规则。重新连接 VPN 后它不经过 bowel，这条规则不再生效。', '{0} has a rule to {1}. Once the VPN reconnects it skips bowel and that rule stops matching.', [a.name, group]), ms: 4000);
                     }
                   }, sub: a.id),
               ]),

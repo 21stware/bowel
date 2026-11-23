@@ -32,7 +32,7 @@ How far each implementation has been tried is its own column, because "it compil
 | Gateway mode | sudoers rule for two `sysctl` commands, `caffeinate` | sudoers rule for two `sysctl` commands, `systemd-inhibit` | **later** |
 | Gateway: network facts (Wi-Fi, DHCP, firewall) | `networksetup`, `ipconfig`, socketfilterfw | sysfs, `ip addr`, ufw / firewalld | adapters (Wi-Fi, DHCP); no firewall check |
 | Which app owns a connection | bowel reads the kernel's socket list | **not needed** | **not needed** |
-| Rules by application (`routes.KindApp`) | yes, when the core is not the app's child (`core.startCore`) and is signed under an identifier with a dot (`core.BinName`), and, in every combination tried on 27.2, not by an Apple Development certificate, which macOS 27 wants before it shows a process the socket list; checked on 27.2 in an ad hoc signed bowel.app and in the 0.4.2 Developer ID release, not under TUN. A core signed with an Apple Development identity, as `mygo dev` signed it until MyGo 0.9.1 when the keychain had one, named none; the Log then says so. Since 0.9.1 mygo dev leaves the core's own signature alone and the core names them | yes: the core names processes itself | yes: the core names processes itself |
+| Rules by application (`routes.KindApp`) | yes, when the core is not the app's child (`core.startCore`) and is signed under an identifier with a dot (`core.BinName`), and, in every combination tried on 27.2, not by an Apple Development certificate, which macOS 27 wants before it shows a process the socket list; checked on 27.2 in an ad hoc signed bowel.app and in the 0.4.2 Developer ID release, not under TUN. A core signed with an Apple Development identity, as `mygo dev` signed it until MyGo 0.9.1 when the keychain had one, named none; the Log then says so. Since 0.9.1 mygo dev leaves the core's own signature alone and the core names them | yes: the core names processes itself | yes in code: the core names processes itself. **Not run on Windows on our side**, and no user's report covers it |
 | Developer tools: terminal | zsh (`.zshenv`) | zsh or bash (`.bashrc`), by `$SHELL` | **later** |
 | Developer tools: Git HTTPS, Git SSH | yes | yes; SSH with OpenBSD `nc` or `ncat` | **later** |
 | Developer tools: Docker daemon | Colima | Colima only; the system's dockerd **later** | **later** |
@@ -42,6 +42,17 @@ How far each implementation has been tried is its own column, because "it compil
 | QR: camera | AVFoundation | **later** | **later** |
 | Dock icon, flag emoji drawing, quit pump | yes | **not applicable** | **not applicable** |
 | Tray | menu bar | system tray | system tray |
+
+## By application: rules, and Android's exclusion list
+
+Two things go by this name, and only the first is in the table above.
+
+| | macOS | Linux | Windows | Android 10 and later | Android 8 and 9 | iOS |
+| --- | --- | --- | --- | --- | --- | --- |
+| A rule that sends an app to a route group (`routes.KindApp`) | yes | yes | yes in code, not run by us | yes: the VPN service asks the system which app owns a connection, for the core | no: the system gives no way to ask; a rule brought over from a desktop is kept, shown, and can be deleted | not released |
+| A list of apps that stay outside bowel | none | none | none | yes | yes | not released |
+
+The list on Android (Settings, "Apps that skip bowel", 不走 bowel 的 App) only excludes: `BowelVpnService` calls `addDisallowedApplication` for each package when the VPN starts, so a change applies at the next connection, and an excluded app connects directly where no rule sees it. There is no mode that proxies only chosen apps (`addAllowedApplication` is not used). The app refuses a rule for a package on the saved list, and marks a rule whose app was put on the list afterwards; both read the saved list, not what the running VPN started with, which is why their words say "after a reconnect".
 
 ## Not needed, and why
 
@@ -117,3 +128,4 @@ Windows, all of it on our side. A user's report on Windows 11 (issue 59, bowel 0
 7. Screen capture through PowerShell, at display scales other than 100%.
 8. A user who is not an administrator: the task's `HighestAvailable` is then no elevation, and TUN will not open.
 9. The system proxy's write since issue 115: `InternetSetOption` with three options (flags, `ProxyServer`, `ProxyOverride`) and the script's address left alone, where it used to write all four; the same call with flags and `ProxyServer` only; and `Restore` writing the script's address only where it differs. What Windows refuses in `ProxyOverride` is known from one report (an IPv6 address, issue 36: a list of 1210 characters without one was taken) and from nothing Microsoft documents; the 2000-character bound comes from a limit of 2064 reported elsewhere, not measured. What issue 115's machine refused is not known yet.
+10. Rules by application: that the core names the process behind a connection (system proxy and TUN, where the core runs elevated from a task), and that the running applications bowel lists to pick one from match what the core names.

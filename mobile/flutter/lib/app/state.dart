@@ -480,7 +480,8 @@ class AppState extends ChangeNotifier {
     set(() => vpnOnDemand = want);
   }
 
-  /// The packages 分应用代理 keeps out of the VPN: no rule sees their traffic.
+  /// The packages 不走 bowel 的 App keeps out of the VPN, as saved: the running VPN
+  /// has them from its next start, and then no rule sees their traffic.
   Set<String> get excludedApps => {for (final s in vpnExcluded.split(',')) if (s.isNotEmpty) s};
 
   /// The name of the route group a rule of the user's sends app `id` to, by
