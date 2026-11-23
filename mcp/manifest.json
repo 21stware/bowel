@@ -1,0 +1,48 @@
+{
+  "manifest_version": "0.3",
+  "name": "bowel",
+  "display_name": "bowel",
+  "version": "0.0.0",
+  "description": "Read and troubleshoot bowel, a mihomo (Clash Meta) proxy client; changes ask you first.",
+  "long_description": "bowel's MCP server lets an agent read its status, routes, nodes, rules, connections and the core's log, test where an address would go, and troubleshoot connections. Changes such as the mode, a route's node or a rule follow the policy in bowel's settings, which by default asks you first in a dialog.\n\nThis bundle runs the MCP server of the bowel app installed on this computer (`bowel mcp`), so bowel must be installed: https://github.com/21stware/bowel/releases/latest. On macOS it opens bowel when it isn't running; on Windows and Linux, start bowel first.",
+  "author": {
+    "name": "21stware",
+    "url": "https://github.com/21stware"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/21stware/bowel"
+  },
+  "homepage": "https://bowel.dev/en/",
+  "documentation": "https://github.com/21stware/bowel#readme",
+  "support": "https://github.com/21stware/bowel/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": {
+        "BOWEL_PATH": "${user_config.bowel_path}"
+      }
+    }
+  },
+  "user_config": {
+    "bowel_path": {
+      "type": "file",
+      "title": "bowel program",
+      "description": "Only if bowel is not in the usual place: /Applications/bowel.app/Contents/MacOS/bowel on macOS, %LOCALAPPDATA%\\Programs\\bowel\\bowel.exe on Windows, /opt/bowel/bowel on Linux.",
+      "required": false
+    }
+  },
+  "tools_generated": true,
+  "keywords": ["mihomo", "clash", "clash-meta", "proxy", "network", "troubleshooting"],
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}
