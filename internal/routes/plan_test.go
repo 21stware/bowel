@@ -418,8 +418,7 @@ func setOrder(p Plan) []string {
 }
 
 // TestMoveGroup: a group takes another's place, the ones between shifting
-// by one; the fixed groups neither move nor give up their place after the
-// others.
+// by one; 直连 and 拦截 move too, only the default route stays.
 func TestMoveGroup(t *testing.T) {
 	var p Plan
 	g := p.AddGroup(nil, "OpenAI")
@@ -442,14 +441,33 @@ func TestMoveGroup(t *testing.T) {
 		t.Error("moving to the end did nothing")
 	}
 	want(Default, "media", g, "dev", "ai", "direct", Reject)
-	for _, c := range [][2]string{{g, g}, {g, "direct"}, {g, Reject}, {g, Default}, {"direct", "ai"}, {Reject, "ai"}, {Default, "ai"}, {g, "nope"}, {"nope", g}} {
+	for _, c := range [][2]string{{g, g}, {g, Default}, {Default, "ai"}, {g, "nope"}, {"nope", g}} {
 		if p.MoveGroup(c[0], c[1]) {
 			t.Errorf("%s moved to the place of %s", c[0], c[1])
 		}
 	}
 	want(Default, "media", g, "dev", "ai", "direct", Reject)
+	// 直连 and 拦截 move as the others do, and others past them.
+	if !p.MoveGroup(Reject, "media") {
+		t.Error("拦截 didn't move up")
+	}
+	want(Default, Reject, "media", g, "dev", "ai", "direct")
+	if !p.MoveGroup("dev", "direct") {
+		t.Error("a group didn't move past 直连")
+	}
+	want(Default, Reject, "media", g, "ai", "direct", "dev")
+	// A new group goes after the last that isn't fixed: here, at the end.
+	h := p.AddGroup(nil, "Mine")
+	want(Default, Reject, "media", g, "ai", "direct", "dev", h)
 	if err := p.Check(); err != nil {
 		t.Error(err)
+	}
+	// With 直连 and 拦截 still last, before them, as ever.
+	var q Plan
+	q.MoveGroup("direct", "ai")
+	k := q.AddGroup(nil, "Mine")
+	if got := groupIDs(q); !slices.Equal(got, []string{Default, "direct", "ai", "media", "dev", k, Reject}) {
+		t.Errorf("new group after moving 直连 up: %v", got)
 	}
 }
 

@@ -115,7 +115,7 @@ func setupTitle(c *ui.Context, p *pal, kick, title, lede string) {
 
 func (u *UI) setupAdd(c *ui.Context, p *pal) {
 	setupTitle(c, p, i18n.T("欢迎使用 bowel", "Welcome to bowel"),
-		i18n.T("连接两端世界", "Connect two worlds"),
+		i18n.T("为开发者，一通到底", "For developers. All the way through."),
 		i18n.T("添加一个节点来源，就可以开始使用。", "Add a source of nodes to get started."))
 	u.setupCard(c, p)
 	u.setupNote(c, p)

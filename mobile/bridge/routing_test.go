@@ -391,8 +391,8 @@ func TestReloadKeepsTunDescriptor(t *testing.T) {
 
 // A route group moves on the phone as it does on the desktop: it takes
 // another's place in the list, and of two equally specific rules the core
-// is given the one of the group listed first before the other's. The fixed
-// groups neither move nor give up their place.
+// is given the one of the group listed first before the other's. 直连 and
+// 拦截 move too; the default route neither moves nor gives up its place.
 func TestMoveGroup(t *testing.T) {
 	x := testBridge(t)
 	ctx := context.Background()
@@ -401,7 +401,7 @@ func TestMoveGroup(t *testing.T) {
 		var got []string
 		for _, g := range x.routing().Groups {
 			got = append(got, g.ID)
-			if g.Movable == routes.Fixed(g.ID) {
+			if g.Movable != routes.Movable(g.ID) {
 				t.Errorf("%s: movable = %v", g.ID, g.Movable)
 			}
 		}
@@ -439,12 +439,18 @@ func TestMoveGroup(t *testing.T) {
 	want(routes.Default, "ai", "dev", "media", "direct", routes.Reject)
 	first(ai, media)
 
-	for _, c := range [][2]string{{"direct", "ai"}, {"ai", "direct"}, {routes.Default, "ai"}, {"ai", routes.Reject}, {"ai", "nope"}} {
+	// 直连 and 拦截 move too: 拦截 first, its rules before the others'.
+	if err := x.routeOp(ctx, callArgs{Op: "moveGroup", ID: routes.Reject, To: "ai"}); err != nil {
+		t.Fatal(err)
+	}
+	want(routes.Default, routes.Reject, "ai", "dev", "media", "direct")
+
+	for _, c := range [][2]string{{routes.Default, "ai"}, {"ai", routes.Default}, {"ai", "nope"}} {
 		if err := x.routeOp(ctx, callArgs{Op: "moveGroup", ID: c[0], To: c[1]}); err != nil {
 			t.Errorf("%s to the place of %s: %v", c[0], c[1], err)
 		}
 	}
-	want(routes.Default, "ai", "dev", "media", "direct", routes.Reject)
+	want(routes.Default, routes.Reject, "ai", "dev", "media", "direct")
 }
 
 func TestHideNode(t *testing.T) {

@@ -194,7 +194,7 @@ type groupData struct {
 	Direct    bool            `json:"direct"`
 	Reject    bool            `json:"reject"`
 	Custom    bool            `json:"custom"`
-	Movable   bool            `json:"movable"`  // not one of the fixed groups, which keep their place
+	Movable   bool            `json:"movable"`  // all but the default route, which stays last
 	Chooses   bool            `json:"chooses"`  // between a node and going direct, which Direct then says
 	Locked    bool            `json:"locked"`   // its exit lock: by a node or not at all
 	Lockable  bool            `json:"lockable"` // whether the lock can be put on it
@@ -294,7 +294,7 @@ func (x *bridge) routing() routingData {
 	}
 	slices.SortFunc(out.Regions, func(a, b regionData) int { return b.Count - a.Count })
 	for _, r := range all {
-		g := groupData{ID: r.ID, Name: routes.Title(r), Summary: routes.Describe(r), Direct: r.Direct, Reject: r.Reject, Custom: r.Custom, Movable: !routes.Fixed(r.ID), Chooses: choosesExit(r.ID), Locked: r.Locked, Lockable: routes.Lockable(r.ID),
+		g := groupData{ID: r.ID, Name: routes.Title(r), Summary: routes.Describe(r), Direct: r.Direct, Reject: r.Reject, Custom: r.Custom, Movable: routes.Movable(r.ID), Chooses: choosesExit(r.ID), Locked: r.Locked, Lockable: routes.Lockable(r.ID),
 			Mode: r.Policy.Mode, Regions: nonNil(r.Policy.Regions), Providers: nonNil(r.Policy.Providers), Order: nonNil(r.Policy.Order), Fixed: r.Policy.Fixed,
 			Services: []serviceData{}, Targets: []routes.Target{}, Sites: []siteDelay{}}
 		if im != nil {

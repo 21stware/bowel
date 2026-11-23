@@ -130,11 +130,7 @@ func (p Plan) groups() []GroupConf {
 		if slices.Contains(seen, t.ID) || hasGroup(confs, t.ID) || fixedGroup(t.ID) {
 			continue
 		}
-		at := slices.IndexFunc(confs, func(g GroupConf) bool { return g.ID == "direct" })
-		if at < 0 {
-			at = len(confs)
-		}
-		confs = slices.Insert(slices.Clone(confs), at, GroupConf{ID: t.ID})
+		confs = slices.Insert(slices.Clone(confs), newAt(confs), GroupConf{ID: t.ID})
 	}
 	return withFixed(confs)
 }
@@ -155,8 +151,29 @@ var fixedGroups = []string{Default, "direct", Reject}
 
 func fixedGroup(id string) bool { return slices.Contains(fixedGroups, id) }
 
-// Fixed says whether group id always exists, keeps its name and its place.
+// Fixed says whether group id always exists and keeps its name.
 func Fixed(id string) bool { return fixedGroup(id) }
+
+// Movable says whether group id can be moved in the list: all but the
+// default route, which takes what the others miss and so stays last.
+func Movable(id string) bool { return id != Default }
+
+// newAt is where a group that wasn't there goes in confs: after the last
+// one that isn't fixed, so before 直连 and 拦截 while they are still at
+// the end, and at the end once they have been moved up.
+func newAt(confs []GroupConf) int {
+	at := len(confs)
+	for at > 0 && fixedGroup(confs[at-1].ID) {
+		at--
+	}
+	if at == 0 { // only fixed groups: before 直连, as ever
+		if i := slices.IndexFunc(confs, func(g GroupConf) bool { return g.ID == "direct" }); i >= 0 {
+			return i
+		}
+		return len(confs)
+	}
+	return at
+}
 
 // ChoosesExit says whether group id chooses between a node and going
 // direct: all but the two that never use one.
@@ -589,26 +606,23 @@ func groupTaken(all []Route, id, name string) bool {
 	return slices.ContainsFunc(all, func(r Route) bool { return r.ID != id && Title(r) == name })
 }
 
-// insertGroup adds a group before 直连, whose rules are the last resort.
+// insertGroup adds a group after the others that can move (newAt).
 func (p *Plan) insertGroup(name string, q Policy) string {
 	p.ensure()
 	id := p.freeID("g", func(s string) bool {
 		return slices.ContainsFunc(p.Groups, func(g GroupConf) bool { return g.ID == s })
 	})
-	at := slices.IndexFunc(p.Groups, func(g GroupConf) bool { return g.ID == "direct" })
-	if at < 0 {
-		at = len(p.Groups)
-	}
-	p.Groups = slices.Insert(p.Groups, at, GroupConf{ID: id, Name: name, Policy: q})
+	p.Groups = slices.Insert(p.Groups, newAt(p.Groups), GroupConf{ID: id, Name: name, Policy: q})
 	return id
 }
 
-// MoveGroup gives group id the place of group to, among the groups that
-// can move: every one but the fixed, which stay after them. The others
-// between the two shift by one, as rows do when one is dragged onto
-// another. It reports whether anything moved.
+// MoveGroup gives group id the place of group to. The others between the
+// two shift by one, as rows do when one is dragged onto another. Every
+// group moves, 直连 and 拦截 too (拦截 first, say, so a block list beats
+// an equally specific rule elsewhere), but the default route, which takes
+// what all the others miss. It reports whether anything moved.
 func (p *Plan) MoveGroup(id, to string) bool {
-	if id == to || fixedGroup(id) || fixedGroup(to) || p.group(id) == nil || p.group(to) == nil {
+	if id == to || !Movable(id) || !Movable(to) || p.group(id) == nil || p.group(to) == nil {
 		return false
 	}
 	from := slices.IndexFunc(p.Groups, func(g GroupConf) bool { return g.ID == id })
@@ -633,6 +647,16 @@ func (p *Plan) MoveRuleSet(id, to string) bool {
 	}
 	p.Services = slices.Insert(slices.Delete(slices.Clone(p.Services), from, from+1), at, a)
 	return true
+}
+
+// GroupOrder are the ids of the route groups in their order.
+func (p Plan) GroupOrder() []string {
+	confs := p.groups()
+	ids := make([]string, len(confs))
+	for i, g := range confs {
+		ids[i] = g.ID
+	}
+	return ids
 }
 
 // AddGroup makes a route group: the fastest of all nodes. It returns its id.
