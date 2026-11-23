@@ -6,6 +6,7 @@
 
 ## [Unreleased]
 
+- 「AI 服务」路由组认得更多 AI 服务了，锁定出口时这些也一起走节点：新增 GitHub Copilot（githubcopilot.com 和它在 githubusercontent.com 下自己的两个主机）、Microsoft Copilot、Windsurf（Codeium）、Groq、Meta AI、Replicate、ElevenLabs，以前它们算「其他流量」，Copilot 的一部分算「开发」。原有的也补全了：OpenAI 加了 chat.com 等，Claude 加了 claude.new、claude.site 等，Gemini 加了 Gemini CLI / Code Assist（cloudcode-pa.googleapis.com）、Vertex AI 的全球入口（aiplatform.googleapis.com）、AI Studio、NotebookLM、Jules、Antigravity、Labs 的域名，Perplexity、Grok、Cursor、Poe、Hugging Face 各补了几个。域名取自随附 GeoSite 里各服务自己的列表，Replicate 和 Vertex 取自官方文档。几个服务和别的产品共用的主机没有动，所以锁定「AI 服务」管不到它们：Gemini 的登录和静态资源（accounts.google.com、gstatic.com、googleusercontent.com、其他 googleapis.com，包括 Vertex 按地区的入口）仍算「其他流量」，Copilot 的登录和取令牌（github.com、api.github.com）仍算「开发」；DeepSeek 在国内网站列表里，仍然直连。想让它们也走「AI 服务」，可以自己在这个路由组里加规则。以前把某个服务挪到别的路由组或关掉过的，新补的域名跟着它走。只跑了测试（按域名查落到哪个路由组），没有实际打开这些服务抓过连接
 - 首页点开一个路由组「选择出口」时，只有第一行（路由名 → 当前节点，和右边的按钮）固定在顶上，下面的「走节点 / 直接连接 / 出口锁定」、地区和搜索、说明、测速站点都跟着节点列表一起滚走。以前这些都固定不动，窗口不高时节点列表只剩两三行，甚至一行都看不到。「设置 › 路由组」里的节点策略也一样。在测试里截图看过，没有在真机上滚过
 - 「直连」和「拦截」也可以调整顺序了，只有「其他流量」固定在最后。比如把「拦截」拖到最上面，同样具体的规则里拦截的先生效；导入了规则集时，「拦截」里的规则集也会排在别的规则集前面匹配。新建的路由组仍然排在最后一个能挪动的路由组后面，没动过顺序的话还是在「直连」前面。桌面版的路由组列表每一行右边多了拖动手柄，拖到别的行上时用一条线标出会放进去的位置，不再把整行变深；首页的「每类流量走哪里」也能直接拖动排序，鼠标移到一行上时色块变成手柄，「直连」「拦截」这两行虽然点不开，也会有悬停反馈。Android 上「直连」「拦截」也有上移、下移箭头了。界面和模型有测试，没有在真机上拖过
 - 「日志 › 连接」右上角按应用筛选的下拉框，应用很多时（macOS 上后台进程常有几十个）不再超出窗口：选项最多显示约 12 行，其余的在框里滚动查看。以前列表一直往下延伸到窗口外，下面的应用选不到。在 macOS 的窗口里用 60 个应用的测试数据看过（没接真实内核）
