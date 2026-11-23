@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"github.com/oboo/moho/internal/routes"
 )
 
 // actFixtureConns is a realistic set of connections for the activity page.
@@ -43,7 +45,8 @@ func actFixtureConns() []Conn {
 		{"Docker", "/Applications/Docker.app/Contents/MacOS/com.docker.backend", "production.cloudflare.docker.com", "104.16.98.215", 443, "tcp", "DOMAIN-SUFFIX", "docker.com", "dev", "东京 01", []string{"开发", "东京 01"}, 212e6, 400e3, 0, 2 * time.Minute, "closed", ""},
 		{"Netflix", "/Applications/Netflix.app/Contents/MacOS/Netflix", "ipv4-c001-hkg001.1.oca.nflxvideo.net", "45.57.90.1", 443, "tcp", "GEOSITE", "netflix", "media", "新加坡 01", []string{"流媒体", "新加坡 01"}, 0, 0, 0, 3 * time.Second, "failed", "connect failed: connection refused"},
 		{"Zoom", "/Applications/zoom.us.app/Contents/MacOS/zoom.us", "zoom.us", "170.114.52.2", 8801, "udp", "GEOSITE", "zoom", "default", "香港 02", []string{"默认", "香港 02"}, 14e6, 11e6, 180e3, 22 * time.Minute, "active", ""},
-		{"Safari", "/Applications/Safari.app/Contents/MacOS/Safari", "www.bilibili.com", "119.3.70.188", 443, "tcp", "GEOSITE", "cn", "direct", "", []string{"DIRECT"}, 5.8e6, 92e3, 64e3, 6 * time.Minute, "active", ""},
+		// A page in Safari, as the core reports it: the WebKit process, not Safari.
+		{routes.WebKitProcess, webKitPath, "www.bilibili.com", "119.3.70.188", 443, "tcp", "GEOSITE", "cn", "direct", "", []string{"DIRECT"}, 5.8e6, 92e3, 64e3, 6 * time.Minute, "active", ""},
 		{"npm", "/opt/homebrew/bin/node", "registry.npmjs.org", "104.16.2.35", 443, "tcp", "DOMAIN-SUFFIX", "npmjs.org", "dev", "东京 01", []string{"开发", "东京 01"}, 31e6, 820e3, 0, 15 * time.Second, "closed", ""},
 		{"ChatGPT", "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT", "chatgpt.com", "104.18.32.47", 443, "tcp", "DOMAIN-SUFFIX", "chatgpt.com", "ai", "洛杉矶 VPS", []string{"AI 服务", "洛杉矶 VPS"}, 620e3, 140e3, 22e3, 9 * time.Minute, "active", ""},
 	}
@@ -76,7 +79,7 @@ func actFixtureLogs() []LogLine {
 		{"info", "[UDP] Zoom → zoom.us:8801 命中 GEOSITE(zoom) → 默认[香港 02]"},
 		{"debug", "[DNS] chatgpt.com → 104.18.32.47"},
 		{"warning", "机场 B 流量已用 94%"},
-		{"info", "[TCP] Safari → www.bilibili.com:443 命中 GEOSITE(cn) → 直连"},
+		{"info", "[TCP] com.apple.WebKit.Networking → www.bilibili.com:443 命中 GEOSITE(cn) → 直连"},
 		{"error", "[TCP] Netflix → ipv4-c001-hkg001.1.oca.nflxvideo.net:443 connect failed: connection refused"},
 	}
 	out := make([]LogLine, len(texts))
