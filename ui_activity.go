@@ -500,6 +500,10 @@ func actSeg(c *ui.Context, p *pal, sel *int, labels []string) ui.Element {
 	return seg.Track
 }
 
+// actSelectMaxHeight is the most a drop-down's options take before they
+// scroll: it opens near the top of a window at least 660 tall.
+const actSelectMaxHeight = 320
+
 // actSelect is a small drop-down in the prototype's look.
 func actSelect(c *ui.Context, p *pal, sel *string, options []string, label string) {
 	s := ui.SelectBase(c, sel)
@@ -521,15 +525,18 @@ func actSelect(c *ui.Context, p *pal, sel *string, options []string, label strin
 	})
 	s.Popup(func(panel ui.Element) {
 		panel.Margin(4, 0, 0, 0).Padding(4).Radius(p.r(9)).Background(p.sheet).Border(1, p.hair).Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, .12)).MinWidth(120)
-		for _, o := range options {
-			item := s.Item(o).Padding(5, 10).Radius(p.r(6))
-			col := p.ink
-			if item.Highlighted() {
-				item.Background(p.ink)
-				col = p.paper
+		// The apps seen can be many more than the window is tall.
+		ui.Scroll(c.Key("options")).MaxHeight(actSelectMaxHeight).Children(func() {
+			for _, o := range options {
+				item := s.Item(o).Padding(5, 10).Radius(p.r(6))
+				col := p.ink
+				if item.Highlighted() {
+					item.Background(p.ink)
+					col = p.paper
+				}
+				item.Children(func() { ui.Text(c, o).FontSize(12).TextColor(col).NoWrap() })
 			}
-			item.Children(func() { ui.Text(c, o).FontSize(12).TextColor(col).NoWrap() })
-		}
+		})
 	})
 }
 
