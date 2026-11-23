@@ -206,6 +206,7 @@ type route struct {
 	UserRules int    `json:"userRules"`
 	Locked    bool   `json:"locked"`
 	Refused   bool   `json:"refused"`
+	Unheld    bool   `json:"unheld"`
 }
 
 type node struct {
@@ -254,6 +255,9 @@ func (c *Ctx) nodeText(r route) cell {
 		in.Locked = false
 		e := c.nodeText(in)
 		e.text += i18n.T(" · 出口锁定", " · exit locked")
+		if r.Unheld {
+			e.text += i18n.T("（现在没守住）", " (not held now)")
+		}
 		return e
 	}
 	switch {
