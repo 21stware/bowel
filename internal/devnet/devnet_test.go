@@ -462,6 +462,21 @@ func TestLocalDNSInOverlay(t *testing.T) {
 	}
 }
 
+// The user's own internal domains are the network's to answer, as .corp's
+// are: a company's DNS knows names the public servers don't, or gives them
+// other addresses (#241). A domain a VPN's resolver already has keeps it.
+func TestExtraDomainsAskTheNetwork(t *testing.T) {
+	env := Env{LocalDNS: []string{"10.1.0.53"}}
+	o := Compile(Options{Disabled: []string{"lan-names", "dev-tld", "containers"}, Extra: []string{"Corp.Example", "10.8.0.0/16"}}, env)
+	if !slices.Equal(o.SystemDNS, []string{"+.corp.example"}) || !slices.Equal(o.LocalDNS, env.LocalDNS) {
+		t.Errorf("system %v local %v", o.SystemDNS, o.LocalDNS)
+	}
+	env.Resolvers = []Resolver{{Domain: "corp.example", Servers: []string{"10.9.0.1"}}}
+	if o := Compile(Options{Extra: []string{"corp.example"}}, env); slices.Contains(o.SystemDNS, "+.corp.example") {
+		t.Errorf("the VPN's resolver lost corp.example: %v", o.SystemDNS)
+	}
+}
+
 // The core's own node gets the tailnet's addresses and names, and nothing
 // is kept from the core: no bypass, no fake-ip exception, no TUN exclusion.
 func TestTsnetOverlay(t *testing.T) {

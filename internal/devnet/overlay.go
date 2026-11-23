@@ -242,7 +242,12 @@ func Compile(opts Options, env Env) Overlay {
 	for _, e := range opts.Extra {
 		if p, d, ok := parseExtra(e); ok {
 			if d != "" {
-				b.domain(d, Direct)
+				// A company's own names are often in its own DNS alone, or
+				// there at other addresses than the public ones (split DNS):
+				// the network at hand answers them, as it does .corp's.
+				if b.domain(d, Direct) {
+					b.o.SystemDNS = append(b.o.SystemDNS, "+."+cleanDomain(d))
+				}
 			} else {
 				b.cidr(p, Direct, true)
 			}
