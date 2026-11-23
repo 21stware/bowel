@@ -1,0 +1,8 @@
+# The Sponsor button on the repository's page. Uncomment the platforms
+# bowel takes money through, with the account names on them; with every
+# line commented out, GitHub shows no button.
+#
+# github: [21stware]                 # GitHub Sponsors, once the account is enrolled
+# open_collective: bowel
+# ko_fi: bowel
+# custom: ["https://bowel.dev/sponsor"]  # up to four links of your own

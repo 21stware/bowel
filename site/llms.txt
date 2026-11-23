@@ -44,7 +44,8 @@ Do not stop bowel, turn the gateway off or go back to manual as a test while aut
 
 ## Command line
 
-- [README: the command line](https://raw.githubusercontent.com/21stware/bowel/main/README.md): `status`, `on`/`off`, `mode`, `routes`, `route use`, `nodes`, `providers`, `rules`, `conns`, `logs`, `settings`, `tun`, `gateway`, `tui`, `daemon`, `stop`
+- [README: the command line](https://raw.githubusercontent.com/21stware/bowel/main/README.md): `status`, `on`/`off`, `mode`, `routes`, `route use`, `nodes`, `providers`, `rules`, `conns`, `logs`, `settings`, `tun`, `gateway`, `tui`, `bar`
+- [The command line, in full](https://raw.githubusercontent.com/21stware/bowel/main/docs/cli.md): `tui`, `bar` for status bars, a port per route group, `--json` and exit codes, `daemon` and `stop`, what agents may change
 - [README（中文）](https://raw.githubusercontent.com/21stware/bowel/main/README.zh-CN.md): the same in Chinese, with installation for each system
 
 ## How it works

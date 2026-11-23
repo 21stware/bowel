@@ -5,7 +5,7 @@
 <h1 align="center">bowel</h1>
 
 <p align="center">
-bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> 客户端。
+bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com/MetaCubeX/mihomo">mihomo</a>（Clash Meta）客户端，原生应用，不基于 Electron，也不用 WebView。
 </p>
 
 <p align="center">
@@ -16,6 +16,11 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 </p>
 
 <p align="center">
+  <a href="https://github.com/21stware/bowel/releases/latest"><img src="https://img.shields.io/github/v/release/21stware/bowel?label=release" alt="最新版本"></a>
+  <a href="https://github.com/21stware/bowel/releases"><img src="https://img.shields.io/github/downloads/21stware/bowel/total?label=downloads" alt="下载量"></a>
+</p>
+
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="site/shots/home-zh-dark.webp">
     <img src="site/shots/home-zh.webp" width="880" alt="bowel 主窗口">
@@ -23,6 +28,15 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 </p>
 
 桌面版界面使用 Go 开发并通过 GPU 渲染，不使用 WebView。Android 版使用 Flutter 开发，卡片和皮肤与桌面版相同。
+
+## 有什么不同
+
+- **按用途分配节点。** AI 服务、流媒体、开发等各是一条路由，各用各的节点，可以手选，也可以按测速自动选。
+- **Clash 配置直接用。** 订阅链接、节点链接、二维码，以及完整的 Clash 或 mihomo 配置都能导入，完整配置可以沿用它自带的路由组和规则。
+- **为开发者的电脑做的。** macOS 和 Linux 上，Docker、终端和 Git 一键接入代理；npm、pip、Go 和 Cargo 的镜像源实测后一键切换；局域网、Tailscale 和公司 VPN 自动直连。
+- **命令行、TUI 和 daemon。** `bowel` 命令操作运行中的应用，`--json` 方便写脚本；`bowel tui` 通过 SSH 也能用；`bowel daemon` 不开窗口运行。
+- **给 Agent 用的 MCP 服务器。** Claude Code 等 Agent 可以读取状态、排查连接，改动之前先问你。
+- **网关模式。** 一台 Mac 或 Linux 电脑给局域网里的电视和游戏机当旁路由。
 
 ## 界面与功能
 
@@ -39,7 +53,7 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 <img src="site/shots/activity-zh.webp" width="880" alt="连接日志">
 
 ### 提供商
-支持添加订阅链接、节点链接、YAML 配置或扫码导入，并显示流量与到期时间。
+支持添加订阅链接、节点链接、Clash 或 mihomo 的 YAML 配置，或扫码导入，并显示流量与到期时间。
 
 <img src="site/shots/providers-zh.webp" width="880" alt="提供商">
 
@@ -148,6 +162,16 @@ curl -fsSL https://21stware.github.io/packages/install.sh | sh
 
 第一次开启 TUN 时需要管理员授权一次：macOS 是系统自己的对话框，Windows 是用户账户控制（UAC），Linux 通过 polkit（`pkexec`）。在使用 systemd-resolved 的 Linux 上，这次授权还会留下一条 polkit 规则，允许当前用户把解析器指向 TUN 网卡（内核每次启动 TUN 都要这么做）；没有这条规则时（polkit 早于 0.106，不读取这类规则），每次启动 TUN 桌面都会连问三次密码。Linux 上的系统代理是 GNOME 的（Cinnamon、MATE、Budgie 等桌面共用它）或 KDE 的；其他桌面请使用 TUN，或让应用自行连接混合端口，默认是 7899。各系统具体有什么、缺什么，见 [docs/platform-parity.md](docs/platform-parity.md)。Android 版可以选择不经过 VPN 的应用。
 
+## 常见问题
+
+**从 Clash Verge Rev、Mihomo Party、FlClash、ClashX Meta 或 Clash for Windows 换过来？** 在 Provider 里添加同一个订阅链接，或者直接导入配置文件。订阅或文件是一份自带路由组和规则的完整配置时，bowel 会问你是按它的路由分流，还是只用它的节点。同一时间只应有一个客户端接管系统代理或 TUN，所以先退出原来的客户端。
+
+**支持哪些协议？** 和 mihomo 内核一致：Shadowsocks、ShadowsocksR、VMess、VLESS（含 Reality）、Trojan、Hysteria 和 Hysteria2、TUIC、WireGuard、AnyTLS、Snell、Mieru、SOCKS5 和 HTTP，可以来自订阅、Clash 配置，或 `vless://`、`hy2://`、`trojan://` 这样的节点链接。
+
+**bowel 会收集数据吗？** 不会。没有遥测、没有统计，也不需要账号。订阅链接、节点和设置都保存在本机 bowel 的数据目录里，它们和你的流量都不会发给项目方。检查更新时访问的是本仓库的 Releases。
+
+**bowel 是开源的吗？** 源码公开，可以阅读，也可以自己编译。但它的许可证 [PolyForm Noncommercial License 1.0.0](LICENSE) 不是 OSI 认可的开源许可证：个人和其他非商业用途免费，商业用途（比如在公司里工作时使用）需要[商业授权](#许可证)。
+
 ## 命令行
 
 同一个程序也是命令行，用来操作运行中的 bowel。macOS 上用 Homebrew 安装时，`bowel` 已经在 `PATH` 里；否则它在 `/Applications/bowel.app/Contents/MacOS/bowel`，可以链接到 `PATH` 里（`ln -s /Applications/bowel.app/Contents/MacOS/bowel /usr/local/bin/bowel`），或直接写完整路径。不带命令运行时，和以前一样打开应用。
@@ -169,36 +193,7 @@ bowel tui                         # 全屏界面
 bowel bar                         # 给状态栏每秒输出一行
 ```
 
-`bowel tui` 是同一套功能的全屏界面：概览、连接、日志、规则、Provider 和设置六个页面，实时刷新。概览页有一组开关（接管、系统代理、TUN、网关模式、允许局域网）和路由列表：在开关上按回车或空格切换，在路由上按回车选节点（`t` 测速），`m` 切换模式，`a` 添加订阅。设置页可以修改任意一项设置。`/` 过滤连接，`?` 查看全部按键。会改变网络的操作先问 y/n。通过 SSH 也能用：`ssh server -t bowel tui`。
-
-**放进状态栏。** `bowel bar` 每秒给 waybar（Omarchy 的顶栏，Hyprland、Sway 常用的也是它）输出一行：文字是当前网速，提示里是状态、模式、接管、各路由的节点和今日流量，另有 `on`、`off`、`paused`、`stopped` 和 `degraded`、`error` 这些 class 可以按状态改样式。它只需启动一次，bowel 重启或没在运行时会接着等。不带命令再运行一次程序会把窗口调出来，所以单击就能打开窗口：
-
-```jsonc
-// ~/.config/waybar/config.jsonc：同时把 "custom/bowel" 加进某个 modules 列表
-"custom/bowel": {
-  "exec": "/opt/bowel/bowel bar",
-  "return-type": "json",
-  "on-click": "/opt/bowel/bowel"
-}
-```
-
-在 `style.css` 里用 `#custom-bowel.off`、`#custom-bowel.stopped` 等改样式。polybar、i3blocks 等读纯文字的状态栏用 `bowel bar --format text`；按间隔运行命令的再加 `--once`。用 `bowel daemon` 运行时没有窗口可开。
-
-**每个路由组一个端口。** 想让本机的两个程序用不同的出口访问同一个网站，可以给它们各配一个代理端口：`bowel settings set extraPorts '[{"port":7901,"route":"ai"},{"port":7902,"route":"media"}]'` 会在 `127.0.0.1` 上再开几个混合端口，每个端口的流量固定走对应的路由组（用 `bowel routes` 里的 ID），不看规则，也不受全局、直连模式影响。正在使用导入配置自带的路由时，`route` 改写这份配置里路由组的名称（`bowel routes` 在路由下方列出）；指向的路由组不存在时，端口不会打开。同一个名字可以既是 bowel 的路由 ID，又是这份配置里的一个路由组：这样的条目在两种路由下端口都会打开，流量走当前路由里叫这个名字的那个路由组。这些端口不对局域网开放，不会写进导出的配置，界面里也没有对应的设置；设成 `'[]'` 即关闭。
-
-每个命令都有 `--help` 和例子。读取类命令支持 `--json`，`logs -f` 和 `conns --watch` 加上它后每行输出一个 JSON 对象。输出不是终端或设置了 `NO_COLOR` 时，不显示颜色和进度动画。退出码：0 成功，1 执行失败（例如 bowel 没在运行），2 命令写错了。`bowel completion bash|zsh|fish|powershell` 输出补全脚本。
-
-**无窗口运行。** `bowel daemon` 不开窗口、菜单栏图标和 Dock 图标，只运行内核、监控和命令行通道。它在前台运行，收到 SIGINT、SIGTERM 或 `bowel stop` 后退出，并像应用退出时一样恢复系统代理，适合交给 systemd、launchd 或服务包装器托管。用 `BOWEL_DATA_DIR`（或 `--data-dir`）可以给它单独的数据目录。daemon 不会自动升级。daemon 运行时再打开应用不会有反应，需要先停掉 daemon。
-
-```ini
-# /etc/systemd/system/bowel.service
-[Service]
-ExecStart=/opt/bowel/bowel daemon
-Environment=BOWEL_DATA_DIR=/var/lib/bowel
-Restart=on-failure
-```
-
-**Agent。** 你自己敲的命令不会被询问。由 agent 运行的命令（Claude Code、Codex、Cursor 等，按它们的环境变量识别）和 MCP 用同一个策略：询问、允许或拒绝。daemon 没有窗口可以弹框，策略为“询问”时会拒绝 agent 的变更；可以用 `bowel settings set mcpPolicy allow` 放行，这条命令只有你自己能执行。
+每个命令都有 `--help` 和例子，读取类命令支持 `--json`。全屏界面 `bowel tui`、给 waybar 等状态栏用的 `bowel bar`、每个路由组一个端口、退出码、不开窗口运行的 `bowel daemon`，以及 agent 能做什么，见 [docs/cli.zh-CN.md](docs/cli.zh-CN.md)。
 
 ## 开发
 
