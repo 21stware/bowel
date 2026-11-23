@@ -126,7 +126,7 @@ func TestRoutesAppNoteSafari(t *testing.T) {
 	u.routes.svc = routes.MineID("ai")
 	u.routes.kind = routes.KindApp
 	u.routes.picker = appPicker{at: time.Now(), apps: []appChoice{{Name: "Safari.app", Bundle: "/Applications/Safari.app"}, {Name: "Zed.app", Bundle: "/Applications/Zed.app"}}}
-	tt := ui.NewTester(u.view, 1060, 1400)
+	tt := ui.NewTester(u.view, 1060, 2200)
 	tt.Advance(time.Second)
 	if hasTextPart(tt, "WebKit") {
 		t.Fatalf("a note before anything is chosen: %q", tt.Texts())
