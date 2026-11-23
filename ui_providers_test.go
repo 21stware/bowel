@@ -278,3 +278,37 @@ func TestProviderHiddenNodes(t *testing.T) {
 		t.Error("the list shows with nothing removed")
 	}
 }
+
+// A row with nodes offers 测速, which says so while its test runs and
+// doesn't open the row; a disabled one offers only 启用.
+func TestProviderRowTest(t *testing.T) {
+	u := providersUIFixture()
+	tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})
+	tt.Advance(time.Second)
+	// A button is in the texts twice: its label and its word.
+	count := func(s string) (n int) {
+		for _, x := range tt.Texts() {
+			if x == s {
+				n++
+			}
+		}
+		return n / 2
+	}
+	if n := count("测速"); n != 3 {
+		t.Errorf("%d rows offer 测速, want the 3 enabled ones: %q", n, tt.Texts())
+	}
+	if err := tt.Click("测速"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if u.prov.open != "" {
+		t.Errorf("测速 opened the row %q", u.prov.open)
+	}
+	u.snap.Pending = append(u.snap.Pending, "test-provider:a")
+	tt.Frame()
+	tt.Advance(time.Second)
+	if !tt.HasText("测速中…") || count("测速") != 2 {
+		t.Errorf("a row being tested doesn't say so: %q", tt.Texts())
+	}
+	shot(t, tt, "providers-testing")
+}

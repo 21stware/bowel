@@ -296,3 +296,43 @@ func (h *testHits) arrives(before map[string]int, path string) bool {
 	}
 	return false
 }
+
+// A provider's 测速 asks each of its nodes once, on the default route's
+// main target, and pings them.
+func TestCoreTestProvider(t *testing.T) {
+	a, n, h := speedApp(t, nil)
+	var mu sync.Mutex
+	var pings []string
+	a.pinger = speed.New(1, func(n string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		pings = append(pings, n)
+		return true
+	})
+	before := h.settle(t)
+	id := providerOf(n["JP"].Name)
+	want := 0
+	for _, v := range a.snapshot().Nodes {
+		if v.Provider == id {
+			want++
+		}
+	}
+	if err := a.testProvider(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := h.since(before)
+	if want == 0 || len(got) != 1 || got["/t/default"] != want {
+		t.Errorf("requests: %v, want %d on /t/default and nothing else", got, want)
+	}
+	mu.Lock()
+	if len(pings) != want {
+		t.Errorf("pinged %v, want %d nodes", pings, want)
+	}
+	mu.Unlock()
+	if a.busy("test-provider:" + id) {
+		t.Errorf("still marked as testing")
+	}
+	if err := a.testProvider(context.Background(), "nope"); err == nil {
+		t.Errorf("a provider without nodes was tested")
+	}
+}
