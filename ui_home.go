@@ -8,6 +8,7 @@ package main
 // (labels, the exit's name, the mode's underline) fly between views.
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"slices"
@@ -2507,12 +2508,25 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 				b.Background(p.hover)
 			}
 		}
+		movable := routes.Movable(rid) && u.snap.Imported == nil
+		mark := func() {}
+		if movable {
+			mark = u.sortsGroup(c, p, b, rid)
+			if b.Hovered() && !canOpen { // 直连, 拦截: no ›, but it still answers the pointer
+				b.Background(p.hover)
+			}
+		}
 		b.Children(func() {
+			mark()
 			// The route and what it holds, on two lines: the summary
 			// gives way first when the window is narrow.
 			ui.Column(c).Gap(4).Grow(1).Shrink(1).Basis(0).MinWidth(100).Height(40).Children(func() {
 				ui.Row(c).Gap(12).Height(matchNameH).AlignItems(ui.Center).Children(func() {
-					swatch(c, p.routeColor(rid), 10).Shrink(0)
+					if movable && b.Hovered() {
+						grip(c, p.ink2, 10) // it can be dragged: the swatch says so under the pointer
+					} else {
+						swatch(c, p.routeColor(rid), 10).Shrink(0)
+					}
 					u.share(c, routeNameMatch{rid}, "route:"+rid, func(c *ui.Context) ui.Element {
 						return ui.Text(c, r.Name).FontSize(16).FontWeight(700).TextColor(p.ink).NoWrap()
 					})
@@ -2584,6 +2598,14 @@ func (u *UI) routesExpanded(c *ui.Context, p *pal, w float32) {
 			} else {
 				rest = append(rest, r)
 			}
+		}
+		if u.snap.Imported == nil {
+			// In the order of the settings as shown, so that a group
+			// dragged is in its new place at once.
+			order := u.shownSettings().Routing.GroupOrder()
+			slices.SortStableFunc(rest, func(a, b RouteView) int {
+				return cmp.Compare(slices.Index(order, a.ID), slices.Index(order, b.ID))
+			})
 		}
 		ui.Column(c.Key("match")).Children(func() {
 			if u.snap.Mode == "rule" && u.snap.Imported == nil {
