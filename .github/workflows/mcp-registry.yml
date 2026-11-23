@@ -1,0 +1,80 @@
+# Publishes a release to the MCP Registry (registry.modelcontextprotocol.io)
+# as io.github.21stware/bowel. It builds the MCPB bundle in mcp/, which runs
+# the installed app's `bowel mcp`, attaches it to the release, and publishes a
+# server.json that points at it with its SHA-256.
+#
+# The release workflow calls this once a release is published. Run it by hand,
+# with the release's tag, for a release made before this existed or to retry.
+# A release that already has its bundle keeps it, so that the hash published
+# before stays right; the registry refuses a version published twice.
+#
+# The registry trusts this repository's GitHub OIDC token for io.github.21stware/*,
+# so no secret is needed.
+name: MCP Registry
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release's tag, such as v0.4.7
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+      MCP_PUBLISHER_VERSION: v1.8.15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the bundle, or take the one the release has
+        run: |
+          VERSION="${TAG#v}"
+          echo "VERSION=$VERSION" >>"$GITHUB_ENV"
+          mkdir -p out
+          if gh release download "$TAG" --pattern "bowel-$VERSION.mcpb" --dir out; then
+            echo "The release already has bowel-$VERSION.mcpb"
+          else
+            ./scripts/build-mcpb.sh "$VERSION" out
+            gh release upload "$TAG" "out/bowel-$VERSION.mcpb"
+          fi
+          sha="$(sha256sum "out/bowel-$VERSION.mcpb" | cut -d' ' -f1)"
+          ./scripts/render-server-json.sh "$VERSION" "$sha" >out/server.json
+          cat out/server.json
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      # As the registry's guide does: a pinned release, checked against its
+      # Sigstore bundle before it runs.
+      - name: Download and verify mcp-publisher
+        run: |
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl --fail --location --silent --show-error --output "$archive" "$base_url/$archive"
+          curl --fail --location --silent --show-error --output "$archive.sigstore.json" "$base_url/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar xzf "$archive" mcp-publisher
+          rm -f "$archive" "$archive.sigstore.json"
+
+      - name: Publish
+        run: |
+          ./mcp-publisher validate out/server.json
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish out/server.json
