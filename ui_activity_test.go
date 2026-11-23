@@ -455,3 +455,42 @@ func findPart(tt *ui.Tester, s string) (ui.Rect, bool) {
 	}
 	return ui.Rect{}, false
 }
+
+// Seen apps past the window's height scroll in the app drop-down, as a
+// Mac's many daemons do.
+func TestActivityAppSelectScrolls(t *testing.T) {
+	u := fixtureUI()
+	u.page = "activity"
+	base := actFixtureConns()[0]
+	var conns []Conn
+	for i := range 60 {
+		c := base
+		c.ID, c.App = fmt.Sprintf("m%02d", i), fmt.Sprintf("daemon%02d", i)
+		conns = append(conns, c)
+	}
+	u.act.apply(conns, actFixtureLogs())
+	tt := ui.NewTester(u.view, 960, 660)
+	tt.Advance(time.Second)
+	trigger, ok := tt.Find("所有应用")
+	if !ok {
+		t.Fatalf("no app drop-down: %q", tt.Texts())
+	}
+	if err := tt.Click("所有应用"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	// Over the options, below the trigger.
+	tt.Scroll(trigger.X+trigger.W/2, trigger.Y+trigger.H+80, 0, 4000)
+	tt.Advance(time.Second)
+	last, ok := tt.Find("daemon59")
+	if !ok || last.Y < 0 || last.Y+last.H > 660 {
+		t.Fatalf("daemon59 at %+v (found %v), out of the window", last, ok)
+	}
+	if err := tt.Click("daemon59"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if u.act.app != "daemon59" {
+		t.Errorf("chose %q, want daemon59", u.act.app)
+	}
+}
