@@ -299,12 +299,17 @@ func (u *UI) exitChoice(c *ui.Context, p *pal, rid string) {
 // the nodes if a node is what it leaves by.
 func (u *UI) groupExit(c *ui.Context, p *pal, rid string, w float32) {
 	if u.snap.Imported == nil && routes.ChoosesExit(rid) {
-		ui.Column(c).Padding(10, 26, 12, 26).Shrink(0).Children(func() { u.exitChoice(c, p, rid) })
+		choice := func() {
+			ui.Column(c).Padding(10, 26, 12, 26).Shrink(0).Children(func() { u.exitChoice(c, p, rid) })
+		}
 		if u.route(rid).Direct {
+			choice()
 			return
 		}
+		u.nodePicker(c, p, rid, w, choice)
+		return
 	}
-	u.nodePicker(c, p, rid, w)
+	u.nodePicker(c, p, rid, w, nil)
 }
 
 // The route list's measures: matchLine draws through its swatches by them.
@@ -908,7 +913,7 @@ func (u *UI) strategyCard(c *ui.Context, p *pal, v RouteView) {
 		if st.pol {
 			ui.Row(c).Padding(2, 14, 10, 14).Children(func() { u.stratSeg(c, p, v.ID) })
 			ui.Column(c.Key("picker")).Height(420).BorderWidth(1, 0, 0, 0).BorderColor(p.hair2).Children(func() {
-				u.nodePicker(c, p, v.ID, 660)
+				u.nodePicker(c, p, v.ID, 660, nil)
 			})
 		}
 	})

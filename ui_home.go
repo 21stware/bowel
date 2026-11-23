@@ -1483,7 +1483,11 @@ func peekWidth(widths []float32, gap, avail float32) (w float32, cut bool) {
 }
 
 // nodePicker lists every node a route can use, fastest first.
-func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
+// nodePicker is the nodes route rid can leave by. What sits above them
+// (lead, then the strategy's range, the regions, the notes and the test
+// sites) is the list's first row, so it scrolls away with the nodes and
+// leaves them the sheet: only the sheet's own header stays.
+func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32, lead func()) {
 	h := &u.home
 	r := u.route(rid)
 	if u.snap.Imported != nil {
@@ -1526,103 +1530,108 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 			}
 		}
 	}
-	if !tabs {
-		u.scopeRows(c, p, rid, q)
-	}
-	// The bar's height leaves the chips 12 DIPs above and below, so the
-	// strip's scroll bar (3–9 DIPs up from its bottom) runs under them
-	// instead of across their labels.
-	ui.Row(c).Gap(regionBarGap).Padding(4, regionBarPad).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).AlignItems(ui.Center).Children(func() {
-		// Each region is a pill: the same round flag the node rows show,
-		// then its letters; the chosen one sits on a faint fill.
-		chip := func(r region) {
-			on := h.region == r.id
-			b := ui.ButtonBase(c.Key("r"+r.id)).Row().AlignItems(ui.Center).Gap(regionFlagGap).Padding(4, regionChipPadX).Radius(p.r(99))
-			switch {
-			case on:
-				b.Background(p.hair2)
-			case b.Hovered():
-				b.Background(p.hover)
-			}
-			b.OnClick(func() { h.region = r.id }).Children(func() {
-				col, wgt := p.mute, 500
-				if on {
-					col, wgt = p.ink, 600
+	head := func() {
+		if lead != nil {
+			lead()
+		}
+		if !tabs {
+			u.scopeRows(c, p, rid, q)
+		}
+		// The bar's height leaves the chips 12 DIPs above and below, so the
+		// strip's scroll bar (3–9 DIPs up from its bottom) runs under them
+		// instead of across their labels.
+		ui.Row(c).Gap(regionBarGap).Padding(4, regionBarPad).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).AlignItems(ui.Center).Children(func() {
+			// Each region is a pill: the same round flag the node rows show,
+			// then its letters; the chosen one sits on a faint fill.
+			chip := func(r region) {
+				on := h.region == r.id
+				b := ui.ButtonBase(c.Key("r"+r.id)).Row().AlignItems(ui.Center).Gap(regionFlagGap).Padding(4, regionChipPadX).Radius(p.r(99))
+				switch {
+				case on:
+					b.Background(p.hair2)
+				case b.Hovered():
+					b.Background(p.hover)
 				}
+				b.OnClick(func() { h.region = r.id }).Children(func() {
+					col, wgt := p.mute, 500
+					if on {
+						col, wgt = p.ink, 600
+					}
+					if r.flag != "-" {
+						flagBadge(c, p, r.flag, regionFlag)
+					}
+					ui.Text(c, r.label).FontSize(12).FontWeight(wgt).TextColor(col).NoWrap()
+				})
+			}
+			// Many regions scroll sideways, so the search and 全部测速 stay.
+			// When they overflow, the strip ends halfway through a chip: the
+			// cut-off half says there is more to scroll to, where a strip that
+			// happened to end between two chips would look complete.
+			widths := make([]float32, len(regions))
+			for i, r := range regions {
+				wgt := 500
+				if h.region == r.id {
+					wgt = 600
+				}
+				tw, _ := c.MeasureText(0, ui.Span{Text: r.label, Size: 12, Weight: wgt})
+				widths[i] = 2*regionChipPadX + tw
 				if r.flag != "-" {
-					flagBadge(c, p, r.flag, regionFlag)
+					widths[i] += regionFlag + regionFlagGap
 				}
-				ui.Text(c, r.label).FontSize(12).FontWeight(wgt).TextColor(col).NoWrap()
-			})
-		}
-		// Many regions scroll sideways, so the search and 全部测速 stay.
-		// When they overflow, the strip ends halfway through a chip: the
-		// cut-off half says there is more to scroll to, where a strip that
-		// happened to end between two chips would look complete.
-		widths := make([]float32, len(regions))
-		for i, r := range regions {
-			wgt := 500
-			if h.region == r.id {
-				wgt = 600
 			}
-			tw, _ := c.MeasureText(0, ui.Span{Text: r.label, Size: 12, Weight: wgt})
-			widths[i] = 2*regionChipPadX + tw
-			if r.flag != "-" {
-				widths[i] += regionFlag + regionFlagGap
-			}
-		}
-		bw, _ := c.MeasureText(0, ui.Span{Text: label, Size: 12, Weight: 500})
-		avail := w - 2*regionBarPad - 3*regionBarGap - regionSearchW - (bw + 2*11 + 2)
-		if tabs {
-			strip := ui.ScrollHorizontal(c.Key("regions")).Gap(regionChipGap).Padding(12, 0).AlignItems(ui.Center).Shrink(1).MinWidth(0)
-			if sw, cut := peekWidth(widths, regionChipGap, avail); cut {
-				strip.Width(sw)
-			}
-			strip.Children(func() {
-				for _, r := range regions {
-					chip(r)
+			bw, _ := c.MeasureText(0, ui.Span{Text: label, Size: 12, Weight: 500})
+			avail := w - 2*regionBarPad - 3*regionBarGap - regionSearchW - (bw + 2*11 + 2)
+			if tabs {
+				strip := ui.ScrollHorizontal(c.Key("regions")).Gap(regionChipGap).Padding(12, 0).AlignItems(ui.Center).Shrink(1).MinWidth(0)
+				if sw, cut := peekWidth(widths, regionChipGap, avail); cut {
+					strip.Width(sw)
 				}
-			})
-		} else {
-			ui.Box(c).Height(44) // the height the chips give the bar
+				strip.Children(func() {
+					for _, r := range regions {
+						chip(r)
+					}
+				})
+			} else {
+				ui.Box(c).Height(44) // the height the chips give the bar
+			}
+			ui.Spacer(c)
+			ui.SearchField(c.Key("q"), &h.query).Placeholder(i18n.T("搜索节点", "Search nodes")).Width(regionSearchW).Shrink(0)
+			b := btn(c, p, label).Disabled(testing).Shrink(0)
+			b.OnClick(func() { u.do(func() error { return u.app.testRoute(bg(), rid) }) })
+		})
+		note := func(text string, bad bool) {
+			col := p.mute
+			if bad {
+				col = p.signal
+			}
+			ui.Text(c, text).FontSize(12).TextColor(col).Padding(10, 26, 0, 26)
 		}
-		ui.Spacer(c)
-		ui.SearchField(c.Key("q"), &h.query).Placeholder(i18n.T("搜索节点", "Search nodes")).Width(regionSearchW).Shrink(0)
-		b := btn(c, p, label).Disabled(testing).Shrink(0)
-		b.OnClick(func() { u.do(func() error { return u.app.testRoute(bg(), rid) }) })
-	})
-	note := func(text string, bad bool) {
-		col := p.mute
-		if bad {
-			col = p.signal
-		}
-		ui.Text(c, text).FontSize(12).TextColor(col).Padding(10, 26, 0, 26)
-	}
-	switch q.Mode {
-	case routes.ModeAuto:
-		switch {
-		case picking:
-			note(i18n.T("勾选的节点就是范围，自动最快只在它们之间选；一个都不勾就是地区和来源里的全部。订阅更新后按名字保留。", "The ticked nodes are the range, and the fastest is picked among them; none ticked is every node the regions and sources allow. Picks are kept by name when a subscription updates."), false)
-		case r.Broken != "":
-			note(i18n.T("这个范围里没有可用节点，放宽地区、来源或勾选的节点。范围不会被悄悄放宽。", "No usable node in this range: widen the regions, sources or picked nodes. A range is never widened on its own."), true)
+		switch q.Mode {
+		case routes.ModeAuto:
+			switch {
+			case picking:
+				note(i18n.T("勾选的节点就是范围，自动最快只在它们之间选；一个都不勾就是地区和来源里的全部。订阅更新后按名字保留。", "The ticked nodes are the range, and the fastest is picked among them; none ticked is every node the regions and sources allow. Picks are kept by name when a subscription updates."), false)
+			case r.Broken != "":
+				note(i18n.T("这个范围里没有可用节点，放宽地区、来源或勾选的节点。范围不会被悄悄放宽。", "No usable node in this range: widen the regions, sources or picked nodes. A range is never widened on its own."), true)
+			default:
+				note(i18n.T("定时测速，在范围内用最快的；挂了自动换（◆ 为当前）。点节点可以直接固定到它。", "Tested on a schedule, using the fastest in range and moving on if it fails (◆ is current). Click a node to fix on it."), false)
+			}
+			if len(gone) > 0 && !picking {
+				note(fmt.Sprintf(i18n.T("勾选的节点里有 %d 个已不在订阅里，会被跳过；在「节点 → 挑选」里能看到并去掉。", "%d of the picked nodes are no longer in their subscription and are skipped; Nodes → Pick shows them, to untick."), len(gone)), false)
+			}
+		case routes.ModeOrder:
+			if r.Broken != "" {
+				note(i18n.T("排好的节点都不通。加入能用的节点，或换一种策略。", "None of these nodes work. Add one that does, or change strategy."), true)
+			} else {
+				note(i18n.T("一直用排在最前的；不通就用下一个，恢复后回到第 1 位（◆ 为当前）。", "Uses the first in line, the next if it's down, and returns to No. 1 when it recovers (◆ is current)."), false)
+			}
 		default:
-			note(i18n.T("定时测速，在范围内用最快的；挂了自动换（◆ 为当前）。点节点可以直接固定到它。", "Tested on a schedule, using the fastest in range and moving on if it fails (◆ is current). Click a node to fix on it."), false)
+			if r.Broken != "" {
+				note(fmt.Sprintf(i18n.T("%s 不通。固定节点不会自动切换，换一个能用的。", "%s is down. A fixed node doesn't switch by itself: pick one that works."), u.nodeDisplay(q.Fixed)), true)
+			}
 		}
-		if len(gone) > 0 && !picking {
-			note(fmt.Sprintf(i18n.T("勾选的节点里有 %d 个已不在订阅里，会被跳过；在「节点 → 挑选」里能看到并去掉。", "%d of the picked nodes are no longer in their subscription and are skipped; Nodes → Pick shows them, to untick."), len(gone)), false)
-		}
-	case routes.ModeOrder:
-		if r.Broken != "" {
-			note(i18n.T("排好的节点都不通。加入能用的节点，或换一种策略。", "None of these nodes work. Add one that does, or change strategy."), true)
-		} else {
-			note(i18n.T("一直用排在最前的；不通就用下一个，恢复后回到第 1 位（◆ 为当前）。", "Uses the first in line, the next if it's down, and returns to No. 1 when it recovers (◆ is current)."), false)
-		}
-	default:
-		if r.Broken != "" {
-			note(fmt.Sprintf(i18n.T("%s 不通。固定节点不会自动切换，换一个能用的。", "%s is down. A fixed node doesn't switch by itself: pick one that works."), u.nodeDisplay(q.Fixed)), true)
-		}
+		u.siteStrip(c, p, r, testing)
 	}
-	u.siteStrip(c, p, r, testing)
 	u.targetsDialog(c, p, r)
 	queried := func(n NodeView) bool {
 		return q2 == "" || strings.Contains(strings.ToLower(n.Display), q2)
@@ -1669,7 +1678,10 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 		list = append(append(head, pick{head: i18n.T("点击加入", "Click to add")}), list...)
 	}
 	if len(list) == 0 {
-		ui.Text(c, i18n.T("没有符合条件的节点", "No nodes match")).FontSize(12.5).TextColor(p.mute).Padding(30, 26)
+		ui.Scroll(c.Key("nodes")).Grow(1).Children(func() {
+			head()
+			ui.Text(c, i18n.T("没有符合条件的节点", "No nodes match")).FontSize(12.5).TextColor(p.mute).Padding(30, 26)
+		})
 		return
 	}
 	// In 顺序备用 every row has the same columns, in the order or not: its
@@ -1678,24 +1690,33 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32) {
 	// and actions line up with each other and with the columns' names.
 	byOrder := q.Mode == routes.ModeOrder
 	// The columns' names, over the columns at the rows' end.
-	ui.Row(c).Gap(10).Padding(7, 26, 5, 26).AlignItems(ui.Center).Children(func() {
-		ui.Spacer(c)
-		columnHead := func(s, tip string) {
-			ui.Text(c, s).FontSize(10.5).FontWeight(600).LetterSpacing(.4).TextColor(p.mute).Width(nodeColW).Shrink(0).MaxLines(1).Ellipsis("…").TextAlign(ui.End).Tooltip(tip)
+	columns := func() {
+		ui.Row(c).Gap(10).Padding(7, 26, 5, 26).AlignItems(ui.Center).Children(func() {
+			ui.Spacer(c)
+			columnHead := func(s, tip string) {
+				ui.Text(c, s).FontSize(10.5).FontWeight(600).LetterSpacing(.4).TextColor(p.mute).Width(nodeColW).Shrink(0).MaxLines(1).Ellipsis("…").TextAlign(ui.End).Tooltip(tip)
+			}
+			columnHead("Ping", i18n.T("从这台电脑 ping 节点服务器的耗时，不经过节点；服务器不回应时显示 —", "Time for the node's server to answer a ping from this computer, not going through the node. — if it doesn't answer"))
+			main := r.Main.Name
+			if main == "" {
+				main = "URL"
+			}
+			columnHead(main, fmt.Sprintf(i18n.T("经节点请求 %s 的耗时，自动选择也按它", "Time to request %s through the node, which Auto also goes by"), r.Main.URL))
+			ui.Box(c).Width(14).Shrink(0)
+			if byOrder {
+				ui.Box(c).Width(nodeActW).Shrink(0)
+			}
+		})
+	}
+	ui.List(c.Key("nodes"), &h.nodes, len(list)+1, func(i int) {
+		if i == 0 {
+			ui.Column(c.Key("\x00head")).Children(func() {
+				head()
+				columns()
+			})
+			return
 		}
-		columnHead("Ping", i18n.T("从这台电脑 ping 节点服务器的耗时，不经过节点；服务器不回应时显示 —", "Time for the node's server to answer a ping from this computer, not going through the node. — if it doesn't answer"))
-		main := r.Main.Name
-		if main == "" {
-			main = "URL"
-		}
-		columnHead(main, fmt.Sprintf(i18n.T("经节点请求 %s 的耗时，自动选择也按它", "Time to request %s through the node, which Auto also goes by"), r.Main.URL))
-		ui.Box(c).Width(14).Shrink(0)
-		if byOrder {
-			ui.Box(c).Width(nodeActW).Shrink(0)
-		}
-	})
-	ui.List(c.Key("nodes"), &h.nodes, len(list), func(i int) {
-		item := list[i]
+		item := list[i-1]
 		if item.head != "" {
 			ui.Text(c.Key(item.head), item.head).FontSize(11.5).FontWeight(700).TextColor(p.mute).Padding(12, 26, 6, 26)
 			return
