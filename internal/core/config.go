@@ -433,7 +433,7 @@ func BuildConfig(in Input) ([]byte, error) {
 		case in.Tun:
 			dns["listen"] = fmt.Sprintf("127.0.0.1:%d", LocalDNSPort)
 		}
-		directDNS(dns, o)
+		directDNS(dns, o, local)
 		cfg["dns"] = dns
 	case len(dev.Policy) > 0:
 		// Without a resolver of its own the core asks the system's servers
@@ -444,7 +444,7 @@ func BuildConfig(in Input) ([]byte, error) {
 			"enable": true, "ipv6": ipv6, "enhanced-mode": "normal", "nameserver": []string{"system"},
 			"use-hosts": o.UseHosts, "use-system-hosts": o.UseSystemHosts, "nameserver-policy": policy,
 		}
-		directDNS(dns, o)
+		directDNS(dns, o, nil)
 		cfg["dns"] = dns
 	default:
 		// Neither TUN nor the built-in switch nor developer networks: the core
@@ -467,7 +467,7 @@ func BuildConfig(in Input) ([]byte, error) {
 		if len(policy) > 0 {
 			dns["nameserver-policy"] = policy
 		}
-		directDNS(dns, o)
+		directDNS(dns, o, nil)
 		cfg["dns"] = dns
 	}
 	if len(o.ProxyNameservers) > 0 {
@@ -480,12 +480,25 @@ func BuildConfig(in Input) ([]byte, error) {
 // upstream ones answer for them otherwise, and a public server's answer is
 // not always an address the network at hand can reach: a company's network
 // may reach a site only at the addresses its own DNS gives. The policy still
-// comes first, so split DNS keeps its servers.
-func directDNS(dns map[string]any, o Options) {
+// comes first, so split DNS keeps its servers. local stands for "system"
+// where that is not the system's own: under TUN it is bowel's placeholder,
+// a public server, and the network's own servers are what was meant (#241).
+func directDNS(dns map[string]any, o Options, local []string) {
 	if len(o.DirectNameservers) == 0 {
 		return
 	}
-	dns["direct-nameserver"] = o.DirectNameservers
+	servers := o.DirectNameservers
+	if len(local) > 0 && !slices.Equal(local, []string{"system"}) {
+		servers = nil
+		for _, s := range o.DirectNameservers {
+			if s == "system" {
+				servers = devnet.Merge(servers, local)
+			} else {
+				servers = devnet.Merge(servers, []string{s})
+			}
+		}
+	}
+	dns["direct-nameserver"] = servers
 	dns["direct-nameserver-follow-policy"] = true
 }
 
