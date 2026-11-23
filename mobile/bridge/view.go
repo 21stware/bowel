@@ -261,7 +261,7 @@ func (x *bridge) view() viewData {
 			continue
 		}
 		if !r.Direct && !r.Reject {
-			rv.Broken = brokenWhy(r.Policy, v.Nodes, r.ID)
+			rv.Broken = brokenWhy(r.Policy, v.Nodes, r.ID, r.Locked)
 			rv.Auto = r.Policy.Mode != routes.ModeFixed
 			if r.Policy.Mode == routes.ModeFixed {
 				rv.Node = r.Policy.Fixed // what it will be on, with the VPN off too
@@ -329,7 +329,8 @@ func judge(mode string, v viewData, sw *switchNote) *issueData {
 		}
 		return &issueData{Level: "warn", Text: fmt.Sprintf(i18n.T("%s：%s 不可用，已换到 %s", "%s: %s is down, switched to %s"), name, sw.from, sw.to), Action: "activity", Label: i18n.T("查看", "View")}
 	}
-	inUse := func(r routeData) bool { return mode == "rule" || r.ID == routes.Default }
+	// A locked group keeps to its node in every mode.
+	inUse := func(r routeData) bool { return mode == "rule" || r.ID == routes.Default || r.Locked }
 	for _, r := range v.Routes {
 		if r.Broken == "" || !inUse(r) {
 			continue
@@ -342,11 +343,19 @@ func judge(mode string, v viewData, sw *switchNote) *issueData {
 		case "order":
 			is.Text = fmt.Sprintf(i18n.T("「%s」备用列表里的节点都不通", "%s: every node on its list is down"), r.Name)
 			is.Label = i18n.T("调整顺序", "Edit order")
+		case "all":
+			is.Text = fmt.Sprintf(i18n.T("「%s」的节点都不通", "%s: every node is down"), r.Name)
+			is.Label = i18n.T("换节点", "Change node")
 		default:
 			is.Text = fmt.Sprintf(i18n.T("「%s」的范围里没有可用节点", "%s: no usable node in its range"), r.Name)
 			is.Label = i18n.T("改范围", "Change range")
 		}
 		is.Detail = i18n.T("这个路由组现在连不上。", "This route group can't connect now.")
+		if r.Locked {
+			// Not a group that merely can't connect: the lock is what refuses.
+			is.Detail = i18n.T("出口锁定正在拦下这个路由组的连接，不会改走直连。换一个能用的节点，或解除出口锁定。",
+				"The exit lock is refusing this group's connections rather than sending them direct. Pick a node that works, or unlock.")
+		}
 		return is
 	}
 	for _, r := range v.Routes {
@@ -381,7 +390,7 @@ func renewIssue(provs []providerData, warns ...string) *issueData {
 
 // brokenWhy says why a group has no way out now, "" if it has one: only
 // what route rid has tested counts as down.
-func brokenWhy(q routes.Policy, nodes []nodeData, rid string) string {
+func brokenWhy(q routes.Policy, nodes []nodeData, rid string, locked bool) string {
 	if len(nodes) == 0 {
 		return ""
 	}
@@ -401,6 +410,11 @@ func brokenWhy(q routes.Policy, nodes []nodeData, rid string) string {
 	default:
 		if q.Scoped() && !slices.ContainsFunc(nodes, func(n nodeData) bool { return inScope(q, n.Name, n.Provider, n.Where.Country) && alive(n) }) {
 			return "scope"
+		}
+		// A group that picks among every node goes on by the best of bad
+		// ones, unless it is locked: then it refuses, which is to be said.
+		if locked && !q.Scoped() && !slices.ContainsFunc(nodes, alive) {
+			return "all"
 		}
 	}
 	return ""
@@ -432,6 +446,11 @@ func currentNode(px map[string]mihomo.Proxy, r routes.Route) string {
 			break
 		}
 		now = px[now].Now
+	}
+	// A locked group holds REJECT among its members, which is what it is
+	// left on when no node works: that is no node to name.
+	if now == "REJECT" || now == "REJECT-DROP" {
+		return ""
 	}
 	return now
 }
