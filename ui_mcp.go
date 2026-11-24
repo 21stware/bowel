@@ -67,7 +67,16 @@ func (u *UI) mcpSection(c *ui.Context, p *pal, s settings.Settings) {
 		if u.app != nil {
 			sock = mcpSocket(u.app.dataDir)
 		}
-		kv(c, p, [][2]string{{i18n.T("服务", "Server"), state}, {i18n.T("套接字", "Socket"), sock}})
+		rows := [][2]string{{i18n.T("服务", "Server"), state}, {i18n.T("套接字", "Socket"), sock}}
+		// Only when BOWEL_MCP_HTTP turned it on: most never will.
+		if h := mcpHTTP.Load(); h != nil {
+			v := h.URL
+			if h.Error != "" {
+				v = i18n.T("未运行", "Stopped") + " · " + firstLine(h.Error)
+			}
+			rows = append(rows, [2]string{"HTTP", v})
+		}
+		kv(c, p, rows)
 	})
 
 	optHeading(c, p, i18n.T("最近的 agent 变更", "Recent agent changes"))
