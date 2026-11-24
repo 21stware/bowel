@@ -25,6 +25,8 @@ docker exec -it bowel bowel tui
 | `ghcr.io/21stware/bowel:0.4` | 最新的 0.4.x |
 | `ghcr.io/21stware/bowel:0.4.8` | 某一个版本 |
 
+同一个镜像也在 Docker Hub 上，叫 `21stware/bowel`（`docker pull 21stware/bowel`）。群晖的 Container Manager、Unraid 等 NAS 界面默认在那里搜索；本文的命令用哪个名字都可以。
+
 amd64 镜像用的是 mihomo 的 `v1` 构建，任何 x86-64 CPU 都能运行，包括很多 NAS 用的 Atom 和赛扬。每个版本发布之后才推送镜像；镜像不会自己更新，拉取新标签即可更新（`docker compose pull && docker compose up -d`），数据卷原样保留。
 
 ## Compose

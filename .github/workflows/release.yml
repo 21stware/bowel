@@ -90,6 +90,9 @@ jobs:
           HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+          DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           if [ "$TAG" != "v$VERSION" ]; then
             echo "::error::Tag $TAG does not match version $VERSION in mygo.json"
@@ -104,6 +107,16 @@ jobs:
               missing=1
             fi
           done
+          # Docker Hub is optional, but once named it needs both secrets: a
+          # release must not stop at the image after everything else is out.
+          if [ -n "$DOCKERHUB_IMAGE" ]; then
+            for name in DOCKERHUB_USERNAME DOCKERHUB_TOKEN; do
+              if [ -z "${!name}" ]; then
+                echo "::error::DOCKERHUB_IMAGE is $DOCKERHUB_IMAGE, but repository secret $name is not set"
+                missing=1
+              fi
+            done
+          fi
           exit "$missing"
 
   macos:

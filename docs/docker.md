@@ -25,6 +25,8 @@ docker exec -it bowel bowel tui
 | `ghcr.io/21stware/bowel:0.4` | the latest 0.4.x |
 | `ghcr.io/21stware/bowel:0.4.8` | one release |
 
+The same image is on Docker Hub as `21stware/bowel` (`docker pull 21stware/bowel`), which is where Synology's Container Manager, Unraid and other NAS interfaces search; every command here takes either name.
+
 The amd64 image carries mihomo's `v1` build, which runs on every x86-64 CPU, including the Atoms and Celerons of many NAS boxes. Each release pushes the image after the release itself is published; the image does not update itself, so pull a new tag to update (`docker compose pull && docker compose up -d`). The data volume carries over.
 
 ## Compose
