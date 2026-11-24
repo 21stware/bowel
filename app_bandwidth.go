@@ -37,6 +37,12 @@ type bandwidthPlan struct {
 
 // planBandwidth is what testBandwidth(routeID) would do now.
 func (a *App) planBandwidth(routeID string) bandwidthPlan {
+	return a.planBandwidthOf(routeID, false)
+}
+
+// planBandwidthOf is planBandwidth, of the nodes in the range of the
+// route's automatic choice alone if inRange.
+func (a *App) planBandwidthOf(routeID string, inRange bool) bandwidthPlan {
 	r := a.route(routeID)
 	a.mu.Lock()
 	px := a.proxies
@@ -56,8 +62,18 @@ func (a *App) planBandwidth(routeID string) bandwidthPlan {
 		delay int
 	}
 	var list []cand
+	in := func(string) bool { return true }
+	if q := r.Policy; inRange && q.Scoped() {
+		in = func(n string) bool {
+			country := ""
+			if pl := a.loc.Guess(n, display(n)).Place; pl != nil {
+				country = pl.Country
+			}
+			return inScope(q, n, providerOf(n), country)
+		}
+	}
 	for _, t := range speed.OfRoute(px, r, main) {
-		if providerOf(t.Node) == "" {
+		if providerOf(t.Node) == "" || !in(t.Node) {
 			continue
 		}
 		if h, ok := speed.Last(px[t.Node].HistoryOf(main), stale, now); ok && h.Delay > 0 {
@@ -71,7 +87,7 @@ func (a *App) planBandwidth(routeID string) bandwidthPlan {
 		plan.Nodes = append(plan.Nodes, c.node)
 	}
 	// The node in use is worth comparing with, whatever its delay.
-	if n := currentNode(px, r); providerOf(n) != "" && !slices.Contains(plan.Nodes, n) {
+	if n := currentNode(px, r); providerOf(n) != "" && in(n) && !slices.Contains(plan.Nodes, n) {
 		plan.Nodes = append(plan.Nodes, n)
 	}
 	plan.MaxBytes = int64(len(plan.Nodes)) * speed.DownloadCap
@@ -82,26 +98,33 @@ func (a *App) planBandwidth(routeID string) bandwidthPlan {
 // planBandwidth(routeID), one after another, through the probe listener.
 // Nothing is chosen by it: the results show beside the delays.
 func (a *App) testBandwidth(ctx context.Context, routeID string) error {
-	plan := a.planBandwidth(routeID)
+	_, err := a.runBandwidth(ctx, routeID, a.planBandwidth(routeID), speed.DownloadCap)
+	return err
+}
+
+// runBandwidth downloads plan's file through each of its nodes, up to
+// capBytes each, and keeps the results with the nodes. It returns them too.
+func (a *App) runBandwidth(ctx context.Context, routeID string, plan bandwidthPlan, capBytes int64) (map[string]bandwidthResult, error) {
 	if len(plan.Nodes) == 0 {
-		return errors.New(i18n.T("没有测得通延迟的节点，先测一次延迟", "No node answered the delay test; test delays first"))
+		return nil, errors.New(i18n.T("没有测得通延迟的节点，先测一次延迟", "No node answered the delay test; test delays first"))
 	}
 	c, err := a.core.Client()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	done := a.begin(bandwidthKey(routeID))
 	defer done()
+	out := map[string]bandwidthResult{}
 	failed := 0
 	for _, n := range plan.Nodes {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return out, ctx.Err()
 		}
 		res := bandwidthResult{at: time.Now()}
 		tctx, cancel := context.WithTimeout(ctx, speed.DownloadTime+15*time.Second)
 		err := a.loc.Through(tctx, c, a.probePort, n, func(proxy *url.URL) error {
 			client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy), DisableKeepAlives: true}}
-			t, err := speed.Download(tctx, client, plan.URL, speed.DownloadTime, speed.DownloadCap)
+			t, err := speed.Download(tctx, client, plan.URL, speed.DownloadTime, capBytes)
 			res.bps = t.BitsPerSec
 			return err
 		})
@@ -110,6 +133,7 @@ func (a *App) testBandwidth(ctx context.Context, routeID string) error {
 			res.bps, res.failed = 0, true
 			failed++
 		}
+		out[n] = res
 		a.mu.Lock()
 		next := maps.Clone(a.bandwidth)
 		if next == nil {
@@ -121,9 +145,9 @@ func (a *App) testBandwidth(ctx context.Context, routeID string) error {
 		a.emit()
 	}
 	if failed == len(plan.Nodes) {
-		return errors.New(i18n.T("全部下载失败：测速文件可能打不开，或者被节点拦了。可以在设置里换一个测速文件", "Every download failed: the test file may be unreachable, or blocked by the nodes. You can pick another file in Settings"))
+		return out, errors.New(i18n.T("全部下载失败：测速文件可能打不开，或者被节点拦了。可以在设置里换一个测速文件", "Every download failed: the test file may be unreachable, or blocked by the nodes. You can pick another file in Settings"))
 	}
-	return nil
+	return out, nil
 }
 
 // downloadView is a node's last download test, for the view.

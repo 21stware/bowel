@@ -73,3 +73,56 @@ func TestBandwidthAlikeNote(t *testing.T) {
 	}
 	shot(t, tt, "bandwidth-alike")
 }
+
+// 自动最快 offers to choose by download speed: the choice and how often go
+// in the group's policy, and the note says what was chosen and what it
+// costs.
+func TestChooseByDownload(t *testing.T) {
+	u := fixtureUI()
+	u.snap.Settings.Paused, u.snap.Settings.SystemProxy = false, true
+	tt := ui.NewTester(u.view, 1060, 1000)
+	u.home.x, u.home.sub = "routes", "media"
+	tt.Frame()
+	tt.Advance(2 * time.Second)
+	if !tt.HasText("选法") || tt.HasText("每 12 小时") {
+		t.Fatalf("by-download row: %q", tt.Texts())
+	}
+	if err := tt.Click("下载速度"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if q := u.policy("media"); q.DownloadEvery != defaultDownloadEvery || !q.ByDownload() {
+		t.Fatalf("policy %+v", q)
+	}
+	if err := tt.Click("每 6 小时"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if q := u.policy("media"); q.DownloadEvery != 6 {
+		t.Fatalf("every %d", q.DownloadEvery)
+	}
+
+	now := time.Now()
+	for i := range u.snap.Routes {
+		if u.snap.Routes[i].ID == "media" {
+			u.snap.Routes[i].Download = &DownloadPickView{Node: u.snap.Nodes[1].Name, Mbps: 188, At: now.Add(-2 * time.Hour), Next: now.Add(4 * time.Hour)}
+		}
+	}
+	tt.Frame()
+	tt.Advance(time.Second)
+	found := slices.ContainsFunc(tt.Texts(), func(s string) bool {
+		return strings.Contains(s, "下载最快（188 Mbps）") && strings.Contains(s, "每天 4 轮")
+	})
+	if !found {
+		t.Errorf("no pick note: %q", tt.Texts())
+	}
+	shot(t, tt, "bandwidth-by-download")
+
+	if err := tt.Click("延迟"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if q := u.policy("media"); q.ByDownload() {
+		t.Errorf("back to delay: %+v", q)
+	}
+}

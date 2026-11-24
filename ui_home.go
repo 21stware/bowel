@@ -1633,6 +1633,8 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32, lead func(
 				note(lockedOutSay(), true)
 			case r.Broken != "":
 				note(i18n.T("这个范围里没有可用节点，放宽地区、来源或勾选的节点。范围不会被悄悄放宽。", "No usable node in this range: widen the regions, sources or picked nodes. A range is never widened on its own."), true)
+			case q.ByDownload():
+				note(u.downloadSay(r, q), false)
 			default:
 				note(i18n.T("定时测速，在范围内用最快的；挂了自动换（◆ 为当前）。点节点可以直接固定到它。", "Tested on a schedule, using the fastest in range and moving on if it fails (◆ is current). Click a node to fix on it."), false)
 			}

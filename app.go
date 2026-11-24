@@ -137,6 +137,14 @@ type App struct {
 	emitQueued  bool
 	win         *mygo.Window
 	ui          *UI
+
+	// picks are what the scheduled download tests chose, by route id, and
+	// downloadTried when each was last started; downloading, that some are
+	// running (runDueDownloads).
+	picks         map[string]downloadPick
+	downloadTried map[string]time.Time
+	downloading   bool
+
 	// winShown is whether the main window is shown, kept from its events
 	// for goroutines that may not wait on the main thread to ask.
 	winShown atomic.Bool
@@ -236,6 +244,7 @@ func newApp() (*App, error) {
 	}
 	ps.Vet = a.vetUpdate
 	a.startSpeed()
+	a.loadDownloadPicks()
 	a.tunStale.Store(stale)
 	cm.SafePaths = []string{provDir, sets.Dir()} // for a core that is the app's child; see storeDir
 	a.keepRuleSets()
@@ -622,7 +631,9 @@ func (a *App) refresh() {
 				a.nodesSig, a.nodesAt = sig, time.Now()
 			}
 			a.mu.Unlock()
+			a.followDownloads(px)
 			a.noticeSwitches()
+			a.runDueDownloads()
 			if stale {
 				a.keepMeasured()
 			}
@@ -2550,7 +2561,7 @@ func (a *App) snapshot() Snapshot {
 	a.mu.Lock()
 	sys, proxyErr, px, provNodes, you := a.sys, a.proxyErr, a.proxies, a.provNodes, a.you
 	note := a.switched // taken with px: a refresh may record a newer switch
-	pings, bandwidth := a.pings, a.bandwidth
+	pings, bandwidth, picks := a.pings, a.bandwidth, a.picks
 	openAtLogin := a.openAtLogin
 	gwp, gwErr := a.gwProbe, a.gwErr
 	pending := make([]string, 0, len(a.pending))
@@ -2718,6 +2729,17 @@ func (a *App) snapshot() Snapshot {
 				through = px[rv.Node]
 			}
 			rv.Main, rv.Sites = rv.Targets[0], siteViews(&a.refused, rv.Targets[1:], rv.Node, through, stale, now)
+			if r.Policy.ByDownload() {
+				pk, ok := picks[r.ID]
+				d := &DownloadPickView{Node: pk.Node, Mbps: float64(pk.Bps) / 1e6, At: pk.At, Next: now}
+				if ok {
+					d.Next = pk.At.Add(time.Duration(r.Policy.DownloadEvery) * time.Hour)
+				}
+				if d.Node != "" {
+					d.Node = a.listedNode(d.Node, provNodes)
+				}
+				rv.Download = d
+			}
 			rv.Broken = brokenWhy(r.Policy, snap.Nodes, r.ID)
 			if rv.Broken == "" && rv.Locked && noneAlive(snap.Nodes, r.ID) {
 				rv.Broken = "all" // the lock leaves it REJECT where another group would go direct

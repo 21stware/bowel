@@ -478,6 +478,28 @@ func (u *UI) scopeRows(c *ui.Context, p *pal, rid string, q routes.Policy) {
 				})
 			}
 		})
+		row("by", i18n.T("选法", "By"), func() {
+			delay, dl := i18n.T("延迟", "Delay"), i18n.T("下载速度", "Download speed")
+			chip(c, p, "delay", delay, delay, q.DownloadEvery == 0, func() {
+				u.changePolicy(rid, func(q *routes.Policy) { q.DownloadEvery = 0 })
+			})
+			chip(c, p, "download", dl, dl, q.DownloadEvery > 0, func() {
+				u.changePolicy(rid, func(q *routes.Policy) {
+					if q.DownloadEvery == 0 {
+						q.DownloadEvery = defaultDownloadEvery
+					}
+				})
+			})
+			if q.DownloadEvery > 0 {
+				ui.Box(c).Width(10)
+				for _, hrs := range routes.DownloadEveries {
+					label := fmt.Sprintf(i18n.T("每 %d 小时", "Every %d h"), hrs)
+					chip(c, p, fmt.Sprint("every", hrs), label, label, q.DownloadEvery == hrs, func() {
+						u.changePolicy(rid, func(q *routes.Policy) { q.DownloadEvery = hrs })
+					})
+				}
+			}
+		})
 	})
 }
 
@@ -526,9 +548,14 @@ func (u *UI) policyWord(r RouteView) string {
 			return fmt.Sprintf(i18n.T("顺序备用 · 第 %d 位", "Backup order · No. %d"), i+1)
 		}
 	case routes.ModeAuto:
-		if w := scopeWord(q, u.providerName); w != "" {
-			return modeName(q.Mode) + " · " + w
+		name := modeName(q.Mode)
+		if q.ByDownload() {
+			name = i18n.T("下载最快", "Fastest download")
 		}
+		if w := scopeWord(q, u.providerName); w != "" {
+			return name + " · " + w
+		}
+		return name
 	}
 	return modeName(q.Mode)
 }
