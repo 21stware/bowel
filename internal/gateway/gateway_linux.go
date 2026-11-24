@@ -105,7 +105,9 @@ func (l *linux) SetForwarding(on bool) error {
 		if on {
 			v = "1\n"
 		}
-		err = os.WriteFile(procSwitch, []byte(v), 0o644)
+		if err = os.WriteFile(procSwitch, []byte(v), 0o644); err != nil {
+			return forwardWriteError(err)
+		}
 	} else {
 		args := append([]string{"-n"}, forwardCmd(rootBin("sysctl"), on)...)
 		out, err = exec.Command(rootBin("sudo"), args...).CombinedOutput()
@@ -121,6 +123,18 @@ func (l *linux) SetForwarding(on bool) error {
 		return errors.New(i18n.T("IP 转发没有改过来", "IP forwarding didn't change"))
 	}
 	return nil
+}
+
+// forwardWriteError is root's failure to write the kernel's switch. A
+// container without --privileged has /proc/sys read-only, and the switch
+// is then set from outside: by Docker for the container's own network,
+// or on the host for host networking.
+func forwardWriteError(err error) error {
+	if errors.Is(err, syscall.EROFS) || errors.Is(err, os.ErrPermission) {
+		return errors.New(i18n.T("/proc/sys 是只读的，bowel 没法打开 IP 转发（容器里常见）。请用 --sysctl net.ipv4.ip_forward=1 启动容器；用 --network host 时，在宿主机上打开 IP 转发",
+			"/proc/sys is read-only, so bowel can't turn IP forwarding on (usual in a container). Start the container with --sysctl net.ipv4.ip_forward=1; with --network host, turn IP forwarding on on the host"))
+	}
+	return fmt.Errorf(i18n.T("无法更改 IP 转发：%s", "Couldn't change IP forwarding: %s"), err)
 }
 
 // prepareSteps installs the rule written at tmp: it goes beside the
