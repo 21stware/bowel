@@ -67,16 +67,19 @@ LABEL org.opencontainers.image.title="bowel" \
 
 # BOWEL_CONTAINER: the defaults of a container (the proxy open to the LAN,
 # no desktop to take over). MOHO_CORE: the core above, by name.
+# BOWEL_MCP_HTTP: MCP over HTTP for agents elsewhere, behind the token in
+# /data/mcp-token (`bowel mcp token`); reachable only where 7900 is published.
 ENV PATH=/opt/bowel \
     HOME=/data \
     BOWEL_DATA_DIR=/data \
     BOWEL_CONTAINER=1 \
+    BOWEL_MCP_HTTP=:7900 \
     MOHO_CORE=/opt/bowel/bin/mihomo
 
 VOLUME ["/data"]
 WORKDIR /data
-# 7899: the mixed (HTTP and SOCKS5) proxy port. 7900: MCP over HTTP, when
-# BOWEL_MCP_HTTP turns it on.
+# 7899: the mixed (HTTP and SOCKS5) proxy port. 7900: MCP over HTTP (an
+# empty BOWEL_MCP_HTTP turns it off).
 EXPOSE 7899 7900
 STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

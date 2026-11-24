@@ -1,0 +1,28 @@
+# bowel with TUN on the host's network: it takes the host's own traffic,
+# and with gateway mode that of devices that use the host as their router.
+# Linux hosts only (Docker Desktop's host network is its VM's). See
+# ../docker.md.
+#
+#   docker compose -f compose.tun.yaml up -d
+#   docker exec bowel bowel tun on
+#   docker exec bowel bowel gateway on      # optional
+services:
+  bowel:
+    image: ghcr.io/21stware/bowel
+    container_name: bowel
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - bowel:/data
+    environment:
+      BOWEL_SUBSCRIPTION: https://example.com/your-subscription
+      # On the host's network 7900 is the host's port: keep MCP on loopback.
+      BOWEL_MCP_HTTP: 127.0.0.1:7900
+      TZ: Asia/Shanghai
+
+volumes:
+  bowel:

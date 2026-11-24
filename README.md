@@ -131,6 +131,13 @@ Debian, Ubuntu and Fedora. This adds a signed package repository, so `apt` or `d
 curl -fsSL https://21stware.github.io/packages/install.sh | sh
 ```
 
+A server, NAS or router with no screen, in Docker (amd64, arm64, armv7). Then `docker exec -it bowel bowel tui`; TUN, gateway mode, compose files and MCP for agents are in [docs/docker.md](docs/docker.md):
+
+```bash
+docker run -d --name bowel --restart unless-stopped -p 7899:7899 -v bowel:/data \
+  -e BOWEL_SUBSCRIPTION='<subscription URL>' ghcr.io/21stware/bowel
+```
+
 Or download the file for your platform from [Releases](https://github.com/21stware/bowel/releases/latest):
 
 | Platform | File | Needs |
