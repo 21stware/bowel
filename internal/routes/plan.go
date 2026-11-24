@@ -35,14 +35,26 @@ type Policy struct {
 	// node keeps its name; none is every node Regions and Providers allow.
 	// A range is all three at once.
 	Nodes []string `json:"nodes,omitempty"`
-	Order []string `json:"order,omitempty"` // ModeOrder: node names, first preferred
-	Fixed string   `json:"fixed,omitempty"` // ModeFixed: a node name
+	// DownloadEvery makes ModeAuto choose by download speed instead of
+	// delay: every so many hours the nodes of the range that answer
+	// fastest download a test file, and the fastest download is used until
+	// it fails. 0 chooses by delay alone.
+	DownloadEvery int      `json:"downloadEvery,omitempty"`
+	Order         []string `json:"order,omitempty"` // ModeOrder: node names, first preferred
+	Fixed         string   `json:"fixed,omitempty"` // ModeFixed: a node name
 	// Direct sends the group's traffic out without a node; on the default
 	// route that is what no rule matched. The strategy stays, for when
 	// this is turned off, and the default route's for global mode too.
 	// 直连 and 拦截 never use a node and have no such choice (ChoosesExit).
 	Direct bool `json:"direct,omitempty"`
 }
+
+// DownloadEveries are the hours between the download tests of a group that
+// chooses by download speed, as the interface offers them.
+var DownloadEveries = []int{6, 12, 24}
+
+// ByDownload says whether the group chooses its node by download speed.
+func (p Policy) ByDownload() bool { return p.Mode == ModeAuto && p.DownloadEvery > 0 }
 
 // Scoped says whether the automatic group picks from less than every node.
 func (p Policy) Scoped() bool { return len(p.Regions) > 0 || len(p.Providers) > 0 || len(p.Nodes) > 0 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/speed"
 )
 
@@ -102,4 +103,35 @@ func (u *UI) bandwidthDialog(c *ui.Context, p *pal, r RouteView) {
 			})
 		})
 	})
+}
+
+// defaultDownloadEvery is the hours between scheduled download tests when
+// a group is first set to choose by download speed.
+const defaultDownloadEvery = 12
+
+// downloadSay is the note under a group that chooses by download speed:
+// what its last test chose, when the next runs, and what the tests cost.
+func (u *UI) downloadSay(r RouteView, q routes.Policy) string {
+	runs := 24 / max(1, q.DownloadEvery)
+	round := int64(bandwidthNodes+1) * scheduledCap
+	cost := fmt.Sprintf(i18n.T("每轮测延迟最低的 %d 个节点（加上正在用的），每个最多 %d MB，每天 %d 轮，最多约 %s/月。", "Each round tests the %d nodes with the lowest delay (and the one in use), %d MB at most each, %d rounds a day: about %s a month at most."),
+		bandwidthNodes, scheduledCap>>20, runs, fmtBytes(round*int64(runs)*30))
+	var state string
+	d := r.Download
+	st := u.snap.Settings
+	switch {
+	case u.pending(bandwidthKey(r.ID)):
+		state = i18n.T("正在测这一轮…", "This round is being tested…")
+	case st.Paused || !st.SystemProxy && !st.Tun:
+		state = i18n.T("接管关着时不测，先用延迟最低的。", "Not tested while takeover is off; the lowest delay is used.")
+	case d == nil || d.At.IsZero():
+		state = i18n.T("马上测第一轮；测完前先用延迟最低的。", "The first round runs now; until it's done, the lowest delay is used.")
+	case d.Node == "":
+		state = fmt.Sprintf(i18n.T("%s测的那轮没选出节点（下载都失败了，或者选中的节点后来不通），先用延迟最低的，下一轮 %s。", "The round %s chose no node (every download failed, or the node chosen stopped answering since): the lowest delay is used, next round %s."),
+			ago(d.At), d.Next.Local().Format("15:04"))
+	default:
+		state = fmt.Sprintf(i18n.T("%s测的：%s 下载最快（%s），一直用它；不通了先换回延迟最低的，下一轮 %s。", "Tested %s: %s downloaded fastest (%s) and is used; if it stops answering, the lowest delay is used. Next round %s."),
+			ago(d.At), u.nodeDisplay(d.Node), fmtMbps(&DownloadTest{Mbps: d.Mbps}), d.Next.Local().Format("15:04"))
+	}
+	return state + cost + i18n.T("按流量计费或不允许测速的机场请留意。", " Mind it if your subscription is metered or forbids speed tests.")
 }

@@ -282,6 +282,19 @@ type RouteView struct {
 	Locked  bool `json:"locked,omitempty"`
 	Refused bool `json:"refused,omitempty"`
 	Unheld  bool `json:"unheld,omitempty"`
+	// Download is what the scheduled download test chose, for a group that
+	// chooses by download speed (routes.Policy.ByDownload).
+	Download *DownloadPickView `json:"download,omitempty"`
+}
+
+// DownloadPickView is a group's scheduled download test: when it last ran
+// and is next due, and the node it chose, "" if none came through or the
+// one chosen stopped answering since.
+type DownloadPickView struct {
+	Node string    `json:"node,omitempty"`
+	Mbps float64   `json:"mbps,omitempty"`
+	At   time.Time `json:"at,omitzero"` // zero before the first
+	Next time.Time `json:"next"`
 }
 
 // Place is where something is on the map.
