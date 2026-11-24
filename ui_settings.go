@@ -891,6 +891,12 @@ func (u *UI) coreSection(c *ui.Context, p *pal, s settings.Settings) {
 			u.setOpt(func(s *settings.Settings) { s.TestURL = v })
 		})
 	})
+	optWide(c, p, i18n.T("下载测速文件", "Download test file"), i18n.T("「测下载」经节点下载的文件，要够大，能下几秒；可以换成你常用的下载源。留空用默认的", "The file Downloads fetches through each node. It should be big enough to take a few seconds; your usual download source works too. Empty uses the default"), func() {
+		u.optText(c, p, "downloadurl", i18n.T("下载测速文件", "Download test file"), s.DownloadURL, 0, func(v string) {
+			v = strings.TrimSpace(v)
+			u.setOpt(func(s *settings.Settings) { s.DownloadURL = v })
+		})
+	})
 	optRow(c, p, i18n.T("自动测速间隔", "Test interval"), i18n.T("「自动」多久测一次所有节点", "How often Auto tests every node"), func() {
 		u.optNumber(c, p, "urltest", i18n.T("自动测速间隔", "Test interval"), s.URLTestInterval, i18n.T("秒", "s"), func(v int) {
 			u.setOpt(func(s *settings.Settings) { s.URLTestInterval = v })

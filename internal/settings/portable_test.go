@@ -27,7 +27,7 @@ var machineKeys = []string{
 // fails until it does.
 var portableKeys = []string{
 	"language", "accent", "appearance", "borders", "skin",
-	"mode", "bypass", "logLevel", "testUrl",
+	"mode", "bypass", "logLevel", "testUrl", "downloadUrl",
 	"routeTargets", "rules", "routing", "importedRouting", "commonRegions",
 	"startHidden", "traySpeed", "traySpeedTwoLines",
 	"ipv6", "unifiedDelay", "tcpConcurrent", "findProcess",

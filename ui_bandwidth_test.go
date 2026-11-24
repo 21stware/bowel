@@ -1,0 +1,75 @@
+package main
+
+import (
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/egoist/mygo/ui"
+
+	"github.com/oboo/moho/internal/speed"
+)
+
+// The node list gets a download column once a node has been tested, and
+// the button asks first, saying what it may cost.
+func TestBandwidthInNodeList(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		suffix := map[bool]string{false: "", true: "-dark"}[dark]
+		u := fixtureUI()
+		tt := ui.NewTesterWith(u.view, 1060, 1000, ui.TesterOptions{Dark: dark})
+		u.home.x, u.home.sub = "routes", "media"
+		tt.Frame()
+		tt.Advance(2 * time.Second)
+		if !tt.HasText("测下载") {
+			t.Fatalf("no download button: %q", tt.Texts())
+		}
+		if slices.ContainsFunc(tt.Texts(), func(s string) bool { return strings.HasSuffix(s, "Mbps") }) {
+			t.Error("a download column before any test")
+		}
+
+		now := time.Now()
+		for i, mbps := range []float64{64.6, 188, 0} {
+			u.snap.Nodes[i].Download = &DownloadTest{Mbps: mbps, Failed: mbps == 0, At: now}
+		}
+		tt.Frame()
+		tt.Advance(time.Second)
+		for _, s := range []string{"下载", "65 Mbps", "188 Mbps", "失败"} {
+			if !tt.HasText(s) {
+				t.Errorf("no %q: %q", s, tt.Texts())
+			}
+		}
+		if tt.HasText("测出来的下载速度都差不多：瓶颈可能在本地网络，换节点帮助不大。") {
+			t.Error("65 against 188 Mbps read as alike")
+		}
+		shot(t, tt, "bandwidth-column"+suffix)
+
+		u.home.bwPlan = bandwidthPlan{Nodes: []string{u.snap.Nodes[0].Name, u.snap.Nodes[1].Name, u.snap.Nodes[5].Name}, MaxBytes: 3 * speed.DownloadCap, URL: "https://speed.cloudflare.com/__down?bytes=50000000"}
+		u.home.bwOpen = true
+		tt.Frame()
+		tt.Advance(time.Second)
+		for _, s := range []string{"测流媒体的下载速度", "开始测试", "取消", "当前"} {
+			if !tt.HasText(s) {
+				t.Errorf("dialog lacks %q: %q", s, tt.Texts())
+			}
+		}
+		shot(t, tt, "bandwidth-dialog"+suffix)
+	}
+}
+
+// With every rate about the same, the list says the line is the limit.
+func TestBandwidthAlikeNote(t *testing.T) {
+	u := fixtureUI()
+	tt := ui.NewTester(u.view, 1060, 1000)
+	u.home.x, u.home.sub = "routes", "media"
+	now := time.Now()
+	for i, mbps := range []float64{62, 65, 68} {
+		u.snap.Nodes[i].Download = &DownloadTest{Mbps: mbps, At: now}
+	}
+	tt.Frame()
+	tt.Advance(2 * time.Second)
+	if !tt.HasText("测出来的下载速度都差不多：瓶颈可能在本地网络，换节点帮助不大。") {
+		t.Errorf("no note: %q", tt.Texts())
+	}
+	shot(t, tt, "bandwidth-alike")
+}
