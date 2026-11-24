@@ -34,7 +34,7 @@ func runCLI(args []string) int {
 		Getenv: os.Getenv, Socket: cliSocket(data), Version: cliVersion(),
 		Local: map[string]func([]string) error{
 			"daemon":   runDaemon,
-			"mcp":      func([]string) error { return runMCPBridge() },
+			"mcp":      runMCP,
 			"devtools": runDevtoolsCLI,
 		},
 	})

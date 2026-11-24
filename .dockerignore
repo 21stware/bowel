@@ -1,0 +1,15 @@
+# Only what the image is built from: the Go sources, what they embed, and
+# the script that fetches the core.
+*
+!go.mod
+!go.sum
+!*.go
+!internal/
+!assets/flags/
+!CHANGELOG.md
+!mygo.json
+!LICENSE
+!PACKAGING-EXCEPTION.md
+!scripts/fetch-core.sh
+**/*_test.go
+**/testdata/

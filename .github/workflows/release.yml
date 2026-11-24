@@ -34,6 +34,15 @@
 # (app_update.go): the archive and manifest of each desktop platform, which the
 # release carries. It is the secret half of updates.publicKey in mygo.json.
 #
+# The Docker image (Dockerfile, docs/docker.md) is pushed to
+# ghcr.io/21stware/bowel with the workflow's own token once the release is
+# published, for amd64, arm64 and armv7. It goes to Docker Hub as well when the
+# repository variable DOCKERHUB_IMAGE names a repository there (such as
+# 21stware/bowel) and these secrets are set:
+#   DOCKERHUB_USERNAME           the account, or the organization's bot
+#   DOCKERHUB_TOKEN              an access token with write access to it
+# Run by hand, the image is built for every platform and pushed nowhere.
+#
 # iOS is not released yet and builds, unsigned, only when run by hand: it links
 # mihomo (GPL-3.0) into the app, which the PolyForm license and the README's
 # "does not link it" do not cover.
@@ -81,6 +90,9 @@ jobs:
           HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+          DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           if [ "$TAG" != "v$VERSION" ]; then
             echo "::error::Tag $TAG does not match version $VERSION in mygo.json"
@@ -95,6 +107,16 @@ jobs:
               missing=1
             fi
           done
+          # Docker Hub is optional, but once named it needs both secrets: a
+          # release must not stop at the image after everything else is out.
+          if [ -n "$DOCKERHUB_IMAGE" ]; then
+            for name in DOCKERHUB_USERNAME DOCKERHUB_TOKEN; do
+              if [ -z "${!name}" ]; then
+                echo "::error::DOCKERHUB_IMAGE is $DOCKERHUB_IMAGE, but repository secret $name is not set"
+                missing=1
+              fi
+            done
+          fi
           exit "$missing"
 
   macos:
@@ -367,6 +389,65 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: gh release create "$TAG" dist/* --verify-tag --generate-notes --title "bowel $TAG"
+
+  docker:
+    # After the release on a tag, so that the image never names a version
+    # with nothing published; on its own when run by hand.
+    needs: [check, publish]
+    if: ${{ !cancelled() && needs.check.result == 'success' && (needs.publish.result == 'success' || github.event_name != 'push') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub's registry
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Log in to Docker Hub
+        if: env.PUBLISH == 'true' && env.DOCKERHUB_IMAGE != ''
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            ghcr.io/${{ github.repository }}
+            ${{ env.DOCKERHUB_IMAGE }}
+          # 0.4.8, 0.4 and latest; a hand-run build is tagged with its commit.
+          tags: |
+            type=semver,pattern={{version}},value=v${{ needs.check.outputs.version }},enable=${{ env.PUBLISH == 'true' }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.check.outputs.version }},enable=${{ env.PUBLISH == 'true' }}
+            type=raw,value=latest,enable=${{ env.PUBLISH == 'true' }}
+            type=sha,enable=${{ env.PUBLISH != 'true' }}
+
+      # Every stage that runs a command runs on the runner and cross-compiles,
+      # so the three platforms need no emulation.
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ needs.check.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true
 
   linux-repos:
     needs: publish

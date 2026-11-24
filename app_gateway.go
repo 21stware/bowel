@@ -99,6 +99,9 @@ func wantGateway(s *settings.Settings, on bool) {
 // the right to change forwarding. Both under one authorisation; nothing
 // is asked when both are there.
 func (a *App) prepareGateway() error {
+	if err := tun.DeviceReady(); err != nil {
+		return err
+	}
 	sys := a.gw.System()
 	needTun := a.tunNeedsInstall()
 	if !needTun && sys.Ready() {

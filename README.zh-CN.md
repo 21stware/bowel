@@ -132,6 +132,13 @@ Debian、Ubuntu 和 Fedora。这条命令会添加一个已签名的软件源，
 curl -fsSL https://21stware.github.io/packages/install.sh | sh
 ```
 
+没有屏幕的服务器、NAS 或软路由，用 Docker（amd64、arm64、armv7）。之后用 `docker exec -it bowel bowel tui` 管理；TUN、网关模式、compose 文件和给 agent 用的 MCP 见 [docs/docker.zh-CN.md](docs/docker.zh-CN.md)：
+
+```bash
+docker run -d --name bowel --restart unless-stopped -p 7899:7899 -v bowel:/data \
+  -e BOWEL_SUBSCRIPTION='<订阅地址>' ghcr.io/21stware/bowel
+```
+
 也可以从 [Releases](https://github.com/21stware/bowel/releases/latest) 下载对应平台的安装包：
 
 | 平台 | 文件 | 要求 |
