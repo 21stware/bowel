@@ -2,7 +2,7 @@
 // newline-delimited messages (MCP's stdio transport), offering tools only.
 // The app serves it on a unix socket of the user's own; `bowel mcp` bridges
 // an agent's stdio to that socket (Bridge), so agents register it as an
-// ordinary stdio server.
+// ordinary stdio server. Agents elsewhere reach it over HTTP (http.go).
 package mcp
 
 import (
@@ -120,23 +120,17 @@ const maxMessage = 4 << 20
 // user's approval does not hold up pings or the agent's cancellations.
 func (srv *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	ctx, cancel := context.WithCancel(ctx)
-	sess := &Session{}
+	c := srv.conn()
 	var (
 		wmu      sync.Mutex
 		inflight sync.WaitGroup
-		cmu      sync.Mutex
-		cancels  = map[string]context.CancelFunc{}
 	)
 	// When the agent's input ends, what it asked is still answered: a
 	// client may close its side and read on.
 	defer cancel()
 	defer inflight.Wait()
-	send := func(resp response) {
-		resp.JSONRPC = "2.0"
-		b, err := json.Marshal(resp)
-		if err != nil {
-			b, _ = json.Marshal(response{JSONRPC: "2.0", ID: resp.ID, Error: &rpcError{Code: -32603, Message: err.Error()}})
-		}
+	send := func(resp *response) {
+		b := encode(resp)
 		wmu.Lock()
 		defer wmu.Unlock()
 		_, _ = w.Write(append(b, '\n'))
@@ -151,47 +145,17 @@ func (srv *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	for {
 		line, err := readLine(br)
 		if len(line) > 0 {
-			var req request
-			switch {
-			case json.Unmarshal(line, &req) != nil:
-				send(response{ID: json.RawMessage("null"), Error: &rpcError{Code: codeParse, Message: "parse error"}})
-			case req.JSONRPC != "2.0" || req.Method == "":
-				if len(req.ID) > 0 { // a response to us, or nonsense: we send no requests
-					send(response{ID: req.ID, Error: &rpcError{Code: codeInvalidRequest, Message: "invalid request"}})
-				}
-			case len(req.ID) == 0 || string(req.ID) == "null":
-				if req.Method == "notifications/cancelled" {
-					var p struct {
-						RequestID json.RawMessage `json:"requestId"`
-					}
-					if json.Unmarshal(req.Params, &p) == nil {
-						cmu.Lock()
-						if c := cancels[string(p.RequestID)]; c != nil {
-							c()
-						}
-						cmu.Unlock()
-					}
-				}
-				// Other notifications (initialized, …) need nothing.
-			default:
-				rctx, rcancel := context.WithCancel(ctx)
-				key := string(req.ID)
-				cmu.Lock()
-				cancels[key] = rcancel
-				cmu.Unlock()
+			req, call, reply := c.message(line)
+			if reply != nil {
+				send(reply)
+			}
+			if call {
 				inflight.Add(1)
 				go func() {
 					defer inflight.Done()
-					res, rerr := srv.handle(rctx, sess, req)
-					cancelled := rctx.Err() != nil // the agent gave up on it, or left
-					cmu.Lock()
-					delete(cancels, key)
-					cmu.Unlock()
-					rcancel()
-					if cancelled {
-						return // no answer to a cancelled request
+					if resp := c.answer(ctx, req); resp != nil {
+						send(resp)
 					}
-					send(response{ID: req.ID, Result: res, Error: rerr})
 				}()
 			}
 		}
@@ -202,6 +166,80 @@ func (srv *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 			return err
 		}
 	}
+}
+
+// conn is one agent's connection, whatever carries it (a stream, or HTTP
+// requests): its session, and the requests in flight it may cancel.
+type conn struct {
+	srv     *Server
+	sess    *Session
+	mu      sync.Mutex
+	cancels map[string]context.CancelFunc
+}
+
+func (srv *Server) conn() *conn {
+	return &conn{srv: srv, sess: &Session{}, cancels: map[string]context.CancelFunc{}}
+}
+
+// message reads one message. reply is an answer due at once (the message
+// was not JSON, or not a request); call says req is a request to answer.
+// A notification is done with here: a cancellation ends what it names.
+func (c *conn) message(line []byte) (req request, call bool, reply *response) {
+	switch {
+	case json.Unmarshal(line, &req) != nil:
+		return req, false, &response{ID: json.RawMessage("null"), Error: &rpcError{Code: codeParse, Message: "parse error"}}
+	case req.JSONRPC != "2.0" || req.Method == "":
+		if len(req.ID) > 0 { // a response to us, or nonsense: we send no requests
+			return req, false, &response{ID: req.ID, Error: &rpcError{Code: codeInvalidRequest, Message: "invalid request"}}
+		}
+		return req, false, nil
+	case len(req.ID) == 0 || string(req.ID) == "null":
+		if req.Method == "notifications/cancelled" {
+			var p struct {
+				RequestID json.RawMessage `json:"requestId"`
+			}
+			if json.Unmarshal(req.Params, &p) == nil {
+				c.mu.Lock()
+				if cancel := c.cancels[string(p.RequestID)]; cancel != nil {
+					cancel()
+				}
+				c.mu.Unlock()
+			}
+		}
+		// Other notifications (initialized, …) need nothing.
+		return req, false, nil
+	}
+	return req, true, nil
+}
+
+// answer runs the request req: nil when it was cancelled before it ended,
+// as a cancelled request gets no answer.
+func (c *conn) answer(ctx context.Context, req request) *response {
+	rctx, rcancel := context.WithCancel(ctx)
+	key := string(req.ID)
+	c.mu.Lock()
+	c.cancels[key] = rcancel
+	c.mu.Unlock()
+	res, rerr := c.srv.handle(rctx, c.sess, req)
+	cancelled := rctx.Err() != nil // the agent gave up on it, or left
+	c.mu.Lock()
+	delete(c.cancels, key)
+	c.mu.Unlock()
+	rcancel()
+	if cancelled {
+		return nil
+	}
+	return &response{ID: req.ID, Result: res, Error: rerr}
+}
+
+// encode is resp as it is sent.
+func encode(resp *response) []byte {
+	resp.JSONRPC = "2.0"
+	b, err := json.Marshal(resp)
+	if err != nil {
+		b, _ = json.Marshal(response{JSONRPC: "2.0", ID: resp.ID, Error: &rpcError{Code: -32603, Message: err.Error()}})
+	}
+	return b
 }
 
 // readLine is the next message: a line, without its end.

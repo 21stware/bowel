@@ -627,7 +627,7 @@ func (a *App) mcpServer() *mcp.Server {
 						"providers": len(snap.Providers), "activeConnections": t.Active,
 						"traffic":     map[string]int64{"downBps": t.Down, "upBps": t.Up, "todayDown": t.TodayDown, "todayUp": t.TodayUp, "monthDown": t.MonthDown},
 						"agentPolicy": a.settings.Get().Policy(), "version": snap.Version,
-						"ipv6": a.ipv6Report(), "headless": a.headless,
+						"ipv6": a.ipv6Report(), "headless": a.headless, "mcpHttp": mcpHTTPView(),
 					}, nil
 				},
 			},
@@ -1363,12 +1363,13 @@ Changes (set_mode, set_takeover, retake_system_proxy, select_node, lock_route, a
 
 var mcpStop context.CancelFunc
 
-// startMCP serves the tools for the app's life; stopMCP ends that, taking
-// the socket away.
+// startMCP serves the tools for the app's life, on the socket and, when
+// BOWEL_MCP_HTTP asks, over HTTP; stopMCP ends that, taking both away.
 func (a *App) startMCP() {
 	ctx, cancel := context.WithCancel(context.Background())
 	mcpStop = cancel
 	go a.serveMCP(ctx)
+	go a.serveMCPHTTP(ctx)
 }
 
 func stopMCP() {

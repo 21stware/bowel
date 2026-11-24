@@ -143,7 +143,7 @@ func tree() *Command {
 				Examples: []string{"bowel daemon", "BOWEL_DATA_DIR=/var/lib/bowel bowel daemon"}, Run: local("daemon")},
 			{Name: "stop", Short: words{"退出运行中的 bowel（应用或 daemon）", "Quit the running bowel (the app or the daemon)"}, Examples: []string{"bowel stop"}, Run: runStop},
 			{Name: "mcp", Raw: true, Short: words{"给 agent 用的 MCP 服务（stdio）", "The MCP server for agents (stdio)"},
-				Examples: []string{"claude mcp add --scope user bowel -- bowel mcp"}, Run: local("mcp")},
+				Examples: []string{"claude mcp add --scope user bowel -- bowel mcp", "bowel mcp token", "docker exec bowel bowel mcp token -q"}, Run: local("mcp")},
 			{Name: "devtools", Raw: true, Args: "off", Short: words{"撤销 bowel 写进开发者工具的配置", "Undo what bowel wrote into developer tools"},
 				Examples: []string{"bowel devtools off"}, Run: local("devtools")},
 			{Name: "completion", Args: "<bash|zsh|fish|powershell>", Min: 1, Max: 1, Choices: shells, Short: words{"输出 shell 补全脚本", "Print a shell's completion script"},
