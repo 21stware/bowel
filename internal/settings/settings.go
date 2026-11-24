@@ -63,6 +63,9 @@ type Settings struct {
 	Bypass    []string `json:"bypass"`
 	LogLevel  string   `json:"logLevel"`
 	TestURL   string   `json:"testUrl"`
+	// DownloadURL is the file a download test fetches through each node:
+	// a big one, since a test reads for a few seconds.
+	DownloadURL string `json:"downloadUrl,omitempty"`
 
 	// RouteTargets are the sites a route is tested against, where the user
 	// changed them from its defaults (TargetsOf).
@@ -156,6 +159,7 @@ var Defaults = Settings{
 	Bypass:      []string{"localhost", "127.0.0.1", "*.local", "169.254/16", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "timestamp.apple.com"},
 	LogLevel:    "info",
 	TestURL:     "https://www.gstatic.com/generate_204",
+	DownloadURL: "https://speed.cloudflare.com/__down?bytes=50000000",
 	Options:     core.DefaultOptions,
 }
 
@@ -220,6 +224,9 @@ func Decode(b []byte) (Settings, error) {
 	}
 	if s.TestURL == "" {
 		s.TestURL = Defaults.TestURL
+	}
+	if s.DownloadURL == "" {
+		s.DownloadURL = Defaults.DownloadURL
 	}
 	if s.LogLevel == "" {
 		s.LogLevel = Defaults.LogLevel
@@ -354,7 +361,7 @@ func writeAtomic(path string, b []byte) error {
 func (s *Settings) ResetCore() {
 	d := Defaults.Clone()
 	keep := s.Options
-	s.LogLevel, s.TestURL, s.Bypass, s.Options = d.LogLevel, d.TestURL, d.Bypass, d.Options
+	s.LogLevel, s.TestURL, s.DownloadURL, s.Bypass, s.Options = d.LogLevel, d.TestURL, d.DownloadURL, d.Bypass, d.Options
 	s.RouteTargets = nil
 	s.HTTPPort, s.SocksPort, s.Authentication, s.LanAllowedIPs = keep.HTTPPort, keep.SocksPort, keep.Authentication, keep.LanAllowedIPs
 	s.ExtraPorts = keep.ExtraPorts
@@ -389,6 +396,9 @@ func (s Settings) Validate() error {
 	}
 	if u, err := url.Parse(s.TestURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return errors.New(i18n.T("测速地址要是 http 或 https 链接", "The test URL must be an http or https link"))
+	}
+	if u, err := url.Parse(s.DownloadURL); s.DownloadURL != "" && (err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "") {
+		return errors.New(i18n.T("下载测速文件要是 http 或 https 链接", "The download test file must be an http or https link"))
 	}
 	if strings.ContainsAny(s.Tailnet.Hostname, " \t./\\:") {
 		return errors.New(i18n.T("设备名只能用字母、数字和连字符", "The device name may only have letters, digits and hyphens"))

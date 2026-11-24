@@ -120,7 +120,8 @@ type App struct {
 	// replaced, never changed, so a snapshot can hold on to them.
 	nodeProxies map[string]mihomo.Proxy
 	pings       map[string]pingResult
-	pingMu      sync.Mutex // guards pingEnv
+	bandwidth   map[string]bandwidthResult // each node's last download test, by node
+	pingMu      sync.Mutex                 // guards pingEnv
 	pingEnv     pingEnv
 	you         *locate.Result
 	lastNode    map[string]string // route id → node, to notice automatic switches
@@ -2533,7 +2534,7 @@ func (a *App) snapshot() Snapshot {
 	a.mu.Lock()
 	sys, proxyErr, px, provNodes, you := a.sys, a.proxyErr, a.proxies, a.provNodes, a.you
 	note := a.switched // taken with px: a refresh may record a newer switch
-	pings := a.pings
+	pings, bandwidth := a.pings, a.bandwidth
 	openAtLogin := a.openAtLogin
 	gwp, gwErr := a.gwProbe, a.gwErr
 	pending := make([]string, 0, len(a.pending))
@@ -2638,6 +2639,8 @@ func (a *App) snapshot() Snapshot {
 			v.History = t.History
 		}
 		v.Ping = pings[name].ms
+		bw, tested := bandwidth[name]
+		v.Download = downloadView(bw, tested)
 		// A `dialer-proxy` names a proxy or group at the top level of the
 		// running config. A config's own nodes and groups are there only
 		// while its routing is in use; its nodes are listed either way.

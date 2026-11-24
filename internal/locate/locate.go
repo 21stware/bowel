@@ -120,25 +120,39 @@ func (l *Locator) Guess(node, display string) Result {
 // its loc and colo with geo.FromTrace. Probes run one at a time; results are
 // cached by node and written to the cache file.
 func (l *Locator) Probe(ctx context.Context, c *mihomo.Client, probePort int, node string) (Result, error) {
+	var body string
+	err := l.Through(ctx, c, probePort, node, func(proxy *url.URL) error {
+		var err error
+		body, err = fetchTrace(ctx, probePort, proxy.User)
+		return err
+	})
+	if err != nil {
+		return Result{Source: SourceUnknown, At: l.now()}, err
+	}
+	return l.record(node, body)
+}
+
+// Through points the selector group MOHO-PROBE at node and runs fn, which
+// may send what it likes through the probe listener 127.0.0.1:probePort
+// (proxy has its address, with the listener's login): it leaves by node.
+// The location probes and fn take turns, so the group stays on node until
+// fn returns. fn should open connections of its own: a kept-alive one
+// still goes through the node it was opened on.
+func (l *Locator) Through(ctx context.Context, c *mihomo.Client, probePort int, node string, fn func(proxy *url.URL) error) error {
 	select {
 	case l.slot <- struct{}{}:
 	case <-ctx.Done():
-		return Result{Source: SourceUnknown, At: l.now()}, ctx.Err()
+		return ctx.Err()
 	}
 	defer func() { <-l.slot }()
-
 	if err := c.Select(ctx, ProbeGroup, node); err != nil {
-		return Result{Source: SourceUnknown, At: l.now()}, fmt.Errorf("select %s: %w", node, err)
+		return fmt.Errorf("select %s: %w", node, err)
 	}
 	var login *url.Userinfo
 	if l.Login != nil {
 		login = l.Login()
 	}
-	body, err := fetchTrace(ctx, probePort, login)
-	if err != nil {
-		return Result{Source: SourceUnknown, At: l.now()}, err
-	}
-	return l.record(node, body)
+	return fn(&url.URL{Scheme: "http", User: login, Host: "127.0.0.1:" + strconv.Itoa(probePort)})
 }
 
 // Direct measures where this device is by requesting the trace itself, for
