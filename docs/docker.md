@@ -53,17 +53,32 @@ volumes:
 
 ## Settings
 
-ENVIRONMENT_TABLE
+The container is configured by its environment. The first start seeds the settings for a container: the proxy open to private addresses (10/8, 172.16/12, 192.168/16, 127/8, fc00::/7), no system proxy, no process lookup, and the language of `LANG` (English without one). A `settings.json` already in `/data` is never touched by that. The variables below apply at every start and are saved:
 
-Everything else is a setting, changed with `bowel settings set <key> <value>` (`bowel settings list` shows them), in the TUI's settings page, or through an agent. Settings live in `/data/settings.json`, beside the Providers, the rules and the statistics; keep `/data` on a volume. A backup made in the desktop app can be imported here, and the other way round.
+| Variable | What |
+| --- | --- |
+| `BOWEL_SUBSCRIPTION` | Subscription URLs or node links, one per line or separated by commas. Each that no Provider has yet is added, and retried a few times if the download fails. The log names the Provider's ID and host, never the URL. |
+| `BOWEL_MIXED_PORT` | The proxy port inside the container (7899). |
+| `BOWEL_ALLOW_LAN` | `false` to serve only the container itself, as with TUN on the host's network. |
+| `BOWEL_LAN_ALLOWED_IPS` | Who may use the port, as CIDRs separated by commas or spaces. With `-p`, Docker hands the clients' real addresses to the container, so on a server with a public address, clients on the internet are refused until they are listed here; set `authentication` too (`bowel settings set authentication '["user:password"]'`). |
+| `BOWEL_MCP_HTTP` | Where MCP over HTTP listens (`:7900`); empty turns it off. See [Agents](#agents-mcp). |
+| `BOWEL_MCP_TOKEN` | The MCP token, instead of the one made on the first start. |
+| `TZ` | The time zone of the logs and the statistics' days. |
 
-The container starts in Chinese unless `BOWEL_LANG` says otherwise (`en`, `ja`, `zh-Hant`), or `bowel settings set language en` changes it for good.
+Everything else is a setting, changed with `bowel settings set <key> <value>` (`bowel settings list` shows them), in the TUI's settings page, or through an agent: `bowel settings set language zh` for Chinese, for one. Settings live in `/data/settings.json`, beside the Providers, the rules and the statistics; keep `/data` on a volume. The container runs as root; `--user` runs it as another user, who needs to own `/data`.
 
 ## TUN and gateway mode
 
 The proxy port needs nothing special. TUN, which takes all traffic of the network it is on, needs the TUN device and the right to configure the network:
 
-TUN_SECTION
+```bash
+docker run -d --name bowel --restart unless-stopped \
+  --network host --cap-add NET_ADMIN --device /dev/net/tun \
+  -v bowel:/data ghcr.io/21stware/bowel
+docker exec bowel bowel tun on
+```
+
+On the host's network, TUN takes the host's own traffic, and `bowel gateway on` then makes the host a router for the LAN: devices that use its address as their gateway and DNS go through bowel. Gateway mode needs the host's network (it serves the LAN on a physical interface, not on Docker's bridge) and IP forwarding, which Docker turns on on the host already; where it is off, turn it on on the host (`sysctl -w net.ipv4.ip_forward=1`), since `/proc/sys` is read-only in a container. On Docker's bridge network instead, TUN takes the traffic of the container and of containers that share its network (`--network container:bowel`), which is a way to send one service through bowel. Without the device or the capability, `bowel tun on` says which one is missing. Docker Desktop's host network is its VM's, so on macOS and Windows use the app instead.
 
 ## Agents (MCP)
 
@@ -83,7 +98,7 @@ There is no window to ask in, so under the default policy, "ask", an agent can r
 
 ## Health and logs
 
-The image's health check is `bowel health`: healthy while the daemon answers and the core runs. `docker logs bowel` has the daemon's log; the core's is `docker exec bowel bowel logs -f`. `docker stop` stops it cleanly.
+The image's health check is `bowel health`: healthy while the daemon answers, the core runs and its port accepts connections. `docker logs bowel` has the daemon's log; the core's is `docker exec bowel bowel logs -f`. `docker stop` stops it cleanly.
 
 ## Building it yourself
 

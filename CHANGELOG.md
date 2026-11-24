@@ -4,6 +4,12 @@
 它随应用打包，显示在“更新内容”窗口里；`mygo build` 也从这里取升级包的说明，
 签名发布时缺少当前版本的一节会构建失败。发版时把 Unreleased 改成版本号。
 
+## [Unreleased]
+
+- 有官方 Docker 镜像了（#266）：`ghcr.io/21stware/bowel`，支持 amd64、arm64 和 armv7，给没有屏幕的服务器、NAS、软路由和开发机用。镜像就是 `bowel daemon` 加上 mihomo 内核，放在只有 glibc 和证书的 distroless 底包上，没有 shell，下载约 40 MB，空闲时占内存约 20 MB；amd64 用 mihomo 的 `v1` 构建，老的 Atom、赛扬也能跑。`docker exec -it bowel bowel tui` 就是界面，其他命令照常用 `docker exec`。容器里第一次启动会写入适合容器的设置：代理对私有地址开放、不设系统代理、不查进程、语言跟随 `LANG`；已有的 `settings.json` 不会被改。`BOWEL_SUBSCRIPTION` 在启动时添加还没有的订阅（日志里不写地址），`BOWEL_MIXED_PORT`、`BOWEL_ALLOW_LAN`、`BOWEL_LAN_ALLOWED_IPS` 改端口和谁能用。以 root 运行时（容器里默认如此）TUN 直接用随附的内核，不再需要 setcap 和 pkexec，加上 `--cap-add NET_ADMIN --device /dev/net/tun` 就能 `bowel tun on`，缺哪一项会直接说；网关模式需要主机网络，`/proc/sys` 只读时会说怎么打开转发。作为 PID 1 时会回收孤儿进程，`docker stop` 不到一秒就停好。新命令 `bowel health` 给健康检查用：daemon 有响应、内核在运行、端口能连上时返回 0。每次发版后由发布流程推送镜像（`latest`、`0.4`、`0.4.8`），配置了 Docker Hub 的仓库变量和密钥时也推到 Docker Hub。说明和 compose 示例在 docs/docker.md。在 Colima（arm64）里跑过：首次启动的设置、订阅去重、经发布端口的 HTTP 和 SOCKS5 代理、重启、非 root 运行、健康检查，以及加了权限后 TUN 接管共用网络的容器的流量；amd64 和 armv7 镜像只构建过没运行过，网关模式和 DHCP 没有在容器里试过
+- MCP 可以走 HTTP 了，给另一台机器或另一个容器里的 agent 用：设置 `BOWEL_MCP_HTTP=:7900` 后，bowel 在 `/mcp` 上提供 MCP 的 Streamable HTTP 传输，用 Bearer 令牌保护（第一次启动时生成，保存在数据目录的 `mcp-token`，或用 `BOWEL_MCP_TOKEN` 指定），带 Origin 校验、会话过期和请求大小限制。`bowel mcp token` 打印令牌和 Claude Code 等客户端的配置。Docker 镜像默认打开它；桌面版不设这个变量就不会开，`bowel mcp`（stdio）照旧。设置里的 MCP 页在打开时多一行 HTTP 地址。用测试和容器里的 curl 走过一遍初始化、列工具、调用工具；没有用 Claude Code 真正连过
+- MCP 给 agent 的说明不再说 bowel 是「macOS 客户端」
+
 ## [0.4.8] - 2026-11-24
 
 - 「AI 服务」路由组不再自动选到被 OpenAI 或 Claude 拒绝的节点（#260）。这两家的 API 对不提供服务的出口（常见的是香港）直接回 403，以前测速只看有没有应答，403 也算通，延迟最低的往往正是这种节点。现在「AI 服务」默认的测速站点改成两家的 API 地址（`api.openai.com/v1/models`、`api.anthropic.com/v1/models`，不需要 key，请求里不带任何账号信息），节点得到 403 时记为「被拒绝」，不再记延迟：自动最快和顺序备用不会选它；节点列表、首页出口、路由组的测速站点、菜单栏和手机上都写「被拒绝」，和没有应答的「超时」分开；路由组当前的节点被主站点拒绝时，标题栏提示「AI 服务：香港 01 被 OpenAI 拒绝」。锁定了出口的路由组，范围内的节点全被拒绝时会拦下连接，不会从被拒的出口出去。`bowel nodes ai --test` 同样写「被拒绝」；MCP 的 `list_routes` 给每个路由组加了 `sites`（当前节点在各测速站点上的结果），节点和站点上有 `refusedBySite`。几点限制：自动选择只看主站点（默认是 OpenAI），Claude 排第二，只显示当前节点在它上面的结果，要按 Claude 来选，在「测速站点」里把它设为主要；固定节点的路由组只提示，不替你换；Gemini 没有不带 key 就能分辨的信号，仍然只测通不通；403 也可能是这个 IP 被风控，所以只说「被拒绝」，不说是地区的原因。自己改过「AI 服务」测速站点的，列表不会变，其中这两个主机的地址同样按 403 判断。用随附的内核（mihomo v1.19.33）和本地测试服务器跑过端到端测试：回 403 的节点记为被拒绝、没有应答的记为超时，自动组不选它，锁定后范围里只剩它时落到拦截；手机端的桥接层和界面跑了测试。没有拿真实的被拒出口试过：内核测速发的是 HEAD 请求，可用的出口上 OpenAI 回 401、Anthropic 回 405（实测），被拒的出口对 HEAD 是否也回 403 是按 issue 里 GET 请求的结果推断的；桌面和手机的界面都没有在窗口里看过

@@ -1355,7 +1355,7 @@ func (a *App) whitelistEdit(ctx context.Context, s *mcp.Session, raw json.RawMes
 	return out, nil
 }
 
-const mcpInstructions = `bowel is the user's macOS client for the mihomo proxy core. Providers supply nodes; routes are kinds of traffic (default, ai, media, dev, direct), each proxied route using one node or picking the fastest itself ("auto"). The user's own rules come before the built-in ones.
+const mcpInstructions = `bowel is the user's client for the mihomo proxy core, on their computer or on a server; get_status's headless is true when it runs with no window (a daemon, or a container). Providers supply nodes; routes are kinds of traffic (default, ai, media, dev, direct), each proxied route using one node or picking the fastest itself ("auto"). The user's own rules come before the built-in ones.
 
 Read freely: get_status first, then get_settings, list_routes, list_rules, explain, list_connections, get_logs, get_whitelists, get_dev_network.
 
