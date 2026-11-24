@@ -289,7 +289,7 @@ func BuildConfig(in Input) ([]byte, error) {
 		providers[name] = map[string]any{
 			"type":         "file",
 			"path":         p.Path,
-			"health-check": map[string]any{"enable": true, "url": in.TestURL, "interval": o.HealthInterval, "lazy": true},
+			"health-check": expecting(map[string]any{"enable": true, "url": in.TestURL, "interval": o.HealthInterval, "lazy": true}, in.TestURL),
 			"override":     map[string]any{"additional-suffix": NodeSep + p.ID},
 			// Entries that only say how much traffic is left and the like
 			// are no nodes (provider.InfoPattern), and nor are the ones
@@ -502,6 +502,19 @@ func directDNS(dns map[string]any, o Options, local []string) {
 	dns["direct-nameserver-follow-policy"] = true
 }
 
+// expecting gives g, a group or a health check that tests url, the statuses
+// that count as an answer from it, where the site tells a refusal by its
+// status (routes.Expected). A node the site turns away is then dead to
+// that group: an automatic one doesn't choose it, and a locked one with no
+// other is left with REJECT. Every test of the same URL must say the same,
+// the app's own too, as the core keeps one result per node and URL.
+func expecting(g map[string]any, url string) map[string]any {
+	if e := routes.Expected(url); e != "" {
+		g["expected-status"] = e
+	}
+	return g
+}
+
 // templateRouting is the groups and rules of Moho's own route groups.
 func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any, use []string, withNodes func(map[string]any, ...string) map[string]any) ([]any, []string, error) {
 	var groups []any
@@ -516,7 +529,7 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 		if mainURL == "" {
 			mainURL = in.TestURL
 		}
-		auto := map[string]any{"name": routes.Auto(r), "type": "url-test", "url": mainURL, "interval": o.URLTestInterval, "tolerance": o.URLTestTolerance, "lazy": true}
+		auto := expecting(map[string]any{"name": routes.Auto(r), "type": "url-test", "url": mainURL, "interval": o.URLTestInterval, "tolerance": o.URLTestTolerance, "lazy": true}, mainURL)
 		// A group the core finds no node in is given COMPATIBLE, which goes
 		// direct: a subscription that failed to come down, or a node that is
 		// gone from it, would let a locked group out. REJECT among its members
@@ -537,7 +550,7 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 		groups = append(groups, auto)
 		members := []string{routes.Auto(r)}
 		if order, ok := in.Orders[r.ID]; ok {
-			backup := map[string]any{"name": routes.Backup(r), "type": "fallback", "url": mainURL, "interval": o.URLTestInterval, "lazy": true}
+			backup := expecting(map[string]any{"name": routes.Backup(r), "type": "fallback", "url": mainURL, "interval": o.URLTestInterval, "lazy": true}, mainURL)
 			var steps []string
 			for i, n := range order {
 				step := routes.BackupStep(r, i)
@@ -548,6 +561,7 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 					// goes direct and passes the fallback's test. A select
 					// would take REJECT first; a test takes the node.
 					g["type"], g["url"], g["interval"], g["lazy"], g["proxies"] = "url-test", mainURL, o.URLTestInterval, true, []string{"REJECT"}
+					expecting(g, mainURL)
 				}
 				groups = append(groups, g)
 			}

@@ -86,7 +86,7 @@ String _exitWord(AppState app, Map g, RouteCfg? rc) {
   };
 }
 
-String _delayWord(RouteCfg? rc) => rc == null || rc.direct || rc.broken != null || rc.node == null ? '—' : latText(node(rc.node!).on(rc.id));
+String _delayWord(RouteCfg? rc) => rc == null || rc.direct || rc.broken != null || rc.node == null ? '—' : node(rc.node!).word(rc.id);
 
 /// What a service still sends: nothing while it is off.
 List<Map> _live(Map s) => s['off'] == true ? const [] : [for (final r in _list(s, 'rules')) if (r['off'] != true) r];
@@ -460,7 +460,8 @@ class _GroupPageState extends State<GroupPage> {
   PickOption<String> _nodeOption(Map n) {
     final on = id == 'default' ? null : n['routes'] as Map?;
     final d = (on == null ? n['delay'] : on[id]) as int? ?? -1;
-    return PickOption(n['name'] as String, n['display'] as String, sub: '${n['provider']}${d > 0 ? ' · $d ms' : (d == 0 ? ' · ${tr('超时', 'Timeout')}' : '')}', leading: FlagDot(n['flag'] as String? ?? '', 18));
+    final refused = (n['refused'] as List? ?? const []).contains(id);
+    return PickOption(n['name'] as String, n['display'] as String, sub: '${n['provider']}${d >= 0 ? ' · ${latText(d, refused: refused)}' : ''}', leading: FlagDot(n['flag'] as String? ?? '', 18));
   }
 
   void _pickFixed(Map g) {
@@ -687,11 +688,12 @@ class _GroupPageState extends State<GroupPage> {
   Widget _sites(Look l, Map g) {
     final targets = _list(g, 'targets');
     final sites = _list(g, 'sites');
-    int? delayOf(Map t) {
+    // What the node in use did on a test URL, in words; '' when not tested.
+    String wordOf(Map t) {
       for (final s in sites) {
-        if (s['url'] == t['url'] && s['tested'] == true) return s['delay'] as int?;
+        if (s['url'] == t['url'] && s['tested'] == true) return latText(s['delay'] as int? ?? 0, refused: s['refused'] == true);
       }
-      return null;
+      return '';
     }
 
     void menu(int i) {
@@ -712,10 +714,7 @@ class _GroupPageState extends State<GroupPage> {
 
     return Shown(app: app, route: id, child: section(l, tr('测试地址', 'Test URLs'), [
       for (final (i, t) in targets.indexed)
-        navRow(l, t['name'] as String, i == 0 ? tr('主要', 'Primary') : (() {
-          final d = delayOf(t);
-          return d == null ? '' : (d > 0 ? '$d ms' : tr('超时', 'Timeout'));
-        })(), sub: t['url'] as String, onTap: () => menu(i)),
+        navRow(l, t['name'] as String, i == 0 ? tr('主要', 'Primary') : wordOf(t), sub: t['url'] as String, onTap: () => menu(i)),
       Padding(
         padding: const EdgeInsets.only(top: 8),
         child: Wrap(spacing: 6, runSpacing: 6, children: [

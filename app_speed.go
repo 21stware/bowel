@@ -129,9 +129,9 @@ func (a *App) testTarget(t speed.Target) bool {
 	defer cancel()
 	// A failure is the node's result too: the core has it as a delay of 0.
 	if home != "" {
-		_, _ = c.NodeDelay(ctx, home, t.Node, t.URL, timeout)
+		_, _ = c.NodeDelay(ctx, home, t.Node, t.URL, routes.Expected(t.URL), timeout)
 	} else {
-		_, _ = c.ProxyDelay(ctx, t.Node, t.URL, timeout) // a config's own proxy or group
+		_, _ = c.ProxyDelay(ctx, t.Node, t.URL, routes.Expected(t.URL), timeout) // a config's own proxy or group
 	}
 	a.mu.Lock()
 	a.nodesAt = time.Time{} // the result is in the providers' lists
@@ -171,26 +171,30 @@ func mainURLs(s settings.Settings) map[string]string {
 	return out
 }
 
-// nodeTest is a node's tests of one URL, for the view. A failure older
-// than stale is no result.
-func nodeTest(tests []mihomo.History, stale time.Duration, now time.Time) NodeTest {
+// nodeTest is node name's tests of url, for the view. A failure older than
+// stale is no result.
+func nodeTest(refused *speed.Refusals, name, url string, node mihomo.Proxy, stale time.Duration, now time.Time) NodeTest {
+	tests := node.HistoryOf(url)
 	t := NodeTest{History: make([]int, 0, len(tests))}
 	for _, h := range tests[max(0, len(tests)-12):] {
 		t.History = append(t.History, h.Delay)
 	}
 	if h, ok := speed.Last(tests, stale, now); ok {
-		t.Delay, t.Tested = h.Delay, true
+		t.Delay, t.Tested, t.Refused = h.Delay, true, refused.Is(name, url, h)
 	}
 	return t
 }
 
-// siteViews lists targets with node's own tests of them.
-func siteViews(targets []routes.Target, node mihomo.Proxy, stale time.Duration, now time.Time) []SiteDelay {
+// siteViews lists targets with the tests of them by node, whose name is
+// name.
+func siteViews(refused *speed.Refusals, targets []routes.Target, name string, node mihomo.Proxy, stale time.Duration, now time.Time) []SiteDelay {
 	out := make([]SiteDelay, len(targets))
 	for i, t := range targets {
 		out[i] = SiteDelay{Name: t.Name, URL: t.URL}
 		if h, ok := speed.Last(node.HistoryOf(t.URL), stale, now); ok {
-			out[i].Delay, out[i].Tested = h.Delay, true // a failure is 0, which the view shows as a timeout
+			// A failure is 0, which the view shows as a timeout unless the
+			// site refused.
+			out[i].Delay, out[i].Tested, out[i].Refused = h.Delay, true, refused.Is(name, t.URL, h)
 		}
 	}
 	return out
@@ -318,7 +322,7 @@ func (a *App) tryTarget(r routes.Route, url string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), siteTimeout+time.Second)
 	defer cancel()
-	if _, err := c.NodeDelay(ctx, "p-"+providerOf(node), node, url, siteTimeout); err != nil {
+	if _, err := c.NodeDelay(ctx, "p-"+providerOf(node), node, url, routes.Expected(url), siteTimeout); err != nil {
 		return errors.New(i18n.T("这个地址经当前节点没有响应，不能设为主目标", "This address didn't answer through the current node, so it can't be the main target"))
 	}
 	return nil

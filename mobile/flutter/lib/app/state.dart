@@ -1018,6 +1018,7 @@ class AppState extends ChangeNotifier {
         [...List.filled(10 - bars.length.clamp(0, 10), 2), ...bars],
         providerId: n['provider'] as String? ?? '',
         routes: (n['routes'] as Map?)?.cast<String, int>(),
+        refused: {...(n['refused'] as List? ?? const []).cast<String>()},
         lat: _placed(where) ? (where['lat'] as num?)?.toDouble() : null,
         lon: _placed(where) ? (where['lon'] as num?)?.toDouble() : null,
       ));

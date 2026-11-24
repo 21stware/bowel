@@ -321,7 +321,7 @@ class _MapCard extends StatelessWidget {
                     const SizedBox(width: 9),
                     Line1(r.name, l.text(13, color: l.ink2, lh: 18), clip: true),
                     const SizedBox(width: 9),
-                    SizedBox(width: 56, child: Text(latText(node(r.node!).on(r.id)), textAlign: TextAlign.right, maxLines: 1, style: l.text(13, color: l.mute, lh: 18))),
+                    SizedBox(width: 56, child: Text(node(r.node!).word(r.id), textAlign: TextAlign.right, maxLines: 1, style: l.text(13, color: l.mute, lh: 18))),
                   ]),
                 ),
               ),
@@ -633,7 +633,7 @@ class _RoutesCard extends StatelessWidget {
         const SizedBox(width: 9),
         Expanded(child: Align(alignment: Alignment.centerLeft, child: Shim(active: s.pending == 'node:${r.id}', child: _flyExit('exit-${r.id}', n, l.text(14.5, weight: 600, lh: 20))))),
         const SizedBox(width: 8),
-        Text(latText(n.on(r.id)), maxLines: 1, style: l.text(13, color: l.mute, lh: 18)),
+        Text(n.word(r.id), maxLines: 1, style: l.text(13, color: l.mute, lh: 18)),
       ]),
     );
   }
@@ -667,7 +667,7 @@ class _RoutesCard extends StatelessWidget {
               Row(children: [
                 Expanded(child: Line1(rulesOf[r.id]!, l.text(12.5, color: l.mute, lh: 18))),
                 const SizedBox(width: 9),
-                Text('${n != null ? '${latText(n.on(r.id))} · ' : ''}${(share[r.id]! * 100).round()}%', maxLines: 1, style: ms),
+                Text('${n != null ? '${n.word(r.id)} · ' : ''}${(share[r.id]! * 100).round()}%', maxLines: 1, style: ms),
               ]),
             ]),
           ),
@@ -836,7 +836,7 @@ class _PickRow extends StatelessWidget {
             width: 54,
             child: Align(
               alignment: Alignment.centerRight,
-              child: s.testing ? const Skeleton() : Text(latText(delay), maxLines: 1, style: l.text(13.5, color: latColor(l, delay), lh: 20)),
+              child: s.testing ? const Skeleton() : Text(n.word(route.id), maxLines: 1, style: l.text(13.5, color: latColor(l, delay), lh: 20)),
             ),
           ),
           const SizedBox(width: 11),
@@ -1088,7 +1088,7 @@ class _HeroCard extends StatelessWidget {
         sub: direct
             ? null
             : Text.rich(
-                TextSpan(style: l.text(12, color: l.mute, lh: 17), children: [TextSpan(text: latText(n.delay), style: TextStyle(color: latColor(l, n.delay))), if (n.city.isNotEmpty) TextSpan(text: ' · ${n.city}')]),
+                TextSpan(style: l.text(12, color: l.mute, lh: 17), children: [TextSpan(text: n.word('default'), style: TextStyle(color: latColor(l, n.delay))), if (n.city.isNotEmpty) TextSpan(text: ' · ${n.city}')]),
                 maxLines: 1,
               ),
       );
@@ -1110,7 +1110,7 @@ class _HeroCard extends StatelessWidget {
 
   Widget _latRow(BuildContext context, Look l, RouteCfg r0, Node n, bool busy) {
     final msStyle = l.text(32, weight: 700, color: n.delay > 0 ? l.goodT : latColor(l, n.delay), display: true, lh: 32);
-    final value = n.delay > 0 ? '${n.delay}' : latText(n.delay);
+    final value = n.delay > 0 ? '${n.delay}' : n.word('default');
     return SizedBox(
       height: 44,
       child: Row(children: [

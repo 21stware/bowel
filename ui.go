@@ -779,16 +779,30 @@ func failTag(c *ui.Context, p *pal, text string, size float32) ui.Element {
 // nothing came back.
 func (p *pal) timedOut(ms int, tested bool) bool { return p.console && tested && ms <= 0 }
 
-func fmtDelay(n NodeView) string { return fmtMs(n.Delay, n.Tested) }
+func fmtDelay(n NodeView) string { return fmtTest(n.Delay, n.Tested, n.Refused) }
 
-func fmtMs(ms int, tested bool) string {
+func fmtSite(s SiteDelay) string { return fmtTest(s.Delay, s.Tested, s.Refused) }
+
+func fmtMs(ms int, tested bool) string { return fmtTest(ms, tested, false) }
+
+// fmtTest is a test's result in words: its delay, or how it failed.
+func fmtTest(ms int, tested, refused bool) string {
 	switch {
 	case !tested:
 		return "—"
 	case ms <= 0:
-		return i18n.T("超时", "Timeout")
+		return failWord(refused)
 	}
 	return fmt.Sprintf("%d ms", ms)
+}
+
+// failWord is what a failed test is called: refused when the site answered
+// and turned the node away, a timeout when nothing answered.
+func failWord(refused bool) string {
+	if refused {
+		return i18n.T("被拒绝", "Refused")
+	}
+	return i18n.T("超时", "Timeout")
 }
 
 func delayColor(p *pal, ms int, tested bool) ui.Color {

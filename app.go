@@ -114,6 +114,9 @@ type App struct {
 	// through nodes, pinger the pings, sweeps the providers' own checks.
 	tests          *speed.Queue[speed.Target]
 	pinger, sweeps *speed.Queue[string]
+	// refused tells the failed tests a site answered with a refusal from
+	// the ones nothing answered, read off each refresh's node lists.
+	refused speed.Refusals
 	// viewing is what each window last drew, by window.
 	viewing map[string]viewing
 	// nodeProxies are the providers' nodes as last read. The maps below are
@@ -603,6 +606,7 @@ func (a *App) refresh() {
 		cancel()
 		if err == nil {
 			addNodes(px, known)
+			a.refused.Note(px)
 			a.mu.Lock()
 			a.proxies, a.provNodes, a.nodeProxies, a.nodeHome = px, nodes, known, homes
 			slices.Sort(waiting.subs)
@@ -2631,10 +2635,10 @@ func (a *App) snapshot() Snapshot {
 		v := NodeView{Name: name, Display: a.label(provNodes, name), Provider: providerOf(name), Type: p.Type, UDP: p.UDP, History: []int{}}
 		v.Routes = make(map[string]NodeTest, len(mains))
 		for id, u := range mains {
-			v.Routes[id] = nodeTest(p.HistoryOf(u), stale, now)
+			v.Routes[id] = nodeTest(&a.refused, name, u, p, stale, now)
 		}
 		t := v.Routes[routes.Default]
-		v.Delay, v.Tested = t.Delay, t.Tested
+		v.Delay, v.Tested, v.Refused = t.Delay, t.Tested, t.Refused
 		if t.History != nil {
 			v.History = t.History
 		}
@@ -2701,7 +2705,7 @@ func (a *App) snapshot() Snapshot {
 			if providerOf(rv.Node) != "" {
 				through = px[rv.Node]
 			}
-			rv.Main, rv.Sites = rv.Targets[0], siteViews(rv.Targets[1:], through, stale, now)
+			rv.Main, rv.Sites = rv.Targets[0], siteViews(&a.refused, rv.Targets[1:], rv.Node, through, stale, now)
 			rv.Broken = brokenWhy(r.Policy, snap.Nodes, r.ID)
 			if rv.Broken == "" && rv.Locked && noneAlive(snap.Nodes, r.ID) {
 				rv.Broken = "all" // the lock leaves it REJECT where another group would go direct
@@ -2875,7 +2879,11 @@ func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, s
 		}
 		for _, n := range snap.Nodes {
 			if n = n.On(r.ID); n.Name == r.Node && n.Tested && n.Delay == 0 && (s.Mode == "rule" || r.ID == routes.Default) {
-				return StateDegraded, &Issue{Level: "warn", Text: fmt.Sprintf(i18n.T("%s：%s 测速失败", "%s: %s failed the speed test"), r.Name, n.Display), Action: "", Label: ""}
+				text := fmt.Sprintf(i18n.T("%s：%s 测速失败", "%s: %s failed the speed test"), r.Name, n.Display)
+				if n.Refused { // the node works, and the route's main site won't have it
+					text = fmt.Sprintf(i18n.T("%s：%s 被 %s 拒绝", "%s: %s is refused by %s"), r.Name, n.Display, r.Main.Name)
+				}
+				return StateDegraded, &Issue{Level: "warn", Text: text, Action: "", Label: ""}
 			}
 		}
 	}

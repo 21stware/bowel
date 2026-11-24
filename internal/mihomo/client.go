@@ -184,25 +184,34 @@ func (c *Client) Select(ctx context.Context, group, name string) error {
 
 // NodeDelay requests testURL through a node of a provider and returns how
 // long that took in milliseconds. /proxies/<name>/delay doesn't know
-// provider nodes.
-func (c *Client) NodeDelay(ctx context.Context, provider, name, testURL string, timeout time.Duration) (int, error) {
-	q := url.Values{"url": {testURL}, "timeout": {fmt.Sprint(timeout.Milliseconds())}}
+// provider nodes. expected is the statuses that count as an answer
+// (routes.Expected), "" for any. The delay returned is the answer's
+// whatever its status: one not expected is a failure only in the node's
+// tests of this URL, which is where results are read from.
+func (c *Client) NodeDelay(ctx context.Context, provider, name, testURL, expected string, timeout time.Duration) (int, error) {
 	var v struct {
 		Delay int `json:"delay"`
 	}
-	err := c.do(ctx, http.MethodGet, "/providers/proxies/"+url.PathEscape(provider)+"/"+url.PathEscape(name)+"/healthcheck?"+q.Encode(), nil, &v)
+	err := c.do(ctx, http.MethodGet, "/providers/proxies/"+url.PathEscape(provider)+"/"+url.PathEscape(name)+"/healthcheck?"+delayQuery(testURL, expected, timeout), nil, &v)
 	return v.Delay, err
 }
 
-// ProxyDelay tests one top-level proxy, which also starts one that starts
-// on first use.
-func (c *Client) ProxyDelay(ctx context.Context, name, testURL string, timeout time.Duration) (int, error) {
-	q := url.Values{"url": {testURL}, "timeout": {fmt.Sprint(timeout.Milliseconds())}}
+// ProxyDelay tests one top-level proxy as NodeDelay tests a provider's
+// node, which also starts one that starts on first use.
+func (c *Client) ProxyDelay(ctx context.Context, name, testURL, expected string, timeout time.Duration) (int, error) {
 	var v struct {
 		Delay int `json:"delay"`
 	}
-	err := c.do(ctx, http.MethodGet, "/proxies/"+url.PathEscape(name)+"/delay?"+q.Encode(), nil, &v)
+	err := c.do(ctx, http.MethodGet, "/proxies/"+url.PathEscape(name)+"/delay?"+delayQuery(testURL, expected, timeout), nil, &v)
 	return v.Delay, err
+}
+
+func delayQuery(testURL, expected string, timeout time.Duration) string {
+	q := url.Values{"url": {testURL}, "timeout": {fmt.Sprint(timeout.Milliseconds())}}
+	if expected != "" {
+		q.Set("expected", expected)
+	}
+	return q.Encode()
 }
 
 // GroupDelay tests every proxy of a group; proxies that failed are absent.

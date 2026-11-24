@@ -215,6 +215,7 @@ type node struct {
 	Provider string `json:"provider"`
 	Type     string `json:"type"`
 	DelayMs  *int   `json:"delayMs"`
+	Refused  bool   `json:"refusedBySite"` // the failed test was the site's refusal
 	Where    string `json:"where"`
 }
 
@@ -561,7 +562,7 @@ func runNodes(c *Ctx) error {
 		if prov == "" {
 			prov = n.Provider
 		}
-		rows = append(rows, []cell{mark, t(n.Label), delayCell(n.DelayMs), t(n.Type), t(prov), {n.Where, gray}})
+		rows = append(rows, []cell{mark, t(n.Label), delayCell(n.DelayMs, n.Refused), t(n.Type), t(prov), {n.Where, gray}})
 	}
 	c.table([]string{" ", i18n.T("节点", "Node"), i18n.T("延迟", "Delay"), i18n.T("类型", "Kind"), "Provider", i18n.T("位置", "Location")}, rows)
 	return nil

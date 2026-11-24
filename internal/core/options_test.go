@@ -198,6 +198,65 @@ func TestAutoGroupsUseMainURLs(t *testing.T) {
 	}
 }
 
+// A group whose main target tells a refusal by its status counts a node
+// the site turns away as it counts a dead one; a locked route's steps and
+// its fallback say the same, and a group on any other site takes any
+// answer.
+func TestGroupsExpectAStatusWhereTheSiteRefusesByOne(t *testing.T) {
+	const openai = "https://api.openai.com/v1/models"
+	all := routes.Template()
+	for i := range all {
+		if all[i].ID == "ai" {
+			all[i].Locked = true
+		}
+	}
+	in := Input{Routes: all, Mode: "rule", MixedPort: 17899, LogLevel: "info", ProbePort: 17900,
+		TestURL:   "https://base.example/204",
+		MainURLs:  map[string]string{"ai": openai},
+		Orders:    map[string][]string{"ai": {"JP 01" + NodeSep + "aaa"}},
+		Providers: []ProviderRef{{ID: "aaa", Path: "/tmp/a.txt"}}}
+	cfg, err := BuildConfig(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Groups []struct {
+			Name     string `yaml:"name"`
+			URL      string `yaml:"url"`
+			Expected string `yaml:"expected-status"`
+		} `yaml:"proxy-groups"`
+		Providers map[string]struct {
+			Check struct {
+				Expected string `yaml:"expected-status"`
+			} `yaml:"health-check"`
+		} `yaml:"proxy-providers"`
+	}
+	if err := yaml.Unmarshal(cfg, &out); err != nil {
+		t.Fatal(err)
+	}
+	tested := 0
+	for _, g := range out.Groups {
+		if g.URL == "" {
+			continue
+		}
+		want := ""
+		if g.URL == openai {
+			want, tested = routes.Expected(openai), tested+1
+		}
+		if g.Expected != want {
+			t.Errorf("%s tests %s expecting %q, want %q", g.Name, g.URL, g.Expected, want)
+		}
+	}
+	if tested != 3 { // the automatic group, the fallback and its one step
+		t.Errorf("%d groups test %s, want 3:\n%s", tested, openai, cfg)
+	}
+	for name, p := range out.Providers {
+		if p.Check.Expected != "" {
+			t.Errorf("%s's health check expects %q on a site that refuses nothing", name, p.Check.Expected)
+		}
+	}
+}
+
 func TestIPv6ModeJSON(t *testing.T) {
 	for in, want := range map[string]IPv6Mode{`true`: IPv6On, `false`: IPv6Off, `"on"`: IPv6On, `"off"`: IPv6Off, `"auto"`: IPv6Auto} {
 		var m IPv6Mode

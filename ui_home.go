@@ -1305,7 +1305,7 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 					if ex.Delay <= 0 {
 						// A word, not a number: smaller, so that "タイムアウト"
 						// stays on one line beside the bars.
-						d, size = i18n.T("超时", "Timeout"), 26
+						d, size = failWord(ex.Refused), 26
 					}
 					if p.timedOut(ex.Delay, ex.Tested) {
 						failTag(c, p, d, 20)
@@ -1900,10 +1900,10 @@ func (u *UI) siteStrip(c *ui.Context, p *pal, r RouteView, testing bool) {
 						return
 					}
 					if p.timedOut(s.Delay, s.Tested) {
-						failTag(c, p, fmtMs(s.Delay, s.Tested), 11)
+						failTag(c, p, fmtSite(s), 11)
 						return
 					}
-					ui.Text(c, fmtMs(s.Delay, s.Tested)).FontSize(12).FontFeatures("tnum").NoWrap().TextColor(siteColor(p, s.Delay, s.Tested))
+					ui.Text(c, fmtSite(s)).FontSize(12).FontFeatures("tnum").NoWrap().TextColor(siteColor(p, s.Delay, s.Tested))
 				})
 			}
 		})

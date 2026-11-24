@@ -189,7 +189,7 @@ func (a *App) cliTools() []mcp.Tool {
 		},
 		{
 			Name: "list_nodes", Title: "Nodes on a route",
-			Description: "The nodes with their delays on a route's test target, the node the route uses, and the providers' names. With test, the delays are measured first.",
+			Description: "The nodes with their delays on a route's test target, the node the route uses, and the providers' names. With test, the delays are measured first. refusedBySite marks a failed test the site answered by turning the node away.",
 			Input:       obj(map[string]any{"route": str("A route's id."), "test": map[string]any{"type": "boolean"}}),
 			Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
 				var p struct {

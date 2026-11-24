@@ -382,6 +382,39 @@ func TestNodeViewReadsEachRoutesOwnTarget(t *testing.T) {
 	}
 }
 
+// A site that tells a refusal by its status turned the node away: the node
+// says on which routes, and a failure nothing answered is not among them.
+func TestNodeViewTellsARefusal(t *testing.T) {
+	now := time.Now()
+	at := now.Add(-time.Minute)
+	p := mihomo.Proxy{
+		History: []mihomo.History{{Time: at, Delay: 120}, {Time: at.Add(time.Second), Delay: 0}, {Time: at.Add(2 * time.Second), Delay: 60}},
+		Extra: map[string]mihomo.URLTests{
+			"https://ai": {History: []mihomo.History{{Time: at, Delay: 0}}},                  // answered, with a status the site refuses by
+			"https://m":  {History: []mihomo.History{{Time: at.Add(time.Second), Delay: 0}}}, // no answer
+			"https://d":  {History: []mihomo.History{{Time: at.Add(2 * time.Second), Delay: 60}}},
+		},
+	}
+	var refusals speed.Refusals
+	refusals.Note(map[string]mihomo.Proxy{"n": p})
+	rd := reading{urls: map[string]string{routes.Default: "https://d", "ai": "https://ai", "media": "https://m"}, stale: 30 * time.Minute, now: now, refusals: &refusals}
+	n := nodeView("n", "a", p, rd)
+	if len(n.Refused) != 1 || n.Refused[0] != "ai" {
+		t.Errorf("refused on %v, want ai alone", n.Refused)
+	}
+	if ms, tested := n.on("ai"); !tested || ms != 0 {
+		t.Errorf("a refusal is a failed test: %d %v", ms, tested)
+	}
+	if !rd.refusedOn("n", "https://ai", p) || rd.refusedOn("n", "https://m", p) || rd.refusedOn("n", "https://d", p) {
+		t.Error("the route's other sites tell it the same way")
+	}
+	// A reading with nothing to tell refusals by knows of none.
+	rd.refusals = nil
+	if n := nodeView("n", "a", p, rd); len(n.Refused) != 0 {
+		t.Errorf("refused on %v", n.Refused)
+	}
+}
+
 // A failure from before a long quiet stretch reads as not tested, and no
 // route counts it against the node.
 func TestOldFailureIsNotTested(t *testing.T) {
