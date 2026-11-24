@@ -485,6 +485,105 @@ func TestMapZoomKeepsYou(t *testing.T) {
 	}
 }
 
+// The names on the map cover neither one another nor a mark, 你 or the
+// legend, and stay on it. An exit known only by its country is drawn at
+// its main city, 美国 at 洛杉矶, which an exit there shares: one mark,
+// both names. So do 香港 and 深圳, a few pixels apart, and two exits not
+// located yet, which wait on one spot. A name beside the legend, or
+// beside you in your own city, goes to another side of its mark.
+func TestMapNamesKeepClear(t *testing.T) {
+	pl := func(cc, city string, lat, lon float64) *Place {
+		return &Place{Country: cc, City: city, Lat: lat, Lon: lon}
+	}
+	hz, tokyo := pl("CN", "杭州", 30.27, 120.15), pl("JP", "东京", 35.68, 139.69)
+	cases := []struct {
+		name  string
+		you   *Place
+		exits []*Place // nil: not located yet; then "unknown"
+		want  []string
+	}{
+		{"美国 at 洛杉矶", hz, []*Place{pl("HK", "香港", 22.32, 114.17), pl("US", "洛杉矶", 34.05, -118.24), pl("JP", "日本", 35.68, 139.69), pl("US", "美国", 34.05, -118.24)},
+			[]string{"香港", "洛杉矶", "日本", "美国"}},
+		{"香港 by 深圳", hz, []*Place{pl("HK", "香港", 22.32, 114.17), pl("CN", "深圳", 22.54, 114.06), tokyo}, []string{"香港", "深圳", "东京"}},
+		{"not located", hz, []*Place{nil, nil, tokyo}, []string{"定位中…", "位置未知", "东京"}},
+		{"by the legend", pl("SG", "新加坡", 1.35, 103.82), []*Place{pl("GB", "伦敦", 51.51, -0.13), pl("NZ", "奥克兰", -36.85, 174.76)}, []string{"伦敦", "奥克兰"}},
+		{"you in its city", tokyo, []*Place{pl("JP", "日本", 35.68, 139.69), pl("HK", "香港", 22.32, 114.17)}, []string{"日本", "香港"}},
+	}
+	for _, k := range cases {
+		for _, skin := range []string{"paper", "machine", "samaritan"} {
+			for _, size := range [][2]int{{1060, 760}, {1646, 1077}, {2400, 1300}} {
+				u, dark := skinned(fixtureUI(), skin)
+				s := &u.snap
+				s.You = &Located{Place: k.you, Source: "probe"}
+				s.Exit = nil
+				s.Nodes = nil
+				for i, x := range k.exits {
+					src := "name"
+					if x == nil {
+						src = []string{"locating", "unknown"}[i%2]
+					}
+					s.Nodes = append(s.Nodes, NodeView{Name: itoa(i), Display: itoa(i), Where: Located{Place: x, Source: src}})
+				}
+				// Nine routes, as many as fill the legend's right side.
+				s.Routes = []RouteView{{ID: "default", Name: "其他流量", Direct: true}}
+				for i, n := range []string{"Netflix", "Self", "V.PS-JP-Yutoo-AnyTLS", "AI", "Apple", "Duolingo", "Global-Media", "Download", "Meta"} {
+					s.Routes = append(s.Routes, RouteView{ID: "r" + itoa(i), Name: n, Node: s.Nodes[i%len(s.Nodes)].Name, Share: .1})
+				}
+				tt := ui.NewTesterWith(u.view, size[0], size[1], ui.TesterOptions{Dark: dark})
+				tt.Advance(2 * time.Second)
+				var box ui.Rect
+				var names []mapName
+				mapTrace = func(r ui.Rect, n []mapName) { box, names = r, slices.Clone(n) }
+				tt.Frame()
+				mapTrace = nil
+				at := fmt.Sprintf("%s, %s, %dx%d", k.name, skin, size[0], size[1])
+				shot(t, tt, "map-names-"+strings.ReplaceAll(at, ", ", "-"))
+				for _, w := range k.want {
+					if !slices.ContainsFunc(names, func(n mapName) bool { return strings.Contains(n.text, w) }) {
+						t.Errorf("%s: no %s among %+v", at, w, names)
+					}
+				}
+				var legend []ui.Rect
+				for _, r := range s.Routes[1:] {
+					if b, ok := tt.Find(r.Name); ok && inside(b, box) {
+						legend = append(legend, b)
+					}
+				}
+				if len(legend) != 9 {
+					t.Fatalf("%s: %d of the legend's 9 rows on the map", at, len(legend))
+				}
+				for i, n := range names {
+					if n.label.X < box.X || n.label.X+n.label.W > box.X+box.W {
+						t.Errorf("%s: %s at %+v leaves the map %+v", at, n.text, n.label, box)
+					}
+					for j, o := range names {
+						if j > i && meets(n.label, o.label) {
+							t.Errorf("%s: %s %+v covers %s %+v", at, n.text, n.label, o.text, o.label)
+						}
+						if j != i && meets(n.label, o.mark) {
+							t.Errorf("%s: %s %+v covers the mark of %s %+v", at, n.text, n.label, o.text, o.mark)
+						}
+					}
+					for _, l := range legend {
+						if meets(n.label, l) {
+							t.Errorf("%s: %s %+v covers the legend's %+v", at, n.text, n.label, l)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// meets says whether a and b overlap by more than half a DIP each way.
+func meets(a, b ui.Rect) bool {
+	return min(a.X+a.W, b.X+b.W)-max(a.X, b.X) > .5 && min(a.Y+a.H, b.Y+b.H)-max(a.Y, b.Y) > .5
+}
+
+func inside(a, b ui.Rect) bool {
+	return a.X >= b.X && a.Y >= b.Y && a.X+a.W <= b.X+b.W && a.Y+a.H <= b.Y+b.H
+}
+
 // Zooming keeps the place under the pointer where it is.
 func TestMapZoomAt(t *testing.T) {
 	fit := projection{lon0: 90, lon1: 150, lat0: -10, lat1: 50, span: .7}

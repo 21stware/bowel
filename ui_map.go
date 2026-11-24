@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/base64"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -22,6 +23,15 @@ import (
 // youTrace, if set, sees where you are drawn on the map in each frame, and
 // where its land's dots are laid out from (one is there); for tests.
 var youTrace func(x, y, landX, landY float32)
+
+// mapTrace, if set, sees the map's box and the names written on it in
+// each frame, with their marks; for tests.
+var mapTrace func(r ui.Rect, names []mapName)
+
+type mapName struct {
+	text        string
+	mark, label ui.Rect
+}
 
 func bg() context.Context { return context.Background() }
 
@@ -402,6 +412,9 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 		anchorX, anchorY = yx, yy
 	}
 	small := box.W < 300 || box.H < 170
+	// The caption and the legend, or the route cards, as last laid out:
+	// the names on the map keep off them.
+	var keepOff []ui.Rect
 	grid := e.AnimateTo("grid", map[bool]float32{true: .6, false: .25}[on], ease)
 
 	e.Draw(func(pt *ui.Painter, r ui.Rect) {
@@ -490,6 +503,10 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 				}
 			}
 		}
+		// The places, a mark each. Exits that end on one spot share it and
+		// its name: one known only by its country is drawn at its main
+		// city (美国 at 洛杉矶), and those not located yet wait together.
+		var marks []*mapMark
 		seen := map[string]bool{}
 		for _, d := range ds {
 			if d.a < .05 || seen[d.label] {
@@ -497,54 +514,117 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 			}
 			seen[d.label] = true
 			tx, ty := at(d.x, d.y)
-			if !d.known {
+			if i := slices.IndexFunc(marks, func(m *mapMark) bool {
+				return m.known == d.known && abs32(m.x-tx) < 4 && abs32(m.y-ty) < 4
+			}); i >= 0 {
+				marks[i].label += " · " + d.label
+				marks[i].head = marks[i].head || d.head
+				continue
+			}
+			marks = append(marks, &mapMark{x: tx, y: ty, label: d.label, known: d.known, head: d.head})
+		}
+		// Each name goes beside its mark, on the first side of right, left,
+		// below and above where it stays on the map and off the other marks
+		// and names, you, the caption and the legend, or else where it
+		// covers least; the exit in use first.
+		col := p.ink
+		if !on {
+			col = p.faint
+		}
+		youName := ui.Span{Text: p.cap(i18n.T("你", "You")), Font: p.labelFace(), Size: 13, Weight: 700, Color: col}
+		yw, yh := pt.MeasureText(0, youName)
+		taken := append(slices.Clone(keepOff), ui.Rect{X: ox - 8, Y: oy - 8, W: 16, H: 16}, ui.Rect{X: ox + 9, Y: oy - 22, W: yw, H: yh})
+		for _, m := range marks {
+			taken = append(taken, m.box(p))
+		}
+		slices.SortStableFunc(marks, func(a, b *mapMark) int {
+			switch {
+			case a.head == b.head:
+				return 0
+			case a.head:
+				return -1
+			}
+			return 1
+		})
+		onMap := ui.Rect{X: r.X + 6, Y: r.Y, W: r.W - 12, H: r.H}
+		var traced []mapName
+		for _, m := range marks {
+			tx, ty := m.x, m.y
+			// place puts a name w×h DIPs gap DIPs beside the mark, or below
+			// or above it, and says where.
+			place := func(gap, w, h float32) ui.Rect {
+				half := m.box(p).W / 2
+				sides := [...]ui.Rect{
+					{X: tx + gap, Y: ty - h/2, W: w, H: h}, {X: tx - gap - w, Y: ty - h/2, W: w, H: h},
+					{X: tx - w/2, Y: ty + half + 3, W: w, H: h}, {X: tx - w/2, Y: ty - half - 3 - h, W: w, H: h},
+				}
+				best, least := sides[0], float32(-1)
+				for _, s := range sides {
+					cost := float32(0)
+					if s.X < onMap.X || s.Y < onMap.Y || s.X+s.W > onMap.X+onMap.W || s.Y+s.H > onMap.Y+onMap.H {
+						cost = 4 * (s.W*s.H - overlap(s, onMap)) // off the map is worse than over something
+					}
+					for _, o := range taken {
+						cost += overlap(s, o)
+					}
+					if least < 0 || cost < least {
+						best, least = s, cost
+					}
+					if cost < 1 { // clear, but for a hair
+						break
+					}
+				}
+				taken = append(taken, best)
+				traced = append(traced, mapName{m.label, m.box(p), best})
+				return best
+			}
+			if !m.known {
 				var ring ui.Path
 				ring.Circle(tx, ty, 9).Dash(0, 2, 3)
 				pt.StrokePath(&ring, 1.5, p.warn)
 				if !small {
-					pt.RichText(tx+14, ty-8, 0, ui.Span{Text: d.label, Font: p.font, Size: 12, Weight: 700, Color: p.warn})
+					span := ui.Span{Text: m.label, Font: p.font, Size: 12, Weight: 700, Color: p.warn}
+					lw, lh := pt.MeasureText(0, span)
+					b := place(14, lw, lh)
+					pt.RichText(b.X, b.Y, 0, span)
 				}
 				continue
 			}
 			if p.marker != "" {
-				skinMarker(pt, p, r, tx, ty, d.label, d.head, small)
+				skinMarker(pt, p, tx, ty, m.label, m.head, small, place)
 				continue
 			}
 			rad := float32(4)
-			if d.head {
+			if m.head {
 				rad = 6
 			}
 			var dot ui.Path
 			pt.FillPath(dot.Circle(tx, ty, rad), p.paper)
 			var ring ui.Path
 			w := float32(1.5)
-			if d.head {
+			if m.head {
 				w = 2.5
 			}
 			pt.StrokePath(ring.Circle(tx, ty, rad), w, p.ink)
-			if !small || d.head {
+			if !small || m.head {
 				size, weight := float32(11.5), 500
-				if d.head {
+				if m.head {
 					size, weight = 13, 700
 				}
-				span := ui.Span{Text: d.label, Font: p.font, Size: size, Weight: weight, Color: p.ink}
+				span := ui.Span{Text: m.label, Font: p.font, Size: size, Weight: weight, Color: p.ink}
 				lw, lh := pt.MeasureText(0, span)
-				lx := tx + 10
-				if lx+lw > r.X+r.W-6 {
-					lx = tx - 10 - lw
-				}
-				pt.RichText(lx, ty-lh/2, 0, span)
+				b := place(10, lw, lh)
+				pt.RichText(b.X, b.Y, 0, span)
 			}
 		}
 		// You.
 		if youTrace != nil {
 			youTrace(ox, oy, lx, ly)
 		}
-		var you ui.Path
-		col := p.ink
-		if !on {
-			col = p.faint
+		if mapTrace != nil {
+			mapTrace(r, append(traced, mapName{"你", taken[len(keepOff)], taken[len(keepOff)+1]}))
 		}
+		var you ui.Path
 		if p.marker != "" {
 			// A skin with marks of its own has no round dots.
 			pt.Fill(ui.Rect{X: ox - 3, Y: oy - 3, W: 6, H: 6}, col, 0)
@@ -554,7 +634,7 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 		pulse := float32(math.Mod(float64(now)/60, 14))
 		var ring ui.Path
 		pt.StrokePath(ring.Circle(ox, oy, 8+pulse), 1, col.Alpha(max(0, .3-pulse/46)))
-		pt.RichText(ox+9, oy-22, 0, ui.Span{Text: p.cap(i18n.T("你", "You")), Font: p.labelFace(), Size: 13, Weight: 700, Color: col})
+		pt.RichText(ox+9, oy-22, 0, youName)
 		switch {
 		case comets:
 			pt.AnimationFrameRate(60)
@@ -580,7 +660,8 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 		}
 	}
 	if !small {
-		ui.Text(c, caption).FontSize(11).TextColor(p.mute).Absolute().Left(20).Top(16).MaxWidth(box.W - 40)
+		t := ui.Text(c, caption).FontSize(11).TextColor(p.mute).Absolute().Left(20).Top(16).MaxWidth(box.W - 40)
+		keepOff = append(keepOff, t.LayoutBounds())
 	}
 	if v == "expanded" {
 		ui.Column(c).Absolute().Right(18).Top(50).Width(270).Gap(8).Children(func() {
@@ -608,15 +689,17 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 						ui.Text(c, fmtDelay(a.node)).FontSize(12).FontFeatures("tnum").TextColor(delayColor(p, a.node.Delay, a.node.Tested))
 					}
 				})
+				keepOff = append(keepOff, b.LayoutBounds())
 			}
 		})
 	} else if !small && on {
 		ui.Column(c).Absolute().Right(20).Bottom(14).Gap(3).AlignItems(ui.End).Children(func() {
 			for _, a := range arcs {
-				ui.Row(c).Gap(6).AlignItems(ui.Center).Opacity(map[bool]float32{true: 1, false: .35}[a.live]).Children(func() {
+				row := ui.Row(c).Gap(6).AlignItems(ui.Center).Opacity(map[bool]float32{true: 1, false: .35}[a.live]).Children(func() {
 					ui.Text(c, u.route(a.route).Name).FontSize(11).TextColor(p.ink2)
 					ui.Box(c).Size(14, 2).Radius(p.r(1)).Background(p.routeColor(a.route))
 				})
+				keepOff = append(keepOff, row.LayoutBounds())
 			}
 		})
 	}
@@ -676,8 +759,9 @@ func itoa(n int) string {
 // skinMarker is an exit on the map in a skin with marks of its own, at
 // tx, ty: a box of brackets, or a cross with the exit's name in a frame.
 // The exit in use takes the theme color: its box and its name, or the
-// block its name stands on. r is the map, which the name stays inside.
-func skinMarker(pt *ui.Painter, p *pal, r ui.Rect, tx, ty float32, label string, head, small bool) {
+// block its name stands on. place puts the name, framed, gap DIPs beside
+// the mark, or where it is clear.
+func skinMarker(pt *ui.Painter, p *pal, tx, ty float32, label string, head, small bool, place func(gap, w, h float32) ui.Rect) {
 	side := float32(12)
 	if head {
 		side = 16
@@ -707,11 +791,7 @@ func skinMarker(pt *ui.Painter, p *pal, r ui.Rect, tx, ty float32, label string,
 		padX, padY = 6, 2
 	}
 	lw, lh := pt.MeasureText(0, span)
-	lx := tx + side/2 + 6 + padX
-	if lx+lw+padX > r.X+r.W-6 {
-		lx = tx - side/2 - 6 - padX - lw
-	}
-	frame := ui.Rect{X: lx - padX, Y: ty - lh/2 - padY, W: lw + 2*padX, H: lh + 2*padY}
+	frame := place(side/2+6, lw+2*padX, lh+2*padY)
 	switch {
 	case cross && head:
 		pt.Fill(frame, p.accent, 0)
@@ -722,5 +802,33 @@ func skinMarker(pt *ui.Painter, p *pal, r ui.Rect, tx, ty float32, label string,
 	case head:
 		span.Color = p.accentLine
 	}
-	pt.RichText(lx, ty-lh/2, 0, span)
+	pt.RichText(frame.X+padX, frame.Y+padY, 0, span)
+}
+
+// mapMark is a place on the map where one or more exits end: its name,
+// theirs joined, whether it is located, and whether the exit in use is
+// among them.
+type mapMark struct {
+	x, y        float32
+	label       string
+	known, head bool
+}
+
+// box is what the mark covers in p: a ring, a dot, a box or a cross.
+func (m *mapMark) box(p *pal) ui.Rect {
+	half := float32(6)
+	switch {
+	case !m.known:
+		half = 10
+	case m.head && p.marker != "cross":
+		half = 8
+	case p.marker == "":
+		half = 5
+	}
+	return ui.Rect{X: m.x - half, Y: m.y - half, W: 2 * half, H: 2 * half}
+}
+
+// overlap is the area a and b share.
+func overlap(a, b ui.Rect) float32 {
+	return max(0, min(a.X+a.W, b.X+b.W)-max(a.X, b.X)) * max(0, min(a.Y+a.H, b.Y+b.H)-max(a.Y, b.Y))
 }
