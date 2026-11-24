@@ -35,8 +35,11 @@ func Path(data, name string) string { return filepath.Join(data, "bin", name) }
 
 // Installed reports whether path is a regular file owned by root that
 // either has CAP_NET_ADMIN among its effective file capabilities or the
-// setuid bit.
+// setuid bit. Run as root, any core that can be run is: see RootCore.
 func Installed(path string) bool {
+	if RootCore() {
+		return rootReady(path)
+	}
 	fi, err := os.Lstat(path)
 	if err != nil || !fi.Mode().IsRegular() {
 		return false

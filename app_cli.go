@@ -63,6 +63,7 @@ func (a *App) cliServer() *mcp.Server {
 		}
 	}
 	srv.Tools = append(srv.Tools, a.cliTools()...)
+	srv.Tools = append(srv.Tools, a.healthTool()) // app_container.go
 	srv.OnInit = func(s *mcp.Session, params json.RawMessage) {
 		var p struct {
 			Agent string `json:"agent"`

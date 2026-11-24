@@ -180,9 +180,13 @@ func newApp() (*App, error) {
 		return nil, err
 	}
 	migrateData(data)
+	fresh := !exists(filepath.Join(data, "settings.json"))
 	st, err := settings.Open(data)
 	if err != nil {
 		return nil, err
+	}
+	if fresh && inContainer() {
+		seedContainer(st, data)
 	}
 	i18n.Set(st.Get().Language)
 	provDir := storeDir(data, "providers", runtime.GOOS)
@@ -197,9 +201,12 @@ func newApp() (*App, error) {
 	bin := bundledCore()
 	tun.CoreDir = filepath.Join(data, "core") // where the core runs, below
 	tunBin := tun.Path(data, core.TunName(filepath.Base(bin)))
+	if tun.RootCore() {
+		tunBin = bin // root's child has TUN's rights already: no copy
+	}
 	run := bin
 	stale := false
-	if tun.Installed(tunBin) {
+	if tunBin != bin && tun.Installed(tunBin) {
 		// A root copy older than this version, or on macOS one signed under
 		// a name that cannot tell applications apart: while TUN needs it, it
 		// stays until the user authorizes a new one; otherwise the new core
@@ -1130,6 +1137,11 @@ func (a *App) setSystemProxy(on bool) error {
 func (a *App) setTun(on bool) error {
 	done := a.begin("entry:tun")
 	defer done()
+	if on {
+		if err := tun.DeviceReady(); err != nil {
+			return err
+		}
+	}
 	if on && a.tunNeedsInstall() {
 		if err := a.installTun(); err != nil {
 			return err
