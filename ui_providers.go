@@ -41,6 +41,8 @@ type providersUI struct {
 
 	popup bool // a select's options are open (they take Escape)
 
+	usedW float32 // how wide the nodes' 被哪些路由使用 column was, the frame before
+
 	// The camera's dialog: scanning for a code to add.
 	camOpen  bool
 	cam      *qr.Camera // open while the dialog shows
@@ -786,22 +788,7 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 					locTag(c, p, n.Where.Source)
 				},
 				func() { ui.Text(c, n.Type).FontSize(12).TextColor(p.mute).MaxLines(1) },
-				func() {
-					used := false
-					for _, r := range u.snap.Routes {
-						if r.Node == "" || r.Node != n.Name {
-							continue
-						}
-						used = true
-						ui.Row(c.Key(r.ID)).Gap(5).AlignItems(ui.Center).Children(func() {
-							swatch(c, p.routeColor(r.ID), 8)
-							ui.Text(c, r.Name).FontSize(12).TextColor(p.ink).NoWrap()
-						})
-					}
-					if !used {
-						ui.Text(c, "—").FontSize(12).TextColor(p.faint)
-					}
-				},
+				func() { u.provUsedBy(c, p, n.Name) },
 				func() {
 					ui.Text(c, fmtMs(n.Ping, n.Ping > 0)).FontSize(12).FontWeight(600).TextColor(delayColor(p, n.Ping, n.Ping > 0)).NoWrap()
 				},
@@ -863,6 +850,87 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 		ui.Box(c).Width(1).Height(18).Margin(0, 4).Background(p.hair)
 		u.provManage(c, p, pv)
 	})
+}
+
+// provUsedBy lists the routes that use node, as many as its column has
+// room for, the rest in a +N that names them all when pointed at, so a
+// narrow window doesn't push the names over the Ping column (issue 265).
+func (u *UI) provUsedBy(c *ui.Context, p *pal, node string) {
+	var used []RouteView
+	for _, r := range u.snap.Routes {
+		if r.Node != "" && r.Node == node {
+			used = append(used, r)
+		}
+	}
+	if len(used) == 0 {
+		ui.Text(c, "—").FontSize(12).TextColor(p.faint)
+		return
+	}
+	box := ui.Row(c).Gap(6).AlignItems(ui.Center).Grow(1).Basis(0).MinWidth(0).Clip()
+	room := box.LayoutBounds().W
+	// The room is the last frame's: when it changed, as a window being
+	// made narrower changes it, one more frame fits the chips to it.
+	if room > 0 && room != u.prov.usedW {
+		u.prov.usedW = room
+		c.Invalidate()
+	}
+	shown := fitChips(room, len(used), func(i int) float32 {
+		w, _ := c.MeasureText(0, ui.Span{Text: used[i].Name, Size: 12})
+		return 8 + 5 + w // the swatch, the gap, the name
+	}, func(n int) float32 {
+		w, _ := c.MeasureText(0, ui.Span{Text: fmt.Sprintf("+%d", n), Size: 11, Weight: 600})
+		return w + 12 // its padding
+	})
+	box.Children(func() {
+		for _, r := range used[:shown] {
+			ui.Row(c.Key(r.ID)).Gap(5).AlignItems(ui.Center).Shrink(0).Children(func() {
+				swatch(c, p.routeColor(r.ID), 8)
+				ui.Text(c, r.Name).FontSize(12).TextColor(p.ink).NoWrap()
+			})
+		}
+		if rest := len(used) - shown; rest > 0 {
+			names := make([]string, len(used))
+			for i, r := range used {
+				names[i] = r.Name
+			}
+			ui.Text(c.Key("more"), fmt.Sprintf("+%d", rest)).FontSize(11).FontWeight(600).TextColor(p.ink2).NoWrap().Shrink(0).
+				Padding(1, 6).Radius(p.r(99)).Background(p.hair2).Tooltip(strings.Join(names, i18n.T("、", ", ")))
+		}
+	})
+}
+
+// fitChips is how many of n chips, chip(i) wide and 6 apart, fit in room,
+// with a more(rest) wide +N after them for the rest. It is all of them
+// when they fit, or before the room is known; at least none.
+func fitChips(room float32, n int, chip func(int) float32, more func(int) float32) int {
+	const gap = 6
+	if room <= 0 {
+		return n
+	}
+	ws := make([]float32, n)
+	total := float32(0)
+	for i := range n {
+		ws[i] = chip(i)
+		total += ws[i]
+		if i > 0 {
+			total += gap
+		}
+	}
+	if total <= room {
+		return n
+	}
+	used := float32(0)
+	for k := range n {
+		next := used + ws[k]
+		if k > 0 {
+			next += gap
+		}
+		if next+gap+more(n-k-1) > room {
+			return k
+		}
+		used = next
+	}
+	return n
 }
 
 // provHide removes node (its full name) from its provider. It can be
