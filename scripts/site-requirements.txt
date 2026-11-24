@@ -1,0 +1,2 @@
+# What scripts/build-site.py needs beyond Python itself: the docs are Markdown.
+markdown==3.8

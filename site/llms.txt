@@ -42,6 +42,15 @@ Do not stop bowel, turn the gateway off or go back to manual as a test while aut
 
 - [Gateway mode, in full](https://raw.githubusercontent.com/21stware/bowel/main/docs/gateway.md): how it works, the systemd unit for a Linux server, pointing devices, what survives a crash or a restart, troubleshooting by symptom, limits
 
+## Using bowel
+
+The same pages are on the website, at https://bowel.dev/en/docs/ (Chinese: https://bowel.dev/docs/).
+
+- [Install and get started](https://raw.githubusercontent.com/21stware/bowel/main/docs/guide/install.md): installing on each system, adding a provider, turning on takeover, what each platform has
+- [Route groups and nodes](https://raw.githubusercontent.com/21stware/bowel/main/docs/guide/routes.md): the built-in groups, node strategies, test sites and why a node shows Denied, the download test, rules and routing by app
+- [Takeover, TUN and the exit lock](https://raw.githubusercontent.com/21stware/bowel/main/docs/guide/takeover.md): system proxy or TUN, what TUN asks for on each system, what the exit lock holds
+- [Questions](https://raw.githubusercontent.com/21stware/bowel/main/docs/guide/faq.md): moving from another Clash client, protocols, data, the license
+
 ## Command line
 
 - [README: the command line](https://raw.githubusercontent.com/21stware/bowel/main/README.md): `status`, `on`/`off`, `mode`, `routes`, `route use`, `nodes`, `providers`, `rules`, `conns`, `logs`, `settings`, `tun`, `gateway`, `tui`, `bar`

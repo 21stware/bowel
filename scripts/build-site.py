@@ -13,12 +13,17 @@ Traditional Chinese and Japanese are in scripts/site-i18n.json, keyed by
 the Chinese: {"中文": {"zh-Hant": "…", "ja": "…"}}. Their pages are the
 Chinese one with every string looked up there, and the build stops at a
 string the table lacks or one the page no longer has.
+
+The documentation under /docs/ and /en/docs/ is made from docs/ by
+site_docs.py, which needs Python-Markdown (scripts/site-requirements.txt).
 """
 import json
 import re
 import shutil
 import sys
 from pathlib import Path
+
+import site_docs
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "site"
@@ -169,6 +174,7 @@ def main():
         d = OUT / info["dir"]
         d.mkdir(exist_ok=True)
         (d / "index.html").write_text(render(html, lang), encoding="utf-8")
+    site_docs.build(OUT)
     print("built %s" % OUT.relative_to(ROOT))
 
 
