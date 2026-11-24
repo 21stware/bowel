@@ -506,5 +506,13 @@
   "bowel 设置中的 MCP 服务": {
     "zh-Hant": "bowel 設定中的 MCP 服務",
     "ja": "bowel の設定にある MCP サーバー"
+  },
+  "文档": {
+    "zh-Hant": "文件",
+    "ja": "ドキュメント"
+  },
+  "docs/": {
+    "zh-Hant": "docs/",
+    "ja": "en/docs/"
   }
 }

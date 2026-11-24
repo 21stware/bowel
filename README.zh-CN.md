@@ -11,6 +11,7 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 <p align="center">
   <a href="https://github.com/21stware/bowel/releases/latest"><b>下载</b></a> ·
   <a href="https://bowel.dev/">官网</a> ·
+  <a href="https://bowel.dev/docs/">文档</a> ·
   <a href="https://t.me/+BI3KVgBn7SE3YjVh">Telegram 群</a> ·
   <a href="README.md">English</a>
 </p>
@@ -43,7 +44,7 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 以下截图来自 macOS 版。
 
 ### 路由
-按用途分配不同路由，可手动指定出口节点或由自动测速选择。
+按用途分配不同路由，可手动指定出口节点或由自动测速选择。路由组、测速站点和测下载怎么用，见[路由组与节点](https://bowel.dev/docs/routes/)。
 
 <img src="site/shots/routes-zh.webp" width="880" alt="路由">
 
@@ -104,7 +105,7 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 - **开发工具**（macOS、Linux）：Docker、终端和 Git 不读系统代理，bowel 列出哪些没有接入，点一下写好它们自己的配置，撤销时原样删除。
 - **下载源**：实测 npm、pip、Go 和 Cargo 的官方源与各个镜像，点一下换源；当前的源连不上时，一键换到最快的那个，或让它重新走节点。
 - **内网直连**：局域网、Tailscale 和公司 VPN 的地址自动直连，全局模式下也一样。
-- **出口锁定**：在首页路由组的页面上锁定一个路由组（比如 AI 服务），它的流量就只走节点。节点都走不了时直接断开，不会改走直连；全局和直连模式下它仍走自己的节点；关闭接管后，其他流量照常直连，只有它被拦下，为此系统代理仍指向 bowel。退出 bowel 后不再拦截。也可以用 `bowel route lock ai`。Android 版在路由组页面上也有这个开关；手机关掉 VPN 后拦不住它，第一次锁定时会指向系统的「屏蔽未使用 VPN 的连接」。
+- **出口锁定**：在首页路由组的页面上锁定一个路由组（比如 AI 服务），它的流量就只走节点，节点都走不了时直接断开，不会改走直连；全局和直连模式下、关闭接管后也一样。退出 bowel 后不再拦截。也可以用 `bowel route lock ai`。开不开 TUN 时各管得住什么、Android 上怎么用，见[接管、TUN 与出口锁定](https://bowel.dev/docs/takeover/#出口锁定)。
 - **MCP**：内置 MCP 服务器，供 Claude Code 等 Agent 读取状态、排查网络问题，改设置前默认先问你。下面是 macOS 的命令，Windows 和 Linux 上请换成 bowel 程序所在的路径。
   ```bash
   claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp
@@ -153,7 +154,7 @@ docker run -d --name bowel --restart unless-stopped -p 7899:7899 -v bowel:/data 
 - **Android**：安装 APK，如有提示请允许浏览器安装应用。首次连接时系统会请求 VPN 权限。
 - **iOS**：暂未发布。
 
-打开后添加一个 Provider（订阅链接、节点链接或扫码），打开接管。
+打开后添加一个 Provider（订阅链接、节点链接或扫码），打开接管：见[安装与开始使用](https://bowel.dev/docs/install/#开始使用)。
 
 部分功能因平台而异：
 
@@ -169,11 +170,13 @@ docker run -d --name bowel --restart unless-stopped -p 7899:7899 -v bowel:/data 
 | 按 App 分流（规则） | 支持 | 支持，我们未在真机上运行过 | 支持 | Android 10 及以上 |
 | 不走 bowel 的 App（排除列表） | 没有 | 没有 | 没有 | 支持，重新连接后生效 |
 
-按 App 分流是路由组里的一种规则（「应用」），把一个 App 的所有连接交给指定的路由组；想让它只走一个节点，就把这个路由组的节点策略设成固定节点。Android 上的排除列表是另一回事：列表里的 App 完全不经过 VPN，直接联网，规则也管不到它；bowel 没有「只代理选中的 App」的模式。Android 8 和 9 只有排除列表。iOS 版暂未发布，两项都没有。
+按 App 分流是路由组里的一种规则（「应用」）；Android 上的排除列表是另一回事：列表里的 App 完全不经过 VPN，规则也管不到它。两者见[路由组与节点](https://bowel.dev/docs/routes/#按-app-分流)。
 
-第一次开启 TUN 时需要管理员授权一次：macOS 是系统自己的对话框，Windows 是用户账户控制（UAC），Linux 通过 polkit（`pkexec`）。在使用 systemd-resolved 的 Linux 上，这次授权还会留下一条 polkit 规则，允许当前用户把解析器指向 TUN 网卡（内核每次启动 TUN 都要这么做）；没有这条规则时（polkit 早于 0.106，不读取这类规则），每次启动 TUN 桌面都会连问三次密码。Linux 上的系统代理是 GNOME 的（Cinnamon、MATE、Budgie 等桌面共用它）或 KDE 的；其他桌面请使用 TUN，或让应用自行连接混合端口，默认是 7899。各系统具体有什么、缺什么，见 [docs/platform-parity.md](docs/platform-parity.md)。Android 版可以选择不经过 VPN 的应用。
+第一次开启 TUN 时需要管理员授权一次。各系统上要什么授权、Linux 各桌面的系统代理，见[接管、TUN 与出口锁定](https://bowel.dev/docs/takeover/)；各系统底下具体有什么、缺什么，见 [docs/platform-parity.md](docs/platform-parity.md)。
 
 ## 常见问题
+
+更多问题，比如延迟最低的节点为什么打不开 ChatGPT，见[文档](https://bowel.dev/docs/faq/)。
 
 **从 Clash Verge Rev、Mihomo Party、FlClash、ClashX Meta 或 Clash for Windows 换过来？** 在 Provider 里添加同一个订阅链接，或者直接导入配置文件。订阅或文件是一份自带路由组和规则的完整配置时，bowel 会问你是按它的路由分流，还是只用它的节点。同一时间只应有一个客户端接管系统代理或 TUN，所以先退出原来的客户端。
 
@@ -239,7 +242,7 @@ Flutter App 的翻译表和皮肤由桌面端的 Go 代码生成，过期时 `go
 
 - 工作原理与代码结构：[docs/architecture.md](docs/architecture.md)
 - 产品信息架构：[docs/product-ia.md](docs/product-ia.md)
-- 官网是 `site/` 下的静态页面，直接打开 `site/index.html` 即可预览。合入 `main` 后自动上线。
+- 官网是 `site/` 下的静态页面，直接打开 `site/index.html` 即可预览。网站上的文档由 `docs/guide/`（以及 `docs/cli*.md`、`docs/gateway.md`）里的 Markdown 生成：`pip install -r scripts/site-requirements.txt` 后运行 `python3 scripts/build-site.py`，整个网站写到 `build/site/`。合入 `main` 后自动上线。改了用法的 PR，同时改 `docs/guide/` 里对应的页面，中英文都改。
 - 发版时先改 `mygo.json` 里的版本号，再推送对应的标签（如 `v0.2.0`）。GitHub Actions 会构建 macOS、Windows、Linux 和 Android 版，并发布到同一个 Release。iOS 版只在手动运行工作流时构建，不会发布。
 
 bowel 原名 Moho。Go 模块仍是 `github.com/oboo/moho`，Bundle ID 仍是 `dev.moho.app`（保留 macOS 已授予的摄像头和录屏权限）。首次启动时，`~/Library/Application Support/Moho` 里的数据会迁移到 `…/bowel`。
