@@ -95,6 +95,10 @@ type nodeData struct {
 	// Delay, H and Tested are the default route's. nil under a config's own
 	// routing, where every route shows the node's own.
 	Routes map[string]int `json:"routes"`
+	// Refused are the routes, by id and the default one included, on whose
+	// main target the node's failed test was the site's refusal: it
+	// answered, and turned the node away (routes.Expected).
+	Refused []string `json:"refused,omitempty"`
 }
 
 // on is the node's delay as route id tests it, and whether it was tested.
@@ -198,6 +202,7 @@ func (x *bridge) view() viewData {
 	im := x.importedNow()
 	all := x.routes()
 	rd := readingOf(st, im)
+	rd.refusals = &x.refused
 	v := viewData{Language: i18n.Lang(), VPN: vpn, VPNError: vErr, Mode: st.Mode, Routes: []routeData{}, Nodes: []nodeData{}, Providers: []providerData{}}
 	v.You = x.youPlace()
 	if im != nil {
@@ -497,6 +502,7 @@ func nodeView(name, provider string, p mihomo.Proxy, rd reading) nodeData {
 	tests, others := rd.tests(p)
 	n.Routes = others
 	n.Delay, n.Tested = rd.last(tests)
+	n.Refused = rd.refused(name, p)
 	for _, h := range tests[max(0, len(tests)-10):] {
 		n.H = append(n.H, barHeight(h.Delay))
 	}

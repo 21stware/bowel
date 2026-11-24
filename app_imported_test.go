@@ -711,7 +711,7 @@ func TestImportedDialerProxy(t *testing.T) {
 		t.Fatal(err)
 	}
 	listed := func() error {
-		_, err := c.NodeDelay(ctx, "p-"+id, "Home"+core.NodeSep+id, site.URL, 2*time.Second)
+		_, err := c.NodeDelay(ctx, "p-"+id, "Home"+core.NodeSep+id, site.URL, "", 2*time.Second)
 		return err
 	}
 
@@ -732,7 +732,7 @@ func TestImportedDialerProxy(t *testing.T) {
 	if px := coreProxies(t, a); px["Home"].DialerProxy != "Entry" {
 		t.Errorf("Home dials through %q", px["Home"].DialerProxy)
 	}
-	if _, err := c.ProxyDelay(ctx, "Home", site.URL, 2*time.Second); err != nil {
+	if _, err := c.ProxyDelay(ctx, "Home", site.URL, "", 2*time.Second); err != nil {
 		t.Errorf("Home under its own routing: %v", err)
 	}
 	if err := listed(); err != nil {

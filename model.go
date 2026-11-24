@@ -312,6 +312,7 @@ type NodeView struct {
 	// failed or untested (see Tested). On has them for another route.
 	Delay   int     `json:"delay"`
 	Tested  bool    `json:"tested"`
+	Refused bool    `json:"refused,omitempty"` // the test failed by the site's refusal (NodeTest)
 	History []int   `json:"history"`
 	Where   Located `json:"where"`
 	// Ping is how long the node's server takes to answer this computer, in
@@ -326,27 +327,33 @@ type NodeView struct {
 	MissingDialer string `json:"missingDialer,omitempty"`
 }
 
-// NodeTest is how a node did on a route's main target.
+// NodeTest is how a node did on a route's main target. Refused: the test
+// failed because the site answered and turned the node away, as the sites
+// that say so by their status do (routes.Expected), not because nothing
+// answered.
 type NodeTest struct {
 	Delay   int   `json:"delay"`
 	Tested  bool  `json:"tested"`
+	Refused bool  `json:"refused,omitempty"`
 	History []int `json:"history"`
 }
 
 // On is the node with the delays it has on a route's main target.
 func (n NodeView) On(route string) NodeView {
 	if t, ok := n.Routes[route]; ok {
-		n.Delay, n.Tested, n.History = t.Delay, t.Tested, t.History
+		n.Delay, n.Tested, n.Refused, n.History = t.Delay, t.Tested, t.Refused, t.History
 	}
 	return n
 }
 
-// SiteDelay is how long a site took through a node, in ms; 0 failed.
+// SiteDelay is how long a site took through a node, in ms; 0 failed, and
+// Refused says the site turned the node away (NodeTest).
 type SiteDelay struct {
-	Name   string `json:"name"`
-	URL    string `json:"url"`
-	Delay  int    `json:"delay"`
-	Tested bool   `json:"tested"`
+	Name    string `json:"name"`
+	URL     string `json:"url"`
+	Delay   int    `json:"delay"`
+	Tested  bool   `json:"tested"`
+	Refused bool   `json:"refused,omitempty"`
 }
 
 // Exit is where the default route's traffic leaves.

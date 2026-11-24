@@ -50,6 +50,42 @@ func TestValidTargets(t *testing.T) {
 	}
 }
 
+// The sites that turn an exit away with a status of their own are tested
+// for any other status; every other site is tested for any answer. The AI
+// route starts on two of them, so its automatic choice leaves out the
+// nodes they won't serve.
+func TestExpected(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://api.openai.com/v1/models":     "100-402/404-599",
+		"https://API.OpenAI.com":               "100-402/404-599",
+		"http://api.anthropic.com:8443/x":      "100-402/404-599",
+		"https://claude.ai":                    "",
+		"https://openai.com":                   "",
+		"https://www.gstatic.com/generate_204": "",
+		"://":                                  "",
+	} {
+		if got := Expected(in); got != want {
+			t.Errorf("Expected(%q) = %q, want %q", in, got, want)
+		}
+	}
+	refusing := 0
+	for _, s := range DefaultTargets("ai") {
+		if Expected(s.URL) != "" {
+			refusing++
+		}
+	}
+	if refusing != 2 || Expected(DefaultTargets("ai")[0].URL) == "" {
+		t.Errorf("the AI route's sites: %+v", DefaultTargets("ai"))
+	}
+	for _, id := range []string{Default, "media", "dev"} {
+		for _, s := range DefaultTargets(id) {
+			if Expected(s.URL) != "" {
+				t.Errorf("%s: %s expects a status", id, s.URL)
+			}
+		}
+	}
+}
+
 // Every proxied route starts with a valid list of its own.
 func TestDefaultTargets(t *testing.T) {
 	for _, r := range Template() {

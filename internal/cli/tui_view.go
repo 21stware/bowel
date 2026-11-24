@@ -410,7 +410,7 @@ func (t *tui) pickerLines(h int) []string {
 		if prov == "" {
 			prov = n.Provider
 		}
-		rows = append(rows, []cell{mark, t2(n.Label), delayCell(n.DelayMs), t2(n.Type), t2(prov), {n.Where, gray}})
+		rows = append(rows, []cell{mark, t2(n.Label), delayCell(n.DelayMs, n.Refused), t2(n.Type), t2(prov), {n.Where, gray}})
 	}
 	lines, off := t.rows([]string{" ", i18n.T("节点", "Node"), i18n.T("延迟", "Delay"), i18n.T("类型", "Kind"), "Provider", i18n.T("位置", "Location")}, rows, p.sel, p.off, h-2)
 	p.off = off

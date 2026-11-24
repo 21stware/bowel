@@ -181,7 +181,7 @@ func (x *bridge) tailnetLogin(ctx context.Context) (tailnetData, error) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		_, _ = c.ProxyDelay(ctx, devnet.TailscaleOutbound, tailnetProbe, 15*time.Second)
+		_, _ = c.ProxyDelay(ctx, devnet.TailscaleOutbound, tailnetProbe, "", 15*time.Second)
 	}()
 	deadline := time.After(15 * time.Second)
 	for {

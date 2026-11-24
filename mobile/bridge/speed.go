@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/oboo/moho/internal/core"
@@ -44,9 +45,9 @@ func (x *bridge) testTarget(t speed.Target) bool {
 	defer cancel()
 	// A failure is the node's result too: the core has it as a delay of 0.
 	if home != "" {
-		_, _ = c.NodeDelay(ctx, home, t.Node, t.URL, siteTimeout)
+		_, _ = c.NodeDelay(ctx, home, t.Node, t.URL, routes.Expected(t.URL), siteTimeout)
 	} else {
-		_, _ = c.ProxyDelay(ctx, t.Node, t.URL, siteTimeout) // a config's own proxy or group
+		_, _ = c.ProxyDelay(ctx, t.Node, t.URL, routes.Expected(t.URL), siteTimeout) // a config's own proxy or group
 	}
 	return true
 }
@@ -134,6 +135,30 @@ type reading struct {
 	urls  map[string]string // route id → its main target; nil under a config's own routing
 	stale time.Duration     // how long a failure stands
 	now   time.Time
+	// refusals tells the failures a site answered with a refusal; nil
+	// knows of none.
+	refusals *speed.Refusals
+}
+
+// refused lists the routes, by id and the default one included, on whose
+// main target node name's last test failed by the site's refusal, not for
+// want of an answer. None under a config's own routing.
+func (rd reading) refused(name string, p mihomo.Proxy) []string {
+	var out []string
+	for id, u := range rd.urls {
+		if rd.refusedOn(name, u, p) {
+			out = append(out, id)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// refusedOn says whether node name's last test of url, if it still counts,
+// was the site's refusal.
+func (rd reading) refusedOn(name, url string, p mihomo.Proxy) bool {
+	h, ok := speed.Last(p.HistoryOf(url), rd.stale, rd.now)
+	return ok && rd.refusals.Is(name, url, h)
 }
 
 func readingOf(s settings.Settings, im *core.Imported) reading {

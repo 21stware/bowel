@@ -389,7 +389,7 @@ func (a *App) routeMenu(r RouteView, all []NodeView) []*mygo.MenuItem {
 		name := n.Name
 		d := "—"
 		if n.Tested {
-			d = i18n.T("超时", "Timeout")
+			d = failWord(n.Refused)
 			if n.Delay > 0 {
 				d = fmt.Sprintf("%d ms", n.Delay)
 			}

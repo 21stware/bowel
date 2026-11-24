@@ -31,6 +31,9 @@ type siteDelay struct {
 	URL    string `json:"url"`
 	Delay  int    `json:"delay"`
 	Tested bool   `json:"tested"`
+	// Refused: the test failed because the site answered and turned the
+	// node away, not because nothing answered.
+	Refused bool `json:"refused,omitempty"`
 }
 
 func mainURLs(s settings.Settings) map[string]string {
@@ -220,6 +223,9 @@ type pickData struct {
 	// Routes is the node's delay on each other route's main target (see
 	// nodeData.Routes); Delay is the default route's.
 	Routes map[string]int `json:"routes"`
+	// Refused are the routes on whose main target the node's failed test
+	// was the site's refusal (nodeData.Refused).
+	Refused []string `json:"refused,omitempty"`
 }
 
 type regionData struct {
@@ -257,6 +263,7 @@ func (x *bridge) routing() routingData {
 	px, prov := x.proxies, x.provNodes
 	x.mu.Unlock()
 	rd := readingOf(s, im)
+	rd.refusals = &x.refused
 	out := routingData{Groups: []groupData{}, Nodes: []pickData{}, Regions: []regionData{}, Providers: []providerPick{}, Kinds: []kindData{}}
 	out.Imported = x.imported(s, im, all, px, prov)
 	kinds := routes.Kinds
@@ -279,7 +286,7 @@ func (x *bridge) routing() routingData {
 			if ms, ok := rd.last(tests); ok {
 				d = ms
 			}
-			out.Nodes = append(out.Nodes, pickData{n, display(n), p.Name, p.ID, pl.Country, strings.ToLower(pl.Country), d, others})
+			out.Nodes = append(out.Nodes, pickData{n, display(n), p.Name, p.ID, pl.Country, strings.ToLower(pl.Country), d, others, rd.refused(n, px[n])})
 			if pl.Country != "" {
 				count[pl.Country]++
 			}
@@ -306,7 +313,8 @@ func (x *bridge) routing() routingData {
 			g.Targets = s.TargetsOf(r.ID)
 			for _, t := range g.Targets[1:] { // the node's own tests of them, as the core keeps them
 				sd := siteDelay{Name: t.Name, URL: t.URL}
-				sd.Delay, sd.Tested = rd.last(px[node].HistoryOf(t.URL)) // a failure is 0, a timeout
+				sd.Delay, sd.Tested = rd.last(px[node].HistoryOf(t.URL)) // a failure is 0: a timeout, or the site's refusal
+				sd.Refused = rd.refusedOn(node, t.URL, px[node])
 				g.Sites = append(g.Sites, sd)
 			}
 		}
@@ -835,7 +843,7 @@ func (x *bridge) setTargets(ctx context.Context, routeID string, list []routes.T
 			node := currentNode(x.proxies, r)
 			x.mu.Unlock()
 			if p := providerOf(node); p != "" {
-				if _, err := c.NodeDelay(ctx, "p-"+p, node, list[0].URL, siteTimeout); err != nil {
+				if _, err := c.NodeDelay(ctx, "p-"+p, node, list[0].URL, routes.Expected(list[0].URL), siteTimeout); err != nil {
 					return err
 				}
 			}

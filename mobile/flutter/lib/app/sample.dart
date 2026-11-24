@@ -3,7 +3,7 @@ import 'i18n.dart';
 // shots use; once the core is attached, AppState replaces them with real ones.
 
 class Node {
-  const Node(this.name, this.flag, this.city, this.source, this.proto, this.provider, this.delay, this.history, {this.providerId = '', this.lat, this.lon, this.routes});
+  const Node(this.name, this.flag, this.city, this.source, this.proto, this.provider, this.delay, this.history, {this.providerId = '', this.lat, this.lon, this.routes, this.refused = const {}});
 
   final String name, flag, city, source, proto, provider;
 
@@ -23,8 +23,16 @@ class Node {
   /// and a config's own routing.
   final Map<String, int>? routes;
 
+  /// The routes, 'default' included, on whose target its failed test was
+  /// the site's refusal: it answered and turned the node away, where a
+  /// timeout is no answer at all.
+  final Set<String> refused;
+
   /// Its delay as the route tests it.
   int on(String route) => route == 'default' || routes == null ? delay : routes![route] ?? -1;
+
+  /// Its test by the route in words: the delay, or how it failed.
+  String word(String route) => latText(on(route), refused: refused.contains(route == 'default' || routes == null ? 'default' : route));
 }
 
 /// The route of each of a traffic column's parts, in order.
@@ -234,7 +242,8 @@ int Function(Node, Node) byLatencyOn(String route) {
 }
 /// -1 untested, 0 timed out, then fast to slow.
 int latTone(int d) => d < 0 ? -1 : (d == 0 ? 0 : (d < 130 ? 1 : (d < 220 ? 2 : 3)));
-String latText(int d) => d < 0 ? '—' : (d == 0 ? tr('超时', 'Timeout') : '$d ms');
+/// A test in words; [refused] says a failed one was the site's refusal.
+String latText(int d, {bool refused = false}) => d < 0 ? '—' : (d == 0 ? (refused ? tr('被拒绝', 'Refused') : tr('超时', 'Timeout')) : '$d ms');
 
 class Stats {
   const Stats({this.down = 0, this.up = 0, this.today = 0, this.month = 0, this.active = 0});

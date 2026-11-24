@@ -426,6 +426,9 @@ type mcpRoute struct {
 	Locked  bool `json:"locked,omitempty"`
 	Refused bool `json:"refused,omitempty"`
 	Unheld  bool `json:"unheld,omitempty"`
+	// Sites are its test sites, the main one first (what an automatic
+	// route chooses its node by), as the node it uses did on each.
+	Sites []mcpSite `json:"sites,omitempty"`
 }
 
 type mcpNode struct {
@@ -434,8 +437,20 @@ type mcpNode struct {
 	Provider string `json:"provider"`
 	Type     string `json:"type"`
 	// DelayMs is the last test's; 0 failed. Absent when untested.
-	DelayMs *int   `json:"delayMs,omitempty"`
-	Where   string `json:"where,omitempty"`
+	DelayMs *int `json:"delayMs,omitempty"`
+	// RefusedBySite: that test failed because the site answered and turned
+	// the node away, not because nothing answered.
+	RefusedBySite bool   `json:"refusedBySite,omitempty"`
+	Where         string `json:"where,omitempty"`
+}
+
+// mcpSite is one of a route's test sites, as the node the route uses did
+// on it.
+type mcpSite struct {
+	Name          string `json:"name"`
+	URL           string `json:"url"`
+	DelayMs       *int   `json:"delayMs,omitempty"`
+	RefusedBySite bool   `json:"refusedBySite,omitempty"`
 }
 
 func (a *App) mcpRoutes(snap Snapshot) []mcpRoute {
@@ -444,8 +459,37 @@ func (a *App) mcpRoutes(snap Snapshot) []mcpRoute {
 		v := mcpRoute{ID: r.ID, Name: r.Name, Summary: r.Summary, Direct: r.Direct, Reject: r.Reject, Auto: r.Auto, Node: r.Node, UserRules: r.Mine, Locked: r.Locked, Refused: r.Refused, Unheld: r.Unheld}
 		if r.Node != "" {
 			v.NodeLabel = a.display(r.Node)
+			v.Sites = mcpSites(snap, r)
 		}
 		out = append(out, v)
+	}
+	return out
+}
+
+// mcpSites lists route r's test sites, its main one first, with what the
+// node it uses did on each.
+func mcpSites(snap Snapshot, r RouteView) []mcpSite {
+	if r.Main.URL == "" {
+		return nil
+	}
+	site := func(name, url string, ms int, tested, refused bool) mcpSite {
+		s := mcpSite{Name: name, URL: url}
+		if tested {
+			s.DelayMs, s.RefusedBySite = &ms, refused
+		}
+		return s
+	}
+	main := site(r.Main.Name, r.Main.URL, 0, false, false)
+	for _, n := range snap.Nodes {
+		if n.Name == r.Node {
+			n = n.On(r.ID)
+			main = site(r.Main.Name, r.Main.URL, n.Delay, n.Tested, n.Refused)
+			break
+		}
+	}
+	out := []mcpSite{main}
+	for _, s := range r.Sites {
+		out = append(out, site(s.Name, s.URL, s.Delay, s.Tested, s.Refused))
 	}
 	return out
 }
@@ -458,7 +502,7 @@ func mcpNodes(snap Snapshot, route string) []mcpNode {
 		v := mcpNode{Name: n.Name, Label: n.Display, Provider: n.Provider, Type: n.Type}
 		if n.Tested {
 			d := n.Delay
-			v.DelayMs = &d
+			v.DelayMs, v.RefusedBySite = &d, n.Refused
 		}
 		if p := n.Where.Place; p != nil {
 			v.Where = strings.TrimSpace(p.Country + " " + p.City + " (" + n.Where.Source + ")")
@@ -597,7 +641,7 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "list_routes", Title: "Routes and nodes", ReadOnly: true,
-				Description: "The routes (kinds of traffic: default, ai, media, dev, direct) with the node each uses, and every node with its last delay and location. Every node can serve every proxied route. When a provider's own config routes the traffic, `imported` has its groups, the routes are those groups that rules point at, and only select groups can change. Its unusedSettings are the parts of that config that act on traffic and are not used (dns, hosts, tun, listeners, ports and the like): bowel's own settings do those.",
+				Description: "The routes (kinds of traffic: default, ai, media, dev, direct) with the node each uses, and every node with its last delay and location. Every node can serve every proxied route. A route's sites are its test sites, the main one first, as the node it uses did on each: delayMs 0 is a failed test, and refusedBySite says the site answered and turned that exit away rather than nothing answering (api.openai.com and api.anthropic.com do so for exits they don't serve), so another node may do where this one doesn't; an automatic route does not choose a node its main site refuses. When a provider's own config routes the traffic, `imported` has its groups, the routes are those groups that rules point at, and only select groups can change. Its unusedSettings are the parts of that config that act on traffic and are not used (dns, hosts, tun, listeners, ports and the like): bowel's own settings do those.",
 				Run: func(ctx context.Context, s *mcp.Session, _ json.RawMessage) (any, error) {
 					snap := a.snapshot()
 					out := map[string]any{"routes": a.mcpRoutes(snap), "nodes": mcpNodes(snap, routes.Default)}
@@ -754,7 +798,7 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "test_route", Title: "Test a route's nodes",
-				Description: "Measures the delay of a route's nodes now, and returns them. Changes nothing.",
+				Description: "Measures the delay of a route's nodes on its main test site now, and returns them. delayMs 0 is a failed test; refusedBySite says the site answered and turned the node away, as api.openai.com and api.anthropic.com do for exits they don't serve. Changes nothing.",
 				Input:       obj(map[string]any{"route": routeArg}, "route"),
 				Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
 					var p struct{ Route string }

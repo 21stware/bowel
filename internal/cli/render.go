@@ -186,11 +186,14 @@ func fmtBytes(b int64) string {
 }
 
 // delayCell is a node's delay: green when fast, yellow, red when slow or
-// failed, and a dash when it was never tested.
-func delayCell(ms *int) cell {
+// failed, and a dash when it was never tested. refused: the test failed
+// because the site turned the node away.
+func delayCell(ms *int, refused bool) cell {
 	switch {
 	case ms == nil:
 		return cell{"—", gray}
+	case *ms == 0 && refused:
+		return cell{i18n.T("被拒绝", "refused"), red}
 	case *ms == 0:
 		return cell{i18n.T("超时", "timeout"), red}
 	case *ms < 200:

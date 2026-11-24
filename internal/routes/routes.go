@@ -155,7 +155,9 @@ func DefaultTargets(id string) []Target {
 	case Default:
 		return []Target{{"Google", "https://www.google.com"}, {"GitHub", "https://github.com"}}
 	case "ai":
-		return []Target{{"OpenAI", "https://api.openai.com"}, {"Claude", "https://claude.ai"}, {"Gemini", "https://gemini.google.com"}}
+		// The two APIs tell a refusal apart (Expected), which their web
+		// pages don't: a node may be let into one and not the other.
+		return []Target{{"OpenAI", "https://api.openai.com/v1/models"}, {"Claude", "https://api.anthropic.com/v1/models"}, {"Gemini", "https://gemini.google.com"}}
 	case "media":
 		return []Target{{"YouTube", "https://www.youtube.com/generate_204"}, {"Netflix", "https://www.netflix.com"},
 			{"Spotify", "https://open.spotify.com"}, {"Disney+", "https://www.disneyplus.com"}}
@@ -166,6 +168,32 @@ func DefaultTargets(id string) []Target {
 			{"Docker Hub", "https://registry-1.docker.io/v2/"}, {"PyPI", "https://pypi.org"}}
 	}
 	return nil
+}
+
+// refusing are the hosts of test sites that turn a request away for where
+// it comes from before they ask who sent it, and the status they do it
+// with: without a key, an exit they serve gets 401 (405 for a HEAD at
+// Anthropic), one they don't gets 403 (issue 260).
+var refusing = map[string]int{
+	"api.openai.com":    403,
+	"api.anthropic.com": 403,
+}
+
+// Expected is the statuses that make an answer from test site rawURL count
+// as one, in the core's words (its expected-status), "" when any does. A
+// site that refuses by its status is only reached through a node when it
+// answers with another: the core then takes a node the site turns away as
+// it takes a dead one, and the automatic group does not choose it.
+func Expected(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	st, ok := refusing[strings.ToLower(u.Hostname())]
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf("100-%d/%d-599", st-1, st+1)
 }
 
 // ParseTarget makes a target of an address as typed: the scheme is optional,

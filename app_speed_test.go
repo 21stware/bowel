@@ -9,6 +9,7 @@ import (
 	"github.com/oboo/moho/internal/mihomo"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
+	"github.com/oboo/moho/internal/speed"
 )
 
 // /proxies has no provider nodes: without the providers' lists every node
@@ -84,15 +85,48 @@ func TestSiteViews(t *testing.T) {
 		"https://a": {History: []mihomo.History{{Time: now, Delay: 50}}},
 		"https://c": {History: []mihomo.History{{Time: now.Add(-time.Hour), Delay: 0}}},
 	}}
-	got := siteViews(targets, n1, 30*time.Minute, now)
+	got := siteViews(nil, targets, "n1", n1, 30*time.Minute, now)
 	if !got[0].Tested || got[0].Delay != 50 || got[0].Name != "A" || got[1].Tested || got[1].Name != "B" {
 		t.Fatalf("got %+v", got)
 	}
 	if got[2].Tested {
 		t.Fatalf("a failure from an hour ago still shows: %+v", got[2])
 	}
-	if got = siteViews(targets, mihomo.Proxy{}, 30*time.Minute, now); got[0].Tested {
+	if got = siteViews(nil, targets, "n2", mihomo.Proxy{}, 30*time.Minute, now); got[0].Tested {
 		t.Fatalf("a node that was never tested shows a result: %+v", got)
+	}
+}
+
+// testedOn is a node whose tests of url are h.
+func testedOn(url string, h []mihomo.History) mihomo.Proxy {
+	return mihomo.Proxy{Extra: map[string]mihomo.URLTests{url: {History: h}}}
+}
+
+// A site that tells a refusal by its status turned the node away: the core
+// has that test as a failure of the URL, with its delay among all the
+// node's tests. It shows as a refusal, and a test nothing answered doesn't.
+func TestARefusalIsToldFromNoAnswer(t *testing.T) {
+	now := time.Now()
+	at := now.Add(-time.Minute)
+	const openai, claude = "https://api.openai.com/v1/models", "https://api.anthropic.com/v1/models"
+	hk := mihomo.Proxy{
+		History: []mihomo.History{{Time: at, Delay: 120}, {Time: at.Add(time.Second), Delay: 0}},
+		Extra: map[string]mihomo.URLTests{
+			openai: {History: []mihomo.History{{Time: at, Delay: 0}}},                  // answered, with 403
+			claude: {History: []mihomo.History{{Time: at.Add(time.Second), Delay: 0}}}, // no answer
+		},
+	}
+	var refused speed.Refusals
+	refused.Note(map[string]mihomo.Proxy{"hk": hk})
+	if v := nodeTest(&refused, "hk", openai, hk, time.Hour, now); !v.Tested || v.Delay != 0 || !v.Refused {
+		t.Fatalf("a refusal: %+v", v)
+	}
+	if v := nodeTest(&refused, "hk", claude, hk, time.Hour, now); !v.Tested || v.Delay != 0 || v.Refused {
+		t.Fatalf("no answer: %+v", v)
+	}
+	sites := siteViews(&refused, []routes.Target{{Name: "OpenAI", URL: openai}, {Name: "Claude", URL: claude}}, "hk", hk, time.Hour, now)
+	if !sites[0].Refused || sites[1].Refused {
+		t.Fatalf("sites: %+v", sites)
 	}
 }
 
@@ -101,10 +135,10 @@ func TestNodeTestKeepsTheLastTwelve(t *testing.T) {
 	for i := 1; i <= 15; i++ {
 		h = append(h, mihomo.History{Delay: i})
 	}
-	if v := nodeTest(h, time.Hour, time.Now()); v.Delay != 15 || !v.Tested || len(v.History) != 12 || v.History[0] != 4 {
+	if v := nodeTest(nil, "n", "https://a", testedOn("https://a", h), time.Hour, time.Now()); v.Delay != 15 || !v.Tested || len(v.History) != 12 || v.History[0] != 4 {
 		t.Fatalf("got %+v", v)
 	}
-	if v := nodeTest(nil, time.Hour, time.Now()); v.Tested || v.History == nil {
+	if v := nodeTest(nil, "n", "https://a", mihomo.Proxy{}, time.Hour, time.Now()); v.Tested || v.History == nil {
 		t.Fatalf("untested: %+v", v)
 	}
 }
@@ -114,10 +148,10 @@ func TestNodeTestKeepsTheLastTwelve(t *testing.T) {
 func TestNodeTestForgetsAnOldFailure(t *testing.T) {
 	now := time.Now()
 	h := []mihomo.History{{Time: now.Add(-2 * time.Hour), Delay: 80}, {Time: now.Add(-time.Hour), Delay: 0}}
-	if v := nodeTest(h, 30*time.Minute, now); v.Tested || v.Delay != 0 || len(v.History) != 2 {
+	if v := nodeTest(nil, "n", "https://a", testedOn("https://a", h), 30*time.Minute, now); v.Tested || v.Delay != 0 || len(v.History) != 2 {
 		t.Fatalf("an hour-old failure: %+v", v)
 	}
-	if v := nodeTest(h, 2*time.Hour, now); !v.Tested || v.Delay != 0 {
+	if v := nodeTest(nil, "n", "https://a", testedOn("https://a", h), 2*time.Hour, now); !v.Tested || v.Delay != 0 {
 		t.Fatalf("a failure still in its time: %+v", v)
 	}
 }

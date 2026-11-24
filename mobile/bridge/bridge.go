@@ -95,6 +95,7 @@ type bridge struct {
 	pushBytes  int
 
 	// Every speed test goes through these (speed.go).
+	refused    speed.Refusals             // which failed tests were a site's refusal
 	tests      *speed.Queue[speed.Target] // requests through nodes
 	sweeps     *speed.Queue[string]       // the providers' own checks
 	nodeHome   map[string]string          // node → the core's provider that has it
@@ -285,6 +286,7 @@ func (x *bridge) refresh(ctx context.Context) error {
 		}
 	}
 	x.noteWaiting(ctx, c, im, pv)
+	x.refused.Note(px)
 	all := x.routes()
 	x.mu.Lock()
 	x.proxies, x.provNodes, x.nodeHome = px, nodes, home

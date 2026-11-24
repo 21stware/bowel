@@ -310,7 +310,7 @@ class _NodeRow extends StatelessWidget {
               width: 56,
               child: Align(
                 alignment: Alignment.centerRight,
-                child: testing ? const Skeleton() : Text(latText(n.delay), maxLines: 1, style: l.text(12.5, color: latColor(l, n.delay), lh: 18)),
+                child: testing ? const Skeleton() : Text(n.word('default'), maxLines: 1, style: l.text(12.5, color: latColor(l, n.delay), lh: 18)),
               ),
             ),
           ]),
@@ -560,7 +560,7 @@ class _RegionHead extends StatelessWidget {
           const SizedBox(width: 9),
           Text('${nodes.length}', style: l.text(12.5, color: l.mute, lh: 18)),
           const Spacer(),
-          Text(best.delay > 0 ? tr('最快 {0} ms', 'Fastest {0} ms', [best.delay]) : latText(best.delay), style: l.text(12.5, color: latColor(l, best.delay), lh: 18)),
+          Text(best.delay > 0 ? tr('最快 {0} ms', 'Fastest {0} ms', [best.delay]) : best.word('default'), style: l.text(12.5, color: latColor(l, best.delay), lh: 18)),
           const SizedBox(width: 9),
           turns != null ? RotationTransition(turns: turns!, child: chev) : Transform.rotate(angle: open ? 1.5708 : 0, child: chev),
         ]),
