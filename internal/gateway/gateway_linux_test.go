@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -120,4 +121,16 @@ func TestLive(t *testing.T) {
 		t.Fatalf("KeepAwake: %v", err)
 	}
 	stop()
+}
+
+// TestForwardWriteError: a read-only /proc/sys, a container's, says
+// which docker run flag sets the switch instead.
+func TestForwardWriteError(t *testing.T) {
+	err := forwardWriteError(&os.PathError{Op: "open", Path: procSwitch, Err: syscall.EROFS})
+	if !strings.Contains(err.Error(), "net.ipv4.ip_forward=1") {
+		t.Errorf("read-only: %v", err)
+	}
+	if err := forwardWriteError(&os.PathError{Op: "open", Path: procSwitch, Err: syscall.EIO}); strings.Contains(err.Error(), "--sysctl") {
+		t.Errorf("another failure: %v", err)
+	}
 }

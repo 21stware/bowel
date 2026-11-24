@@ -1,0 +1,25 @@
+# bowel as a proxy for the LAN: programs anywhere on it use http://<host>:7899
+# (HTTP and SOCKS5 on one port). See ../docker.md.
+#
+#   docker compose up -d
+#   docker exec -it bowel bowel tui
+services:
+  bowel:
+    image: ghcr.io/21stware/bowel
+    container_name: bowel
+    restart: unless-stopped
+    ports:
+      - "7899:7899"
+      # MCP for agents on this machine; without 127.0.0.1: it is open to the
+      # LAN, behind the token `docker exec bowel bowel mcp token` prints.
+      - "127.0.0.1:7900:7900"
+    volumes:
+      - bowel:/data
+    environment:
+      # Added on the first start, and on any start it is missing; more than
+      # one: one per line, or separated by commas.
+      BOWEL_SUBSCRIPTION: https://example.com/your-subscription
+      TZ: Asia/Shanghai
+
+volumes:
+  bowel:

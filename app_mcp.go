@@ -627,7 +627,7 @@ func (a *App) mcpServer() *mcp.Server {
 						"providers": len(snap.Providers), "activeConnections": t.Active,
 						"traffic":     map[string]int64{"downBps": t.Down, "upBps": t.Up, "todayDown": t.TodayDown, "todayUp": t.TodayUp, "monthDown": t.MonthDown},
 						"agentPolicy": a.settings.Get().Policy(), "version": snap.Version,
-						"ipv6": a.ipv6Report(), "headless": a.headless,
+						"ipv6": a.ipv6Report(), "headless": a.headless, "mcpHttp": mcpHTTPView(),
 					}, nil
 				},
 			},
@@ -1355,7 +1355,7 @@ func (a *App) whitelistEdit(ctx context.Context, s *mcp.Session, raw json.RawMes
 	return out, nil
 }
 
-const mcpInstructions = `bowel is the user's macOS client for the mihomo proxy core. Providers supply nodes; routes are kinds of traffic (default, ai, media, dev, direct), each proxied route using one node or picking the fastest itself ("auto"). The user's own rules come before the built-in ones.
+const mcpInstructions = `bowel is the user's client for the mihomo proxy core, on their computer or on a server; get_status's headless is true when it runs with no window (a daemon, or a container). Providers supply nodes; routes are kinds of traffic (default, ai, media, dev, direct), each proxied route using one node or picking the fastest itself ("auto"). The user's own rules come before the built-in ones.
 
 Read freely: get_status first, then get_settings, list_routes, list_rules, explain, list_connections, get_logs, get_whitelists, get_dev_network.
 
@@ -1363,12 +1363,13 @@ Changes (set_mode, set_takeover, retake_system_proxy, select_node, lock_route, a
 
 var mcpStop context.CancelFunc
 
-// startMCP serves the tools for the app's life; stopMCP ends that, taking
-// the socket away.
+// startMCP serves the tools for the app's life, on the socket and, when
+// BOWEL_MCP_HTTP asks, over HTTP; stopMCP ends that, taking both away.
 func (a *App) startMCP() {
 	ctx, cancel := context.WithCancel(context.Background())
 	mcpStop = cancel
 	go a.serveMCP(ctx)
+	go a.serveMCPHTTP(ctx)
 }
 
 func stopMCP() {

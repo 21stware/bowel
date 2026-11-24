@@ -33,6 +33,8 @@ Every command has `--help` with examples. Reading commands take `--json`, and `l
 
 `bowel daemon` runs bowel with no window, menu bar icon or Dock icon: the core, the monitors and the command line's socket only. It stays in the foreground and stops on SIGINT, SIGTERM or `bowel stop`, putting the system proxy back as the app does, so systemd, launchd or a service wrapper can keep it. `BOWEL_DATA_DIR` (or `--data-dir`) gives it a data folder of its own. The daemon does not update itself. Opening the app while the daemon runs does nothing: stop the daemon first.
 
+`bowel health` exits 0 when the daemon answers, the core runs and its port accepts connections, and 1 otherwise, for a service manager's or Docker's health check. In a container (`BOWEL_CONTAINER` set), the first start opens the proxy to private addresses and leaves the system proxy alone; the environment variables it reads, and running it in Docker, are in [docker.md](docker.md).
+
 ```ini
 # /etc/systemd/system/bowel.service
 [Service]
@@ -42,5 +44,7 @@ Restart=on-failure
 ```
 
 ## Agents
+
+With `BOWEL_MCP_HTTP` set (`:7900`, say), bowel also serves MCP over HTTP at `/mcp`, for agents on other machines, behind a bearer token kept in the data folder; `bowel mcp token` prints it and the lines that add bowel to Claude Code and other clients. `BOWEL_MCP_TOKEN` gives a token of your own.
 
 Commands you type are not asked about. A command run by an agent (Claude Code, Codex, Cursor and others are recognised by their environment) follows the same policy as MCP: ask, allow or deny. The daemon has no window to ask in, so under "ask" it refuses an agent's change; allow them with `bowel settings set mcpPolicy allow`, which only you can run.

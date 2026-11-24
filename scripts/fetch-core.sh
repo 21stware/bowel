@@ -23,7 +23,10 @@ fetch() {
 if [ "$OS" = windows ]; then
   ASSET="mihomo-$OS-$ARCH-$VERSION.zip"; BIN="mihomo.exe"
 else
-  ASSET="mihomo-$OS-$ARCH-$VERSION.gz"; BIN="mihomo"
+  # MIHOMO_VARIANT picks a build for older CPUs: the Docker image takes
+  # amd64's "v1", which runs on the Atoms and Celerons of many NAS boxes,
+  # where the default build stops on an illegal instruction.
+  ASSET="mihomo-$OS-$ARCH${MIHOMO_VARIANT:+-$MIHOMO_VARIANT}-$VERSION.gz"; BIN="mihomo"
 fi
 if [ "$OS" = darwin ]; then
   # The name a release build's codesign makes the core's identifier of

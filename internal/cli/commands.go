@@ -47,6 +47,8 @@ func tree() *Command {
 		Sub: []*Command{
 			{Name: "status", Short: words{"查看状态：状态灯、模式、接管、各路由的节点和流量", "Show the state: the light, the mode, the takeover, each route's node and the traffic"},
 				Examples: []string{"bowel status", "bowel status --json | jq .state"}, Run: runStatus},
+			{Name: "health", Short: words{"健康检查：bowel 在应答、内核在运行并且代理端口有应答时退出码为 0，否则为 1", "Health check: exits 0 when bowel answers and the core runs and serves the proxy port, 1 otherwise"},
+				Examples: []string{"bowel health"}, Run: runHealth},
 			{Name: "on", Short: words{"开始接管这台电脑的流量（系统代理）", "Start taking over this computer's traffic (the system proxy)"},
 				Examples: []string{"bowel on"}, Run: func(c *Ctx) error { return runTakeover(c, true) }},
 			{Name: "off", Short: words{"停止接管，系统代理恢复原样", "Stop taking over; the system proxy goes back as it was"},
@@ -143,7 +145,7 @@ func tree() *Command {
 				Examples: []string{"bowel daemon", "BOWEL_DATA_DIR=/var/lib/bowel bowel daemon"}, Run: local("daemon")},
 			{Name: "stop", Short: words{"退出运行中的 bowel（应用或 daemon）", "Quit the running bowel (the app or the daemon)"}, Examples: []string{"bowel stop"}, Run: runStop},
 			{Name: "mcp", Raw: true, Short: words{"给 agent 用的 MCP 服务（stdio）", "The MCP server for agents (stdio)"},
-				Examples: []string{"claude mcp add --scope user bowel -- bowel mcp"}, Run: local("mcp")},
+				Examples: []string{"claude mcp add --scope user bowel -- bowel mcp", "bowel mcp token", "docker exec bowel bowel mcp token -q"}, Run: local("mcp")},
 			{Name: "devtools", Raw: true, Args: "off", Short: words{"撤销 bowel 写进开发者工具的配置", "Undo what bowel wrote into developer tools"},
 				Examples: []string{"bowel devtools off"}, Run: local("devtools")},
 			{Name: "completion", Args: "<bash|zsh|fish|powershell>", Min: 1, Max: 1, Choices: shells, Short: words{"输出 shell 补全脚本", "Print a shell's completion script"},
@@ -359,6 +361,28 @@ func runStatus(c *Ctx) error {
 	for _, r := range rows {
 		fmt.Fprintln(c.out, "  "+c.paint(gray, pad(r[0], width))+"  "+r[1])
 	}
+	return nil
+}
+
+// runHealth is a container's health check: one line, and the exit code
+// says it (1 also when bowel doesn't answer).
+func runHealth(c *Ctx) error {
+	var out struct {
+		OK   bool   `json:"ok"`
+		Text string `json:"text"`
+	}
+	raw, err := c.get("health", nil, &out)
+	if err != nil {
+		return err
+	}
+	if !out.OK {
+		return errors.New(out.Text)
+	}
+	if c.json {
+		c.printJSON(raw, false)
+		return nil
+	}
+	fmt.Fprintln(c.out, out.Text)
 	return nil
 }
 

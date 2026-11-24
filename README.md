@@ -11,6 +11,7 @@ bowel is a <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> (Clash Meta)
 <p align="center">
   <a href="https://github.com/21stware/bowel/releases/latest"><b>Download</b></a> ·
   <a href="https://bowel.dev/en/">Website</a> ·
+  <a href="https://bowel.dev/en/docs/">Docs</a> ·
   <a href="https://t.me/+BI3KVgBn7SE3YjVh">Telegram</a> ·
   <a href="README.zh-CN.md">简体中文</a>
 </p>
@@ -43,7 +44,7 @@ The desktop interface is built in Go and rendered directly via the GPU, with no 
 The screenshots are from macOS.
 
 ### Routes
-Route traffic by purpose, and select exit nodes manually or automatically by speed.
+Route traffic by purpose, and select exit nodes manually or automatically by speed. How groups, test sites and the download test work: [Route groups and nodes](https://bowel.dev/en/docs/routes/).
 
 <img src="site/shots/routes-en.webp" width="880" alt="Routes">
 
@@ -104,7 +105,7 @@ Sixteen skins that change the look of the whole interface.
 - **Developer tools** (macOS, Linux): Docker, the terminal and Git ignore the system proxy. bowel lists which ones aren't connected, writes their own config in one click, and removes it cleanly when you undo.
 - **Download sources**: Measures the official source and each mirror for npm, pip, Go and Cargo, and switches in one click. When the current source stops answering, one click moves you to the fastest one that does, or sends it through a node again.
 - **Private networks**: Addresses on your LAN, Tailscale and company VPN go direct automatically, in global mode too.
-- **Exit lock**: Lock a route group, such as AI, from its page on the board: its traffic then only goes through a node. When no node can carry it, it's cut rather than sent direct; in global and direct mode it keeps its own node; and with takeover off, everything else goes direct as usual while the locked group is refused, the system proxy staying on bowel for that. Once bowel quits, nothing is refused. `bowel route lock ai` does the same. On Android the switch is on the group's page too; with the VPN off the phone can't refuse it, so the first lock points to Android's "Block connections without VPN".
+- **Exit lock**: Lock a route group, such as AI, from its page on the board: its traffic then only goes through a node, and is cut rather than sent direct when no node can carry it, in global and direct mode and with takeover off too. Once bowel quits, nothing is refused. `bowel route lock ai` does the same. What it holds with and without TUN, and on Android: [Takeover, TUN and the exit lock](https://bowel.dev/en/docs/takeover/#exit-lock).
 - **MCP**: Built-in MCP server for Claude Code and other agents to read status and troubleshoot connections. It asks you before changing settings by default. The command below is for macOS; on Windows and Linux, use the path of the bowel program.
   ```bash
   claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp
@@ -131,6 +132,13 @@ Debian, Ubuntu and Fedora. This adds a signed package repository, so `apt` or `d
 curl -fsSL https://21stware.github.io/packages/install.sh | sh
 ```
 
+A server, NAS or router with no screen, in Docker (amd64, arm64, armv7). Then `docker exec -it bowel bowel tui`; TUN, gateway mode, compose files and MCP for agents are in [docs/docker.md](docs/docker.md):
+
+```bash
+docker run -d --name bowel --restart unless-stopped -p 7899:7899 -v bowel:/data \
+  -e BOWEL_SUBSCRIPTION='<subscription URL>' ghcr.io/21stware/bowel
+```
+
 Or download the file for your platform from [Releases](https://github.com/21stware/bowel/releases/latest):
 
 | Platform | File | Needs |
@@ -146,7 +154,7 @@ Or download the file for your platform from [Releases](https://github.com/21stwa
 - **Android**: Install the APK, allowing your browser to install apps if asked. Android asks for VPN permission the first time you connect.
 - **iOS**: Not released yet.
 
-Then add a provider (a subscription URL, node links or a QR code) and turn on takeover.
+Then add a provider (a subscription URL, node links or a QR code) and turn on takeover: [Install and get started](https://bowel.dev/en/docs/install/#first-steps).
 
 Some features depend on the platform:
 
@@ -162,11 +170,13 @@ Some features depend on the platform:
 | Route by app (rules) | Yes | Yes, never run on a real machine by us | Yes | Android 10 or later |
 | Apps that skip bowel (exclusion list) | None | None | None | Yes, applies after a reconnect |
 
-Routing by app is a kind of rule in a route group (App): it hands all of one app's connections to that group, and pinning the group to a fixed node sends the app through one node. The exclusion list on Android is something else: an app on it stays outside the VPN altogether and connects directly, where no rule reaches it. bowel has no mode that proxies only the apps you select. Android 8 and 9 have the exclusion list only. The iOS app isn't released and has neither.
+Routing by app is a kind of rule in a route group (App), and on Android the exclusion list is something else: an app on it skips the VPN, where no rule reaches it. Both are in [Route groups and nodes](https://bowel.dev/en/docs/routes/#routing-by-app).
 
-TUN asks for an administrator once, the first time you turn it on: macOS in its own dialog, Windows in a User Account Control prompt, Linux through polkit (`pkexec`). On Linux with systemd-resolved, that authorization also leaves a polkit rule letting your user point the resolver at the TUN device, which the core does every time TUN starts; without it (polkit older than 0.106, which reads no such rules) the desktop asks for a password three times at each start. On Linux the system proxy is GNOME's, which Cinnamon, MATE, Budgie and others share, or KDE's; on another desktop use TUN, or point your applications at the mixed port, 7899 by default. What each system has and lacks is listed in [docs/platform-parity.md](docs/platform-parity.md). On Android, you can choose apps that stay outside the VPN.
+TUN asks for an administrator once, the first time you turn it on. What it asks on each system, and the system proxy on Linux desktops, are in [Takeover, TUN and the exit lock](https://bowel.dev/en/docs/takeover/); what each system has and lacks underneath is in [docs/platform-parity.md](docs/platform-parity.md).
 
 ## Questions
+
+More, such as why the fastest node can't open ChatGPT, are in the [docs](https://bowel.dev/en/docs/faq/).
 
 **Coming from Clash Verge Rev, Mihomo Party, FlClash, ClashX Meta or Clash for Windows?** Add the same subscription link under Providers, or import the config file. When a subscription or a file is a complete config with route groups and rules of its own, bowel asks whether to route by them or only use its nodes. Only one client should take over the system proxy or TUN at a time, so quit the old one first.
 
@@ -232,7 +242,7 @@ The Flutter app's translation table and skins are written from the desktop's Go,
 
 - How it works and where the code is: [docs/architecture.md](docs/architecture.md)
 - The product's information architecture: [docs/product-ia.md](docs/product-ia.md)
-- The website is static, in `site/`; open `site/index.html` to preview it. Changes to it go live when they reach `main`.
+- The website is static, in `site/`; open `site/index.html` to preview it. Its docs are made from the Markdown in `docs/guide/` (and `docs/cli*.md`, `docs/gateway.md`): `pip install -r scripts/site-requirements.txt`, then `python3 scripts/build-site.py` writes the whole site to `build/site/`. Changes go live when they reach `main`. A change to how bowel is used updates its page in `docs/guide/`, in both languages, in the same pull request.
 - To release, set the version in `mygo.json` and push a matching tag, such as `v0.2.0`. GitHub Actions builds macOS, Windows, Linux and Android and publishes them as one release. iOS builds only when the workflow is run by hand, and isn't published.
 
 bowel was called Moho. The Go module is still `github.com/oboo/moho` and the bundle identifier `dev.moho.app`, which keeps macOS's camera and screen-recording permissions. On first launch the data in `~/Library/Application Support/Moho` moves to `…/bowel`.
