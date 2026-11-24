@@ -320,6 +320,9 @@ type NodeView struct {
 	Ping int `json:"ping"`
 	// Routes are the node's tests of each route's main target.
 	Routes map[string]NodeTest `json:"routes,omitempty"`
+	// Download is the node's last download test, asked for by hand; nil
+	// when it has had none since bowel started.
+	Download *DownloadTest `json:"download,omitempty"`
 	// MissingDialer is the proxy or group the node is to reach its server
 	// through (its `dialer-proxy`) when the running config has none by that
 	// name: the node cannot connect. "" when it dials by itself, or through
@@ -344,6 +347,14 @@ func (n NodeView) On(route string) NodeView {
 		n.Delay, n.Tested, n.Refused, n.History = t.Delay, t.Tested, t.Refused, t.History
 	}
 	return n
+}
+
+// DownloadTest is how fast a test file came down through a node, past the
+// connection's first moments.
+type DownloadTest struct {
+	Mbps   float64   `json:"mbps"` // 0 with Failed
+	Failed bool      `json:"failed,omitempty"`
+	At     time.Time `json:"at"`
 }
 
 // SiteDelay is how long a site took through a node, in ms; 0 failed, and

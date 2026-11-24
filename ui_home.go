@@ -40,6 +40,10 @@ type homeUI struct {
 	targetsOpen bool
 	targetsNew  string
 	targetsErr  string
+	// The download test's dialog: open while it asks, with what it would
+	// test.
+	bwOpen bool
+	bwPlan bandwidthPlan
 	// The developer tools in the 模式 cell: the list shown, and the change
 	// waiting for its second click.
 	toolsList  bool
@@ -1517,6 +1521,11 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32, lead func(
 	if testing {
 		label = i18n.T("测速中…", "Testing…")
 	}
+	downloading := u.pending(bandwidthKey(rid))
+	bwLabel := i18n.T("测下载", "Downloads")
+	if downloading {
+		bwLabel = i18n.T("下载测速中…", "Downloading…")
+	}
 	q2 := strings.ToLower(strings.TrimSpace(h.query))
 	tabs := q.Mode != routes.ModeAuto // 自动最快 has its range instead
 	picking := q.Mode == routes.ModeAuto && h.picking == rid
@@ -1580,7 +1589,8 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32, lead func(
 				}
 			}
 			bw, _ := c.MeasureText(0, ui.Span{Text: label, Size: 12, Weight: 500})
-			avail := w - 2*regionBarPad - 3*regionBarGap - regionSearchW - (bw + 2*11 + 2)
+			dw, _ := c.MeasureText(0, ui.Span{Text: bwLabel, Size: 12, Weight: 500})
+			avail := w - 2*regionBarPad - 4*regionBarGap - regionSearchW - (bw + 2*11 + 2) - (dw + 2*11 + 2)
 			if tabs {
 				strip := ui.ScrollHorizontal(c.Key("regions")).Gap(regionChipGap).Padding(12, 0).AlignItems(ui.Center).Shrink(1).MinWidth(0)
 				if sw, cut := peekWidth(widths, regionChipGap, avail); cut {
@@ -1598,6 +1608,14 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32, lead func(
 			ui.SearchField(c.Key("q"), &h.query).Placeholder(i18n.T("搜索节点", "Search nodes")).Width(regionSearchW).Shrink(0)
 			b := btn(c, p, label).Disabled(testing).Shrink(0)
 			b.OnClick(func() { u.do(func() error { return u.app.testRoute(bg(), rid) }) })
+			d := btn(c.Key("bandwidth"), p, bwLabel).Disabled(downloading || testing).Shrink(0).
+				Tooltip(i18n.T("经延迟最低的几个节点各下载一个测速文件，比较真实的下载速度；会用掉一些流量，开始前会先告诉你", "Download a test file through the few nodes with the lowest delay, to compare real download speeds. It uses some traffic; you're told how much before it starts"))
+			d.OnClick(func() {
+				if u.app != nil {
+					h.bwPlan = u.app.planBandwidth(rid)
+				}
+				h.bwOpen = true
+			})
 		})
 		note := func(text string, bad bool) {
 			col := p.mute
@@ -1635,9 +1653,13 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32, lead func(
 		if r.Locked && r.Broken != "" && r.Broken != "all" {
 			note(lockedOutSay(), true) // the lock is what refuses, not only a node that is down
 		}
+		if downloadsAlike(u.snap.Nodes) {
+			note(i18n.T("测出来的下载速度都差不多：瓶颈可能在本地网络，换节点帮助不大。", "The download speeds came out about the same: the limit is likely your own connection, and another node won't help much."), false)
+		}
 		u.siteStrip(c, p, r, testing)
 	}
 	u.targetsDialog(c, p, r)
+	u.bandwidthDialog(c, p, r)
 	queried := func(n NodeView) bool {
 		return q2 == "" || strings.Contains(strings.ToLower(n.Display), q2)
 	}
@@ -1694,6 +1716,8 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32, lead func(
 	// empty the ones it doesn't use, so the two lists' flags, names, delays
 	// and actions line up with each other and with the columns' names.
 	byOrder := q.Mode == routes.ModeOrder
+	// The download column is there once a node in the list has been tested.
+	downloads := slices.ContainsFunc(list, func(p pick) bool { return p.head == "" && p.n.Download != nil })
 	// The columns' names, over the columns at the rows' end.
 	columns := func() {
 		ui.Row(c).Gap(10).Padding(7, 26, 5, 26).AlignItems(ui.Center).Children(func() {
@@ -1707,6 +1731,9 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32, lead func(
 				main = "URL"
 			}
 			columnHead(main, fmt.Sprintf(i18n.T("经节点请求 %s 的耗时，自动选择也按它", "Time to request %s through the node, which Auto also goes by"), r.Main.URL))
+			if downloads {
+				columnHead(i18n.T("下载", "Down"), i18n.T("经节点下载测速文件的速度，点「测下载」时才测", "How fast the test file came down through the node, tested when you click Downloads"))
+			}
 			ui.Box(c).Width(14).Shrink(0)
 			if byOrder {
 				ui.Box(c).Width(nodeActW).Shrink(0)
@@ -1796,6 +1823,9 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32, lead func(
 				ui.Row(c).Width(nodeColW).Shrink(0).Justify(ui.End).AlignItems(ui.Center).Children(func() { failTag(c, p, fmtDelay(n), 11) })
 			} else {
 				ui.Text(c, fmtDelay(n)).FontSize(12).FontFeatures("tnum").Width(nodeColW).Shrink(0).NoWrap().TextAlign(ui.End).TextColor(delayColor(p, n.Delay, n.Tested))
+			}
+			if downloads {
+				downloadCell(c, p, n.Download, downloading)
 			}
 			mark := ""
 			switch {
