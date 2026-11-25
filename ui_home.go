@@ -1706,9 +1706,15 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32, lead func(
 		}
 		list = append(append(head, pick{head: i18n.T("点击加入", "Click to add")}), list...)
 	}
+	// With nothing to list, the same list holds the header and a line
+	// saying so: a different container would move the search field, which
+	// would lose the focus mid-word.
 	if len(list) == 0 {
-		ui.Scroll(c.Key("nodes")).Grow(1).Children(func() {
-			head()
+		ui.List(c.Key("nodes"), &h.nodes, 2, func(i int) {
+			if i == 0 {
+				ui.Column(c.Key("\x00head")).Children(head)
+				return
+			}
 			ui.Text(c, i18n.T("没有符合条件的节点", "No nodes match")).FontSize(12.5).TextColor(p.mute).Padding(30, 26)
 		})
 		return
