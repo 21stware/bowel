@@ -573,6 +573,7 @@ type callArgs struct {
 	Service   string          `json:"service"`
 	Regions   []string        `json:"regions"`
 	Providers []string        `json:"providers"`
+	Except    *bool           `json:"exceptProviders"` // setScope's: Providers are left out; unsent keeps it
 	Order     []string        `json:"order"`
 	Targets   []routes.Target `json:"targets"`
 	Patch     json.RawMessage `json:"patch"`

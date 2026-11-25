@@ -375,3 +375,37 @@ func TestProviderUsedByFits(t *testing.T) {
 		}
 	}
 }
+
+// TestProviderRowsDrag (#272): a provider dragged onto another takes its
+// place, at once in the list; a click still opens a row.
+func TestProviderRowsDrag(t *testing.T) {
+	u := providersUIFixture()
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	ids := func() []string {
+		var out []string
+		for _, pv := range u.snap.Providers {
+			out = append(out, pv.ID)
+		}
+		return out
+	}
+	was := ids()
+	if len(was) < 3 {
+		t.Fatalf("the fixture has %d providers", len(was))
+	}
+	dragOnto(t, tt, "自建 · 洛杉矶 VPS", "机场 A")
+	tt.Advance(time.Second)
+	moved := ids()
+	if moved[0] != was[2] || moved[1] != was[0] || moved[2] != was[1] {
+		t.Errorf("after dragging the third onto the first: %v, was %v", moved, was)
+	}
+	if u.prov.open != "" {
+		t.Errorf("a drag opened row %q", u.prov.open)
+	}
+	a, _ := tt.Find("机场 A")
+	b, _ := tt.Find("自建 · 洛杉矶 VPS")
+	if b.Y >= a.Y {
+		t.Error("the moved row isn't shown first")
+	}
+	shot(t, tt, "providers-dragged")
+}

@@ -319,6 +319,27 @@ func (s *Store) Rename(id, name string) (Provider, error) {
 	return s.update(id, func(p *Provider) { p.Name = name })
 }
 
+// Move gives provider id the place of provider to, the ones between
+// shifting by one: the order their nodes are listed and offered in. It
+// reports whether anything moved.
+func (s *Store) Move(id, to string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	from := slices.IndexFunc(s.items, func(p Provider) bool { return p.ID == id })
+	at := slices.IndexFunc(s.items, func(p Provider) bool { return p.ID == to })
+	if id == to || from < 0 || at < 0 {
+		return false, nil
+	}
+	p := s.items[from]
+	before := s.items
+	s.items = slices.Insert(slices.Delete(slices.Clone(s.items), from, from+1), at, p)
+	if err := s.saveLocked(); err != nil {
+		s.items = before
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *Store) SetAutoUpdate(id string, hours int) (Provider, error) {
 	return s.update(id, func(p *Provider) { p.AutoUpdate = max(0, hours) })
 }

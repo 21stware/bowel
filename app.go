@@ -1995,6 +1995,16 @@ func (a *App) renameProvider(id, name string) error {
 	return err
 }
 
+// moveProvider gives provider id the place of provider to. Their order is
+// that of the nodes everywhere, the core's groups too.
+func (a *App) moveProvider(id, to string) error {
+	moved, err := a.providers.Move(id, to)
+	if err != nil || !moved {
+		return err
+	}
+	return a.applyConfig()
+}
+
 func (a *App) setAutoUpdate(id string, hours int) error {
 	_, err := a.providers.SetAutoUpdate(id, hours)
 	a.emit()

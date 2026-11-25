@@ -71,7 +71,11 @@ String _policyWord(AppState app, Map g, RouteCfg? rc) {
   if (mode == 'auto') {
     final names = {for (final r in _list(app.routing, 'regions')) r['code']: r['name'] as String};
     final providers = {for (final p in _list(app.routing, 'providers')) p['id']: p['name'] as String};
-    final scope = [for (final r in _strs(g, 'regions')) names[r] ?? r, for (final p in _strs(g, 'providers')) providers[p] ?? p];
+    final except = g['exceptProviders'] == true;
+    final scope = [
+      for (final r in _strs(g, 'regions')) names[r] ?? r,
+      for (final p in _strs(g, 'providers')) except ? tr('不用 {0}', 'not {0}', [providers[p] ?? p]) : providers[p] ?? p,
+    ];
     if (scope.isNotEmpty) return '${_modeName(mode)} · ${scope.join(tr('、', ', '))}';
   }
   return _modeName(mode);
@@ -480,8 +484,13 @@ class _GroupPageState extends State<GroupPage> {
     app.routeOp('setOrder', {'id': id, 'order': list});
   }
 
-  void _scope(Map g, {List<String>? regions, List<String>? providers}) {
-    app.routeOp('setScope', {'id': id, 'regions': regions ?? _strs(g, 'regions'), 'providers': providers ?? _strs(g, 'providers')});
+  void _scope(Map g, {List<String>? regions, List<String>? providers, bool? except}) {
+    app.routeOp('setScope', {
+      'id': id,
+      'regions': regions ?? _strs(g, 'regions'),
+      'providers': providers ?? _strs(g, 'providers'),
+      'exceptProviders': except ?? g['exceptProviders'] == true,
+    });
   }
 
   /// Where the group's traffic leaves, as on the desktop: by a node, or
@@ -593,9 +602,12 @@ class _GroupPageState extends State<GroupPage> {
   Widget _strategy(Look l, Map g, RouteCfg? rc) {
     final mode = _modeOf(g);
     final regions = _strs(g, 'regions'), providers = _strs(g, 'providers'), order = _strs(g, 'order');
+    // Picked providers are the only ones used, or with except the ones left out.
+    final except = g['exceptProviders'] == true;
+    bool fromProvider(String p) => providers.isEmpty || providers.contains(p) != except;
     final allRegions = _list(app.routing, 'regions'), allProviders = _list(app.routing, 'providers');
     // A chip counts what's left of the other filter; one chosen without nodes still shows.
-    int regionCount(String code) => _nodes.where((n) => n['country'] == code && (providers.isEmpty || providers.contains(n['providerId']))).length;
+    int regionCount(String code) => _nodes.where((n) => n['country'] == code && fromProvider(n['providerId'] as String? ?? '')).length;
     int providerCount(String p) => _nodes.where((n) => n['providerId'] == p && (regions.isEmpty || regions.contains(n['country']))).length;
     final known = {for (final r in allRegions) r['code'] as String};
     final regionChips = [
@@ -650,9 +662,15 @@ class _GroupPageState extends State<GroupPage> {
                 text: name,
                 count: providerCount(pid),
                 on: providers.contains(pid),
+                struck: except && providers.contains(pid),
                 onTap: () => _scope(g, providers: providers.contains(pid) ? ([...providers]..remove(pid)) : [...providers, pid]),
               ),
           ]),
+          if (providers.isNotEmpty)
+            _chips([
+              Chip(text: tr('只用所选', 'Only these'), on: !except, onTap: () => _scope(g, except: false)),
+              Chip(text: tr('排除所选', 'All but these'), on: except, onTap: () => _scope(g, except: true)),
+            ]),
         ]);
       }
     } else if (mode == 'fixed') {

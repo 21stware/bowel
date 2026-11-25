@@ -923,4 +923,10 @@ var jaTable = map[string]string{
 	"先开启 VPN": "先に VPN をオンにしてください",
 	"这个地址在 tailnet 里：先在设置里打开内置 Tailscale": "このアドレスは tailnet 内にあります。先に設定で内蔵の Tailscale をオンにしてください",
 	"这个地址在 tailnet 里：先开启 VPN":             "このアドレスは tailnet 内にあります。先に VPN をオンにしてください",
+
+	// #272: providers left out of a range, and their order.
+	"不用 %s": "%s 以外",
+	"只用所选": "選択したものだけ",
+	"排除所选": "選択したもの以外",
+	"拖动调整顺序，节点按这个顺序排列": "ドラッグして並べ替え。ノードはこの順に並びます",
 }

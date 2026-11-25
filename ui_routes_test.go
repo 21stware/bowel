@@ -964,3 +964,50 @@ func TestPickNodes(t *testing.T) {
 		t.Errorf("in words: %q", w)
 	}
 }
+
+// TestScopeExceptProviders (#272): picked sources can be the ones left out.
+// 排除所选 shows once one is picked, crosses the picked ones out and counts
+// the others' nodes; 全部 starts over at 只用.
+func TestScopeExceptProviders(t *testing.T) {
+	u, _ := scopeFixture()
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	if tt.HasText("排除所选") {
+		t.Error("排除所选 shows with no source picked")
+	}
+	pv := u.snap.Providers[slices.IndexFunc(u.snap.Providers, func(pv ProviderView) bool { return pv.Enabled })]
+	u.changePolicy("ai", func(q *routes.Policy) { q.Providers = []string{pv.ID} })
+	tt.Frame()
+	tt.Advance(50 * time.Millisecond)
+	if err := tt.Click("排除所选"); err != nil {
+		t.Fatalf("%v: %q", err, tt.Texts())
+	}
+	tt.Frame()
+	q := u.policy("ai")
+	if !q.ExceptProviders || !slices.Equal(q.Providers, []string{pv.ID}) {
+		t.Fatalf("after 排除所选: %+v", q)
+	}
+	for _, n := range u.snap.Nodes {
+		if q.FromProvider(n.Provider) == (n.Provider == pv.ID) {
+			t.Errorf("node %s of %s: in range %v", n.Name, n.Provider, q.FromProvider(n.Provider))
+		}
+	}
+	shot(t, tt, "routes-scope-except")
+	// The 全部 of 来源: the one in the row of 排除所选.
+	ex, _ := tt.Find("排除所选")
+	var all []ui.Rect
+	for _, a := range tt.AccessAll() {
+		if a.Role == ui.RoleButton && a.Name == "全部" {
+			all = append(all, a.Bounds)
+		}
+	}
+	at := slices.IndexFunc(all, func(r ui.Rect) bool { return r.Y <= ex.Y+ex.H/2 && ex.Y+ex.H/2 <= r.Y+r.H })
+	if at < 0 {
+		t.Fatalf("no 全部 in the row of 排除所选: %v", all)
+	}
+	tt.ClickAt(all[at].X+all[at].W/2, all[at].Y+all[at].H/2)
+	tt.Frame()
+	if q := u.policy("ai"); q.ExceptProviders || len(q.Providers) > 0 {
+		t.Errorf("after 全部: %+v", q)
+	}
+}
