@@ -75,8 +75,8 @@ func TestFlutterSkins(t *testing.T) {
 		fmt.Fprintf(&defs, "    accentD: %s,\n", dartColor(ui.Hex(accentHex(k.accent, true))))
 		fmt.Fprintf(&defs, "    light: %s,\n", dartPalette(t, k.id, k.light))
 		fmt.Fprintf(&defs, "    dark: %s,\n", dartPalette(t, k.id, k.dark))
-		fmt.Fprintf(&defs, "    font: %s,\n", dartgen.Quote(dartFace(p.font)))
-		fmt.Fprintf(&defs, "    disp: %s,\n", dartgen.Quote(dartFace(p.display)))
+		fmt.Fprintf(&defs, "    font: %s,\n", dartFace(p.font))
+		fmt.Fprintf(&defs, "    disp: %s,\n", dartFace(p.display))
 		fmt.Fprintf(&defs, "    round: %s,\n", strconv.FormatFloat(float64(p.round), 'f', -1, 32))
 		fmt.Fprintf(&defs, "    glow: %s,\n", glow)
 		defs.WriteString("  ),\n")
@@ -138,18 +138,19 @@ func dartColor(c ui.Color) string {
 	return fmt.Sprintf("Color(0x%02X%02X%02X%02X)", c.A, c.R, c.G, c.B)
 }
 
-// dartFace is the family the app sets a face of the desktop's in: its first
-// that the app can name. The app bundles OPPO Sans as "OPPO Sans"; SF Mono
-// is the Mac's own, so a monospace starts at Menlo.
+// dartFace is the family the app sets a face of the desktop's in, as Dart:
+// its first that iOS has, or null for the system's own. The app bundles no
+// font, so the desktop's interface face, OPPO Sans, is the system's there;
+// SF Mono is the Mac's own, so a monospace starts at Menlo.
 func dartFace(face string) string {
 	for f := range strings.SplitSeq(face, ",") {
 		switch f = strings.TrimSpace(f); f {
 		case "SF Mono":
 		case "OPPO Sans 4.0":
-			return "OPPO Sans"
+			return "null"
 		default:
-			return f
+			return dartgen.Quote(f)
 		}
 	}
-	return ""
+	return "null"
 }

@@ -252,7 +252,7 @@ bowel was called Moho. The Go module is still `github.com/oboo/moho` and the bun
 - [mihomo](https://github.com/MetaCubeX/mihomo): the proxy core, GPL-3.0. The released apps run it as a separate program and do not link it. iOS has to link it, which is why the iOS app isn't released.
 - [MyGo](https://github.com/egoist/mygo): the native Go UI toolkit.
 - [Flutter](https://flutter.dev): the mobile apps' interface.
-- [OPPO Sans](resources/fonts/): the interface's typeface.
+- [OPPO Sans](resources/fonts/): the desktop apps' typeface. The mobile apps use the system's.
 
 ## License
 

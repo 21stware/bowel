@@ -141,7 +141,7 @@ class _TapState extends State<Tap> {
   }
 }
 
-/// One line, never wrapped.
+/// One line, never wrapped, at its style's line height.
 class Line1 extends StatelessWidget {
   const Line1(this.text, this.style, {super.key, this.clip = false, this.align});
 
@@ -151,7 +151,8 @@ class Line1 extends StatelessWidget {
   final TextAlign? align;
 
   @override
-  Widget build(BuildContext context) => Text(text, style: style, maxLines: 1, softWrap: false, textAlign: align, overflow: clip ? TextOverflow.clip : TextOverflow.ellipsis);
+  Widget build(BuildContext context) =>
+      Text(text, style: style, strutStyle: strutOf(style), maxLines: 1, softWrap: false, textAlign: align, overflow: clip ? TextOverflow.clip : TextOverflow.ellipsis);
 }
 
 class Dot extends StatelessWidget {

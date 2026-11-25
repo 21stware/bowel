@@ -1,14 +1,13 @@
-import 'dart:io';
-
 import 'package:bowel/app/i18n.dart';
 import 'package:bowel/app/state.dart';
 import 'package:bowel/pages/frame.dart';
 import 'package:bowel/pages/setup.dart';
 import 'package:bowel/ui/skin.dart';
 import 'package:flutter/material.dart' show DefaultMaterialLocalizations, Material, MaterialType;
-import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'real_font.dart';
 
 Widget _host(AppState app, Size size) => Localizations(
       locale: const Locale('en'),
@@ -28,12 +27,8 @@ Widget _host(AppState app, Size size) => Localizations(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  // Widths decide this page, so it needs the app's real font: the test font
-  // draws every letter as wide as a kanji.
-  setUpAll(() async {
-    final bytes = await File('assets/fonts/OPPOSans4.0.ttf').readAsBytes();
-    await (FontLoader('OPPO Sans')..addFont(Future.value(ByteData.sublistView(bytes)))).load();
-  });
+  // Widths decide this page.
+  setUpAll(loadSystemFont);
 
   tearDown(() => language = 'zh');
 

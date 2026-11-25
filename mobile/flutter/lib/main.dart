@@ -39,7 +39,7 @@ class BowelApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'bowel',
-      theme: ThemeData(fontFamily: 'OPPO Sans', splashFactory: NoSplash.splashFactory, highlightColor: Colors.transparent),
+      theme: ThemeData(fontFamily: systemFamily, splashFactory: NoSplash.splashFactory, highlightColor: Colors.transparent),
       home: AnimatedBuilder(animation: app, builder: (context, _) => _Root(app: app, ready: ready)),
     );
   }

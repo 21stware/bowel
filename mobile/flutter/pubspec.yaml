@@ -57,15 +57,6 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  fonts:
-    - family: OPPO Sans
-      fonts:
-        - asset: assets/fonts/OPPOSans4.0.ttf
-
-  # The OPPO Sans license must travel with every copy of the font.
-  assets:
-    - assets/fonts/OPPOSans-LICENSE.txt
-
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg
