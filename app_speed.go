@@ -174,7 +174,7 @@ func mainURLs(s settings.Settings) map[string]string {
 // nodeTest is node name's tests of url, for the view. A failure older than
 // stale is no result.
 func nodeTest(refused *speed.Refusals, name, url string, node mihomo.Proxy, stale time.Duration, now time.Time) NodeTest {
-	tests := node.HistoryOf(url)
+	tests := node.ResultsOf(url)
 	t := NodeTest{History: make([]int, 0, len(tests))}
 	for _, h := range tests[max(0, len(tests)-12):] {
 		t.History = append(t.History, h.Delay)
@@ -191,7 +191,7 @@ func siteViews(refused *speed.Refusals, targets []routes.Target, name string, no
 	out := make([]SiteDelay, len(targets))
 	for i, t := range targets {
 		out[i] = SiteDelay{Name: t.Name, URL: t.URL}
-		if h, ok := speed.Last(node.HistoryOf(t.URL), stale, now); ok {
+		if h, ok := speed.Last(node.ResultsOf(t.URL), stale, now); ok {
 			// A failure is 0, which the view shows as a timeout unless the
 			// site refused.
 			out[i].Delay, out[i].Tested, out[i].Refused = h.Delay, true, refused.Is(name, t.URL, h)

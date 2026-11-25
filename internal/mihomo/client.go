@@ -167,6 +167,34 @@ func (p Proxy) HistoryOf(url string) []History {
 	return p.Extra[url].History
 }
 
+// Private says whether p leads into a private network rather than out to
+// the internet: a Tailscale node reaches the devices of a tailnet, and
+// anything else only through an exit node, if the tailnet has one.
+func (p Proxy) Private() bool { return p.Type == "Tailscale" }
+
+// ResultsOf are p's tests of url that tell whether p works, which is what
+// a node's delay, its timeouts and a group's being down are read from. A
+// site that doesn't answer through a private node says nothing of the
+// node: only its successes count, and until one it reads as not tested.
+// When p was last tested is still HistoryOf's.
+func (p Proxy) ResultsOf(url string) []History { return p.results(p.HistoryOf(url)) }
+
+// Results are History, read as ResultsOf reads the tests of one URL.
+func (p Proxy) Results() []History { return p.results(p.History) }
+
+func (p Proxy) results(tests []History) []History {
+	if !p.Private() {
+		return tests
+	}
+	var out []History
+	for _, h := range tests {
+		if h.Delay > 0 {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
 // Proxies is GET /proxies: the groups and the built-in proxies. The nodes
 // of proxy-providers are only in ProxyProviders.
 func (c *Client) Proxies(ctx context.Context) (map[string]Proxy, error) {

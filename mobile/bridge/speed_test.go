@@ -382,6 +382,34 @@ func TestNodeViewReadsEachRoutesOwnTarget(t *testing.T) {
 	}
 }
 
+// A Tailscale node fixed on a group, whose tests of sites all fail, leads
+// into a tailnet: it reads as not tested, and the group as working.
+func TestTailnetNodeIsNotDown(t *testing.T) {
+	now := time.Now()
+	rd := reading{urls: map[string]string{routes.Default: "https://d", "home": "https://h"}, stale: 30 * time.Minute, now: now}
+	failed := []mihomo.History{{Time: now, Delay: 0}}
+	p := mihomo.Proxy{Type: "Tailscale", History: failed, Extra: map[string]mihomo.URLTests{
+		"https://d": {History: failed},
+		"https://h": {History: failed},
+	}}
+	n := nodeView("home", "a", p, rd)
+	if n.Tested || len(n.H) != 0 {
+		t.Errorf("the default route's: %+v", n)
+	}
+	if ms, tested := n.on("home"); tested {
+		t.Errorf("home: %d, tested", ms)
+	}
+	q := routes.Policy{Mode: routes.ModeFixed, Fixed: "home"}
+	if why := brokenWhy(q, []nodeData{n}, "home", false); why != "" {
+		t.Errorf("fixed on it: broken %q", why)
+	}
+	// The same failures of a proxy are what they say.
+	p.Type = "Vless"
+	if why := brokenWhy(q, []nodeData{nodeView("home", "a", p, rd)}, "home", false); why != "fixed" {
+		t.Errorf("a proxy that fails: broken %q, want fixed", why)
+	}
+}
+
 // A site that tells a refusal by its status turned the node away: the node
 // says on which routes, and a failure nothing answered is not among them.
 func TestNodeViewTellsARefusal(t *testing.T) {
