@@ -946,7 +946,12 @@ func (u *UI) routesGroup(c *ui.Context, p *pal, all []routes.Route, r routes.Rou
 // list as 代理's in-place expansion.
 func (u *UI) strategyCard(c *ui.Context, p *pal, v RouteView) {
 	st := &u.routes
-	ui.Column(c.Key("pol")).Radius(p.r(10)).Background(p.card).Border(1, p.hair).Margin(0, 0, 14, 0).ClipX().Children(func() {
+	pol := ui.Column(c.Key("pol")).Radius(p.r(10)).Background(p.card).Border(1, p.hair).Margin(0, 0, 14, 0).ClipX()
+	winW, _ := c.Size()
+	lastWinW := ui.Local(pol, "winW", func() float32 { return 0 })
+	winChanged := winW != *lastWinW
+	*lastWinW = winW
+	pol.Children(func() {
 		b := ui.ButtonBase(c.Key("head")).Row().Gap(10).Padding(10, 14).AlignItems(ui.Center)
 		b.Label(i18n.T("节点策略", "Node strategy")).OnClick(func() {
 			st.pol = !st.pol
@@ -967,8 +972,16 @@ func (u *UI) strategyCard(c *ui.Context, p *pal, v RouteView) {
 		})
 		if st.pol {
 			ui.Row(c).Padding(2, 14, 10, 14).Children(func() { u.stratSeg(c, p, v.ID) })
-			ui.Column(c.Key("picker")).Height(420).BorderWidth(1, 0, 0, 0).BorderColor(p.hair2).Children(func() {
-				u.nodePicker(c, p, v.ID, 660, nil)
+			picker := ui.Column(c.Key("picker")).Height(420).BorderWidth(1, 0, 0, 0).BorderColor(p.hair2)
+			w := picker.LayoutBounds().W
+			if w <= 0 {
+				w = max(0, pol.LayoutBounds().W-2) // pol's 1 DIP border on each side
+			}
+			if w <= 0 || winChanged {
+				c.Invalidate()
+			}
+			picker.Children(func() {
+				u.nodePicker(c, p, v.ID, w, nil)
 			})
 		}
 	})

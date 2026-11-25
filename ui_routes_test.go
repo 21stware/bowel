@@ -320,6 +320,84 @@ func TestStrategyPicker(t *testing.T) {
 	}
 }
 
+// TestStrategyRegionStripWidth: the region strip inside the Routes tab's
+// Node strategy card uses the card's actual width across window sizes (not a
+// fixed width), leaving no dead gap before Search nodes when regions overflow.
+func TestStrategyRegionStripWidth(t *testing.T) {
+	checkBar := func(t *testing.T, tt *ui.Tester, label string) {
+		t.Helper()
+		all, ok := tt.AccessByRole(ui.RoleButton, "全部")
+		if !ok {
+			t.Fatalf("%s: no 全部 chip: %q", label, tt.Texts())
+		}
+		var strip ui.Rect
+		var foundStrip bool
+		cy := all.Bounds.Y + all.Bounds.H/2
+		for _, a := range tt.AccessAll() {
+			if a.Role == ui.RoleScroll && a.Bounds.Y <= cy && cy <= a.Bounds.Y+a.Bounds.H && (!foundStrip || a.Bounds.H < strip.H) {
+				strip = a.Bounds
+				foundStrip = true
+			}
+		}
+		if !foundStrip || strip.H >= 80 {
+			t.Fatalf("%s: no region scroll strip around y=%.1f (got %+v)", label, cy, strip)
+		}
+		btn, ok := tt.AccessByRole(ui.RoleButton, "全部测速")
+		if !ok {
+			t.Fatalf("%s: no 全部测速 button: %q", label, tt.Texts())
+		}
+		searchLeft := btn.Bounds.X - regionBarGap - regionSearchW
+		foundField := false
+		for _, a := range tt.AccessAll() {
+			if a.Role == ui.RoleTextField && a.Bounds.Y <= cy && cy <= a.Bounds.Y+a.Bounds.H && a.Bounds.X >= searchLeft && a.Bounds.X+a.Bounds.W <= btn.Bounds.X {
+				foundField = true
+				break
+			}
+		}
+		if !foundField {
+			t.Fatalf("%s: no search field between %.1f and %.1f", label, searchLeft, btn.Bounds.X)
+		}
+		gap := searchLeft - (strip.X + strip.W)
+		if gap < regionBarGap-1 || gap > 100 {
+			t.Errorf("%s: strip %+v to searchLeft %.1f leaves gap %.1f (want within [%.0f, 100])", label, strip, searchLeft, gap, float32(regionBarGap-1))
+		}
+	}
+
+	for _, mode := range []string{routes.ModeOrder, routes.ModeFixed} {
+		u, _ := scopeFixture()
+		u.routes.pol = false
+		u.changePolicy("ai", func(q *routes.Policy) { q.Mode = mode })
+		tt := ui.NewTester(u.view, 1060, 760)
+		tt.Advance(time.Second)
+		if err := tt.Click("节点策略"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Advance(200 * time.Millisecond)
+		checkBar(t, tt, mode+"-open-1060")
+
+		tt.SetSize(1920, 760)
+		tt.Advance(200 * time.Millisecond)
+		checkBar(t, tt, mode+"-resize-1920")
+
+		tt.SetSize(960, 760)
+		tt.Advance(200 * time.Millisecond)
+		checkBar(t, tt, mode+"-resize-960")
+	}
+
+	// Starting already open on frame 1 converges to the real width and stays idle.
+	u, _ := scopeFixture()
+	u.changePolicy("ai", func(q *routes.Policy) { q.Mode = routes.ModeOrder })
+	var builds int
+	tt := ui.NewTester(func(c *ui.Context) { builds++; u.view(c) }, 1920, 760)
+	tt.Advance(200 * time.Millisecond)
+	checkBar(t, tt, "already-open-1920")
+	builds = 0
+	tt.Advance(time.Second)
+	if builds > 0 {
+		t.Errorf("already-open-1920: %d builds in an idle second, want 0", builds)
+	}
+}
+
 // scopeFixture is a group on 自动最快, among more regions than fit a line.
 func scopeFixture() (*UI, []string) {
 	u := routesFixture()
