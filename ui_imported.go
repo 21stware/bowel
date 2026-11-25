@@ -308,10 +308,14 @@ func (u *UI) importedGroupDetail(c *ui.Context, p *pal, g GroupView) {
 // groupMembers lists what g can point at, in the config's order.
 func (u *UI) groupMembers(c *ui.Context, p *pal, g GroupView) {
 	group := g.Name
+	// A config can list a node twice: each row needs a key of its own, or
+	// a click on one goes to the other.
+	times := map[string]int{}
 	for _, m := range g.Members {
 		member := m.Name
 		chosen := g.Now == member
-		b := ui.ButtonBase(c.Key(member)).Row().Gap(8).Padding(6, 10).Radius(p.r(6)).AlignItems(ui.Center)
+		times[member]++
+		b := ui.ButtonBase(c.Key(fmt.Sprint(member, "#", times[member]))).Row().Gap(8).Padding(6, 10).Radius(p.r(6)).AlignItems(ui.Center)
 		if g.Selectable && b.Hovered() {
 			b.Background(p.hover)
 		}

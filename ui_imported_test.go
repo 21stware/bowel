@@ -213,3 +213,14 @@ func TestProviderSaysWhatItsNodesDialThrough(t *testing.T) {
 		t.Errorf("a line with nothing missing: %q", tt.Texts())
 	}
 }
+
+// A config can list one node twice in a group: each row is its own, so a
+// click on the first goes to the first, not the last.
+func TestImportedGroupListsANodeTwice(t *testing.T) {
+	u := importedFixture()
+	g := &u.snap.Imported.Groups[0]
+	g.Members = append(g.Members, MemberView{Name: "JP-01"}, MemberView{Name: "JP-02"}, MemberView{Name: "JP-01"})
+	u.page = "routes"
+	tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})
+	tt.Advance(time.Second)
+}
