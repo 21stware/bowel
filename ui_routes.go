@@ -366,6 +366,12 @@ func (u *UI) matchLine(c *ui.Context, p *pal, rest []RouteView, other RouteView)
 // label with its highest count; a lower one has no more digits, but can be
 // wider, as 0 is than 1, so the digits are measured as the widest there is.
 func chip(c *ui.Context, p *pal, key, label, widest string, on bool, onClick func()) {
+	chipStruck(c, p, key, label, widest, on, false, onClick)
+}
+
+// chipStruck is a chip whose label, if struck, is crossed out: a choice
+// that leaves its thing out.
+func chipStruck(c *ui.Context, p *pal, key, label, widest string, on, struck bool, onClick func()) {
 	measure := func(s string) float32 {
 		w, _ := c.MeasureText(0, ui.Span{Text: s, Size: 12, Weight: 600})
 		return w
@@ -393,7 +399,12 @@ func chip(c *ui.Context, p *pal, key, label, widest string, on bool, onClick fun
 	if on {
 		col, w = p.ink, 600
 	}
-	b.OnClick(onClick).Children(func() { ui.Text(c, label).FontSize(12).FontWeight(w).TextColor(col).NoWrap() })
+	b.OnClick(onClick).Children(func() {
+		t := ui.Text(c, label).FontSize(12).FontWeight(w).TextColor(col).NoWrap()
+		if struck {
+			t.Strikethrough()
+		}
+	})
 }
 
 // toggled is list with v added, or taken out if it was in.
@@ -428,13 +439,13 @@ func (u *UI) scopeRows(c *ui.Context, p *pal, rid string, q routes.Policy) {
 			u.regionChips(c, p, rid, q, func(r string) (label, widest string) {
 				in := func(n NodeView) bool { return n.Where.Place != nil && n.Where.Place.Country == r }
 				return r + count(func(n NodeView) bool {
-					return in(n) && (len(q.Providers) == 0 || slices.Contains(q.Providers, n.Provider))
+					return in(n) && q.FromProvider(n.Provider)
 				}), r + count(in)
 			})
 		})
 		row("providers", i18n.T("来源", "From"), func() {
 			all := i18n.T("全部", "All")
-			chip(c, p, "all", all, all, len(q.Providers) == 0, func() { u.changePolicy(rid, func(q *routes.Policy) { q.Providers = nil }) })
+			chip(c, p, "all", all, all, len(q.Providers) == 0, func() { u.changePolicy(rid, func(q *routes.Policy) { q.Providers, q.ExceptProviders = nil, false }) })
 			for _, pv := range u.snap.Providers {
 				if !pv.Enabled {
 					continue
@@ -444,8 +455,25 @@ func (u *UI) scopeRows(c *ui.Context, p *pal, rid string, q routes.Policy) {
 				label := pv.Name + count(func(n NodeView) bool {
 					return in(n) && (len(q.Regions) == 0 || n.Where.Place != nil && slices.Contains(q.Regions, n.Where.Place.Country))
 				})
-				chip(c, p, id, label, pv.Name+count(in), slices.Contains(q.Providers, id), func() {
-					u.changePolicy(rid, func(q *routes.Policy) { q.Providers = toggled(q.Providers, id) })
+				picked := slices.Contains(q.Providers, id)
+				chipStruck(c, p, id, label, pv.Name+count(in), picked, picked && q.ExceptProviders, func() {
+					u.changePolicy(rid, func(q *routes.Policy) {
+						if q.Providers = toggled(q.Providers, id); len(q.Providers) == 0 {
+							q.ExceptProviders = false // 全部 again, which starts over at 只用
+						}
+					})
+				})
+			}
+			// What the picked ones are: the only ones used, or the ones
+			// left out (a provider added later is then used too).
+			if len(q.Providers) > 0 {
+				ui.Box(c).Width(10)
+				only, except := i18n.T("只用所选", "Only these"), i18n.T("排除所选", "All but these")
+				chip(c, p, "only", only, only, !q.ExceptProviders, func() {
+					u.changePolicy(rid, func(q *routes.Policy) { q.ExceptProviders = false })
+				})
+				chip(c, p, "except", except, except, q.ExceptProviders, func() {
+					u.changePolicy(rid, func(q *routes.Policy) { q.ExceptProviders = true })
 				})
 			}
 		})

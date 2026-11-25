@@ -30,6 +30,9 @@ type Policy struct {
 	Mode      string   `json:"mode,omitempty"`
 	Regions   []string `json:"regions,omitempty"`   // ModeAuto: country codes; none is all
 	Providers []string `json:"providers,omitempty"` // ModeAuto: provider ids; none is all
+	// ExceptProviders turns Providers around: the providers it lists are
+	// left out and every other one is used, a provider added later too.
+	ExceptProviders bool `json:"exceptProviders,omitempty"`
 	// Nodes are the nodes picked by hand for ModeAuto, by their full names,
 	// so that a pick outlives an update of its subscription as long as the
 	// node keeps its name; none is every node Regions and Providers allow.
@@ -55,6 +58,12 @@ var DownloadEveries = []int{6, 12, 24}
 
 // ByDownload says whether the group chooses its node by download speed.
 func (p Policy) ByDownload() bool { return p.Mode == ModeAuto && p.DownloadEvery > 0 }
+
+// FromProvider says whether the automatic group may use the nodes of
+// provider id.
+func (p Policy) FromProvider(id string) bool {
+	return len(p.Providers) == 0 || slices.Contains(p.Providers, id) != p.ExceptProviders
+}
 
 // Scoped says whether the automatic group picks from less than every node.
 func (p Policy) Scoped() bool { return len(p.Regions) > 0 || len(p.Providers) > 0 || len(p.Nodes) > 0 }

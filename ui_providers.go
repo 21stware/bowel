@@ -398,6 +398,11 @@ func (u *UI) provRow(c *ui.Context, p *pal, pv ProviderView) {
 		if !pv.Enabled {
 			row.Opacity(.45)
 		}
+		sorts := len(u.snap.Providers) > 1
+		mark := func() {}
+		if sorts {
+			mark = u.sortsProvider(c, p, row, pv.ID)
+		}
 		row.OnClick(func() {
 			if pr.open == pv.ID {
 				pr.open = ""
@@ -405,6 +410,14 @@ func (u *UI) provRow(c *ui.Context, p *pal, pv ProviderView) {
 				pr.open = pv.ID
 			}
 		}).Children(func() {
+			mark()
+			if sorts {
+				gc := p.faint
+				if row.Hovered() {
+					gc = p.ink2
+				}
+				grip(c, gc, 10).Margin(0, -10, 0, -2)
+			}
 			u.provName(c, p, pv, busy, nodes)
 			provUsage(c, p, pv)
 			provHealth(c, p, nodes)
@@ -416,6 +429,54 @@ func (u *UI) provRow(c *ui.Context, p *pal, pv ProviderView) {
 				Transition(provRowMotion).Children(func() { u.provNodes(c, p, pv, nodes) })
 		}
 	})
+}
+
+// provDrag is a provider being dragged to another's place, by its id.
+type provDrag string
+
+// sortsProvider makes provider id's row b one to drag to another's place,
+// and the place of one dragged to it: the order of the providers is that
+// of their nodes everywhere. mark, called among the row's children, draws
+// the edge the dragged one would come in at.
+func (u *UI) sortsProvider(c *ui.Context, p *pal, b ui.Element, id string) (mark func()) {
+	b.Drag(provDrag(id)).Tooltip(i18n.T("拖动调整顺序，节点按这个顺序排列", "Drag to reorder; nodes are listed in this order"))
+	if b.Dragging() {
+		b.Opacity(.35)
+	}
+	if d, ok := ui.Drop[provDrag](b); ok && string(d) != id {
+		u.moveProvider(string(d), id)
+	}
+	d, over := ui.DragOver[provDrag](b)
+	return func() {
+		if !over || string(d) == id {
+			return
+		}
+		at := func(id string) int {
+			return slices.IndexFunc(u.snap.Providers, func(pv ProviderView) bool { return pv.ID == id })
+		}
+		line := ui.Box(c.Key("drop")).Absolute().Left(0).Right(0).Height(2).Radius(1).Background(p.accentLine).IgnoreInput(true).AccessHidden(true)
+		if at(string(d)) < at(id) {
+			line.Bottom(0)
+		} else {
+			line.Top(0)
+		}
+	}
+}
+
+// moveProvider gives provider id to's place: in the list at once, and in
+// the app, whose next snapshot has their nodes in the new order too.
+func (u *UI) moveProvider(id, to string) {
+	list := u.snap.Providers
+	from := slices.IndexFunc(list, func(pv ProviderView) bool { return pv.ID == id })
+	at := slices.IndexFunc(list, func(pv ProviderView) bool { return pv.ID == to })
+	if from < 0 || at < 0 || from == at {
+		return
+	}
+	pv := list[from]
+	u.snap.Providers = slices.Insert(slices.Delete(slices.Clone(list), from, from+1), at, pv)
+	if u.app != nil {
+		u.do(func() error { return u.app.moveProvider(id, to) })
+	}
 }
 
 func (u *UI) provName(c *ui.Context, p *pal, pv ProviderView, busy bool, nodes []NodeView) {

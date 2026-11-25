@@ -684,3 +684,27 @@ func TestAIServices(t *testing.T) {
 		t.Errorf("cloudcode-pa.googleapis.com goes to %q with Gemini off", route)
 	}
 }
+
+// TestFromProvider (#272): the picked providers are the only ones used, or
+// with ExceptProviders the ones left out; none picked is every one.
+func TestFromProvider(t *testing.T) {
+	q := Policy{}
+	if !q.FromProvider("a") {
+		t.Error("none picked leaves a out")
+	}
+	q.ExceptProviders = true
+	if !q.FromProvider("a") || q.Scoped() {
+		t.Error("except with none picked narrows")
+	}
+	q.Providers = []string{"home"}
+	if q.FromProvider("home") || !q.FromProvider("a") || !q.FromProvider("added-later") || !q.Scoped() {
+		t.Error("except home")
+	}
+	q.ExceptProviders = false
+	if !q.FromProvider("home") || q.FromProvider("a") {
+		t.Error("only home")
+	}
+	if c := q.clone(); c.ExceptProviders != q.ExceptProviders {
+		t.Error("clone")
+	}
+}

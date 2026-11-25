@@ -256,13 +256,15 @@ class Seg<T> extends StatelessWidget {
 }
 
 class Chip extends StatelessWidget {
-  const Chip({super.key, required this.text, required this.on, required this.onTap, this.leading, this.count});
+  const Chip({super.key, required this.text, required this.on, required this.onTap, this.leading, this.count, this.struck = false});
 
   final String text;
   final bool on;
   final VoidCallback onTap;
   final Widget? leading;
   final int? count;
+  // struck crosses the text out: a choice that leaves its thing out.
+  final bool struck;
 
   @override
   Widget build(BuildContext context) {
@@ -276,7 +278,7 @@ class Chip extends StatelessWidget {
         decoration: BoxDecoration(color: on ? l.ink : const Color(0x00000000), borderRadius: l.br(18)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           if (leading != null) ...[leading!, const SizedBox(width: 5)],
-          Text(text, maxLines: 1, style: l.text(13.5, weight: on ? 600 : 400, color: c, lh: 20)),
+          Text(text, maxLines: 1, style: l.text(13.5, weight: on ? 600 : 400, color: c, lh: 20).copyWith(decoration: struck ? TextDecoration.lineThrough : null)),
           if (count != null) ...[const SizedBox(width: 5), Opacity(opacity: .6, child: Text('$count', style: l.text(11.5, color: c, lh: 16)))],
         ]),
       ),

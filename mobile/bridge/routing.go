@@ -89,7 +89,7 @@ func (x *bridge) fileNodes() []string {
 }
 
 func inScope(q routes.Policy, name, provider, country string) bool {
-	return (len(q.Providers) == 0 || slices.Contains(q.Providers, provider)) &&
+	return q.FromProvider(provider) &&
 		(len(q.Regions) == 0 || slices.Contains(q.Regions, country)) &&
 		(len(q.Nodes) == 0 || slices.Contains(q.Nodes, name))
 }
@@ -204,6 +204,7 @@ type groupData struct {
 	Mode      string          `json:"mode"`
 	Regions   []string        `json:"regions"`
 	Providers []string        `json:"providers"`
+	Except    bool            `json:"exceptProviders"` // Providers are the ones left out
 	Order     []string        `json:"order"`
 	Fixed     string          `json:"fixed"`
 	Now       string          `json:"now"`
@@ -302,7 +303,7 @@ func (x *bridge) routing() routingData {
 	slices.SortFunc(out.Regions, func(a, b regionData) int { return b.Count - a.Count })
 	for _, r := range all {
 		g := groupData{ID: r.ID, Name: routes.Title(r), Summary: routes.Describe(r), Direct: r.Direct, Reject: r.Reject, Custom: r.Custom, Movable: routes.Movable(r.ID), Chooses: choosesExit(r.ID), Locked: r.Locked, Lockable: routes.Lockable(r.ID),
-			Mode: r.Policy.Mode, Regions: nonNil(r.Policy.Regions), Providers: nonNil(r.Policy.Providers), Order: nonNil(r.Policy.Order), Fixed: r.Policy.Fixed,
+			Mode: r.Policy.Mode, Regions: nonNil(r.Policy.Regions), Providers: nonNil(r.Policy.Providers), Except: r.Policy.ExceptProviders, Order: nonNil(r.Policy.Order), Fixed: r.Policy.Fixed,
 			Services: []serviceData{}, Targets: []routes.Target{}, Sites: []siteDelay{}}
 		if im != nil {
 			g.Movable, g.Chooses, g.Locked, g.Lockable = false, false, false, false
@@ -502,7 +503,15 @@ func (x *bridge) routeOp(ctx context.Context, a callArgs) error {
 		return x.change(ctx, func(s *settings.Settings) { s.Routing.SetStrategy(a.ID, a.Mode, cur) })
 	case "setScope":
 		return x.change(ctx, func(s *settings.Settings) {
-			s.Routing.ChangePolicy(a.ID, func(q *routes.Policy) { q.Regions, q.Providers = a.Regions, a.Providers })
+			s.Routing.ChangePolicy(a.ID, func(q *routes.Policy) {
+				q.Regions, q.Providers = a.Regions, a.Providers
+				if a.Except != nil {
+					q.ExceptProviders = *a.Except
+				}
+				if len(q.Providers) == 0 {
+					q.ExceptProviders = false
+				}
+			})
 		})
 	case "setOrder":
 		return x.change(ctx, func(s *settings.Settings) {

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -338,5 +339,55 @@ func TestDownloadErrorLeavesTheLinkOut(t *testing.T) {
 		t.Fatal("unreadable link: no error")
 	} else if strings.Contains(err.Error(), "FAKETOKEN123") {
 		t.Errorf("unreadable link shows the link: %s", err)
+	}
+}
+
+// TestMove (#272): a provider takes another's place, the ones between
+// shifting, and the order outlives a reopen.
+func TestMove(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, n := range []string{"a", "b", "c"} {
+		p, err := s.create(Provider{Name: n, Kind: Link, Enabled: true}, []byte("ss://x@1.2.3.4:1#"+n))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, p.ID)
+	}
+	order := func(s *Store) (out []string) {
+		for _, p := range s.List() {
+			out = append(out, p.Name)
+		}
+		return out
+	}
+	if moved, err := s.Move(ids[2], ids[0]); !moved || err != nil {
+		t.Fatalf("Move = %v, %v", moved, err)
+	}
+	if got := order(s); !slices.Equal(got, []string{"c", "a", "b"}) {
+		t.Errorf("after c onto a: %v", got)
+	}
+	if moved, _ := s.Move(ids[2], ids[1]); !moved {
+		t.Fatal("c onto b didn't move")
+	}
+	if got := order(s); !slices.Equal(got, []string{"a", "b", "c"}) {
+		t.Errorf("after c onto b: %v", got)
+	}
+	if moved, _ := s.Move(ids[0], "nope"); moved {
+		t.Error("moved onto a provider that isn't there")
+	}
+	if moved, _ := s.Move(ids[0], ids[0]); moved {
+		t.Error("moved onto itself")
+	}
+	s.Move(ids[1], ids[0])
+	again, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := order(again); !slices.Equal(got, []string{"b", "a", "c"}) {
+		t.Errorf("after a reopen: %v", got)
 	}
 }

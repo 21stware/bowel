@@ -92,7 +92,7 @@ func (a *App) nodeLists(all []routes.Route) (scopes, orders map[string][]string)
 // inScope says whether node name, from provider, leaving from country, is
 // in the range of q's automatic choice.
 func inScope(q routes.Policy, name, provider, country string) bool {
-	return (len(q.Providers) == 0 || slices.Contains(q.Providers, provider)) &&
+	return q.FromProvider(provider) &&
 		(len(q.Regions) == 0 || slices.Contains(q.Regions, country)) &&
 		(len(q.Nodes) == 0 || slices.Contains(q.Nodes, name))
 }
@@ -253,7 +253,11 @@ func scopeWord(q routes.Policy, provName func(string) string) string {
 		add(r)
 	}
 	for _, id := range q.Providers {
-		add(provName(id))
+		if q.ExceptProviders {
+			add(fmt.Sprintf(i18n.T("不用 %s", "not %s"), provName(id)))
+		} else {
+			add(provName(id))
+		}
 	}
 	if n := len(q.Nodes); n > 0 {
 		add(fmt.Sprintf(i18n.T("%d 个节点", "%d nodes"), n))
