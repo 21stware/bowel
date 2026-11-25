@@ -314,7 +314,7 @@ func (x *bridge) routing() routingData {
 			g.Targets = s.TargetsOf(r.ID)
 			for _, t := range g.Targets[1:] { // the node's own tests of them, as the core keeps them
 				sd := siteDelay{Name: t.Name, URL: t.URL}
-				sd.Delay, sd.Tested = rd.last(px[node].HistoryOf(t.URL)) // a failure is 0: a timeout, or the site's refusal
+				sd.Delay, sd.Tested = rd.last(px[node].ResultsOf(t.URL)) // a failure is 0: a timeout, or the site's refusal
 				sd.Refused = rd.refusedOn(node, t.URL, px[node])
 				g.Sites = append(g.Sites, sd)
 			}

@@ -183,7 +183,7 @@ func (a *App) importedView(s settings.Settings, im *core.Imported, px map[string
 			if !mv.Group {
 				mv.Node = a.listedNode(m, provNodes)
 			}
-			if h := px[m].History; len(h) > 0 {
+			if h := px[m].Results(); len(h) > 0 {
 				mv.Tested, mv.Delay = true, h[len(h)-1].Delay
 			}
 			gv.Members = append(gv.Members, mv)

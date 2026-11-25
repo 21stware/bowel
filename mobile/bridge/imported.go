@@ -376,7 +376,7 @@ func (x *bridge) imported(s settings.Settings, im *core.Imported, all []routes.R
 			if !mv.Group {
 				mv.Node = x.listedNode(m, prov)
 			}
-			if h := px[m].History; len(h) > 0 {
+			if h := px[m].Results(); len(h) > 0 {
 				mv.Tested, mv.Delay = true, h[len(h)-1].Delay
 			}
 			gv.Members = append(gv.Members, mv)

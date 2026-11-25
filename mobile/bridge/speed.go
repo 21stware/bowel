@@ -157,7 +157,7 @@ func (rd reading) refused(name string, p mihomo.Proxy) []string {
 // refusedOn says whether node name's last test of url, if it still counts,
 // was the site's refusal.
 func (rd reading) refusedOn(name, url string, p mihomo.Proxy) bool {
-	h, ok := speed.Last(p.HistoryOf(url), rd.stale, rd.now)
+	h, ok := speed.Last(p.ResultsOf(url), rd.stale, rd.now)
 	return ok && rd.refusals.Is(name, url, h)
 }
 
@@ -183,18 +183,19 @@ func (rd reading) last(tests []mihomo.History) (ms int, ok bool) {
 }
 
 // tests reads p: its tests of the default route's main target, and its
-// delay on each other route's (nodeData.Routes). Under a config's own
+// delay on each other route's (nodeData.Routes), both as
+// mihomo.Proxy.ResultsOf counts them. Under a config's own
 // routing no target is bowel's, and a node shows what the core last
 // measured, on whatever.
 func (rd reading) tests(p mihomo.Proxy) (main []mihomo.History, others map[string]int) {
 	if rd.urls == nil {
-		return p.History, nil
+		return p.Results(), nil
 	}
 	others = map[string]int{}
 	for id, u := range rd.urls {
-		if ms, ok := rd.last(p.HistoryOf(u)); ok && id != routes.Default {
+		if ms, ok := rd.last(p.ResultsOf(u)); ok && id != routes.Default {
 			others[id] = ms
 		}
 	}
-	return p.HistoryOf(rd.urls[routes.Default]), others
+	return p.ResultsOf(rd.urls[routes.Default]), others
 }

@@ -143,6 +143,22 @@ func TestNodeTestKeepsTheLastTwelve(t *testing.T) {
 	}
 }
 
+// A Tailscale node that no site answers through reads as not tested, not
+// timed out: it leads into a tailnet. A success it had still shows.
+func TestNodeTestOfATailnetCountsSuccessesOnly(t *testing.T) {
+	now := time.Now()
+	failed := testedOn("https://a", []mihomo.History{{Time: now, Delay: 0}, {Time: now, Delay: 0}})
+	failed.Type = "Tailscale"
+	if v := nodeTest(nil, "home", "https://a", failed, time.Hour, now); v.Tested || len(v.History) != 0 {
+		t.Fatalf("only failures: %+v", v)
+	}
+	exit := testedOn("https://a", []mihomo.History{{Time: now, Delay: 90}, {Time: now, Delay: 0}})
+	exit.Type = "Tailscale"
+	if v := nodeTest(nil, "home", "https://a", exit, time.Hour, now); !v.Tested || v.Delay != 90 || len(v.History) != 1 {
+		t.Fatalf("through an exit node once: %+v", v)
+	}
+}
+
 // A failure from before a long quiet stretch is not the node's state now:
 // it reads as not tested, which no route counts against it.
 func TestNodeTestForgetsAnOldFailure(t *testing.T) {
