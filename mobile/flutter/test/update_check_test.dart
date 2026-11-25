@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:bowel/app/i18n.dart';
 import 'package:bowel/app/state.dart';
@@ -13,6 +12,8 @@ import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'real_font.dart';
 
 /// The newest release the bridge finds; null when the app is already on it.
 String? _latest;
@@ -207,12 +208,8 @@ void main() {
   });
 
   group('on a narrow phone', () {
-    // Widths decide this, so it needs the app's real font: the test font
-    // draws every letter as wide as a kanji.
-    setUpAll(() async {
-      final bytes = await File('assets/fonts/OPPOSans4.0.ttf').readAsBytes();
-      await (FontLoader('OPPO Sans')..addFont(Future.value(ByteData.sublistView(bytes)))).load();
-    });
+    // Widths decide this.
+    setUpAll(loadSystemFont);
 
     for (final code in languages) {
       testWidgets('$code: the notice shows the whole version', (tester) async {

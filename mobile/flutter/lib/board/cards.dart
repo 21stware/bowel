@@ -107,7 +107,7 @@ class _Compact extends StatelessWidget {
     } else if (flyKey != null) {
       val = _flyText(flyKey!, text, style);
     } else {
-      val = column ? Text(text, style: style) : Line1(text, style, clip: true);
+      val = column ? Text(text, style: style, strutStyle: strutOf(style)) : Line1(text, style, clip: true);
     }
     if (v == 'strip') {
       return Padding(
@@ -363,6 +363,7 @@ class _SpeedCard extends StatelessWidget {
       final st = l.text(20, weight: 700, display: true, lh: 26);
       final small = l.text(12, color: l.mute, lh: 26);
       final smallLow = l.text(12, color: l.mute, lh: 18);
+      final upStyle = l.text(13, color: l.ink2, lh: 18);
       return _pad([
         _flyText('k-speed', tr('此刻速度', 'Speed now'), l.text(12, weight: 500, color: l.mute, lh: 18, ls: .08)),
         const SizedBox(height: 3),
@@ -370,11 +371,11 @@ class _SpeedCard extends StatelessWidget {
           id: 'spd',
           text: spdValue,
           style: st,
-          build: (x) => Text.rich(TextSpan(style: x, children: [TextSpan(text: '↓ $down'), TextSpan(text: ' $unit', style: small)]), maxLines: 1, softWrap: false),
+          build: (x) => Text.rich(TextSpan(style: x, children: [TextSpan(text: '↓ $down'), TextSpan(text: ' $unit', style: small)]), strutStyle: strutOf(x!), maxLines: 1, softWrap: false),
         ),
         Unroll(
           step: 2,
-          child: Text.rich(TextSpan(style: l.text(13, color: l.ink2, lh: 18), children: [TextSpan(text: '↑ $up '), TextSpan(text: '$upUnit · ${tr('今日 {0}', 'Today {0}', [today])}', style: smallLow)]), maxLines: 1, softWrap: false),
+          child: Text.rich(TextSpan(style: upStyle, children: [TextSpan(text: '↑ $up '), TextSpan(text: '$upUnit · ${tr('今日 {0}', 'Today {0}', [today])}', style: smallLow)]), strutStyle: strutOf(upStyle), maxLines: 1, softWrap: false),
         ),
         const Spacer(),
         const Unroll(step: 4, child: TrafficStack(38, 16)),
@@ -383,9 +384,9 @@ class _SpeedCard extends StatelessWidget {
     if (kind == 'compact') {
       final ink = l.text(12.5, color: l.ink2, lh: 17.5);
       return _Compact(id: 'speed', variant: variant, kicker: tr('此刻速度', 'Speed now'), value: spdValue, flyKey: 'spd', list: [
-        Text('↑ $up $upUnit', style: ink),
-        Text(tr('今日 {0}', 'Today {0}', [today]), style: ink),
-        Text(tr('本月 {0}', 'This month {0}', [sizeText(stats.month)]), style: ink),
+        Text('↑ $up $upUnit', style: ink, strutStyle: strutOf(ink)),
+        Text(tr('今日 {0}', 'Today {0}', [today]), style: ink, strutStyle: strutOf(ink)),
+        Text(tr('本月 {0}', 'This month {0}', [sizeText(stats.month)]), style: ink, strutStyle: strutOf(ink)),
       ]);
     }
     // Sample data has no history, so it scales today's.
@@ -470,7 +471,7 @@ class _AppsCard extends StatelessWidget {
     final go = Btn(tr('在活动中查看', 'View in Activity'), minH: 44, onTap: () => s.selectTab(1));
     if (!s.on) {
       if (kind == 'normal') {
-        return _pad([_flyText('k-apps', name, l.text(12, weight: 500, color: l.mute, lh: 18, ls: .08)), const Spacer(), Unroll(child: Text(tr('{0} 条连接', '{0} connections', [0]), style: foot))]);
+        return _pad([_flyText('k-apps', name, l.text(12, weight: 500, color: l.mute, lh: 18, ls: .08)), const Spacer(), Unroll(child: Text(tr('{0} 条连接', '{0} connections', [0]), style: foot, strutStyle: strutOf(foot)))]);
       }
       if (kind == 'compact') return _Compact(id: 'apps', variant: variant, kicker: name, value: tr('{0} 条', '{0}', [0]));
       return _Detail(s: s, flyId: 'apps', kicker: _detKicker(l, 'apps', name), title: Text(tr('{0} 条连接', '{0} connections', [0]), style: _h3(l)), body: const SizedBox.expand(), footer: [go]);
@@ -484,10 +485,10 @@ class _AppsCard extends StatelessWidget {
         for (final (i, t) in topApps.take(2).indexed)
           Unroll(
             step: (i + 1) * 2,
-            child: Row(children: [Expanded(child: Line1(_short(t), row)), const SizedBox(width: 6), Text(t.$4, maxLines: 1, style: rate)]),
+            child: Row(children: [Expanded(child: Line1(_short(t), row)), const SizedBox(width: 6), Text(t.$4, maxLines: 1, style: rate, strutStyle: strutOf(rate))]),
           ),
         const Spacer(),
-        Unroll(step: 6, child: Text(tr('{0} 条连接', stats.active == 1 ? '{0} connection' : '{0} connections', [stats.active]), style: foot)),
+        Unroll(step: 6, child: Text(tr('{0} 条连接', stats.active == 1 ? '{0} connection' : '{0} connections', [stats.active]), style: foot, strutStyle: strutOf(foot))),
       ]);
     }
     if (kind == 'compact') {
@@ -497,7 +498,7 @@ class _AppsCard extends StatelessWidget {
         variant: variant,
         kicker: name,
         value: _android ? (topApps.isEmpty ? '—' : topApps[0].$1) : tr('{0} 条', '{0}', [stats.active]),
-        sub: Text(_android ? (topApps.isEmpty ? '' : topApps[0].$4) : tr('活跃连接', 'Active connections'), style: l.text(12, color: l.mute, lh: 17)),
+        sub: Line1(_android ? (topApps.isEmpty ? '' : topApps[0].$4) : tr('活跃连接', 'Active connections'), l.text(12, color: l.mute, lh: 17)),
         list: [for (final t in topApps.skip(_android ? 1 : 0).take(3)) Text(_short(t), style: ink, maxLines: 1)],
       );
     }
@@ -1019,6 +1020,7 @@ class _HeroCard extends StatelessWidget {
     final kicker = l.text(12, weight: 500, color: l.mute, lh: 18, ls: .08);
     final exitStyle = l.text(32, weight: 700, display: true, lh: 40);
     final meta = l.text(13.5, color: l.ink2, lh: 20);
+    final subStyle = l.text(12, color: l.mute, lh: 17);
 
     if (kind == 'normal') {
       if (s.issue) {
@@ -1055,7 +1057,7 @@ class _HeroCard extends StatelessWidget {
                       onTap: s.alert!.action == null ? null : s.followAlert,
                       child: Row(children: [
                         Flexible(child: Line1(s.alert!.text, meta.copyWith(color: s.alert!.level == 'error' ? l.signalT : l.warnT))),
-                        if (s.alert!.label != null) ...[const SizedBox(width: 6), Text(s.alert!.label!, maxLines: 1, style: l.text(13.5, weight: 600, color: l.ink2, lh: 20)), Ic('chev', size: 13, color: l.ink2)],
+                        if (s.alert!.label != null) ...[const SizedBox(width: 6), Line1(s.alert!.label!, l.text(13.5, weight: 600, color: l.ink2, lh: 20)), Ic('chev', size: 13, color: l.ink2)],
                       ]),
                     )
                   : direct
@@ -1063,7 +1065,7 @@ class _HeroCard extends StatelessWidget {
                   : n.proto.isEmpty
                   ? Line1(s.on ? tr('正在连接', 'Connecting') : tr('开启后显示实际出口', 'Shows the real exit once on'), meta)
                   : Row(children: [
-                      if (n.city.isNotEmpty) ...[Text(n.city, style: meta), const SizedBox(width: 5)],
+                      if (n.city.isNotEmpty) ...[Text(n.city, style: meta, strutStyle: strutOf(meta)), const SizedBox(width: 5)],
                       SourceTag(n.source),
                       const SizedBox(width: 5),
                       Flexible(child: Line1('· ${n.proto} · ${tr('来自 {0}', 'from {0}', [n.provider])}', meta)),
@@ -1088,7 +1090,8 @@ class _HeroCard extends StatelessWidget {
         sub: direct
             ? null
             : Text.rich(
-                TextSpan(style: l.text(12, color: l.mute, lh: 17), children: [TextSpan(text: n.word('default'), style: TextStyle(color: latColor(l, n.delay))), if (n.city.isNotEmpty) TextSpan(text: ' · ${n.city}')]),
+                TextSpan(style: subStyle, children: [TextSpan(text: n.word('default'), style: TextStyle(color: latColor(l, n.delay))), if (n.city.isNotEmpty) TextSpan(text: ' · ${n.city}')]),
+                strutStyle: strutOf(subStyle),
                 maxLines: 1,
               ),
       );
@@ -1120,7 +1123,7 @@ class _HeroCard extends StatelessWidget {
             id: 'ms-default',
             text: n.delay > 0 ? '${n.delay}ms' : value,
             style: msStyle,
-            build: (x) => Text.rich(TextSpan(style: x, children: [TextSpan(text: value), if (n.delay > 0) TextSpan(text: ' ms', style: l.text(13, color: l.mute, lh: 32))]), maxLines: 1, softWrap: false),
+            build: (x) => Text.rich(TextSpan(style: x, children: [TextSpan(text: value), if (n.delay > 0) TextSpan(text: ' ms', style: l.text(13, color: l.mute, lh: 32))]), strutStyle: strutOf(x!), maxLines: 1, softWrap: false),
           ),
         ),
         const SizedBox(width: 10),

@@ -1,8 +1,10 @@
 import 'dart:math' as math;
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/widgets.dart';
 
+import '../app/i18n.dart';
 import 'skin_data.dart';
 
 class Palette {
@@ -41,7 +43,10 @@ class SkinDef {
     required this.glow,
   });
 
-  final String name, font, disp;
+  final String name;
+
+  /// The skin's faces, named as iOS has them; null is the system's own.
+  final String? font, disp;
   final Color? accentL, glow;
   final Color accentD;
   final Palette? light, dark;
@@ -94,13 +99,32 @@ Color _legible(Color c, Color bg, Color ink) {
   return r;
 }
 
-/// OPPO Sans reads thin on iOS beside the system's own labels. The lighter the
-/// weight the more it gains, and 700, the top of the font's axis, stays put, so
-/// the steps between weights hold.
-double _opticalWeight(int weight) {
-  if (defaultTargetPlatform != TargetPlatform.iOS || weight >= 700) return weight.toDouble();
-  return weight + (700 - weight) / 6;
+/// The family a skin's face is drawn in. The app bundles no font: text is in
+/// the system's, as the phone's own apps are. iOS has every face a skin names;
+/// Android has none of them, so a monospace or serif takes the system's of
+/// that kind and the rest its sans-serif. That is named rather than left to
+/// Material's Roboto, which a phone that ships its own face may still carry.
+String? familyOf(String? face) {
+  if (defaultTargetPlatform != TargetPlatform.android) return face;
+  return switch (face) {
+    'Menlo' => 'monospace',
+    'Georgia' => 'serif',
+    _ => 'sans-serif',
+  };
 }
+
+/// The system's own face, where text names none.
+String? get systemFamily => familyOf(null);
+
+/// The locale text is set in, which picks the system's Han forms for it:
+/// Simplified, Traditional or Japanese. In English, the phone's, for the
+/// Chinese of node and route names.
+Locale _textLocale() => switch (language) {
+      'zh' => const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
+      'zh-Hant' => const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+      'ja' => const Locale('ja'),
+      _ => PlatformDispatcher.instance.locale,
+    };
 
 /// A skin resolved for one appearance: every color and font a widget reads.
 class Look {
@@ -166,14 +190,15 @@ class Look {
       onAccent: custom == 'ink' ? p.paper : (contrast(darkInk, accent) >= contrast(white, accent) ? darkInk : white),
       segOn: isDark ? Color.lerp(p.paper2, p.ink, .2)! : p.sheet,
       routes: p.routes,
-      font: k.font,
-      disp: k.disp,
+      font: familyOf(k.font),
+      disp: familyOf(k.disp),
       round: k.round,
       glow: k.glow,
     );
   }
 
-  final String id, font, disp;
+  final String id;
+  final String? font, disp;
   final bool isDark;
   final Color paper, paper2, card, sheet, ink, ink2, mute, faint, hair, hair2, hover;
   final Color signal, good, warn, goodT, warnT, signalT, accent, onAccent, segOn;
@@ -234,10 +259,9 @@ class Look {
     final family = display ? disp : font;
     return TextStyle(
       fontFamily: family,
-      fontFamilyFallback: const ['OPPO Sans', 'PingFang SC'],
+      locale: _textLocale(),
       fontSize: size,
       fontWeight: FontWeight.values[(weight / 100).round() - 1],
-      fontVariations: family == 'OPPO Sans' ? [FontVariation('wght', _opticalWeight(weight))] : null,
       color: color ?? ink,
       height: (lh ?? size * 1.5) / size,
       leadingDistribution: TextLeadingDistribution.even,
@@ -258,3 +282,11 @@ class Skin extends InheritedWidget {
   @override
   bool updateShouldNotify(Skin oldWidget) => !identical(look, oldWidget.look);
 }
+
+/// A strut that holds each line of `style` to its line height. A line in the
+/// system's faces can mix two fonts, the sans-serif's Latin and another's
+/// Chinese, each with its own height and depth; on its own such a line is as
+/// tall as both together, a pixel or two over, which a card measured in line
+/// heights has no room for. Null for a style that takes its size or height
+/// from around it.
+StrutStyle? strutOf(TextStyle style) => style.fontSize == null || style.height == null ? null : StrutStyle.fromTextStyle(style, forceStrutHeight: true);
