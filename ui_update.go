@@ -371,11 +371,8 @@ func (u *UI) changelogView(c *ui.Context) {
 	useLook(u.shownSettings())
 	p := windowPal(c, palette(c))
 	applyTheme(c, p, p.font != sans)
-	c.OnShortcut(ui.Cmd, ui.KeyW, func() {
-		if w := u.clog.win.Load(); w != nil {
-			w.Close()
-		}
-	})
+	c.OnShortcut(ui.Cmd, ui.KeyW, func() { u.closeWin(&u.clog.win) })
+	escAway(c, func() { u.closeWin(&u.clog.win) })
 	all := parseChangelog(changelogText)
 	// The new version, found and not yet run, heads the list: this one's
 	// CHANGELOG.md was written before it.

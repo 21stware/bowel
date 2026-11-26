@@ -382,13 +382,18 @@ func variant(r ui.Rect) string {
 
 func (u *UI) homePage(c *ui.Context, p *pal) {
 	h := &u.home
-	c.OnWindowShortcut(0, ui.KeyEscape, func() {
-		if h.x == "routes" && h.sub != "" {
-			h.sub = ""
-			return
-		}
-		h.x, h.sub = "", ""
-	})
+	// Escape steps back, from a route's nodes to the routes, then out of
+	// the cell; only while there is a step back, so with the board whole
+	// it puts the window away (view).
+	if h.x != "" || h.sub != "" {
+		c.OnWindowShortcut(0, ui.KeyEscape, func() {
+			if h.x == "routes" && h.sub != "" {
+				h.sub = ""
+				return
+			}
+			h.x, h.sub = "", ""
+		})
+	}
 	// The lines between the cells are the board showing through the gaps,
 	// or, twisted, drawn over them.
 	twisted := u.shownSettings().Borders == "twisted"

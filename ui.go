@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -37,8 +38,11 @@ type UI struct {
 	panelCopied time.Time
 	app         *App
 	win         *mygo.Window
-	snap        Snapshot
-	tick        Tick
+	// closes counts the windows ⌘W or Escape put away (hideWindow, closeWin), for the
+	// tests, which have none.
+	closes int
+	snap   Snapshot
+	tick   Tick
 
 	page   string // home, activity, providers
 	toasts []string
@@ -331,7 +335,7 @@ func (u *UI) view(c *ui.Context) {
 	}
 	u.toasts = nil
 	u.setupTick()
-	c.OnShortcut(ui.Cmd, ui.KeyW, func() { u.win.Hide() })
+	c.OnShortcut(ui.Cmd, ui.KeyW, u.hideWindow)
 	c.OnShortcut(ui.Cmd, ui.KeyComma, u.openSettings)
 	if !u.setup.on {
 		c.OnShortcut(ui.Cmd, ui.Key1, func() { u.page = "home" })
@@ -376,6 +380,40 @@ func (u *UI) view(c *ui.Context) {
 		skinDeco(c, p)
 		u.quitDialog(c, p)
 		u.lockDialog(c, p)
+	})
+	// Escape with nothing left to step back from puts the window away, as
+	// its × does. Declared after the pages, whose steps back come first,
+	// and not in the first setup or in a text field, where it would lose
+	// what was typed.
+	if !u.setup.on && !c.FocusTakesText() {
+		escAway(c, u.hideWindow)
+	}
+}
+
+// hideWindow puts the main window away: bowel stays in the tray.
+func (u *UI) hideWindow() {
+	u.closes++
+	if u.win != nil {
+		u.win.Hide()
+	}
+}
+
+// closeWin closes a settings or What's new window, if it is open.
+func (u *UI) closeWin(w *atomic.Pointer[mygo.Window]) {
+	u.closes++
+	if win := w.Load(); win != nil {
+		win.Close()
+	}
+}
+
+// escAway declares Escape as a window's way out: away runs on a press,
+// not on the repeats of one held down, which would carry a step back
+// on through the window it was in.
+func escAway(c *ui.Context, away func()) {
+	c.OnWindowShortcut(0, ui.KeyEscape, func() {
+		if !c.ShortcutRepeated() {
+			away()
+		}
 	})
 }
 

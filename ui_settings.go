@@ -199,12 +199,20 @@ func (u *UI) settingsView(c *ui.Context) {
 		c.Toast(m)
 	}
 	u.set.toasts = nil
-	c.OnShortcut(ui.Cmd, ui.KeyW, func() {
-		if w := u.set.win.Load(); w != nil {
-			w.Close()
-		}
-	})
+	c.OnShortcut(ui.Cmd, ui.KeyW, func() { u.closeWin(&u.set.win) })
 	c.OnShortcut(ui.Cmd, ui.KeyF, func() { u.set.findH.Focus(c) })
+	// Escape clears a search, then closes the window as ⌘W does; not in a
+	// text field, whose edit is kept only as the focus leaves it. The
+	// search field, focused, clears itself on Escape.
+	if !c.FocusTakesText() {
+		escAway(c, func() {
+			if u.set.query != "" {
+				u.set.query = ""
+				return
+			}
+			u.closeWin(&u.set.win)
+		})
+	}
 	sec := u.settingsSection()
 	words := searchWords(u.set.query)
 	title, scroll := sec.name(), sec.id
