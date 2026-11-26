@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/gateway"
+	"github.com/oboo/moho/internal/geodata"
 	"github.com/oboo/moho/internal/mihomo"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
@@ -549,5 +551,43 @@ func TestMoveProviderOnCore(t *testing.T) {
 	}
 	if got := coreProxies(t, a)[routes.Auto(ai)].All; len(got) != 2 {
 		t.Errorf("a provider added later isn't in range: %q", got)
+	}
+}
+
+// TestGeoRulesOnCore: the user's rules for GeoSite and GeoIP lists reach
+// the core as it reads them, and one whose list the data doesn't hold is
+// left out, where it would have made the core refuse the whole config.
+func TestGeoRulesOnCore(t *testing.T) {
+	a, _ := routingApp(t, nil)
+	if !exists(filepath.Join(a.core.Dir, geodata.SiteFile)) {
+		t.Skip("no GeoSite data; run scripts/fetch-core.sh")
+	}
+	old := routes.GeoLists
+	t.Cleanup(func() { routes.GeoLists = old })
+	geodata.Use(a.core.Dir)
+	var add []routes.UserRule
+	for _, text := range []string{"GEOSITE,YouTube,Proxy", "geosite:google@cn", "geoip:telegram"} {
+		r, err := routes.ParseRule("", text, "ai")
+		if err != nil {
+			t.Fatalf("%s: %v", text, err)
+		}
+		add = append(add, r)
+	}
+	if r, err := routes.ParseRule(routes.KindGeo, "no-such-list", "ai"); err == nil {
+		t.Fatalf("a list the data hasn't: %+v", r)
+	}
+	gone := routes.UserRule{Kind: routes.KindGeo, Value: "no-such-list", Route: "ai"} // saved before the data dropped it
+	if err := a.updateSettings(func(s *settings.Settings) { s.Rules = append(append(s.Rules, add...), gone) }); err != nil {
+		t.Fatalf("the core took the rules badly: %v", err)
+	}
+	cfg := coreConfig(t, a)
+	ai := routes.Group(routeOf(t, a, "ai"))
+	for _, want := range []string{"GEOSITE,youtube," + ai, "GEOSITE,google@cn," + ai, "GEOIP,telegram," + ai + ",no-resolve"} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("no %q at the core:\n%s", want, cfg)
+		}
+	}
+	if strings.Contains(cfg, "no-such-list") {
+		t.Errorf("the list the data hasn't reached the core:\n%s", cfg)
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -124,6 +125,59 @@ func TestRoutesAddRule(t *testing.T) {
 	if !ok || sv.ID != "claude" {
 		t.Errorf("after moving: %+v %v", sv, ok)
 	}
+}
+
+// TestRoutesAddGeoRule: a rule pasted as mihomo writes it adds its GeoSite
+// list, which YouTube ships with, so it asks to move it first; and the
+// GeoSite kind says what to type.
+func TestRoutesAddGeoRule(t *testing.T) {
+	u := routesFixture()
+	u.selectGroup("ai")
+	u.routes.svc = "claude"
+	tt := ui.NewTester(u.view, 1060, 1500)
+	tt.Advance(time.Second)
+
+	typeInto(t, tt, "新规则", "GEOSITE,youtube,Proxy")
+	if !hasTextPart(tt, "添加后：youtube · GeoSite 域名库") {
+		t.Errorf("no preview: %q", tt.Texts())
+	}
+	shot(t, tt, "routes-geosite")
+	tt.Key(0, ui.KeyEnter)
+	tt.Advance(100 * time.Millisecond)
+	if !hasTextPart(tt, "一条规则只能属于一个服务") {
+		t.Fatalf("no conflict with YouTube: %q", tt.Texts())
+	}
+	if err := tt.Click("移过来"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(100 * time.Millisecond)
+	s := u.shownSettings()
+	if sv, ok := routes.FindRule(routes.Build(s.Routing, s.Rules), "GEOSITE,youtube"); !ok || sv.ID != "claude" {
+		t.Errorf("after moving: %+v %v", sv, ok)
+	}
+
+	kind, ok := tt.AccessByRole(ui.RolePopUpButton, "匹配方式")
+	if !ok {
+		t.Fatalf("no kind picker: %q", tt.Texts())
+	}
+	tt.ClickAt(kind.Bounds.X+kind.Bounds.W/2, kind.Bounds.Y+kind.Bounds.H/2)
+	tt.Frame()
+	opts := map[string]ui.AccessInfo{}
+	for _, a := range tt.AccessAll() {
+		if a.Role == ui.RoleOption {
+			opts[a.Name] = a
+		}
+	}
+	geoip, ok := opts["GeoIP 地址库"]
+	if _, site := opts["GeoSite 域名库"]; !ok || !site {
+		t.Fatalf("kinds offered: %v", slices.Collect(maps.Keys(opts)))
+	}
+	tt.ClickAt(geoip.Bounds.X+geoip.Bounds.W/2, geoip.Bounds.Y+geoip.Bounds.H/2)
+	tt.Advance(100 * time.Millisecond)
+	if !hasTextPart(tt, "写 GeoIP 列表的名字") {
+		t.Errorf("no word on GeoIP lists: %q", tt.Texts())
+	}
+	shot(t, tt, "routes-geoip-kind")
 }
 
 // TestRoutesEditRule: a rule of the user's is edited in its row: its value

@@ -176,6 +176,9 @@ type ruleData struct {
 	Shown    string `json:"shown"`
 	Builtin  bool   `json:"builtin"`
 	Off      bool   `json:"off"`
+	// Unlisted is a rule of the user's whose GeoSite or GeoIP list the data
+	// doesn't have: it doesn't count until it does.
+	Unlisted bool `json:"unlisted,omitempty"`
 }
 
 type serviceData struct {
@@ -322,7 +325,8 @@ func (x *bridge) routing() routingData {
 		for _, sv := range r.Services {
 			d := serviceData{ID: sv.ID, Name: routes.ServiceTitle(sv), Builtin: sv.Builtin, Mine: sv.Mine, Off: sv.Off, Changed: sv.Changed, Rules: []ruleData{}}
 			for _, l := range sv.Rules {
-				d.Rules = append(d.Rules, ruleData{Text: l.Text, Kind: l.Kind, KindName: routes.KindName(l.Kind), Value: l.Value, Shown: l.Shown(), Builtin: l.Builtin, Off: l.Off})
+				d.Rules = append(d.Rules, ruleData{Text: l.Text, Kind: l.Kind, KindName: routes.KindName(l.Kind), Value: l.Value, Shown: l.Shown(), Builtin: l.Builtin, Off: l.Off,
+					Unlisted: !l.Builtin && l.User(sv).Unlisted()})
 			}
 			if sv.Source != "" {
 				d.Set = x.ruleSetView(sv)

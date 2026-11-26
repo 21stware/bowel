@@ -123,6 +123,8 @@ Map _routing() => {
         {'id': 'domain', 'name': '域名'},
         {'id': 'keyword', 'name': '域名关键词'},
         {'id': 'ip', 'name': 'IP 段'},
+        {'id': 'geo', 'name': 'GeoSite 域名库'},
+        {'id': 'geoip', 'name': 'GeoIP 地址库'},
         if (_appKind) {'id': 'app', 'name': '应用'},
       ],
     };
@@ -178,6 +180,7 @@ void _fakeCore() {
       case 'routing':
         return jsonEncode(_routing());
       case 'parseRule':
+        if (args['kind'] == 'geo') return jsonEncode({'kindName': 'GeoSite 域名库', 'value': (args['text'] as String).toLowerCase()});
         final uri = Uri.tryParse(args['text'] as String);
         if (uri == null) return jsonEncode({'error': 'Invalid address'});
         return jsonEncode({'kindName': '域名后缀', 'value': uri.host.isNotEmpty ? uri.host : args['text']});
@@ -331,6 +334,43 @@ void main() {
     expect(_ops.single['kind'], '');
     expect(_ops.single['service'], 'openai');
     expect(app.sheet, isNull);
+  });
+
+  testWidgets('a GeoSite list is a kind to pick, which says what to type', (tester) async {
+    final app = _app();
+    await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai', service: 'work')));
+    await _settle(tester);
+    await tester.tap(find.text('添加规则').last);
+    await _settle(tester);
+    // Past 自动识别 and the domain kinds: the row of kinds scrolls to it.
+    final chips = find.ancestor(of: find.text('自动识别'), matching: find.byType(ListView));
+    await tester.dragUntilVisible(find.text('GeoSite 域名库'), chips, const Offset(-120, 0));
+    await _settle(tester);
+    await tester.tap(find.text('GeoSite 域名库'));
+    await _settle(tester);
+    expect(find.text('写 GeoSite 列表的名字，列表里的域名都走这个路由组。'), findsOneWidget);
+    expect(find.text('youtube、netflix 或 google@cn'), findsOneWidget, reason: 'the field says what a list is called');
+    await tester.enterText(find.byType(EditableText), 'YouTube');
+    await _settle(tester);
+    expect(find.text('添加后：youtube · GeoSite 域名库'), findsOneWidget);
+    await tester.tap(find.text('添加').last);
+    await _settle(tester);
+    expect([_ops.single['op'], _ops.single['kind'], _ops.single['text']], ['addRule', 'geo', 'YouTube']);
+  });
+
+  testWidgets('a rule whose list the data has not says it is not in use, and still opens', (tester) async {
+    _myAiRules = [
+      {'text': 'GEOSITE,nosuch', 'kind': 'geo', 'kindName': 'GeoSite 域名库', 'value': 'nosuch', 'shown': 'nosuch', 'builtin': false, 'off': false, 'unlisted': true},
+      {'text': 'GEOSITE,youtube', 'kind': 'geo', 'kindName': 'GeoSite 域名库', 'value': 'youtube', 'shown': 'youtube', 'builtin': false, 'off': false},
+    ];
+    final app = _app();
+    await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai', service: 'mine:ai')));
+    await _settle(tester);
+    expect(find.text('GeoSite 域名库 · 数据里没有这个列表，未生效'), findsOneWidget, reason: 'only the one the data lacks');
+    expect(find.text('GeoSite 域名库'), findsOneWidget);
+    await tester.tap(find.text('nosuch'));
+    await _settle(tester);
+    expect(find.text('编辑规则'), findsOneWidget);
   });
 
   testWidgets('a conflict stays in the sheet and offers to move the rule', (tester) async {

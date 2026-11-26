@@ -364,12 +364,17 @@ func Build(p Plan, users []UserRule) []Route {
 }
 
 // Active are the user's rules that count now: those of a service switched
-// off, or of a group that is gone, do not.
+// off, or of a group that is gone, do not, nor one naming a GeoSite or
+// GeoIP list the core's data doesn't hold, which would make the core
+// refuse the whole config.
 func Active(all []Route, users []UserRule) []UserRule {
 	out := make([]UserRule, 0, len(users))
 	for _, u := range users {
 		i := slices.IndexFunc(all, func(r Route) bool { return r.ID == u.Route })
 		if i < 0 {
+			continue
+		}
+		if u.Unlisted() {
 			continue
 		}
 		j := slices.IndexFunc(all[i].Services, func(s Service) bool { return s.ID == u.Service })
@@ -517,8 +522,7 @@ func FindMatched(all []Route, ruleType, payload string) (Service, bool) {
 				if l.Off && l.Builtin {
 					continue
 				}
-				geo := l.Kind == KindGeo && t == "geosite" || l.Kind == KindGeoIP && t == "geoip"
-				if geo && strings.EqualFold(payload, l.Value) || !geo && (UserRule{Kind: l.Kind, Value: l.Value}).Matched(ruleType, payload) {
+				if (UserRule{Kind: l.Kind, Value: l.Value}).Matched(ruleType, payload) {
 					return s, true
 				}
 			}

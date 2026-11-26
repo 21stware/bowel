@@ -1016,11 +1016,11 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "add_rule", Title: "Add a rule",
-				Description: "Sends traffic to a route with a rule of the user's, which wins over the built-in ones. It replaces a rule for the same traffic. Open connections it now sends elsewhere are closed, so the change shows at once. kind: suffix (the domain and its subdomains; the default for names), domain (that name only), keyword (names containing it), ip (an address or CIDR; the default for addresses), app (everything a program on this computer connects to, by its process name as list_connections shows it, e.g. Telegram.exe, or on macOS the bundle, e.g. Telegram.app; a path is taken too; never guessed, comes before every other rule; not for devices using this computer as a gateway, and not on Android or iOS).",
+				Description: "Sends traffic to a route with a rule of the user's, which wins over the built-in ones. It replaces a rule for the same traffic. Open connections it now sends elsewhere are closed, so the change shows at once. kind: suffix (the domain and its subdomains; the default for names), domain (that name only), keyword (names containing it), ip (an address or CIDR; the default for addresses), geo (the domains of a GeoSite list in the core's data, e.g. youtube or google@cn), geoip (the addresses of a GeoIP list, e.g. CN or private), app (everything a program on this computer connects to, by its process name as list_connections shows it, e.g. Telegram.exe, or on macOS the bundle, e.g. Telegram.app; a path is taken too; never guessed, comes before every other rule; not for devices using this computer as a gateway, and not on Android or iOS). A target written geosite:youtube or geoip:cn, or as mihomo writes a rule (GEOSITE,youtube,Proxy, whose target is dropped), gives its own kind. A GeoSite or GeoIP list the data doesn't hold is refused.",
 				Input: obj(map[string]any{
-					"target": str("A domain, *.domain, URL, keyword or IP/CIDR; with kind app, a program's name or path."),
+					"target": str("A domain, *.domain, URL, keyword, IP/CIDR, GeoSite or GeoIP list, or a rule as mihomo writes it; with kind app, a program's name or path."),
 					"route":  routeArg,
-					"kind":   str("The kind of rule; guessed between the domain and IP kinds when left out.", routes.AllKinds()...),
+					"kind":   str("The kind of rule; when left out, guessed between the domain and IP kinds, or a GeoSite list for a word that names one.", routes.AllKinds()...),
 				}, "target", "route"),
 				Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
 					var p struct{ Target, Route, Kind string }

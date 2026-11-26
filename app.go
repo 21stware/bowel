@@ -33,6 +33,7 @@ import (
 	"github.com/oboo/moho/internal/devnet"
 	"github.com/oboo/moho/internal/gateway"
 	"github.com/oboo/moho/internal/geo"
+	"github.com/oboo/moho/internal/geodata"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/locate"
 	"github.com/oboo/moho/internal/mihomo"
@@ -339,7 +340,7 @@ func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 // copyGeo puts the bundled rule data next to the core's config once.
 func (a *App) copyGeo() {
 	res, _ := mygo.App.Path(mygo.PathResources)
-	for _, f := range []string{"GeoSite.dat", "GeoIP.dat"} {
+	for _, f := range []string{geodata.SiteFile, geodata.IPFile} {
 		dst := filepath.Join(a.core.Dir, f)
 		if exists(dst) {
 			continue
@@ -363,6 +364,7 @@ func (a *App) start() {
 	a.openWindow()
 	a.setupTray()
 	a.copyGeo()
+	geodata.Use(a.core.Dir)
 	go func() {
 		a.detectDev(2 * time.Second)
 		if err := a.applyConfig(); err != nil {
