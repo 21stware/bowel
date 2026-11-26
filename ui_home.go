@@ -1999,12 +1999,17 @@ func (u *UI) targetsDialog(c *ui.Context, p *pal, r RouteView) {
 	})
 }
 
+// rankOf orders the node lists: fastest first, then the failed, then the
+// untested last. A row that shows is tested (keepMeasured), and its result
+// must not bring another untested row into view: a failure ranked below the
+// untested ones did, and the list, row by row, tested every node it has
+// while it never stopped moving (#282).
 func rankOf(n NodeView) int {
 	switch {
 	case !n.Tested:
-		return 1 << 20
-	case n.Delay <= 0:
 		return 1 << 21
+	case n.Delay <= 0:
+		return 1 << 20
 	}
 	return n.Delay
 }
