@@ -1043,6 +1043,60 @@ func TestPickNodes(t *testing.T) {
 	}
 }
 
+// TestPickTestsWhatShows (#282): a click on a node of a ranged 自动最快
+// fixes the group on it, and the list then holds the nodes out of the range
+// too, which were never tested on the group's main target. The rows that
+// show are tested (keepMeasured), and that is all: here every one of them
+// fails, as nodes out of an AI group's range do on its API, and a failure
+// still stays above the untested rows instead of bringing one more into
+// view. It did bring one, and the list tested all its nodes, a screenful
+// at a time, never standing still.
+func TestPickTestsWhatShows(t *testing.T) {
+	u, _ := scopeFixture()
+	cc := u.snap.Nodes[0].Where.Place.Country
+	inRange := 0
+	for i := range u.snap.Nodes {
+		n := &u.snap.Nodes[i]
+		// Every route's main target has its entry, as the snapshot gives
+		// them; the fixture's copies of a node share one map.
+		n.Routes = map[string]NodeTest{"ai": {}}
+		if n.Where.Place != nil && n.Where.Place.Country == cc {
+			n.Routes["ai"] = NodeTest{Delay: 150 + 10*i, Tested: true}
+			inRange++
+		}
+	}
+	u.changePolicy("ai", func(q *routes.Policy) { q.Mode, q.Regions = routes.ModeAuto, []string{cc} })
+	tt := ui.NewTester(u.view, 1060, 900)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if got := len(u.seen["window"].pings); got != inRange {
+		t.Fatalf("自动最快 drew %d rows, want the %d in its range", got, inRange)
+	}
+	pick := u.seen["window"].pings[0]
+	// What selectNode does to the plan, without the core it needs.
+	u.changePolicy("ai", func(q *routes.Policy) { q.Mode, q.Fixed = routes.ModeFixed, pick })
+	var rounds []int
+	for range len(u.snap.Nodes) {
+		tt.Frame()
+		tt.Frame() // a list's rows are in the frame after the one that built them
+		shown, n := u.seen["window"].pings, 0
+		for i := range u.snap.Nodes {
+			v := &u.snap.Nodes[i]
+			if slices.Contains(shown, v.Name) && !v.Routes["ai"].Tested {
+				v.Routes["ai"] = NodeTest{Tested: true} // a failure
+				n++
+			}
+		}
+		if n == 0 {
+			break
+		}
+		rounds = append(rounds, n)
+	}
+	if len(rounds) != 1 || rounds[0] == 0 {
+		t.Errorf("tests after the pick, frame by frame: %v; want the rows in view once (%d nodes, %d in range)", rounds, len(u.snap.Nodes), inRange)
+	}
+}
+
 // TestScopeExceptProviders (#272): picked sources can be the ones left out.
 // 排除所选 shows once one is picked, crosses the picked ones out and counts
 // the others' nodes; 全部 starts over at 只用.
