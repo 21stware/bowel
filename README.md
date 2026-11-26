@@ -98,7 +98,7 @@ Sixteen skins that change the look of the whole interface.
 </table>
 
 ### Other
-- **Custom rules**: Route specific domains, keywords, or IP ranges, and test where addresses go; on macOS, Windows, Linux and Android 10 or later, route by application too: add an App rule to a route group and all of that app's connections go through it.
+- **Custom rules**: Route specific domains, keywords, IP ranges, or GeoSite and GeoIP lists, and test where addresses go; a rule pasted in mihomo's syntax works too; on macOS, Windows, Linux and Android 10 or later, route by application too: add an App rule to a route group and all of that app's connections go through it.
 - **Measured exit locations**: Verify true exit locations through Cloudflare trace.
 - **Gateway mode** (macOS, Linux): Turn this computer into a LAN gateway for devices like TVs and consoles. The full guide, for people and agents, is [docs/gateway.md](docs/gateway.md).
 - **TUN** (macOS, Windows, Linux): Intercept traffic from applications that ignore system proxy settings.

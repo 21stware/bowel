@@ -73,7 +73,7 @@ type ruleConflict struct {
 // routeKinds are the choices for a new rule's kind; "" guesses. An
 // application is among them where a rule for one can work.
 func routeKinds() []string {
-	out := []string{"", routes.KindSuffix, routes.KindDomain, routes.KindKeyword, routes.KindIP}
+	out := []string{"", routes.KindSuffix, routes.KindDomain, routes.KindKeyword, routes.KindIP, routes.KindGeo, routes.KindGeoIP}
 	if routes.AppRules {
 		out = append(out, routes.KindApp)
 	}
@@ -1274,6 +1274,9 @@ func (u *UI) ruleLine(c *ui.Context, p *pal, all []routes.Route, s routes.Servic
 		}
 		ui.Text(c, l.Shown()).Font(actMono).FontSize(12.5).TextColor(col).SingleLine().Grow(1).Basis(0).MinWidth(0)
 		ui.Text(c, routes.KindName(l.Kind)).FontSize(11).TextColor(p.mute).NoWrap().Shrink(0)
+		if !l.Builtin && l.User(s).Unlisted() {
+			ui.Text(c, unlistedWord()).FontSize(11).TextColor(p.signal).NoWrap().Shrink(0)
+		}
 		if l.Builtin {
 			label := i18n.T("停用", "Turn off")
 			if l.Off {
@@ -1406,8 +1409,13 @@ func (u *UI) ruleInput(c *ui.Context, p *pal, all []routes.Route, s routes.Servi
 	}
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(4, 0, 0, 0).Children(func() {
 		hint := i18n.T("*.netflix.com、openai.com 或 10.0.0.0/8", "*.netflix.com, openai.com or 10.0.0.0/8")
-		if st.kind == routes.KindApp {
+		switch st.kind {
+		case routes.KindApp:
 			hint = appExample()
+		case routes.KindGeo:
+			hint = i18n.T("youtube、netflix 或 google@cn", "youtube, netflix or google@cn")
+		case routes.KindGeoIP:
+			hint = i18n.T("CN、private 或 telegram", "CN, private or telegram")
 		}
 		in := ui.TextInput(c.Key("rule"), &st.rule).Bind(&st.ruleH).Label(i18n.T("新规则", "New rule")).
 			Placeholder(hint).
@@ -1443,8 +1451,10 @@ func (u *UI) ruleInput(c *ui.Context, p *pal, all []routes.Route, s routes.Servi
 		ui.Text(c, i18n.T("写应用或进程的名字，或粘贴日志里「进程」一栏的路径。它的所有连接都走这个路由组，排在其他规则之前；只管这台电脑上的应用。", "Type the app's or the program's name, or paste the path from the Log's Process row. Everything it connects to goes by this group, ahead of every other rule; only apps on this computer.")).FontSize(11.5).TextColor(p.faint)
 	case !typed && st.kind == routes.KindApp:
 		ui.Text(c, i18n.T("在下面点一个正在运行的应用，或写应用、进程的名字，也可以粘贴日志里「进程」一栏的路径。它的所有连接都走这个路由组，排在其他规则之前；只管这台电脑上的应用。", "Pick a running app below, or type the app's or the program's name, or paste the path from the Log's Process row. Everything it connects to goes by this group, ahead of every other rule; only apps on this computer.")).FontSize(11.5).TextColor(p.faint)
+	case !typed && (st.kind == routes.KindGeo || st.kind == routes.KindGeoIP):
+		ui.Text(c, geoKindNote(st.kind)).FontSize(11.5).TextColor(p.faint)
 	case !typed:
-		ui.Text(c, i18n.T("粘贴链接也可以，会自动提取域名。", "A pasted link works too: the domain is taken from it.")).FontSize(11.5).TextColor(p.faint)
+		ui.Text(c, i18n.T("粘贴链接也可以，会自动提取域名；mihomo 的规则写法也认，如 GEOSITE,youtube。", "A pasted link works too: the domain is taken from it. So does a rule as mihomo writes it, as GEOSITE,youtube.")).FontSize(11.5).TextColor(p.faint)
 	case err != nil:
 		ui.Text(c, err.Error()).FontSize(11.5).TextColor(p.signal)
 	default:
@@ -1471,6 +1481,20 @@ func (u *UI) ruleInput(c *ui.Context, p *pal, all []routes.Route, s routes.Servi
 }
 
 // appExample is a program's name as this system writes one.
+// unlistedWord says a rule's GeoSite or GeoIP list is not in the data now.
+func unlistedWord() string {
+	return i18n.T("数据里没有这个列表，未生效", "Not in the data: not in use")
+}
+
+// geoKindNote says what a rule of a GeoSite or GeoIP list is, before one
+// is typed.
+func geoKindNote(kind string) string {
+	if kind == routes.KindGeoIP {
+		return i18n.T("写 GeoIP 列表的名字，列表里的地址都走这个路由组。列表来自「设置 › GeoData」。", "Type a GeoIP list's name: the addresses in it go by this group. The lists come from Settings › GeoData.")
+	}
+	return i18n.T("写 GeoSite 列表的名字，列表里的域名都走这个路由组。列表来自「设置 › GeoData」。", "Type a GeoSite list's name: the domains in it go by this group. The lists come from Settings › GeoData.")
+}
+
 func appExample() string {
 	switch runtime.GOOS {
 	case "windows":

@@ -98,7 +98,7 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 </table>
 
 ### 其他
-- **自定义规则**：支持按域名、关键词或 IP 段添加分流规则并测试匹配结果；macOS、Windows、Linux 和 Android 10 及以上还可以按应用分流：在路由组里添加一条「应用」规则，这个应用的所有连接都走这个路由组。
+- **自定义规则**：支持按域名、关键词、IP 段或 GeoSite / GeoIP 列表添加分流规则并测试匹配结果，也可以直接粘贴 mihomo 写法的规则；macOS、Windows、Linux 和 Android 10 及以上还可以按应用分流：在路由组里添加一条「应用」规则，这个应用的所有连接都走这个路由组。
 - **出口位置实测**：通过 Cloudflare 请求实测节点真实的出口所在地。
 - **网关模式**（macOS、Linux）：支持作为局域网网关（旁路由）为电视、游戏机和手机提供代理服务。完整说明见 [docs/gateway.md](docs/gateway.md)，人和 agent 都可以照着做。
 - **TUN**（macOS、Windows、Linux）：接管不遵循系统代理设置的应用程序流量。
