@@ -142,3 +142,37 @@ func TestUpdateNotesWindow(t *testing.T) {
 		t.Errorf("all versions: %q", tt.Texts())
 	}
 }
+
+// TestTitleBarControlsOnTheRight: where the window buttons sit at the
+// right (Windows, Linux), 查看全部版本 in the 更新内容 window and 正在应用…
+// in the settings window stay left of them.
+func TestTitleBarControlsOnTheRight(t *testing.T) {
+	bar := ui.TitleBar{Height: 50, Right: 92}
+	u := updateFixture(updateReady)
+	u.clog.next = true
+	u.snap.Pending = []string{"settings"}
+	for _, c := range []struct {
+		name string
+		view func(*ui.Context)
+		text string
+	}{
+		{"changelog", u.changelogView, "查看全部版本"},
+		{"settings", u.settingsView, "正在应用…"},
+	} {
+		w := 560
+		if c.name == "settings" {
+			w = 760
+		}
+		tt := ui.NewTester(c.view, w, 620)
+		tt.SetTitleBar(bar)
+		tt.Advance(time.Second)
+		r, ok := tt.Find(c.text)
+		if !ok {
+			t.Fatalf("%s: no %q: %q", c.name, c.text, tt.Texts())
+		}
+		if r.X+r.W > float32(w)-bar.Right {
+			t.Errorf("%s: %q ends at %v, under the window buttons from %v", c.name, c.text, r.X+r.W, float32(w)-bar.Right)
+		}
+		shot(t, tt, "title-bar-right-"+c.name)
+	}
+}

@@ -215,7 +215,7 @@ func (u *UI) settingsView(c *ui.Context) {
 		u.settingsSidebar(c, p)
 		ui.Column(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
 			// The pane's title, in the title bar, which it drags by.
-			ui.Row(c).Height(max(c.TitleBar().Height, 50)).Shrink(0).Padding(0, 26).Gap(12).AlignItems(ui.Center).DragWindow().Children(func() {
+			ui.Row(c).Height(max(c.TitleBar().Height, 50)).Shrink(0).Padding(0, c.TitleBar().Right+26, 0, 26).Gap(12).AlignItems(ui.Center).DragWindow().Children(func() {
 				disp(ui.Text(c, title), p).FontSize(17).FontWeight(700).TextColor(p.ink).Grow(1)
 				if busy := u.pending("settings"); busy {
 					shimmer(ui.Text(c, i18n.T("正在应用…", "Applying…")).FontSize(12).FontWeight(500).TextColor(p.mute), busy, p)
