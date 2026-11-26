@@ -388,7 +388,7 @@ func (u *UI) changelogView(c *ui.Context) {
 		list = all[:1]
 	}
 	ui.Column(c).Absolute().Fill().Background(p.paper).Children(func() {
-		ui.Row(c).Height(max(c.TitleBar().Height, 50)).Shrink(0).Padding(0, 26, 0, 92).Gap(12).AlignItems(ui.Center).DragWindow().Children(func() {
+		ui.Row(c).Height(max(c.TitleBar().Height, 50)).Shrink(0).Padding(0, c.TitleBar().Right+26, 0, 92).Gap(12).AlignItems(ui.Center).DragWindow().Children(func() {
 			disp(ui.Text(c, i18n.T("更新内容", "What's new")), p).FontSize(17).FontWeight(700).TextColor(p.ink).Grow(1)
 			if len(list) < len(all) {
 				ui.ButtonBase(c.Key("all")).Shrink(0).OnClick(func() { u.clog.from, u.clog.next = "", false }).Children(func() {
