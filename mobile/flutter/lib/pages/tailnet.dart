@@ -80,7 +80,8 @@ class _TailnetPageState extends State<TailnetPage> {
 
   Future<void> _open(String url) async {
     try {
-      await Shell.instance.openURL(url);
+      // The login page of a self-hosted control server may be http.
+      await Shell.instance.openURL(url, http: true);
     } catch (_) {
       await Clipboard.setData(ClipboardData(text: url));
       app.say(tr('没有可用的浏览器，链接已复制', 'No browser to open it: the link is copied'), ms: 3000);
@@ -112,6 +113,10 @@ class _TailnetPageState extends State<TailnetPage> {
         final err = _t?['error'] as String? ?? '';
         final host = _tailnet['hostname'] as String? ?? '';
         final key = _tailnet['authKey'] as String? ?? '';
+        // A self-hosted control server, such as Headscale: '' is Tailscale's.
+        final control = _tailnet['controlUrl'] as String? ?? '';
+        final domain = _tailnet['domain'] as String? ?? '';
+        final controlHost = control.isEmpty ? '' : (Uri.tryParse(control)?.host ?? control);
         return SubPage(title: 'Tailscale', children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
@@ -126,16 +131,27 @@ class _TailnetPageState extends State<TailnetPage> {
               navRow(l, tr('设备名', 'Device name'), host.isEmpty ? (_t?['hostname'] as String? ?? '') : host,
                   sub: tr('在 tailnet 里显示的名字', 'The name it has on the tailnet'),
                   onTap: () => inputSheet(app, tr('设备名', 'Device name'), (v) => _set({'hostname': v.trim()}), initial: host, hint: 'bowel-android', note: tr('留空用 bowel-android。已登录时改名会同步到 tailnet。', 'Empty is bowel-android. Renaming while logged in renames it on the tailnet.'))),
+              navRow(l, tr('控制服务器', 'Control server'), control.isEmpty ? 'Tailscale' : controlHost,
+                  sub: tr('自建的 Headscale 填它的地址', 'For a self-hosted Headscale, its address'),
+                  onTap: () => inputSheet(app, tr('控制服务器', 'Control server'), (v) => _set({'controlUrl': v.trim()}), initial: control, hint: 'https://headscale.example.com', keyboard: TextInputType.url, note: tr('留空用 Tailscale 官方的服务器。改了会退出登录，之后要在新的服务器上重新登录。', 'Empty is Tailscale\'s own server. Changing it logs out: you then log in anew on the new server.'))),
+              if (control.isNotEmpty)
+                navRow(l, tr('MagicDNS 域名', 'MagicDNS domain'), domain.isEmpty ? tr('未设置', 'Not set') : domain,
+                    sub: tr('这个域名下的名字走内置节点', 'Names under it go by the built-in node'),
+                    onTap: () => inputSheet(app, tr('MagicDNS 域名', 'MagicDNS domain'), (v) => _set({'domain': v.trim()}), initial: domain, hint: 'tail.example.com', keyboard: TextInputType.url, note: tr('Headscale 配置里的 base_domain。这个域名下的名字在所有模式下都走内置节点；不填的话只能用 100.x 地址访问。', 'Headscale\'s base_domain. Names under it go by the built-in node in every mode; without it, only 100.x addresses reach the tailnet.'))),
               navRow(l, 'Auth key', key.isEmpty ? tr('未设置', 'Not set') : tr('已设置', 'Set'),
                   sub: tr('可选：不用浏览器登录', 'Optional: log in without a browser'),
-                  onTap: () => inputSheet(app, 'Auth key', (v) => _set({'authKey': v.trim()}), initial: key, hint: 'tskey-auth-…', keyboard: TextInputType.visiblePassword, note: tr('只在第一次登录时用；之后登录状态保存在 bowel 里。建议用一次性的 key。', 'Used only for the first login; after that bowel keeps the login. A one-off key is best.'))),
+                  onTap: () => inputSheet(app, 'Auth key', (v) => _set({'authKey': v.trim()}), initial: key, hint: control.isEmpty ? 'tskey-auth-…' : 'hskey-auth-…', keyboard: TextInputType.visiblePassword, note: tr('只在第一次登录时用；之后登录状态保存在 bowel 里。建议用一次性的 key。', 'Used only for the first login; after that bowel keeps the login. A one-off key is best.'))),
             ],
           ]),
           if (_on)
             section(l, tr('登录', 'Login'), [
               if (state == 'login' && url.isNotEmpty) ...[
                 const SizedBox(height: 6),
-                Text(tr('在浏览器里打开下面的链接，批准这台设备加入 tailnet。', 'Open this link in a browser and approve this device on the tailnet.'), style: note),
+                Text(
+                    control.isEmpty
+                        ? tr('在浏览器里打开下面的链接，批准这台设备加入 tailnet。', 'Open this link in a browser and approve this device on the tailnet.')
+                        : tr('在浏览器里打开下面的链接，按页面上说的在控制服务器上注册这台设备。', 'Open this link in a browser and register this device on the control server as the page says.'),
+                    style: note),
                 const SizedBox(height: 6),
                 Tap(
                   onTap: () async {
@@ -156,7 +172,10 @@ class _TailnetPageState extends State<TailnetPage> {
                   Btn(tr('退出登录', 'Log out'), minH: 40, kind: BtnKind.plain, onTap: () => confirmSheet(app, tr('退出 Tailscale 登录', 'Log out of Tailscale'), tr('退出', 'Log out'), () async {
                         await app.send('tailnetLogout');
                         await _load();
-                      }, body: tr('这台设备会忘掉登录状态，下次要重新登录。在 Tailscale 后台还能看到它，需要的话在那里删除。', 'This device forgets its login and will log in anew. It stays in the Tailscale admin console: remove it there if you want.'))),
+                      },
+                          body: control.isEmpty
+                              ? tr('这台设备会忘掉登录状态，下次要重新登录。在 Tailscale 后台还能看到它，需要的话在那里删除。', 'This device forgets its login and will log in anew. It stays in the Tailscale admin console: remove it there if you want.')
+                              : tr('这台设备会忘掉登录状态，下次要重新登录。控制服务器上还留着它，需要的话在那里删除。', 'This device forgets its login and will log in anew. It stays on the control server: remove it there if you want.'))),
                 ]),
               ),
             ]),

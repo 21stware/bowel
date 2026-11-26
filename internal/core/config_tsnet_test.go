@@ -53,6 +53,34 @@ func TestTsnetOutbound(t *testing.T) {
 	}
 }
 
+// On a self-hosted control server (Headscale) the node is told where it
+// is, and the tailnet's own MagicDNS domain goes to the node in every
+// mode, as a name, beside ts.net.
+func TestTsnetHeadscale(t *testing.T) {
+	dev := devnet.TsnetOverlay(devnet.Tsnet{ControlURL: "http://hs.example.com:8080", Domain: "Tail.Example.com", AuthKey: "0123abcd"})
+	for _, mode := range []string{"rule", "global", "direct"} {
+		cfg := build(t, devInput(mode, dev))
+		p := cfg["proxies"].([]any)[0].(map[string]any)
+		if p["control-url"] != "http://hs.example.com:8080" || p["auth-key"] != "0123abcd" {
+			t.Errorf("%s: proxy = %v", mode, p)
+		}
+		rules := strs(cfg["rules"])
+		for _, r := range []string{
+			"DOMAIN-SUFFIX,tail.example.com," + devnet.TailscaleOutbound,
+			"DOMAIN-SUFFIX,ts.net," + devnet.TailscaleOutbound,
+			"IP-CIDR,100.64.0.0/10," + devnet.TailscaleOutbound + ",no-resolve",
+		} {
+			if !slices.Contains(rules, r) {
+				t.Errorf("%s: no %q in %v", mode, r, rules)
+			}
+		}
+		dns, _ := cfg["dns"].(map[string]any)
+		if f := strs(dns["fake-ip-filter"]); slices.Contains(f, "+.tail.example.com") {
+			t.Errorf("%s: the domain kept from fake-ip: %v", mode, f)
+		}
+	}
+}
+
 // Without a key or a name the core's defaults stand.
 func TestTsnetOutboundDefaults(t *testing.T) {
 	cfg := build(t, devInput("rule", devnet.TsnetOverlay(devnet.Tsnet{})))
@@ -62,6 +90,9 @@ func TestTsnetOutboundDefaults(t *testing.T) {
 	}
 	if _, ok := p["hostname"]; ok {
 		t.Errorf("hostname = %v", p["hostname"])
+	}
+	if _, ok := p["control-url"]; ok {
+		t.Errorf("control-url = %v", p["control-url"])
 	}
 	if p["state-dir"] != TsnetStateDir {
 		t.Errorf("state-dir = %v", p["state-dir"])

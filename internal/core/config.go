@@ -763,6 +763,9 @@ func tsnetProxy(name string, t devnet.Tsnet) map[string]any {
 	if t.AuthKey != "" {
 		p["auth-key"] = t.AuthKey
 	}
+	if t.ControlURL != "" {
+		p["control-url"] = t.ControlURL
+	}
 	return p
 }
 

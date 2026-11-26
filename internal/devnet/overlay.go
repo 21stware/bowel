@@ -49,6 +49,12 @@ type Outbound struct {
 type Tsnet struct {
 	Hostname string `json:"hostname,omitempty"`
 	AuthKey  string `json:"authKey,omitempty"`
+	// ControlURL is the control server's, "" for Tailscale's own: a
+	// self-hosted one, such as Headscale.
+	ControlURL string `json:"controlUrl,omitempty"`
+	// Domain is where the tailnet's MagicDNS names live besides ts.net, as
+	// on a self-hosted control server (Headscale's base_domain).
+	Domain string `json:"domain,omitempty"`
 	// StateDir is the folder of its state, in the core's; "" is the core's
 	// default.
 	StateDir string `json:"stateDir,omitempty"`
@@ -296,15 +302,19 @@ func (b *builder) tailscale(env Env) {
 	}
 }
 
-// TsnetOverlay sends the tailnet's addresses and names to the core's own
-// node of it, and touches nothing else: there is no system proxy or system
-// route to keep them from, and its names must reach the core as names
-// (fake-ip), since only the node knows MagicDNS. Short names are not
-// handled: the node's peers are not known before it runs.
+// TsnetOverlay sends the tailnet's addresses and names (ts.net's, and
+// t.Domain's) to the core's own node of it, and touches nothing else:
+// there is no system proxy or system route to keep them from, and its
+// names must reach the core as names (fake-ip), since only the node knows
+// MagicDNS. Short names are not handled: the node's peers are not known
+// before it runs.
 func TsnetOverlay(t Tsnet) Overlay {
 	b := &builder{domains: map[string]bool{}, prefixes: map[netip.Prefix]bool{}, o: Overlay{Hosts: map[string][]string{}}}
 	b.o.Outbounds = []Outbound{{Name: TailscaleOutbound, Tsnet: &t}}
-	for _, d := range tailnetDomains {
+	for _, d := range append(slices.Clone(tailnetDomains), t.Domain) {
+		if d = cleanDomain(d); d == "" || b.domains[d] {
+			continue
+		}
 		b.domains[d] = true
 		b.o.domains = append(b.o.domains, d)
 		b.domainRs = append(b.domainRs, Rule{"DOMAIN-SUFFIX," + d, TailscaleOutbound})
@@ -319,14 +329,18 @@ func TsnetOverlay(t Tsnet) Overlay {
 }
 
 // InTailnet says whether host, a name or an address, is one only a
-// tailnet reaches: Tailscale's ranges and MagicDNS's domains.
-func InTailnet(host string) bool {
+// tailnet reaches: Tailscale's ranges and MagicDNS's domains, and more,
+// the tailnet's own (Tsnet.Domain).
+func InTailnet(host string, more ...string) bool {
 	host = strings.TrimSuffix(strings.ToLower(host), ".")
 	if a, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil {
 		a = a.Unmap()
 		return slices.ContainsFunc(meshCIDRs, func(c string) bool { return netip.MustParsePrefix(c).Contains(a) })
 	}
-	return slices.ContainsFunc(tailnetDomains, func(d string) bool { return host == d || strings.HasSuffix(host, "."+d) })
+	return slices.ContainsFunc(append(slices.Clone(tailnetDomains), more...), func(d string) bool {
+		d = cleanDomain(d)
+		return d != "" && (host == d || strings.HasSuffix(host, "."+d))
+	})
 }
 
 // tailnetDomains are where MagicDNS names live, whatever the tailnet.

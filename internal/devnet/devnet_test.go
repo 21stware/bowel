@@ -500,7 +500,39 @@ func TestTsnetOverlay(t *testing.T) {
 	}
 }
 
+// A self-hosted tailnet's MagicDNS domain goes to the node beside ts.net,
+// a narrower rule of the user's for it still comes first, and nothing
+// else is caught by it.
+func TestTsnetOverlayDomain(t *testing.T) {
+	o := TsnetOverlay(Tsnet{ControlURL: "https://hs.example.com", Domain: "Tail.Example.com"})
+	for _, h := range []string{"box.tail.example.com", "BOX.TAIL.EXAMPLE.COM.", "tail.example.com", "box.tail17b34.ts.net", "100.85.4.93"} {
+		if r, ok := o.Match(h); !ok || r.Target != TailscaleOutbound {
+			t.Errorf("%s: %+v %v", h, r, ok)
+		}
+	}
+	for _, h := range []string{"hs.example.com", "example.com", "nottail.example.com"} {
+		if r, ok := o.Match(h); ok {
+			t.Errorf("%s matched %+v", h, r)
+		}
+	}
+	if !o.Covers("DOMAIN,nas.tail.example.com,x") {
+		t.Error("Covers")
+	}
+	if len(o.Bypass)+len(o.NoProxy)+len(o.FakeIPFilter)+len(o.TunExclude) > 0 {
+		t.Errorf("keeps something from the core: %+v", o)
+	}
+	if n := len(TsnetOverlay(Tsnet{Domain: "ts.net"}).Rules); n != len(TsnetOverlay(Tsnet{}).Rules) {
+		t.Errorf("ts.net twice: %d rules", n)
+	}
+}
+
 func TestInTailnet(t *testing.T) {
+	if !InTailnet("nas.tail.example.com", "tail.example.com") || !InTailnet("NAS.Tail.Example.com.", "Tail.Example.com") {
+		t.Error("the tailnet's own domain")
+	}
+	if InTailnet("hs.example.com", "tail.example.com") || InTailnet("example.com", "") {
+		t.Error("outside the tailnet's own domain")
+	}
 	for host, want := range map[string]bool{
 		"100.64.0.1": true, "100.127.255.254": true, "100.128.0.1": false, "8.8.8.8": false,
 		"fd7a:115c:a1e0::1": true, "[fd7a:115c:a1e0:ab12::1]": true, "fd7a:115c:a1e1::1": false,

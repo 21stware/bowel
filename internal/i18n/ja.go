@@ -921,6 +921,12 @@ var jaTable = map[string]string{
 	"这个地址在 tailnet 里：先在设置里打开内置 Tailscale": "このアドレスは tailnet 内にあります。先に設定で内蔵の Tailscale をオンにしてください",
 	"这个地址在 tailnet 里：先开启 VPN":             "このアドレスは tailnet 内にあります。先に VPN をオンにしてください",
 
+	// The built-in Tailscale on a self-hosted control server (Headscale).
+	"控制服务器要是 http 或 https 链接":                 "コントロールサーバーは http か https のリンクにしてください",
+	"auth key 里不能有空格":                         "auth key に空白は使えません",
+	"MagicDNS 域名的写法不对，例如 tail.example.com": "MagicDNS ドメインの書き方が正しくありません。tail.example.com のように書いてください",
+	"MagicDNS 域名不能是控制服务器的域名或它的上级":           "MagicDNS ドメインにコントロールサーバーのドメインやその上位ドメインは使えません",
+
 	// #272: providers left out of a range, and their order.
 	"不用 %s": "%s 以外",
 	"只用所选": "選択したものだけ",

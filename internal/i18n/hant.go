@@ -922,6 +922,12 @@ var hantTable = map[string]string{
 	"这个地址在 tailnet 里：先在设置里打开内置 Tailscale": "這個位址在 tailnet 裡：先在設定裡打開內建 Tailscale",
 	"这个地址在 tailnet 里：先开启 VPN":             "這個位址在 tailnet 裡：先開啟 VPN",
 
+	// The built-in Tailscale on a self-hosted control server (Headscale).
+	"控制服务器要是 http 或 https 链接":                 "控制伺服器要是 http 或 https 連結",
+	"auth key 里不能有空格":                         "auth key 裡不能有空格",
+	"MagicDNS 域名的写法不对，例如 tail.example.com": "MagicDNS 網域的寫法不對，例如 tail.example.com",
+	"MagicDNS 域名不能是控制服务器的域名或它的上级":           "MagicDNS 網域不能是控制伺服器的網域或它的上層",
+
 	// #272: providers left out of a range, and their order.
 	"不用 %s": "不用 %s",
 	"只用所选": "只用所選",

@@ -81,9 +81,17 @@ func (x *bridge) setSettings(ctx context.Context, patch json.RawMessage) error {
 		return nil
 	}
 	var bad error
-	err := x.change(ctx, func(s *settings.Settings) { bad = json.Unmarshal(patch, s) })
+	moved := ""
+	err := x.change(ctx, func(s *settings.Settings) {
+		was := s.Tailnet
+		bad = json.Unmarshal(patch, s)
+		moved = tailnetMoved(was, &s.Tailnet)
+	})
 	if bad != nil {
 		return bad
+	}
+	if err == nil && moved != "" {
+		x.forgetNodes(moved)
 	}
 	return err
 }
