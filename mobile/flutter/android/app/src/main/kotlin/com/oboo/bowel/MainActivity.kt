@@ -31,16 +31,25 @@ class MainActivity : FlutterActivity() {
     private var pendingVpn: MethodChannel.Result? = null
     private var pendingScan: MethodChannel.Result? = null
     private var pendingPick: MethodChannel.Result? = null
+    private var coreChannel: MethodChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
         MethodChannel(messenger, "bowel/shell").setMethodCallHandler(::onShell)
-        Core.channel = MethodChannel(messenger, "bowel/core").also { it.setMethodCallHandler(::onCore) }
+        coreChannel = MethodChannel(messenger, "bowel/core").also {
+            it.setMethodCallHandler(::onCore)
+            Core.channel = it
+        }
     }
 
     override fun onDestroy() {
-        if (isFinishing) Core.channel = null
+        // Only this activity's own channel goes. Back on the first page
+        // finishes the activity while the VPN keeps the process, and when the
+        // app is opened again right away, the new activity has set its channel
+        // before this one is destroyed: clearing that would leave the new page
+        // without a tick or a connection from Go (#281).
+        if (Core.channel === coreChannel) Core.channel = null
         super.onDestroy()
     }
 
