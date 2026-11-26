@@ -117,8 +117,53 @@ type Tailnet struct {
 	// AuthKey logs in without a browser. Once logged in it is not read
 	// again: the state the core keeps is.
 	AuthKey string `json:"authKey,omitempty"`
+	// ControlURL is the control server, an http or https link: "" is
+	// Tailscale's own, another a self-hosted one such as Headscale. A node
+	// belongs to one, so changing it logs out (the app gives StateID anew).
+	ControlURL string `json:"controlUrl,omitempty"`
+	// Domain is where the tailnet's MagicDNS names live besides ts.net:
+	// Headscale's base_domain, which the app can't ask the node for. Its
+	// names go to the node in every mode, as ts.net's do.
+	Domain string `json:"domain,omitempty"`
 	// StateID names the folder of the node's state; a new one logs out.
 	StateID string `json:"stateId,omitempty"`
+}
+
+// Control is ControlURL as the core takes it: the node puts its paths
+// after it ("/key?v="), so a slash at the end would make them "//key".
+func (t Tailnet) Control() string { return strings.TrimRight(t.ControlURL, "/") }
+
+func (t Tailnet) validate() error {
+	host := ""
+	if t.ControlURL != "" {
+		u, err := url.Parse(t.ControlURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+			return errors.New(i18n.T("控制服务器要是 http 或 https 链接", "The control server must be an http or https link"))
+		}
+		host = strings.ToLower(u.Hostname())
+	}
+	switch k := t.AuthKey; {
+	case k == "":
+	case t.ControlURL == "" && !strings.HasPrefix(k, "tskey-"):
+		// Tailscale's own keys all start so. Headscale's are hex, or
+		// hskey-auth- in its newer versions.
+		return errors.New(i18n.T("auth key 以 tskey- 开头", "An auth key starts with tskey-"))
+	case strings.IndexFunc(k, unicode.IsSpace) >= 0:
+		return errors.New(i18n.T("auth key 里不能有空格", "An auth key has no spaces"))
+	}
+	if d := strings.ToLower(t.Domain); d != "" {
+		label := func(r rune) bool { return r != '.' && r != '-' && !unicode.IsLetter(r) && !unicode.IsDigit(r) }
+		if strings.Trim(d, ".") != d || strings.Contains(d, "..") || strings.ContainsFunc(d, label) {
+			return errors.New(i18n.T("MagicDNS 域名的写法不对，例如 tail.example.com", "Malformed MagicDNS domain: write it as tail.example.com"))
+		}
+		// Its names go to the node, and the login page would too: the
+		// node can't reach anything before it is logged in. Headscale
+		// refuses such a base_domain itself.
+		if host == d || strings.HasSuffix(host, "."+d) {
+			return errors.New(i18n.T("MagicDNS 域名不能是控制服务器的域名或它的上级", "The MagicDNS domain can't be the control server's, or one above it"))
+		}
+	}
+	return nil
 }
 
 // Appearances are the choices of Appearance.
@@ -403,8 +448,8 @@ func (s Settings) Validate() error {
 	if strings.ContainsAny(s.Tailnet.Hostname, " \t./\\:") {
 		return errors.New(i18n.T("设备名只能用字母、数字和连字符", "The device name may only have letters, digits and hyphens"))
 	}
-	if k := s.Tailnet.AuthKey; k != "" && !strings.HasPrefix(k, "tskey-") {
-		return errors.New(i18n.T("auth key 以 tskey- 开头", "An auth key starts with tskey-"))
+	if err := s.Tailnet.validate(); err != nil {
+		return err
 	}
 	for _, b := range s.Bypass {
 		if strings.ContainsAny(b, " \t,;") {

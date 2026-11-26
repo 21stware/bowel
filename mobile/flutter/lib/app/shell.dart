@@ -90,8 +90,9 @@ class Shell {
   /// Android's VPN page, where always-on lives.
   Future<void> openVPNSettings() => _channel.invokeMethod('openVPNSettings');
 
-  /// An https page in the browser, such as Tailscale's login.
-  Future<void> openURL(String url) => _channel.invokeMethod('openURL', {'url': url});
+  /// An https page in the browser, such as Tailscale's login. With [http],
+  /// an http one too: a self-hosted control server (Headscale) may have no TLS.
+  Future<void> openURL(String url, {bool http = false}) => _channel.invokeMethod('openURL', {'url': url, if (http) 'http': true});
 
   /// This copy's version on Android, where the app looks for updates itself.
   Future<String> appVersion() async => !kIsWeb && Platform.isAndroid ? await _channel.invokeMethod<String>('appVersion') ?? '' : '';

@@ -68,10 +68,14 @@ func addTailnetListener(cfg map[string]any, t settings.Tailnet) {
 func (x *bridge) httpClient() *http.Client {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.Proxy = func(r *http.Request) (*url.URL, error) {
-		if !canTailnet || !devnet.InTailnet(r.URL.Hostname()) {
+		if !canTailnet {
 			return nil, nil
 		}
-		if !x.set.Get().Tailnet.On {
+		t := x.set.Get().Tailnet
+		if !devnet.InTailnet(r.URL.Hostname(), t.Domain) {
+			return nil, nil
+		}
+		if !t.On {
 			return nil, errors.New(i18n.T("这个地址在 tailnet 里：先在设置里打开内置 Tailscale",
 				"This address is on a tailnet: turn on the built-in Tailscale in Settings first"))
 		}
@@ -93,7 +97,9 @@ func tailnetOverlay(t settings.Tailnet) devnet.Overlay {
 	if host == "" {
 		host = defaultHostname
 	}
-	return devnet.TsnetOverlay(devnet.Tsnet{Hostname: host, AuthKey: t.AuthKey, StateDir: tailnetStateDir(t)})
+	return devnet.TsnetOverlay(devnet.Tsnet{
+		Hostname: host, AuthKey: t.AuthKey, ControlURL: t.Control(), Domain: t.Domain, StateDir: tailnetStateDir(t),
+	})
 }
 
 // tailnetStateDir is the node's state folder, relative to the core's.
@@ -204,14 +210,45 @@ func (x *bridge) tailnetLogin(ctx context.Context) (tailnetData, error) {
 // then the node may still write its state, so the next one gets a folder of
 // its own and the others are removed.
 func (x *bridge) tailnetLogout(ctx context.Context) error {
-	var b [6]byte
-	_, _ = rand.Read(b[:])
-	id := hex.EncodeToString(b[:])
+	id := newStateID()
 	if err := x.change(ctx, func(s *settings.Settings) { s.Tailnet.AuthKey, s.Tailnet.StateID = "", id }); err != nil {
 		return err
 	}
-	// What the old node said no longer holds. The host appends, so it
-	// writes on from the start.
+	x.forgetNodes(id)
+	return nil
+}
+
+// tailnetMoved logs out, as tailnetLogout does, when t names another
+// control server than was: a node, and a key, belong to one. The key goes
+// unless t brought a new one, and so does the domain when t is Tailscale's
+// own server, whose names are ts.net's. It gives the new state folder's
+// name, or "" for the same server.
+func tailnetMoved(was settings.Tailnet, t *settings.Tailnet) string {
+	if t.Control() == was.Control() {
+		return ""
+	}
+	id := newStateID()
+	t.StateID = id
+	if t.AuthKey == was.AuthKey {
+		t.AuthKey = ""
+	}
+	if t.ControlURL == "" && t.Domain == was.Domain {
+		t.Domain = ""
+	}
+	return id
+}
+
+// newStateID names a node's state folder.
+func newStateID() string {
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
+// forgetNodes removes what the nodes before the one of folder id left:
+// their state, and what they said, which no longer holds. The host
+// appends to the log, so it writes on from the start.
+func (x *bridge) forgetNodes(id string) {
 	_ = os.Truncate(filepath.Join(x.dir, tailnetLog), 0)
 	root := filepath.Join(x.dir, core.TsnetStateDir)
 	entries, _ := os.ReadDir(root)
@@ -220,5 +257,4 @@ func (x *bridge) tailnetLogout(ctx context.Context) error {
 			_ = os.RemoveAll(filepath.Join(root, e.Name()))
 		}
 	}
-	return nil
 }

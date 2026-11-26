@@ -68,7 +68,7 @@ class MainActivity : FlutterActivity() {
             "pickFile" -> pick(result, documentPicker("*/*"))
             "pickImage" -> pick(result, imagePicker())
             "openVPNSettings" -> openVpnSettings(result)
-            "openURL" -> openUrl(call.argument<String>("url").orEmpty(), result)
+            "openURL" -> openUrl(call.argument<String>("url").orEmpty(), call.argument<Boolean>("http") == true, result)
             "listApps" -> offMain(result) { launcherApps() }
             "canSeeApp" -> offMain(result) { canSee(call.argument<String>("id").orEmpty()) }
             "appVersion" -> result.success(packageManager.getPackageInfo(packageName, 0).versionName.orEmpty())
@@ -168,10 +168,13 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    // A page in the browser, such as Tailscale's login: https only.
-    private fun openUrl(url: String, result: MethodChannel.Result) {
+    // A page in the browser, such as Tailscale's login: https only, or with
+    // http also http, as a self-hosted control server (Headscale) may serve
+    // its login page without TLS.
+    private fun openUrl(url: String, http: Boolean, result: MethodChannel.Result) {
         val uri = Uri.parse(url)
-        if (uri.scheme != "https") {
+        val scheme = uri.scheme?.lowercase()
+        if (scheme != "https" && !(http && scheme == "http")) {
             result.error("url", "not an https link", null)
             return
         }
