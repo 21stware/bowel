@@ -398,7 +398,11 @@ func (u *UI) activityPage(c *ui.Context, p *pal) {
 	if actIsAllApps(a.app) { // also after the language changed
 		a.app = actAllApps()
 	}
-	c.OnWindowShortcut(0, ui.KeyEscape, func() { a.open = "" })
+	// Escape closes an open connection's detail; with none open it puts
+	// the window away (view).
+	if a.open != "" {
+		c.OnWindowShortcut(0, ui.KeyEscape, func() { a.open = "" })
+	}
 	ui.Column(c).Fill().Children(func() {
 		u.actHead(c, p)
 		if u.tick.AppsUnknown {
