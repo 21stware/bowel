@@ -21,6 +21,7 @@ import (
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/routes"
 	"github.com/oboo/moho/internal/settings"
+	"github.com/oboo/moho/internal/speed"
 )
 
 type homeUI struct {
@@ -1527,10 +1528,21 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32, lead func(
 		label = i18n.T("测速中…", "Testing…")
 	}
 	downloading := u.pending(bandwidthKey(rid))
+	// In a group that chooses by download speed the same button runs a
+	// round of its schedule now, which chooses (issue 267).
 	bwLabel := i18n.T("测下载", "Downloads")
+	bwTip := i18n.T("经延迟最低的几个节点各下载一个测速文件，比较真实的下载速度；会用掉一些流量，开始前会先告诉你", "Download a test file through the few nodes with the lowest delay, to compare real download speeds. It uses some traffic; you're told how much before it starts")
+	if q.ByDownload() && !r.Direct {
+		bwLabel = i18n.T("现在测一轮", "Test round now")
+		bwTip = i18n.T("不等下一轮，现在就测，测完换到下载最快的节点，下一轮从测完时算起；开始前会先告诉你用掉多少流量", "Run the next round now instead of waiting: the fastest download is chosen, and the next round is counted from then. You're told how much traffic it uses before it starts")
+	}
 	if downloading {
 		bwLabel = i18n.T("下载测速中…", "Downloading…")
 	}
+	// shown is the nodes the list's filters let through (the range in
+	// 自动最快, the region otherwise, and the search), which a download test
+	// takes its nodes from: filled in below, before the head that uses it.
+	var shown []string
 	q2 := strings.ToLower(strings.TrimSpace(h.query))
 	tabs := q.Mode != routes.ModeAuto // 自动最快 has its range instead
 	picking := q.Mode == routes.ModeAuto && h.picking == rid
@@ -1613,11 +1625,12 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32, lead func(
 			ui.SearchField(c.Key("q"), &h.query).Placeholder(i18n.T("搜索节点", "Search nodes")).Width(regionSearchW).Shrink(0)
 			b := btn(c, p, label).Disabled(testing).Shrink(0)
 			b.OnClick(func() { u.do(func() error { return u.app.testRoute(bg(), rid) }) })
-			d := btn(c.Key("bandwidth"), p, bwLabel).Disabled(downloading || testing).Shrink(0).
-				Tooltip(i18n.T("经延迟最低的几个节点各下载一个测速文件，比较真实的下载速度；会用掉一些流量，开始前会先告诉你", "Download a test file through the few nodes with the lowest delay, to compare real download speeds. It uses some traffic; you're told how much before it starts"))
+			d := btn(c.Key("bandwidth"), p, bwLabel).Disabled(downloading || testing).Shrink(0).Tooltip(bwTip)
 			d.OnClick(func() {
 				if u.app != nil {
-					h.bwPlan = u.app.planBandwidth(rid)
+					h.bwPlan = u.app.planBandwidth(rid, shown)
+				} else { // a test's UI: the rows the plan is made from
+					h.bwPlan = bandwidthPlan{Nodes: shown, Cap: speed.DownloadCap, MaxBytes: int64(len(shown)) * speed.DownloadCap, URL: settings.Defaults.DownloadURL}
 				}
 				h.bwOpen = true
 			})
@@ -1686,10 +1699,14 @@ func (u *UI) nodePicker(c *ui.Context, p *pal, rid string, w float32, lead func(
 		case !queried(n):
 		case picking && !nodeInScope(withoutPicks(q), n):
 		case !picking && q.Mode == routes.ModeAuto && !nodeInScope(q, n):
-		case q.Mode == routes.ModeOrder && slices.Contains(q.Order, n.Name):
 		case q.Mode != routes.ModeAuto && !inTab(n):
+		case q.Mode == routes.ModeOrder && slices.Contains(q.Order, n.Name):
+			// Listed in the order above, which the region doesn't filter:
+			// the region and the search say what a download test takes.
+			shown = append(shown, n.Name)
 		default:
 			list = append(list, pick{n: n.On(rid)})
+			shown = append(shown, n.Name)
 		}
 	}
 	sort.SliceStable(list, func(i, j int) bool { return rankOf(list[i].n) < rankOf(list[j].n) })
