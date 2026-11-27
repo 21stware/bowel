@@ -84,7 +84,7 @@ func (a *App) gatewayTools() []mcp.Tool {
 					if !p.Enabled && !p.Force && !isLocal(s) {
 						snap := a.snapshot()
 						if err := gatewayOffRisk(snap.Takeover.Gateway, snap.Devices); err != nil {
-							return nil, err
+							return nil, unattendedNote(s, err) // the command line has no force
 						}
 					}
 					err := a.change(ctx, s, words{"更改网关模式", "Change gateway mode"}, fmt.Sprintf("gateway: %v → %v", old, p.Enabled),
@@ -117,7 +117,7 @@ func (a *App) gatewayTools() []mcp.Tool {
 					if !p.Enabled && !p.Force && !isLocal(s) {
 						others, err := a.checkDHCP()
 						if err := gatewayManualRisk(a.snapshot().Takeover.Gateway, others, err); err != nil {
-							return nil, err
+							return nil, unattendedNote(s, err) // the command line has no force
 						}
 					}
 					err := a.change(ctx, s, words{"更改网关的地址分配", "Change the gateway's handing out of addresses"}, fmt.Sprintf("gatewayAuto: %v → %v", old, p.Enabled),

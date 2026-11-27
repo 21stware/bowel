@@ -15,7 +15,7 @@ docker run -d --name bowel --restart unless-stopped \
 docker exec -it bowel bowel tui
 ```
 
-`docker exec bowel bowel status`、`bowel nodes`、`bowel route use ai <节点>`、`bowel logs -f` 等所有命令都这样用，见 [cli.md](cli.md)。可以设个别名少打几个字：`alias bowel='docker exec -it bowel bowel'`。
+`docker exec bowel bowel status`、`bowel nodes`、`bowel logs -f` 等所有命令都这样用，见 [cli.md](cli.md)。修改类的命令（比如 `bowel route use ai <节点>`）要加 `-it`：没有终端的 `docker exec` 会被 bowel 当作 agent 的命令（见 [Agent（MCP）](#agentmcp)）。可以设个别名少打几个字，也就带上了终端：`alias bowel='docker exec -it bowel bowel'`。
 
 ## 镜像
 
@@ -93,7 +93,7 @@ curl -fsSL -o /boot/config/plugins/dockerMan/templates-user/my-bowel.xml \
 docker run -d --name bowel --restart unless-stopped \
   --network host --cap-add NET_ADMIN --device /dev/net/tun \
   -v bowel:/data ghcr.io/21stware/bowel
-docker exec bowel bowel tun on
+docker exec -it bowel bowel tun on
 ```
 
 在主机网络上，TUN 接管主机自己的流量；再执行 `bowel gateway on`，主机就成了局域网的路由器：把网关和 DNS 设成它的设备都会经过 bowel。网关模式需要主机网络（它在物理网卡上服务局域网，而不是 Docker 的网桥），还需要 IP 转发。Docker 本来就会在主机上打开转发；如果没开，请在主机上执行 `sysctl -w net.ipv4.ip_forward=1`，因为容器里的 `/proc/sys` 是只读的。如果用 Docker 的网桥网络，TUN 接管的是这个容器，以及共用它网络的容器（`--network container:bowel`）的流量，可以用来让某一个服务单独走 bowel。缺少设备或权限时，`bowel tun on` 会说明缺的是哪一个。Docker Desktop 的主机网络是它虚拟机的网络，所以在 macOS 和 Windows 上请直接用 App。
@@ -112,7 +112,7 @@ claude mcp add --transport http bowel http://<主机>:7900/mcp --header "Authori
 
 其他客户端用同样的 URL 和请求头（`"type": "http"`、`"url"`、`"headers"`）。`BOWEL_MCP_TOKEN` 可以指定自己的令牌（至少 16 个字符）；`BOWEL_MCP_HTTP` 留空则关闭这个端点。不开 TLS 时它是明文 HTTP，令牌也明文传输：只在 `127.0.0.1`、VPN 或内网上发布 7900，或者开启 TLS。`BOWEL_MCP_TLS=on` 会在 `/data` 里生成一张自签名证书（客户端用来连接的主机名或地址写进 `BOWEL_MCP_TLS_HOSTS`，例如 `nas.lan,192.168.1.5`）；之后 `docker exec bowel bowel mcp token` 会打印证书指纹和 `https://` 的配置，`docker exec bowel bowel mcp cert` 打印证书，让 agent 所在的机器信任它。`BOWEL_MCP_TLS_CERT` 和 `BOWEL_MCP_TLS_KEY` 可以改用你自己的证书。客户端那边怎么配置、一个 agent 怎么管理几台 bowel，见 [mcp-http.md](mcp-http.md)（英文）。
 
-容器里没有窗口可以弹出询问，所以在默认的「询问」策略下，经 MCP 连接的 agent 能读取一切，但改不了任何东西。要让 agent 能修改，你自己执行 `docker exec -it bowel bowel settings set mcpPolicy allow`，在它询问时输入 `allow`（也可以在 `bowel tui` 的设置页里选）。不带 `-it` 会被拒绝：`docker exec` 带进去的是容器的环境变量，不是调用者的，所以 bowel 分不清 agent 的 `docker exec` 和你的，只有你在终端前能回答。也因为这样，agent 用 `docker exec bowel bowel …` 运行的命令会被当成你的，不会被询问；要让 agent 的修改遵循策略，就让它用 MCP。同一台主机上的 agent 也可以运行 `docker exec -i bowel bowel mcp`，也就是 stdio 版本的 MCP，不需要令牌。
+容器里没有窗口可以弹出询问，所以在默认的「询问」策略下，agent 能读取一切，但改不了任何东西。它用 `docker exec` 也一样。`docker exec` 带进去的是容器的环境变量，不是调用者的，bowel 靠它分不清 agent 的 `docker exec` 和你的，所以把没有终端的当作 agent 的命令：不带 `-it`，或者在没有终端的 shell 里带 `-t`（agent 的 shell 就没有终端，这时终端是 0×0）。你自己修改时用 `docker exec -it`、上面的别名或 `bowel tui`。主机上的脚本要经 `docker exec` 修改，需要把策略设为「允许」。要让 agent 能修改，你自己执行 `docker exec -it bowel bowel settings set mcpPolicy allow`，在它询问时输入 `allow`（也可以在 `bowel tui` 的设置页里选）。同一台主机上的 agent 也可以运行 `docker exec -i bowel bowel mcp`，也就是 stdio 版本的 MCP，不需要令牌。
 
 ## 健康检查和日志
 

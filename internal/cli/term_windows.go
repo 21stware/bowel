@@ -31,6 +31,9 @@ func termRaw(in, out *os.File) (restore func(), err error) {
 	}, nil
 }
 
+// termSized says whether a terminal has a size: a console always does.
+func termSized(*os.File) bool { return true }
+
 // termSize is the console window's size in columns and rows.
 func termSize(out *os.File) (w, h int) {
 	var info windows.ConsoleScreenBufferInfo

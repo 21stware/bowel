@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"runtime"
 	"strings"
 	"syscall"
@@ -95,8 +96,14 @@ func dial(env Env) (*client, error) {
 	if agent != "" {
 		name = agent + " (bowel CLI)"
 	}
+	person := env.Person
+	if person == nil {
+		person = func() bool { return atTerminal(os.Stdin) }
+	}
+	// terminal: in a container, where `docker exec` leaves an agent's
+	// environment behind, it is what tells the user (app_cli.go).
 	_, err = cl.request("initialize", map[string]any{
-		"protocolVersion": "2025-06-18", "agent": agent,
+		"protocolVersion": "2025-06-18", "agent": agent, "terminal": person(),
 		"clientInfo": map[string]any{"name": name, "version": env.Version},
 	})
 	if err != nil {

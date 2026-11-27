@@ -15,7 +15,7 @@ Then point programs at `http://<host>:7899` (HTTP and SOCKS5 share the port), an
 docker exec -it bowel bowel tui
 ```
 
-`docker exec bowel bowel status`, `bowel nodes`, `bowel route use ai <node>`, `bowel logs -f` and every other command work the same way: see [cli.md](cli.md). A shell alias saves typing: `alias bowel='docker exec -it bowel bowel'`.
+`docker exec bowel bowel status`, `bowel nodes`, `bowel logs -f` and every other command work the same way: see [cli.md](cli.md). A change, such as `bowel route use ai <node>`, takes `-it`: bowel counts a `docker exec` with no terminal as an agent's (see [Agents](#agents-mcp)). A shell alias saves typing and brings the terminal along: `alias bowel='docker exec -it bowel bowel'`.
 
 ## Images
 
@@ -93,7 +93,7 @@ The proxy port needs nothing special. TUN, which takes all traffic of the networ
 docker run -d --name bowel --restart unless-stopped \
   --network host --cap-add NET_ADMIN --device /dev/net/tun \
   -v bowel:/data ghcr.io/21stware/bowel
-docker exec bowel bowel tun on
+docker exec -it bowel bowel tun on
 ```
 
 On the host's network, TUN takes the host's own traffic, and `bowel gateway on` then makes the host a router for the LAN: devices that use its address as their gateway and DNS go through bowel. Gateway mode needs the host's network (it serves the LAN on a physical interface, not on Docker's bridge) and IP forwarding, which Docker turns on on the host already; where it is off, turn it on on the host (`sysctl -w net.ipv4.ip_forward=1`), since `/proc/sys` is read-only in a container. On Docker's bridge network instead, TUN takes the traffic of the container and of containers that share its network (`--network container:bowel`), which is a way to send one service through bowel. Without the device or the capability, `bowel tun on` says which one is missing. Docker Desktop's host network is its VM's, so on macOS and Windows use the app instead.
@@ -112,7 +112,7 @@ claude mcp add --transport http bowel http://<host>:7900/mcp --header "Authoriza
 
 Other clients take the same URL and header (`"type": "http"`, `"url"`, `"headers"`). `BOWEL_MCP_TOKEN` sets a token of your own (16 characters or more) instead; an empty `BOWEL_MCP_HTTP` turns the endpoint off. Without TLS it is plain HTTP and the token travels in the clear: publish 7900 on `127.0.0.1`, a VPN or a private network only, or turn TLS on. `BOWEL_MCP_TLS=on` makes a self-signed certificate in `/data` (name the host clients use in `BOWEL_MCP_TLS_HOSTS`, as `nas.lan,192.168.1.5`); `docker exec bowel bowel mcp token` then prints its fingerprint and the `https://` lines, and `docker exec bowel bowel mcp cert` the certificate for the agent's machine to trust. `BOWEL_MCP_TLS_CERT` and `BOWEL_MCP_TLS_KEY` serve a certificate of your own instead. [mcp-http.md](mcp-http.md) has the clients' side, and how one agent drives several bowels.
 
-There is no window to ask in, so under the default policy, "ask", an agent on MCP can read everything and change nothing. To let agents change things, run `docker exec -it bowel bowel settings set mcpPolicy allow` yourself and type `allow` when it asks (or choose it on `bowel tui`'s settings page). Without `-it` it is refused: `docker exec` brings the container's environment, not the caller's, so bowel can't tell an agent's `docker exec` from yours, and only you are at the terminal to answer. For the same reason, a command an agent runs with `docker exec bowel bowel …` is taken as yours and not asked about; give agents MCP when their changes should follow the policy. Agents on the same host can also run `docker exec -i bowel bowel mcp`, the stdio server, which needs no token.
+There is no window to ask in, so under the default policy, "ask", an agent can read everything and change nothing. That holds for its `docker exec` too. `docker exec` brings the container's environment, not the caller's, so bowel can't tell an agent's from yours by it, and counts one with no terminal as an agent's: without `-it`, or with `-t` from a shell that has no terminal, as an agent's shell has none (its terminal is then 0×0). Make changes yourself with `docker exec -it`, the alias above, or `bowel tui`. A script on the host that changes things through `docker exec` needs the policy at allow. To let agents change things, run `docker exec -it bowel bowel settings set mcpPolicy allow` yourself and type `allow` when it asks (or choose it on `bowel tui`'s settings page). Agents on the same host can also run `docker exec -i bowel bowel mcp`, the stdio server, which needs no token.
 
 ## Health and logs
 

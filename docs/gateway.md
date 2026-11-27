@@ -267,7 +267,7 @@ Forwarding goes back to what it was, port 53 closes, TUN stays as you had it. Th
 
 Everything above is reachable from the command line, and over MCP (below); every reading command takes `--json`. Exit codes: 0 done, 1 failed (for example bowel is not running), 2 the command was wrong.
 
-**Permission.** bowel tells an agent's commands from the user's by the agent's environment, and by default asks the user before a change. With the app open, a dialog appears: tell the user to expect it. A daemon has no window and refuses instead; the user (not you) can allow agents' changes at their own terminal, where `bowel settings set mcpPolicy allow` asks them to type `allow`. Run without a terminal, as through your `docker exec` or `ssh`, it is refused: don't answer that question, and don't add `-t` to make it ask. Reading never asks.
+**Permission.** bowel tells an agent's commands from the user's by the agent's environment, and by default asks the user before a change. With the app open, a dialog appears: tell the user to expect it. A daemon has no window and refuses instead; the user (not you) can allow agents' changes at their own terminal, where `bowel settings set mcpPolicy allow` asks them to type `allow`. Run without a terminal, as through your `docker exec` or `ssh`, it is refused: don't answer that question, and don't add `-t` to make it ask. In the Docker image your `docker exec` is an agent's whatever it runs, so its changes follow the same policy. Reading never asks.
 
 **Steps.**
 
