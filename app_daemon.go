@@ -113,6 +113,7 @@ func (a *App) startHeadless() {
 	a.upd.notify = a.emit
 	a.copyGeo()
 	go func() {
+		a.takeOverCore() // one the app's restart for an update left
 		a.detectDev(2 * time.Second)
 		if err := a.applyConfig(); err != nil {
 			log.Println("core:", err)

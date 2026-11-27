@@ -25,6 +25,17 @@ func spawnTun(bin string) (core.Process, error) {
 	return t, err
 }
 
+// attachTun is spawnTun's other half: a core already running, which the
+// last run of the app left (a restart for an update, or a crash), as the
+// task's when the task started it. nil for any other, which the manager
+// waits for and ends as a process.
+func attachTun(bin string, pid int) core.Process {
+	if t := tun.Attach(bin, pid); t != nil {
+		return t
+	}
+	return nil
+}
+
 // noteTunInstall puts how TUN's installation went among the logs, where
 // there is something to say: why it failed (on Windows, the part of the
 // elevated command that stopped and what Windows said), or what an
