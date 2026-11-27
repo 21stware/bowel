@@ -453,7 +453,7 @@ func issueLink(in mdparser.Inline) (string, bool) {
 	if in.Kind != mdparser.Reference || n <= 0 || repo != "" && !strings.EqualFold(repo, "21stware/bowel") {
 		return "", false
 	}
-	return fmt.Sprintf("https://github.com/21stware/bowel/issues/%d", n), true
+	return fmt.Sprintf("%s/issues/%d", projectURL, n), true
 }
 
 func changelogTag(c *ui.Context, p *pal, label string, now bool) {

@@ -667,26 +667,30 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 		ui.Column(c).Absolute().Right(18).Top(50).Width(270).Gap(8).Children(func() {
 			for _, a := range arcs {
 				rid := a.route
+				// A long node name ends in … within the card, the delay
+				// keeps its line at the right, and the card's tooltip
+				// has the whole name.
 				b := ui.ButtonBase(c.Key(rid)).Row().Gap(10).Padding(8, 10).Radius(p.r(8)).Background(p.sheet.Alpha(.88)).Border(1, p.hair).AlignItems(ui.Center).
+					Tooltip(a.node.Display).
 					OnClick(func() { u.home.x, u.home.sub = "routes", rid })
 				if !a.live {
 					b.Opacity(.4)
 				}
 				b.Children(func() {
-					swatch(c, p.routeColor(rid), 8)
-					ui.Column(c).Grow(1).Gap(2).Children(func() {
+					swatch(c, p.routeColor(rid), 8).Shrink(0)
+					ui.Column(c).Grow(1).Shrink(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
 						flagged(c, p, a.node, 14, func() {
-							ui.Text(c, a.node.Display).FontSize(14).FontWeight(600).TextColor(p.ink).NoWrap()
-						})
-						ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-							ui.Text(c, u.route(rid).Name+" · "+placeName(a.node)).FontSize(11.5).TextColor(p.mute)
+							ui.Text(c, a.node.Display).FontSize(14).FontWeight(600).TextColor(p.ink).SingleLine().Shrink(1).MinWidth(0)
+						}).MinWidth(0)
+						ui.Row(c).Gap(6).AlignItems(ui.Center).MinWidth(0).Children(func() {
+							ui.Text(c, u.route(rid).Name+" · "+placeName(a.node)).FontSize(11.5).TextColor(p.mute).SingleLine().Shrink(1).MinWidth(0)
 							locTag(c, p, a.node.Where.Source)
 						})
 					})
 					if p.timedOut(a.node.Delay, a.node.Tested) {
 						failTag(c, p, fmtDelay(a.node), 11)
 					} else {
-						ui.Text(c, fmtDelay(a.node)).FontSize(12).FontFeatures("tnum").TextColor(delayColor(p, a.node.Delay, a.node.Tested))
+						ui.Text(c, fmtDelay(a.node)).FontSize(12).FontFeatures("tnum").TextColor(delayColor(p, a.node.Delay, a.node.Tested)).NoWrap().Shrink(0)
 					}
 				})
 				keepOff = append(keepOff, b.LayoutBounds())
