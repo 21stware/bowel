@@ -119,7 +119,10 @@ func TestDownloadPickEndToEnd(t *testing.T) {
 	}
 	fast := "Fast" + core.NodeSep + pv.ID
 	// The range is this subscription's nodes: the fixture's own go direct,
-	// at the speed of the loopback.
+	// at the speed of the loopback. Rounds run with takeover off too, so the
+	// refreshes would start one of their own beside the test's: as tried
+	// just now, they leave it to the test.
+	a.downloadTriedNow("media")
 	if err := a.updateSettings(func(s *settings.Settings) {
 		s.Routing.ChangePolicy("media", func(q *routes.Policy) {
 			q.Mode, q.Providers, q.DownloadEvery = routes.ModeAuto, []string{pv.ID}, 12
@@ -132,7 +135,7 @@ func TestDownloadPickEndToEnd(t *testing.T) {
 	}
 	a.refresh()
 
-	plan := a.planBandwidthOf("media", true)
+	plan := a.planRound("media")
 	for _, n := range plan.Nodes {
 		if providerOf(n) != pv.ID || display(n) == "Dead" {
 			t.Errorf("the round would test %s", n)
@@ -172,6 +175,23 @@ func TestDownloadPickEndToEnd(t *testing.T) {
 	if downloadDue(r, pick, true, time.Time{}, time.Now()) {
 		t.Error("due again right after a round")
 	}
+
+	// 现在测一轮: a round by hand chooses as a scheduled one does, and the
+	// next is due from it.
+	hand := a.planBandwidth("media", plan.Nodes)
+	if !hand.Round || hand.Cap != scheduledCap || len(hand.Nodes) != 3 {
+		t.Fatalf("by hand: %+v", hand)
+	}
+	if err := a.testBandwidth(ctx, "media", hand); err != nil {
+		t.Fatal(err)
+	}
+	a.mu.Lock()
+	again := a.picks["media"]
+	a.mu.Unlock()
+	if again.Node != fast || !again.At.After(pick.At) {
+		t.Fatalf("the round by hand: %+v, before %+v", again, pick)
+	}
+	pick = again
 
 	// The pick goes down: back on the automatic group, which leaves it out.
 	fastDown.Store(true)
