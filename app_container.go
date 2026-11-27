@@ -171,6 +171,7 @@ func (a *App) startContainer() {
 	for _, l := range lines {
 		log.Println("env:", l)
 	}
+	a.applyEnvEgress(os.Getenv) // the ports, the lock and TUN: app_container_egress.go
 	if !inContainer() {
 		return
 	}

@@ -41,6 +41,8 @@ Without TUN, the exit lock only holds programs that follow the system proxy; com
 
 With only TUN on and TUN not working, the system proxy points at bowel for the time being, so the locked group is still held. If that fails too, the lock turns red and says it is not holding now, and what to do.
 
+In the Docker image there is no system proxy. There the lock holds what comes in by bowel's ports and by TUN, whether takeover is on or off, and the rest isn't sent direct. A port of a locked group holds everything that uses it: see [Egress for other containers](../docker.md#egress-for-other-containers).
+
 On Android the switch is on the group's page too. With the VPN off the phone can't refuse anything, so the first lock points you to Android's own VPN settings: Always-on VPN and Block connections without VPN, for bowel. That holds every app on the phone, not only the locked group, whenever the VPN is down.
 
 ## Gateway mode
