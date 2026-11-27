@@ -29,25 +29,37 @@ import (
 // `mygo dev` signed it until MyGo 0.9.1, did not pass in any combination
 // tried, #131).
 //
-// It is the same process otherwise: its output still comes on a pipe it
-// inherited, so a core that outlives the app ends at its next line, as a
-// child's would; and signals reach it by its pid. Only waiting is
-// different, since only a parent can wait: the pid is polled.
+// It is the same process otherwise: signals reach it by its pid, and its
+// output goes where the app says. For the manager that is a file, since a
+// core that outlives the app (Manager.Detach) would end at its next line
+// on a pipe that no one reads any more. Only waiting is different, since
+// only a parent can wait: the pid is polled.
 type detached struct {
 	pid   int
 	gone  chan struct{} // closed once the process is gone and its output read
 	stops atomic.Int32
 }
 
-// startCore runs the core detached from the app, its output going to out.
+// startCore runs the core detached from the app, its output going to out:
+// into it directly when it is a file, else through a pipe that is read for
+// as long as the core runs.
 func startCore(bin string, args []string, dir string, env []string, out io.Writer) (Process, error) {
-	r, w, err := os.Pipe()
-	if err != nil {
-		return nil, err
+	w, direct := out.(*os.File)
+	var r *os.File
+	if !direct {
+		var err error
+		if r, w, err = os.Pipe(); err != nil {
+			return nil, err
+		}
+		defer w.Close()
 	}
-	defer w.Close()
+	closeRead := func() {
+		if r != nil {
+			r.Close()
+		}
+	}
 	// $0 and "$@" are the core and its arguments, so nothing of theirs is
-	// read as shell. The pipe is descriptor 3 here, 1 and 2 in the core.
+	// read as shell. The output is descriptor 3 here, 1 and 2 in the core.
 	c := nowindow.Command("/bin/sh", append([]string{"-c", `"$0" "$@" </dev/null >&3 2>&3 3>&- & echo $!`, bin}, args...)...)
 	c.Dir = dir
 	c.Env = env
@@ -55,22 +67,24 @@ func startCore(bin string, args []string, dir string, env []string, out io.Write
 	c.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	b, err := c.Output()
 	if err != nil {
-		r.Close()
+		closeRead()
 		return nil, fmt.Errorf("start %s: %w", bin, err)
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
 	if err != nil || pid <= 1 {
-		r.Close()
+		closeRead()
 		return nil, errors.New("start " + bin + ": no pid from the shell")
 	}
 	d := &detached{pid: pid, gone: make(chan struct{})}
 	var read sync.WaitGroup
-	read.Add(1)
-	go func() {
-		defer read.Done()
-		defer r.Close()
-		_, _ = io.Copy(out, r)
-	}()
+	if r != nil {
+		read.Add(1)
+		go func() {
+			defer read.Done()
+			defer r.Close()
+			_, _ = io.Copy(out, r)
+		}()
+	}
 	go func() {
 		for d.alive() {
 			time.Sleep(100 * time.Millisecond)

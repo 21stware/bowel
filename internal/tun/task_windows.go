@@ -78,6 +78,29 @@ func Spawn(bin string) (*Task, error) {
 	return t, nil
 }
 
+// Attach is the running core pid as the task's instance, for a core that
+// another run of the app started through one of the installation's tasks
+// and left running (core.Manager.Detach); nil when bin is not the
+// installed copy, or pid is a core the app started itself and may end as
+// any process. The task is the one Spawn started last, which it keeps
+// (rememberPath). A core whose process the app may not end is the task's:
+// it runs elevated.
+func Attach(bin string, pid int) *Task {
+	if !Installed(bin) {
+		return nil
+	}
+	if h, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid)); err == nil {
+		own := !sameImage(imagePath(h), bin)
+		windows.CloseHandle(h)
+		if own {
+			return nil
+		}
+	}
+	last, _ := os.ReadFile(rememberPath())
+	name := taskOrder(taskName(), string(last), hasFallback(bin))[0]
+	return &Task{name: name, exe: filepath.Base(bin), pid: pid, done: make(chan struct{})}
+}
+
 // rememberPath is where which task worked is kept: in the data folder,
 // beside the directory the core runs in.
 func rememberPath() string { return filepath.Join(filepath.Dir(CoreDir), "tun-task") }
