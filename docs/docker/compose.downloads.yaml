@@ -1,0 +1,57 @@
+# A download client (qBittorrent) that can reach nothing but bowel: it is
+# on an internal network, which has no way out, and its proxy is a port of
+# bowel's that leaves by one locked route group, by a node or not at all.
+# The web interface comes through a reverse proxy. See ../docker.md,
+# "Egress for other containers".
+#
+#   docker compose -f compose.downloads.yaml up -d
+#   then, in qBittorrent at http://<host>:8080: Tools → Options →
+#   Connection → Proxy server: SOCKS5, host bowel, port 7902, with peer
+#   connections and hostname lookup through the proxy.
+services:
+  bowel:
+    image: ghcr.io/21stware/bowel
+    container_name: bowel
+    restart: unless-stopped
+    networks: [default, downloads]
+    ports:
+      - "7899:7899"
+    volumes:
+      - bowel:/data
+    environment:
+      BOWEL_SUBSCRIPTION: https://example.com/your-subscription
+      # 7902 leaves by the media group, which is locked: a node, or nothing.
+      BOWEL_EXTRA_PORTS: 7902=media
+      BOWEL_LOCK: media
+      TZ: Asia/Shanghai
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent
+    container_name: qbittorrent
+    restart: unless-stopped
+    networks: [downloads] # internal: bowel is its only way out
+    volumes:
+      - ./qbittorrent:/config
+      - ./downloads:/downloads
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Asia/Shanghai
+      WEBUI_PORT: "8080"
+
+  # An internal network publishes no ports: this brings the web interface
+  # out, and carries nothing else.
+  webui:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    networks: [default, downloads]
+    ports:
+      - "8080:8080"
+    command: caddy reverse-proxy --from :8080 --to qbittorrent:8080
+
+networks:
+  downloads:
+    internal: true
+
+volumes:
+  bowel:
