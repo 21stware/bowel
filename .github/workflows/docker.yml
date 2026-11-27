@@ -73,6 +73,7 @@ jobs:
         run: |
           version="$(jq -r .version src/mygo.json)"
           echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "revision=$(git -C src rev-parse HEAD)" >>"$GITHUB_OUTPUT"
           if [ "$PUSH" != true ]; then
             exit 0
           fi
@@ -132,12 +133,14 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v6
         with:
-          # The labels' revision and date are the tag's, not this branch's.
-          context: git:src
           images: |
             ${{ env.GHCR_IMAGE }}
             ${{ env.DOCKERHUB_IMAGE }}
           flavor: latest=false
+          # The tag's commit, not this branch's, which the label would name
+          # otherwise. (`context: git:src` would do it, but v6 has no such
+          # source yet.)
+          labels: org.opencontainers.image.revision=${{ steps.tags.outputs.revision }}
           # 0.4.9, 0.4 and latest; a build that pushes nothing is tagged with
           # its commit.
           tags: |
