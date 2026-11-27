@@ -290,7 +290,7 @@ func (s *Store) Reload(id, path string) (Provider, error) {
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return p, err
 	}
-	if err := os.Rename(tmp, s.Path(id)); err != nil {
+	if err := replaceFile(tmp, s.Path(id)); err != nil {
 		return p, err
 	}
 	return s.update(id, func(p *Provider) { p.Source, p.UpdatedAt, p.Error = path, time.Now(), "" })
@@ -376,7 +376,7 @@ func (s *Store) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.items = slices.DeleteFunc(s.items, func(p Provider) bool { return p.ID == id })
-	_ = os.Remove(s.Path(id))
+	_ = removeFile(s.Path(id))
 	return s.saveLocked()
 }
 
@@ -412,14 +412,14 @@ func (s *Store) Replace(items []Provider, files map[string][]byte) error {
 		if err := os.WriteFile(tmp, files[p.ID], 0o600); err != nil {
 			return err
 		}
-		if err := os.Rename(tmp, s.Path(p.ID)); err != nil {
+		if err := replaceFile(tmp, s.Path(p.ID)); err != nil {
 			return err
 		}
 	}
 	entries, _ := os.ReadDir(s.dir)
 	for _, e := range entries {
 		if id, ok := strings.CutSuffix(e.Name(), ".txt"); ok && !seen[id] {
-			_ = os.Remove(filepath.Join(s.dir, e.Name()))
+			_ = removeFile(filepath.Join(s.dir, e.Name()))
 		}
 	}
 	s.items = slices.Clone(items)
