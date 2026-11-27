@@ -35,7 +35,7 @@ func liveCore(pidFile string) int {
 
 // exeOf is the file name of the process's executable, "" when there is no
 // such process. From the process list, which also has the processes whose
-// handle the app is refused: the core that TUN's task runs elevated.
+// handle the app is refused: the core TUN runs elevated.
 func exeOf(pid int) string {
 	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {

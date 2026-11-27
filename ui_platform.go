@@ -12,6 +12,7 @@ import (
 	"github.com/oboo/moho/internal/devtools"
 	"github.com/oboo/moho/internal/gateway"
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/tun"
 )
 
 // gatewaySupported says whether this system can be made a gateway, and
@@ -19,17 +20,33 @@ import (
 func gatewaySupported() bool { return gateway.Supported() }
 
 // tunInstallHint is TUN's status before its one authorization, which
-// each system asks for in its own dialog.
+// each system asks for in its own dialog. Windows asks at every start of
+// the core instead (tunAsks), and has no such status.
 func tunInstallHint() string { return tunInstallHintOn(runtime.GOOS) }
 
 func tunInstallHintOn(goos string) string {
-	switch goos {
-	case "darwin":
+	if goos == "darwin" {
 		return i18n.T("未使用 · 第一次开启时，macOS 会请求管理员授权", "Not in use · The first time it's turned on, macOS asks for an administrator's authorization")
-	case "windows":
-		return i18n.T("未使用 · 第一次开启时，Windows 会弹出用户账户控制，请求管理员授权", "Not in use · The first time it's turned on, Windows asks for an administrator's authorization in a User Account Control prompt")
 	}
 	return i18n.T("未使用 · 第一次开启时，系统会请求管理员授权", "Not in use · The first time it's turned on, the system asks for an administrator's authorization")
+}
+
+// tunAsks is whether every start of TUN's core asks for the authorization
+// (Windows), which TUN's card then says, with why.
+const tunAsks = tun.AsksEachStart
+
+// tunAskNote is why Windows asks each time TUN's core starts, for TUN's
+// card.
+func tunAskNote() string {
+	return i18n.T("每次启动 TUN 的内核，Windows 都会弹出用户账户控制请求授权：bowel 还没有代码签名，而 Windows Defender 会把注册计划任务、以管理员权限自动运行的未签名程序当成恶意软件拦截，所以 bowel 不再注册这样的任务",
+		"Windows asks in a User Account Control prompt each time TUN's core starts: bowel isn't code-signed yet, and Windows Defender blocks as malware an unsigned program that registers a scheduled task to run elevated without asking, so bowel no longer registers one")
+}
+
+// tunAskWait is what TUN's switch and card say while Windows' prompt for
+// the elevated start waits (Entry.Asking): Windows cancels one nobody
+// answers.
+func tunAskWait() string {
+	return i18n.T("请在用户账户控制窗口中确认；约 2 分钟内没有回应，Windows 会自动取消", "Confirm in the User Account Control prompt; Windows cancels it if nobody answers within about 2 minutes")
 }
 
 // firewallTip is the gateway's warning that the system's firewall is on.

@@ -1,15 +1,16 @@
 // Package tun installs the core so that it can open a TUN device, which
 // takes rights a user's process does not have. Each system gives them its
-// own way, after an administrator's authorisation asked once:
+// own way:
 //
 //   - macOS: a copy of the core in a user directory, made setuid root (as
-//     Clash Verge does).
+//     Clash Verge does), after an administrator's authorisation asked once.
 //   - Linux: the same copy, owned by root and given the file capabilities
 //     TUN needs (CAP_NET_ADMIN and two more), through pkexec; setuid root
-//     where setcap is missing.
-//   - Windows: a copy only administrators can write, and a scheduled task
-//     that runs it elevated, which the user starts and ends without being
-//     asked again.
+//     where setcap is missing. Asked once as well.
+//   - Windows: a copy only administrators can write, started elevated
+//     through a UAC prompt each time the core starts (see Spawn): an
+//     unsigned program that registers a task to run elevated without
+//     asking is what Defender blocks as malware.
 package tun
 
 import (
@@ -32,26 +33,24 @@ func (canceled) Error() string {
 	return i18n.T("用户取消了授权", "The authorization was canceled")
 }
 
-// ErrGone is in what Spawn returns when the mark of an installation is
-// there and what it stands for is not: on Windows, the scheduled task was
-// deleted, or the task started nothing and the installation is an older
-// version's, with no second task to try. Installed cannot tell (it asks the Task Scheduler nothing), so
-// whoever sees this takes the installation as not made.
-var ErrGone error = gone{}
-
-type gone struct{}
-
-func (gone) Error() string {
-	return i18n.T("运行内核的计划任务不在了，重新开启 TUN 会再授权一次", "The scheduled task that runs the core is gone; turning TUN on again asks for the authorization once more")
-}
-
 // CoreDir is the directory the core runs in (its -d; the config is
-// config.yaml inside). Windows writes both into the task that runs the
-// core, and a task with other arguments does not count as installed; the
-// other systems do not read it. The task's core gets no environment from
-// the app, so every file its config names has to be inside this directory:
-// mihomo reads nothing outside it without a SAFE_PATHS variable. Set once, before anything else is called.
+// config.yaml inside). Windows passes both to the launcher that starts
+// the elevated core, which gets no environment from the app (an elevated
+// process gets the user's own), so every file its config names has to be
+// inside this directory: mihomo reads nothing outside it without a
+// SAFE_PATHS variable. The other systems do not read it. Set once, before
+// anything else is called.
 var CoreDir string
+
+// OnPrompt, if set, is told when Windows is about to show the UAC prompt
+// of a start of TUN's core (Spawn). It returns the window the prompt is to
+// belong to, 0 for none, and what to call once the prompt is answered. A
+// prompt asked for with no window of the app's in front goes to the
+// taskbar, where it goes unseen at a start with the window hidden, and
+// Windows cancels it unanswered after about two minutes: the app brings
+// its window forward with this, and says what it waits for. The other
+// systems do not call it. Set once, before anything else is called.
+var OnPrompt func() (owner uintptr, answered func())
 
 // device is the TUN device's name in the settings, "" for the core's own
 // choice.
@@ -76,7 +75,13 @@ func Prompt() string {
 // Install copies src to where dst is installed from, then asks for an
 // administrator's authorisation to make it the core TUN runs on. It
 // returns ErrCanceled when the user canceled, and dst is as it was.
+//
+// Where the system asks at each start (AsksEachStart) there is nothing
+// to do here: that start makes the copy under its own authorisation.
 func Install(src, dst string) error {
+	if AsksEachStart {
+		return nil
+	}
 	step, err := InstallStep(src, dst)
 	if err != nil {
 		return err

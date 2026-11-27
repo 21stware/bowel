@@ -16,11 +16,14 @@ package main
 // connections fail and do not leak, though what TUN carries goes direct.
 //
 // Under TUN the core runs with rights the app does not have: on macOS and
-// Linux a copy that is setuid root, which the app may still signal; on
-// Windows one that a scheduled task starts elevated, which the app may not
-// end as a process. That one is waited for and ended through its task
-// (tun.Attach). Its TUN device, its routes and the system's DNS servers,
-// which point into it, stay up across the restart with it.
+// Linux a copy that is setuid root, which the app may still signal. Its
+// TUN device, its routes and the system's DNS servers, which point into
+// it, stay up across the restart with it. On Windows the core is started
+// elevated through a UAC prompt by a launcher that ends it with the app
+// that started it (tun.Launch), so it does not outlive the old version:
+// the new one finds it gone, or going (tun.Attach waits for it), and
+// starts its own, which asks again. The system proxy keeps pointing at the
+// port meanwhile, so connections fail rather than leak.
 //
 // Only that restart does this. Every other way out is the ordinary quit,
 // and a launch that finds no marker starts its own core as before.

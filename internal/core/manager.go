@@ -95,10 +95,16 @@ type Manager struct {
 
 	// Spawn, if set, is asked first to start the core at bin some other
 	// way than as a child of the app, and returns nil when bin is not its
-	// to start. Windows runs the copy TUN needs through a scheduled task,
-	// elevated, which a child of the app could not be. Such a core prints
+	// to start. Windows runs the copy TUN needs elevated, through a UAC
+	// prompt, which a child of the app could not be. Such a core prints
 	// to no one: its log is read from the controller instead.
 	Spawn func(bin string) (Process, error)
+	// Source, if set, names the core that stands for the one at bin until
+	// that one runs: it checks configs, and its file is the one that must
+	// be there. On Windows the copy TUN runs on is made from the bundled
+	// core by the start that runs it, and before that may be missing or
+	// another version's.
+	Source func(bin string) string
 	// Attach, if set, is asked first for a core that is already running,
 	// left by another run of the app, as one Spawn started: a Process the
 	// manager can wait for and end, or nil when it is an ordinary process
@@ -264,6 +270,14 @@ func (m *Manager) SetBin(bin string) {
 	m.mu.Unlock()
 }
 
+// source is the core whose file stands for Bin's (see Source).
+func (m *Manager) source() string {
+	if m.Source != nil {
+		return m.Source(m.Bin)
+	}
+	return m.Bin
+}
+
 // BinPath is the executable the next start uses.
 func (m *Manager) BinPath() string {
 	m.mu.Lock()
@@ -308,7 +322,7 @@ func (m *Manager) setStatus(s Status) {
 func (m *Manager) Test(path string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := nowindow.CommandContext(ctx, m.Bin, "-t", "-d", m.Dir, "-f", path)
+	cmd := nowindow.CommandContext(ctx, m.source(), "-t", "-d", m.Dir, "-f", path)
 	cmd.Env = m.env()
 	setProcAttr(cmd)
 	out, err := cmd.CombinedOutput()
@@ -530,8 +544,8 @@ func (m *Manager) run() error {
 	m.loaded = nil // what Apply started it with, it says once it has
 	m.mu.Unlock()
 
-	if _, err := os.Stat(m.Bin); err != nil {
-		err = fmt.Errorf(i18n.T("找不到 mihomo 内核 (%s)，先运行 scripts/fetch-core.sh", "No mihomo core at %s; run scripts/fetch-core.sh first"), m.Bin)
+	if _, err := os.Stat(m.source()); err != nil {
+		err = fmt.Errorf(i18n.T("找不到 mihomo 内核 (%s)，先运行 scripts/fetch-core.sh", "No mihomo core at %s; run scripts/fetch-core.sh first"), m.source())
 		m.setStatus(Status{State: Failed, Error: err.Error()})
 		return err
 	}

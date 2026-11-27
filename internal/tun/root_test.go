@@ -3,6 +3,7 @@ package tun
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -31,6 +32,11 @@ func TestRootCore(t *testing.T) {
 }
 
 func TestRootReady(t *testing.T) {
+	// rootReady reads the execute bits, which only Linux's root copy has:
+	// Windows reports none on any file.
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows files have no execute bits")
+	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "mihomo")
 	if err := os.WriteFile(bin, []byte("x"), 0o755); err != nil {

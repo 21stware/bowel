@@ -25,6 +25,7 @@ import (
 	"github.com/egoist/mygo"
 
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/tun"
 )
 
 // dataDirEnv names a data folder other than the user's default: for a
@@ -113,7 +114,8 @@ func (a *App) startHeadless() {
 	a.upd.notify = a.emit
 	a.copyGeo()
 	go func() {
-		a.takeOverCore() // one the app's restart for an update left
+		tun.EndOldTasks(a.tunBin) // Windows: what an earlier version's task still runs
+		a.takeOverCore()          // one the app's restart for an update left
 		a.detectDev(2 * time.Second)
 		if err := a.applyConfig(); err != nil {
 			log.Println("core:", err)
