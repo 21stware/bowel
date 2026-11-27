@@ -42,6 +42,7 @@ How far each implementation has been tried is its own column, because "it compil
 | QR: camera | AVFoundation | **later** | **later** |
 | Dock icon, flag emoji drawing, quit pump | yes | **not applicable** | **not applicable** |
 | Tray | menu bar | system tray | system tray |
+| Command line's and agents' sockets (`cli.sock`, `mcp.sock`) | the data folder | the data folder | `%USERPROFILE%\.bowel\<8 hex digits>` for a data folder in AppData, as the default one is; the data folder otherwise (`app_socket.go`). A terminal of an MSIX-packaged app, such as Claude's desktop app, sees AppData through a copy of its own, and a unix socket there fails to connect (WSAEINVAL); measured on Windows 11 26300, where the profile outside AppData connected both ways between such a terminal and a process outside the package. The command line also tries the data folder, where 0.4.9 and before served |
 
 ## By application: rules, and Android's exclusion list
 

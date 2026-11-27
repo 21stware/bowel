@@ -208,7 +208,7 @@ func TestSocketAndBridge(t *testing.T) {
 	path := filepath.Join(dir, "s.sock")
 
 	// Nothing listens, and nothing can be started.
-	if err := Bridge(path, strings.NewReader(""), io.Discard, func() error { return errors.New("nope") }); err == nil {
+	if err := Bridge([]string{path}, strings.NewReader(""), io.Discard, func() error { return errors.New("nope") }); err == nil {
 		t.Error("a bridge with no app should fail")
 	}
 
@@ -234,7 +234,7 @@ func TestSocketAndBridge(t *testing.T) {
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"text"}}` + "\n")
 	var out strings.Builder
 	errc := make(chan error, 1)
-	go func() { errc <- Bridge(path, in, &out, nil) }()
+	go func() { errc <- Bridge([]string{path}, in, &out, nil) }()
 	select {
 	case err := <-errc:
 		if err != nil {
@@ -247,6 +247,20 @@ func TestSocketAndBridge(t *testing.T) {
 	if len(lines) != 2 || !strings.Contains(out.String(), `"plain"`) {
 		t.Errorf("through the bridge: %q", out.String())
 	}
+	// Where the app serves, then where an older one did: the first that
+	// answers.
+	out.Reset()
+	ping := strings.NewReader(`{"jsonrpc":"2.0","id":3,"method":"ping"}` + "\n")
+	if err := Bridge([]string{filepath.Join(dir, "none.sock"), path}, ping, &out, nil); err != nil || !strings.Contains(out.String(), `"id":3`) {
+		t.Errorf("through the second path: %v %q", err, out.String())
+	}
+
+	// A socket in a folder not made yet: Listen makes it.
+	l2, err := Listen(filepath.Join(dir, "new", "t.sock"))
+	if err != nil {
+		t.Fatalf("in a new folder: %v", err)
+	}
+	l2.Close()
 
 	cancel()
 	time.Sleep(100 * time.Millisecond)

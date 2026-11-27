@@ -31,7 +31,7 @@ func runCLI(args []string) int {
 	i18n.Set(cliLanguage(data))
 	return cli.Run(cli.Env{
 		Args: args, Stdout: os.Stdout, Stderr: os.Stderr, TTY: cli.IsTerminal(os.Stdout),
-		Getenv: os.Getenv, Socket: cliSocket(data), Version: cliVersion(),
+		Getenv: os.Getenv, Socket: cliSocket(data), OlderSocket: olderCLISocket(data), Version: cliVersion(),
 		Local: map[string]func([]string) error{
 			"daemon":   runDaemon,
 			"mcp":      runMCP,
