@@ -1200,6 +1200,9 @@ func (a *App) mcpServer() *mcp.Server {
 			a.deviceRouteTool(), // app_mcp_devices.go
 		},
 	}
+	srv.Tools = append(srv.Tools, a.gatewayTools()...)  // app_mcp_gateway.go
+	srv.Tools = append(srv.Tools, a.providerTools()...) // app_mcp_providers.go
+	srv.Instructions += "\n\n" + gatewayInstructions
 	srv.Tools = append(srv.Tools, a.routeGroupTools()...) // app_mcp_groups.go
 	return srv
 }

@@ -50,11 +50,9 @@ var jaMCP = map[string]string{
 	"被拒绝":          "拒否",
 	"复制":           "コピー",
 	// bowel mcp token
-	"未知的 mcp 子命令 %s；可以用 bowel mcp 或 bowel mcp token": "不明な mcp サブコマンドです: %s。bowel mcp か bowel mcp token を使ってください",
-	"MCP 的 HTTP 服务没有开启：启动 bowel 时设置 %s=:%s 来开启。\n":   "MCP の HTTP サーバーはオフです。bowel を %s=:%s を付けて起動するとオンになります。\n",
+	"MCP 的 HTTP 服务没有开启：启动 bowel 时设置 %s=:%s 来开启。\n": "MCP の HTTP サーバーはオフです。bowel を %s=:%s を付けて起動するとオンになります。\n",
 	"还没有令牌":               "トークンはまだありません",
 	"其他客户端（MCP 配置 JSON）：": "その他のクライアント（MCP 設定の JSON）：",
-	"令牌来自 %s。从别的机器连接时，把 localhost 换成这台机器的地址；令牌以明文经过网络，跨网络请放在 TLS 或 VPN 后面。": "トークンの出どころ: %s。別のマシンから接続するときは localhost をこのマシンのアドレスに置き換えてください。トークンは平文でネットワークを通るため、ネットワークをまたぐ場合は TLS か VPN の内側に置いてください。",
 }
 
 var hantMCP = map[string]string{
@@ -94,9 +92,7 @@ var hantMCP = map[string]string{
 	"被拒绝":          "被拒絕",
 	"复制":           "複製",
 	// bowel mcp token
-	"未知的 mcp 子命令 %s；可以用 bowel mcp 或 bowel mcp token": "未知的 mcp 子指令 %s；可以用 bowel mcp 或 bowel mcp token",
-	"MCP 的 HTTP 服务没有开启：启动 bowel 时设置 %s=:%s 来开启。\n":   "MCP 的 HTTP 服務沒有開啟：啟動 bowel 時設定 %s=:%s 來開啟。\n",
+	"MCP 的 HTTP 服务没有开启：启动 bowel 时设置 %s=:%s 来开启。\n": "MCP 的 HTTP 服務沒有開啟：啟動 bowel 時設定 %s=:%s 來開啟。\n",
 	"还没有令牌":               "還沒有權杖",
 	"其他客户端（MCP 配置 JSON）：": "其他用戶端（MCP 設定 JSON）：",
-	"令牌来自 %s。从别的机器连接时，把 localhost 换成这台机器的地址；令牌以明文经过网络，跨网络请放在 TLS 或 VPN 后面。": "權杖來自 %s。從別的機器連線時，把 localhost 換成這台機器的位址；權杖以明文經過網路，跨網路請放在 TLS 或 VPN 後面。",
 }

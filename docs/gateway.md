@@ -265,7 +265,7 @@ Forwarding goes back to what it was, port 53 closes, TUN stays as you had it. Th
 
 ## For agents
 
-Everything above is reachable from the command line; every reading command takes `--json`. Exit codes: 0 done, 1 failed (for example bowel is not running), 2 the command was wrong.
+Everything above is reachable from the command line, and over MCP (below); every reading command takes `--json`. Exit codes: 0 done, 1 failed (for example bowel is not running), 2 the command was wrong.
 
 **Permission.** bowel tells an agent's commands from the user's by the agent's environment, and by default asks the user before a change. With the app open, a dialog appears: tell the user to expect it. A daemon has no window and refuses instead; the user (not you) can allow agents' changes at their own terminal, where `bowel settings set mcpPolicy allow` asks them to type `allow`. Run without a terminal, as through your `docker exec` or `ssh`, it is refused: don't answer that question, and don't add `-t` to make it ask. Reading never asks.
 
@@ -284,4 +284,4 @@ Everything above is reachable from the command line; every reading command takes
 
 **Do not** stop bowel, turn the gateway off or run `bowel gateway manual` to "test" while `.takeover.gateway.auto.status` is `on`, or on a LAN whose router hands out G: every device goes offline. Do not run `bowel gateway auto` unless the user asked for the whole LAN, and never change a router's settings yourself.
 
-The MCP server (`bowel mcp`) has the same reads (`get_status`, `list_connections`, `get_logs`) but not the gateway's switch: use the command line for that.
+**Over MCP.** The same steps work without a shell on G, through bowel's MCP server: on G's socket (`bowel mcp`), or over HTTP from another machine ([mcp-http.md](mcp-http.md)). `get_gateway` is the reading of steps 1 and 4, with `next` saying what comes next and whether it is the user's step or yours; `provider_add` is step 2, `set_gateway` step 3 and the undo, `list_devices` step 6, `check_dhcp` and `set_gateway_auto` step 7, `set_device_route` step 8. The guard rails above are in the tools: `set_gateway_auto` refuses automatic while another DHCP server answers or while G's address is leased, and an agent's `set_gateway` off or `set_gateway_auto` back to manual is refused, with the reason, while it would take devices offline. Pass `force: true` only after the user has heard that reason and still wants it.
