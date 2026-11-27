@@ -106,6 +106,7 @@ Besides the reading tools (`get_status`, `list_routes`, `list_connections`, `get
 | `set_gateway` | `bowel gateway on` / `off` | the gateway's switch |
 | `set_gateway_auto` | `bowel gateway auto` / `manual` | bowel as the LAN's DHCP server, or back to manual |
 | `list_devices` | `bowel gateway devices` | the devices that go out through the gateway |
+| `set_device_route` | `bowel gateway device <device> <route>` | one device's traffic one way, whatever the rules say |
 | `provider_add`, `provider_remove`, `update_providers` | `bowel providers add` / `remove` / `update` | the providers |
 
 The [gateway's runbook](gateway.md#for-agents) is built into the tools:
