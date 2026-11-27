@@ -17,6 +17,9 @@ bowel; macOS, Windows, Linux ve Android için <a href="https://github.com/MetaCu
   <a href="README.zh-CN.md">简体中文</a>
 </p>
 
+> [!NOTE]
+> Bu sayfa topluluk tarafından çevrilmiştir ve 27 Kasım 2026 tarihli İngilizce sürüme dayanır; sonraki değişiklikler buraya yansımamış olabilir. Güncel ve geçerli sürüm için [İngilizce README](README.md)'ye bakın.
+
 <p align="center">
   <a href="https://github.com/21stware/bowel/releases/latest"><img src="https://img.shields.io/github/v/release/21stware/bowel?label=release" alt="Son sürüm"></a>
   <a href="https://github.com/21stware/bowel/releases"><img src="https://img.shields.io/github/downloads/21stware/bowel/total?label=downloads" alt="İndirmeler"></a>
