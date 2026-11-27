@@ -13,7 +13,8 @@ bowel is a <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> (Clash Meta)
   <a href="https://bowel.dev/en/">Website</a> ·
   <a href="https://bowel.dev/en/docs/">Docs</a> ·
   <a href="https://t.me/+BI3KVgBn7SE3YjVh">Telegram</a> ·
-  <a href="README.zh-CN.md">简体中文</a>
+  <a href="README.zh-CN.md">简体中文</a> ·
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 <p align="center">
