@@ -1170,8 +1170,9 @@ var ownCommand = map[string]string{
 
 // sendSetting changes one setting to val as it was typed: as JSON when it
 // reads as JSON of the kind the setting has now (old), else as the string
-// it is: debug, not "debug".
-func (c *Ctx) sendSetting(key, val string, old json.RawMessage) (json.RawMessage, error) {
+// it is: debug, not "debug". confirmed says the person at the terminal
+// confirmed it (confirmPolicy).
+func (c *Ctx) sendSetting(key, val string, old json.RawMessage, confirmed bool) (json.RawMessage, error) {
 	quoted, _ := json.Marshal(val)
 	tries := []json.RawMessage{json.RawMessage(val), quoted}
 	if !json.Valid([]byte(val)) {
@@ -1182,7 +1183,11 @@ func (c *Ctx) sendSetting(key, val string, old json.RawMessage) (json.RawMessage
 	var raw json.RawMessage
 	var err error
 	for _, v := range tries {
-		raw, err = c.call("update_settings", map[string]any{"changes": map[string]json.RawMessage{key: v}})
+		args := map[string]any{"changes": map[string]json.RawMessage{key: v}}
+		if confirmed {
+			args["confirmed"] = true
+		}
+		raw, err = c.call("update_settings", args)
 		if err == nil || !strings.HasPrefix(err.Error(), "bad value") {
 			break
 		}
@@ -1203,7 +1208,16 @@ func runSettingsSet(c *Ctx) error {
 	if !ok {
 		return noSetting(key, cur)
 	}
-	raw, err := c.sendSetting(key, val, old)
+	// Letting agents do more is the person's to confirm at the terminal.
+	// An agent's command, known by its environment, is refused anyway.
+	confirmed := false
+	if to := plain(json.RawMessage(val)); key == "mcpPolicy" && looser(plain(old), to) && Agent(c.env.Getenv) == "" {
+		if err := c.confirmPolicy(plain(old), to); err != nil {
+			return err
+		}
+		confirmed = true
+	}
+	raw, err := c.sendSetting(key, val, old, confirmed)
 	if err != nil {
 		if ch := cur.Choices[key]; len(ch) > 0 {
 			return fmt.Errorf("%w (%s: %s)", err, i18n.T("可选值", "Choices"), strings.Join(ch, ", "))

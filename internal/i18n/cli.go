@@ -20,8 +20,8 @@ var jaCLI = map[string]string{
 	"这条路由不使用节点":                 "このルートはノードを使いません",
 	"更改网关模式":                    "ゲートウェイモードを変更",
 	"有多个 Provider 叫 %s，请用它的 id": "%s という名前のプロバイダが複数あります。id を使ってください",
-	"bowel 已经在运行；用 `bowel status` 查看，或先 `bowel stop`":                                          "bowel はすでに実行中です。`bowel status` で確認するか、先に `bowel stop` してください",
-	"bowel 在无窗口模式下运行，没法弹窗询问。请让用户自己执行这条命令，或用 `bowel settings set mcpPolicy allow` 允许 agent 变更。": "bowel はウィンドウなしで実行中のため、確認ダイアログを出せません。ユーザー自身にこのコマンドを実行してもらうか、`bowel settings set mcpPolicy allow` でエージェントの変更を許可してください。",
+	"bowel 已经在运行；用 `bowel status` 查看，或先 `bowel stop`": "bowel はすでに実行中です。`bowel status` で確認するか、先に `bowel stop` してください",
+	"bowel 在无窗口模式下运行，没法弹窗询问。请让用户自己执行这条命令，或者请用户在自己的终端里用 `bowel settings set mcpPolicy allow` 允许 agent 变更。": "bowel はウィンドウなしで実行中のため、確認ダイアログを出せません。ユーザー自身にこのコマンドを実行してもらうか、ユーザー自身の端末で `bowel settings set mcpPolicy allow` を実行してエージェントの変更を許可してもらってください。",
 	"用 `%s --help` 查看用法。": "使い方は `%s --help` で確認できます。",
 	"未知选项 %s":             "不明なオプション %s",
 	"。你是不是想用 %s？":         "。%s のことですか？",
@@ -159,6 +159,13 @@ var jaCLI = map[string]string{
 	"只输出一行就退出，给按间隔运行命令的状态栏用":                      "1 行だけ出力して終了（一定間隔でコマンドを実行するステータスバー向け）",
 
 	"这个终端连不上 bowel。打包应用（如 Claude 桌面版）里的终端看到的是它自己的一份 AppData，而 bowel 0.4.9 及以前把套接字放在那里。bowel 若在运行，重启它就会换成这个版本；否则用 `bowel daemon` 启动，或打开应用。": "この端末から bowel に接続できません。パッケージ化されたアプリ（Claude デスクトップ版など）の端末は自分専用の AppData のコピーを見ており、bowel 0.4.9 以前はソケットをそこに置いていました。bowel が実行中なら、再起動するとこのバージョンに切り替わります。そうでなければ `bowel daemon` で起動するか、アプリを開いてください。",
+
+	"只有用户能放宽 agent 的权限（mcpPolicy %s → %s），而且要在终端里确认：在用户自己的终端里执行 `bowel settings set mcpPolicy %s`（Docker 用 `docker exec -it`，SSH 用 `ssh -t`），或用 `bowel tui`，或在应用的 设置 > MCP 里修改。": "エージェントの権限を広げられるのはユーザーだけで、端末での確認が必要です（mcpPolicy %s → %s）。ユーザー自身の端末で `bowel settings set mcpPolicy %s` を実行するか（Docker では `docker exec -it`、SSH では `ssh -t`）、`bowel tui` を使うか、アプリの 設定 > MCP で変更してください。",
+	"agent（Claude Code、Codex、Cursor 等）修改 bowel 将不再询问你":                   "エージェント（Claude Code、Codex、Cursor など）は確認なしで bowel を変更するようになります",
+	"agent 可以请求修改 bowel：应用每次先问你，daemon 会拒绝":                              "エージェントは bowel の変更を求められます。アプリは毎回あなたに確認し、daemon は拒否します",
+	"mcpPolicy：%s → %s。%s。\n只有你能允许：如果这条命令是 agent 运行的，直接回车取消。\n输入 %s 确认：": "mcpPolicy：%s → %s。%s。\n許可できるのはあなただけです。このコマンドをエージェントが実行したのなら、そのまま Enter を押して取り消してください。\n確認するには %s と入力してください：",
+	"已取消：mcpPolicy 仍是 %s": "取り消しました：mcpPolicy は %s のままです",
+	"%s。输入 %s 确认":         "%s。確認するには %s と入力",
 }
 
 var hantCLI = map[string]string{
@@ -168,8 +175,8 @@ var hantCLI = map[string]string{
 	"这条路由不使用节点":                 "這條路由不使用節點",
 	"更改网关模式":                    "變更閘道模式",
 	"有多个 Provider 叫 %s，请用它的 id": "有多個 Provider 叫 %s，請用它的 id",
-	"bowel 已经在运行；用 `bowel status` 查看，或先 `bowel stop`":                                          "bowel 已經在執行；用 `bowel status` 查看，或先 `bowel stop`",
-	"bowel 在无窗口模式下运行，没法弹窗询问。请让用户自己执行这条命令，或用 `bowel settings set mcpPolicy allow` 允许 agent 变更。": "bowel 在無視窗模式下執行，沒辦法跳出視窗詢問。請讓使用者自己執行這條指令，或用 `bowel settings set mcpPolicy allow` 允許 agent 變更。",
+	"bowel 已经在运行；用 `bowel status` 查看，或先 `bowel stop`": "bowel 已經在執行；用 `bowel status` 查看，或先 `bowel stop`",
+	"bowel 在无窗口模式下运行，没法弹窗询问。请让用户自己执行这条命令，或者请用户在自己的终端里用 `bowel settings set mcpPolicy allow` 允许 agent 变更。": "bowel 在無視窗模式下執行，沒辦法跳出視窗詢問。請讓使用者自己執行這條指令，或者請使用者在自己的終端機裡用 `bowel settings set mcpPolicy allow` 允許 agent 變更。",
 	"用 `%s --help` 查看用法。": "用 `%s --help` 查看用法。",
 	"未知选项 %s":             "未知選項 %s",
 	"。你是不是想用 %s？":         "。你是不是想用 %s？",
@@ -307,4 +314,11 @@ var hantCLI = map[string]string{
 	"只输出一行就退出，给按间隔运行命令的状态栏用":                      "只輸出一行就結束，給按間隔執行命令的狀態列用",
 
 	"这个终端连不上 bowel。打包应用（如 Claude 桌面版）里的终端看到的是它自己的一份 AppData，而 bowel 0.4.9 及以前把套接字放在那里。bowel 若在运行，重启它就会换成这个版本；否则用 `bowel daemon` 启动，或打开应用。": "這個終端機連不上 bowel。封裝的 App（如 Claude 桌面版）裡的終端機看到的是它自己的一份 AppData，而 bowel 0.4.9 及以前把通訊端放在那裡。bowel 若在執行，重新啟動它就會換成這個版本；否則用 `bowel daemon` 啟動，或開啟 App。",
+
+	"只有用户能放宽 agent 的权限（mcpPolicy %s → %s），而且要在终端里确认：在用户自己的终端里执行 `bowel settings set mcpPolicy %s`（Docker 用 `docker exec -it`，SSH 用 `ssh -t`），或用 `bowel tui`，或在应用的 设置 > MCP 里修改。": "只有使用者能放寬 agent 的權限（mcpPolicy %s → %s），而且要在終端機裡確認：在使用者自己的終端機裡執行 `bowel settings set mcpPolicy %s`（Docker 用 `docker exec -it`，SSH 用 `ssh -t`），或用 `bowel tui`，或在 App 的 設定 > MCP 裡修改。",
+	"agent（Claude Code、Codex、Cursor 等）修改 bowel 将不再询问你":                   "agent（Claude Code、Codex、Cursor 等）修改 bowel 將不再詢問你",
+	"agent 可以请求修改 bowel：应用每次先问你，daemon 会拒绝":                              "agent 可以請求修改 bowel：App 每次先問你，daemon 會拒絕",
+	"mcpPolicy：%s → %s。%s。\n只有你能允许：如果这条命令是 agent 运行的，直接回车取消。\n输入 %s 确认：": "mcpPolicy：%s → %s。%s。\n只有你能允許：如果這條指令是 agent 執行的，直接按 Enter 取消。\n輸入 %s 確認：",
+	"已取消：mcpPolicy 仍是 %s": "已取消：mcpPolicy 仍是 %s",
+	"%s。输入 %s 确认":         "%s。輸入 %s 確認",
 }

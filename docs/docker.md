@@ -109,7 +109,7 @@ claude mcp add --transport http bowel http://<host>:7900/mcp --header "Authoriza
 
 Other clients take the same URL and header (`"type": "http"`, `"url"`, `"headers"`). `BOWEL_MCP_TOKEN` sets a token of your own (16 characters or more) instead; an empty `BOWEL_MCP_HTTP` turns the endpoint off. It is plain HTTP and the token travels in the clear: publish 7900 on `127.0.0.1`, a VPN or a private network only, or put it behind a TLS proxy that keeps the `Host` header.
 
-There is no window to ask in, so under the default policy, "ask", an agent can read everything and change nothing. Let agents change things with `docker exec bowel bowel settings set mcpPolicy allow`. Agents on the same host can also run `docker exec -i bowel bowel mcp`, the stdio server, which needs no token.
+There is no window to ask in, so under the default policy, "ask", an agent on MCP can read everything and change nothing. To let agents change things, run `docker exec -it bowel bowel settings set mcpPolicy allow` yourself and type `allow` when it asks (or choose it on `bowel tui`'s settings page). Without `-it` it is refused: `docker exec` brings the container's environment, not the caller's, so bowel can't tell an agent's `docker exec` from yours, and only you are at the terminal to answer. For the same reason, a command an agent runs with `docker exec bowel bowel …` is taken as yours and not asked about; give agents MCP when their changes should follow the policy. Agents on the same host can also run `docker exec -i bowel bowel mcp`, the stdio server, which needs no token.
 
 ## Health and logs
 

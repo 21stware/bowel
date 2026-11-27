@@ -107,7 +107,7 @@ Sixteen skins that change the look of the whole interface.
 - **Download sources**: Measures the official source and each mirror for npm, pip, Go and Cargo, and switches in one click. When the current source stops answering, one click moves you to the fastest one that does, or sends it through a node again.
 - **Private networks**: Addresses on your LAN, Tailscale and company VPN go direct automatically, in global mode too.
 - **Exit lock**: Lock a route group, such as AI, from its page on the board: its traffic then only goes through a node, and is cut rather than sent direct when no node can carry it, in global and direct mode and with takeover off too. Once bowel quits, nothing is refused. `bowel route lock ai` does the same. What it holds with and without TUN, and on Android: [Takeover, TUN and the exit lock](https://bowel.dev/en/docs/takeover/#exit-lock).
-- **MCP**: Built-in MCP server for Claude Code and other agents to read status and troubleshoot connections. It asks you before changing settings by default. The command below is for macOS; on Windows and Linux, use the path of the bowel program.
+- **MCP**: Built-in MCP server for Claude Code and other agents to read status and troubleshoot connections. It asks you before changing settings by default, and only you can let agents change them without asking: in Settings > MCP, or with `bowel settings set mcpPolicy allow` at your own terminal, where you type `allow` to confirm. The command below is for macOS; on Windows and Linux, use the path of the bowel program.
   ```bash
   claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp
   ```

@@ -110,7 +110,7 @@ Tüm arayüzün görünümünü değiştiren on altı tema.
 - **İndirme kaynakları**: npm, pip, Go ve Cargo için resmi kaynağı ve her yansıyı ölçer ve tek tıkla geçiş yapar. Mevcut kaynak yanıt vermeyi durdurduğunda, tek tıkla yanıt veren en hızlı kaynağa geçirir veya tekrar bir düğüm üzerinden gönderir.
 - **Özel ağlar**: LAN, Tailscale ve şirket VPN'inizdeki adresler genel (global) modda da otomatik olarak doğrudan geçer.
 - **Çıkış kilidi (Exit lock)**: AI gibi bir rota grubunu panodaki sayfasından kilitleyin: trafiği yalnızca bir düğüm üzerinden geçer ve hiçbir düğüm taşıyamadığında doğrudan gönderilmek yerine kesilir; bu kural global, direct modlarında ve devralma kapalıyken de geçerlidir. bowel kapandığında hiçbir şey engellenmez. `bowel route lock ai` aynı işi yapar. TUN ile ve TUN olmadan neleri tuttuğu ve Android üzerindeki davranışı: [Devralma, TUN ve çıkış kilidi](https://bowel.dev/en/docs/takeover/#exit-lock).
-- **MCP**: Claude Code ve diğer ajanların durumu okuması ve bağlantı sorunlarını gidermesi için yerleşik MCP sunucusu. Varsayılan olarak ayarları değiştirmeden önce size sorar. Aşağıdaki komut macOS içindir; Windows ve Linux'ta bowel programının yolunu kullanın.
+- **MCP**: Claude Code ve diğer ajanların durumu okuması ve bağlantı sorunlarını gidermesi için yerleşik MCP sunucusu. Varsayılan olarak ayarları değiştirmeden önce size sorar; ajanların sormadan değiştirmesine yalnızca siz izin verebilirsiniz: Ayarlar > MCP'de ya da kendi terminalinizde `bowel settings set mcpPolicy allow` ile, onaylamak için `allow` yazarak. Aşağıdaki komut macOS içindir; Windows ve Linux'ta bowel programının yolunu kullanın.
   ```bash
   claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp
   ```
