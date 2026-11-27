@@ -1,6 +1,8 @@
 package main
 
 import (
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -124,7 +126,7 @@ func TestUpdateNotesWindow(t *testing.T) {
 	u.clog.next = true
 	tt := ui.NewTester(u.changelogView, 560, 620)
 	tt.Advance(time.Second)
-	for _, s := range []string{"9.9.9", "已装好，待重启", "第一条改动", "第二条改动 `code`", "2026-11-20"} {
+	for _, s := range []string{"9.9.9", "已装好，待重启", "第一条改动", "第二条改动 code", "2026-11-20"} {
 		if !tt.HasText(s) {
 			t.Errorf("lacks %q: %q", s, tt.Texts())
 		}
@@ -141,6 +143,56 @@ func TestUpdateNotesWindow(t *testing.T) {
 	if u.clog.next || !tt.HasText("9.9.9") || !tt.HasText(newest) {
 		t.Errorf("all versions: %q", tt.Texts())
 	}
+}
+
+// TestChangelogMarkdown: the notes read as Markdown, as GitHub shows them
+// (#288: the window showed their backticks and asterisks as they were
+// written): code, strong text, links, a heading and a nested list, with
+// #123 a link to bowel's issue. Every version of CHANGELOG.md shows
+// without a mark of its syntax left over.
+func TestChangelogMarkdown(t *testing.T) {
+	u := updateFixture(updateAvailable)
+	u.snap.Update.Notes = "### 修复\n\n" +
+		"- 「更新内容」按 **Markdown** 显示，`code` 也是（#288）\n" +
+		"  - 嵌套的一条\n" +
+		"- 见 [使用指南](https://bowel.dev/docs/)，或 other/repo#7\n"
+	u.clog.next = true
+	tt := ui.NewTester(u.changelogView, 560, 620)
+	tt.Advance(time.Second)
+	shot(t, tt, "changelog-markdown")
+	for _, s := range []string{"修复", "「更新内容」按 Markdown 显示，code 也是（#288）", "嵌套的一条", "见 使用指南，或 other/repo#7"} {
+		if !tt.HasText(s) {
+			t.Errorf("lacks %q: %q", s, tt.Texts())
+		}
+	}
+	if err := tt.Click("#288"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("使用指南"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("other/repo#7"); err == nil {
+		t.Error("another repository's issue is a link")
+	}
+	want := []string{"https://github.com/21stware/bowel/issues/288", "https://bowel.dev/docs/"}
+	if got := tt.OpenedURLs(); !slices.Equal(got, want) {
+		t.Errorf("opened %q, want %q", got, want)
+	}
+
+	u.clog.from, u.clog.next = "", false
+	tt.Frame()
+	tt.Advance(time.Second)
+	for _, e := range parseChangelog(changelogText) {
+		if !tt.HasText(e.Version) {
+			t.Errorf("%s does not show", e.Version)
+		}
+	}
+	for _, s := range tt.Texts() {
+		if strings.Contains(s, "`") || strings.Contains(s, "**") {
+			t.Errorf("Markdown shows as written: %q", s)
+		}
+	}
+	shot(t, tt, "changelog-all")
 }
 
 // TestTitleBarControlsOnTheRight: where the window buttons sit at the
