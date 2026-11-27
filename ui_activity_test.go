@@ -146,6 +146,85 @@ func TestActivityList(t *testing.T) {
 	shot(t, tt, "activity-failed")
 }
 
+// TestActivitySortWords: 应用, 目标, 命中规则 and 路由 · 出口 sort the rows
+// by what they show, A to Z on the first click and Z to A on the next,
+// with a row that shows nothing there last both ways (#288).
+func TestActivitySortWords(t *testing.T) {
+	u := actUI()
+	conns := actFixtureConns()
+	conns[1].App = "" // www.youtube.com, from an app the core can't tell
+	u.act.apply(conns, nil)
+	tt := ui.NewTester(u.view, 1060, 760)
+	tt.Advance(time.Second)
+	sorted := func(head, key string, asc bool) {
+		t.Helper()
+		rows := u.actFiltered()
+		if u.act.sort != key || u.act.asc != asc || len(rows) < 2 {
+			t.Fatalf("%s: sort %q asc %v, %d rows", head, u.act.sort, u.act.asc, len(rows))
+		}
+		words := u.actWords(key)
+		for i := 1; i < len(rows); i++ {
+			x, y := strings.ToLower(words(rows[i-1])), strings.ToLower(words(rows[i]))
+			if y != "" && (x == "" || asc && x > y || !asc && x < y) {
+				t.Errorf("%s (asc %v): %q before %q", head, asc, x, y)
+			}
+		}
+	}
+	// first and last are rows A to Z puts first and last: Arc … Zoom, an IP
+	// before the hosts, DOMAIN-SUFFIX … MATCH, AI 服务 … 直连.
+	for _, c := range []struct{ head, key, first, last string }{
+		{"应用", "app", "rr3---sn-i3b7kn.googlevideo.com", "zoom.us"},
+		{"目标", "host", "149.154.167.51", "zoom.us"},
+		{"命中规则", "rule", "api.anthropic.com", "wss-primary.slack.com"},
+		{"路由 · 出口", "exit", "api.anthropic.com", "szshort.weixin.qq.com"},
+	} {
+		if err := clickHead(tt, c.head); err != nil {
+			t.Fatal(err)
+		}
+		tt.Advance(time.Second)
+		sorted(c.head, c.key, true)
+		if !tt.HasText(c.head + " ↑") {
+			t.Errorf("%s: the head does not show ↑: %q", c.head, tt.Texts())
+		}
+		if !above(tt, c.first, c.last) {
+			t.Errorf("%s: %s not above %s: %v", c.head, c.first, c.last, ys(tt, c.first, c.last))
+		}
+		if c.key == "app" {
+			shot(t, tt, "activity-sort-app")
+			if rows := u.actFiltered(); rows[len(rows)-1].App != "" {
+				t.Errorf("应用 A to Z: the row with no app is not last but %s", rows[len(rows)-1].App)
+			}
+		}
+		if err := clickHead(tt, c.head+" ↑"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Advance(time.Second)
+		sorted(c.head, c.key, false)
+		if c.key == "app" {
+			if rows := u.actFiltered(); rows[0].App != "Zoom" || rows[len(rows)-1].App != "" {
+				t.Errorf("应用 Z to A: %s first, %q last", rows[0].App, rows[len(rows)-1].App)
+			}
+		}
+	}
+}
+
+// clickHead clicks the table's column head that says s, rather than the
+// filter above it named the same (应用).
+func clickHead(tt *ui.Tester, s string) error {
+	var head ui.AccessInfo
+	for _, a := range tt.AccessAll() {
+		if a.Role == ui.RoleButton && a.Name == s && a.Bounds.Y >= head.Bounds.Y {
+			head = a
+		}
+	}
+	if head.Name == "" {
+		return fmt.Errorf("no column head %q: %q", s, tt.Texts())
+	}
+	b := head.Bounds
+	tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
+	return nil
+}
+
 // TestActivityBlocked: what a rule refused has its own filter and says so
 // where the others give a duration.
 func TestActivityBlocked(t *testing.T) {
