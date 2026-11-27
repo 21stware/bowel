@@ -333,14 +333,20 @@ jobs:
       - name: Build the app
         working-directory: mobile/flutter
         run: |
-          flutter build apk --release --build-name="$VERSION" --build-number="$GITHUB_RUN_NUMBER"
-          mv build/app/outputs/flutter-apk/app-release.apk "bowel-$VERSION-android-arm64.apk"
+          # One APK per ABI, so a phone does not download a TV box's libraries.
+          # The arm64 one keeps the name the app's update check and the site look for.
+          flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64 \
+            --build-name="$VERSION" --build-number="$GITHUB_RUN_NUMBER"
+          mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "bowel-$VERSION-android-arm64.apk"
+          mv build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "bowel-$VERSION-android-armv7.apk"
 
       - uses: actions/upload-artifact@v7
         with:
           name: android
           if-no-files-found: error
-          path: mobile/flutter/bowel-*-android-arm64.apk
+          path: |
+            mobile/flutter/bowel-*-android-arm64.apk
+            mobile/flutter/bowel-*-android-armv7.apk
 
   ios:
     if: github.event_name != 'push'

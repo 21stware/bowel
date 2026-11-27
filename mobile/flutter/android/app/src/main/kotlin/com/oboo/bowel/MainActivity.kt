@@ -186,9 +186,11 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    // The apps on the phone's launcher and on the TV's: many TV apps (YouTube,
+    // Netflix) have only a leanback launcher entry.
     private fun launcherApps(): List<Map<String, String>> {
-        val launchable = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        return packageManager.queryIntentActivities(launchable, 0)
+        return listOf(Intent.CATEGORY_LAUNCHER, Intent.CATEGORY_LEANBACK_LAUNCHER)
+            .flatMap { packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(it), 0) }
             .map { it.activityInfo.applicationInfo }
             .filter { it.packageName != packageName }
             .distinctBy { it.packageName }
@@ -197,7 +199,8 @@ class MainActivity : FlutterActivity() {
     }
 
     // Whether this app can see package id. From Android 11 it sees only
-    // what the manifest's <queries> name (the apps with a launcher icon) and
+    // what the manifest's <queries> name (the apps with a launcher icon, on a
+    // phone's launcher or a TV's) and
     // what Android shows to every app, and ConnectionOwners names a
     // connection's app by the same rule: a rule for one it can't see never
     // matches.

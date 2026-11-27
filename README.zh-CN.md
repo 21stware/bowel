@@ -147,7 +147,7 @@ docker run -d --name bowel --restart unless-stopped -p 7899:7899 -v bowel:/data 
 | macOS | `bowel-<版本>-arm64.dmg` | macOS 12 或更新版本，Apple 芯片 |
 | Windows | `bowel-setup-<版本>-amd64.exe` 或 `-arm64.exe` | x64 或 Arm64 |
 | Linux | `bowel_<版本>_<架构>.deb`、`bowel-<版本>-1.<rpm 架构>.rpm` 或 `bowel-<版本>-linux-<架构>.tar.gz` | amd64 或 arm64 |
-| Android | `bowel-<版本>-android-arm64.apk` | Android 8.0 或更新版本，arm64 |
+| Android | `bowel-<版本>-android-arm64.apk`，32 位电视盒子用 `-armv7.apk` | Android 8.0 或更新版本，arm64 或 armv7 |
 
 - **macOS**：把 bowel 拖进「应用程序」。安装包用 Developer ID 签名，并经过 Apple 公证。
 - **Windows**：运行安装程序。安装包没有代码签名，运行前 Windows 可能会弹出提示。
