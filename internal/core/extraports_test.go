@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -19,33 +20,92 @@ import (
 )
 
 // extraListeners are the listeners of a config besides the probe's: their
-// proxy by their port.
+// proxy by their port. Each is a mixed port of this machine alone, with UDP.
 func extraListeners(t *testing.T, in Input) map[int]string {
+	t.Helper()
+	out := map[int]string{}
+	for port, l := range listenersOf(t, in) {
+		if l.Listen != "127.0.0.1" {
+			t.Errorf("listener %+v", l)
+		}
+		out[port] = l.Proxy
+	}
+	return out
+}
+
+type listener struct {
+	Name, Type, Listen, Proxy string
+	Port                      int
+	UDP                       bool
+}
+
+// listenersOf are the extra ports' listeners of a config, by their port.
+func listenersOf(t *testing.T, in Input) map[int]listener {
 	t.Helper()
 	b, err := BuildConfig(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var cfg struct {
-		Listeners []struct {
-			Name, Type, Listen, Proxy string
-			Port                      int
-		}
-	}
+	var cfg struct{ Listeners []listener }
 	if err := yaml.Unmarshal(b, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	out := map[int]string{}
+	out := map[int]listener{}
 	for _, l := range cfg.Listeners {
 		if l.Name == "moho-probe" {
 			continue
 		}
-		if l.Type != "mixed" || l.Listen != "127.0.0.1" || l.Name != ExtraPortListener(l.Port) {
+		if l.Type != "mixed" || !l.UDP || l.Name != ExtraPortListener(l.Port) {
 			t.Errorf("listener %+v", l)
 		}
-		out[l.Port] = l.Proxy
+		out[l.Port] = l
 	}
 	return out
+}
+
+// TestExtraPortsOnTheLan: a port marked lan listens on every address, as
+// the mixed port does, only while allowLan is on, and the networks it
+// answers are allowLan's own; one not marked stays on 127.0.0.1. Neither
+// has users of its own, which is what gives a listener the core's
+// authentication and allowed networks.
+func TestExtraPortsOnTheLan(t *testing.T) {
+	ports := []ExtraPort{{Port: 7901, Route: "ai", Lan: true}, {Port: 7902, Route: "media"}}
+	in := Input{Routes: routes.Template(), Mode: "rule", MixedPort: 7899, ProbePort: 7900, TestURL: "x",
+		Options: Options{ExtraPorts: ports, LanAllowedIPs: []string{"192.168.0.0/16"}, Authentication: []string{"u:p"}}}
+	for _, lan := range []bool{false, true} {
+		in.AllowLan = lan
+		got := listenersOf(t, in)
+		want := "127.0.0.1"
+		if lan {
+			want = anyAddr()
+		}
+		if got[7901].Listen != want || got[7902].Listen != "127.0.0.1" {
+			t.Errorf("allowLan %v: listening on %q and %q", lan, got[7901].Listen, got[7902].Listen)
+		}
+		if got[7901].Proxy != "AI 服务" || got[7902].Proxy != "流媒体" {
+			t.Errorf("allowLan %v: %+v", lan, got)
+		}
+		b, _ := BuildConfig(in)
+		var cfg struct {
+			LanAllowed []string         `yaml:"lan-allowed-ips"`
+			Auth       []string         `yaml:"authentication"`
+			Listeners  []map[string]any `yaml:"listeners"`
+		}
+		if err := yaml.Unmarshal(b, &cfg); err != nil {
+			t.Fatal(err)
+		}
+		if lan && fmt.Sprint(cfg.LanAllowed) != "[192.168.0.0/16]" || len(cfg.Auth) != 1 {
+			t.Errorf("allowLan %v: allowed %v, authentication %v", lan, cfg.LanAllowed, cfg.Auth)
+		}
+		for _, l := range cfg.Listeners {
+			if _, has := l["users"]; has {
+				t.Errorf("a listener with users of its own skips the guards: %v", l)
+			}
+		}
+	}
+	if a := anyAddr(); a != "::" && a != "0.0.0.0" {
+		t.Errorf("anyAddr %q", a)
+	}
 }
 
 // TestExtraPortsInConfig: each extra port is a listener of this machine
@@ -56,7 +116,7 @@ func TestExtraPortsInConfig(t *testing.T) {
 	var p routes.Plan
 	p.ChangePolicy("media", func(q *routes.Policy) { q.Direct = true })
 	all := routes.Build(p, nil)
-	ports := []ExtraPort{{7901, "ai"}, {7902, routes.Default}, {7903, "media"}, {7904, "direct"}, {7905, routes.Reject}, {7906, "gone"}}
+	ports := []ExtraPort{{Port: 7901, Route: "ai"}, {Port: 7902, Route: routes.Default}, {Port: 7903, Route: "media"}, {Port: 7904, Route: "direct"}, {Port: 7905, Route: routes.Reject}, {Port: 7906, Route: "gone"}}
 	want := map[int]string{7901: "AI 服务", 7902: "默认", 7903: "流媒体", 7904: "DIRECT", 7905: "REJECT"}
 	for _, mode := range []string{"rule", "global", "direct"} {
 		in := Input{Routes: all, Mode: mode, MixedPort: 7899, ProbePort: 7900, TestURL: "x", Options: Options{ExtraPorts: ports}}
@@ -83,7 +143,7 @@ func TestExtraPortsInConfig(t *testing.T) {
 // routing, and goes to the group of that name there.
 func TestExtraPortsOfImportedRouting(t *testing.T) {
 	im := mustParse(t, strings.Replace(issue33, "rules:", "  - {name: Tokyo, type: select, proxies: [JP-01]}\n  - {name: media, type: select, proxies: [JP-02]}\nrules:", 1))
-	ports := []ExtraPort{{7901, "Streaming"}, {7902, "Japan"}, {7903, "Tokyo"}, {7904, "JP-01"}, {7905, "DIRECT"}, {7906, "ai"}, {7907, routes.Default}, {7908, "gone"}, {7909, "media"}}
+	ports := []ExtraPort{{Port: 7901, Route: "Streaming"}, {Port: 7902, Route: "Japan"}, {Port: 7903, Route: "Tokyo"}, {Port: 7904, Route: "JP-01"}, {Port: 7905, Route: "DIRECT"}, {Port: 7906, Route: "ai"}, {Port: 7907, Route: routes.Default}, {Port: 7908, Route: "gone"}, {Port: 7909, Route: "media"}}
 	want := map[int]string{7901: "Streaming", 7902: "Japan", 7903: "Tokyo", 7909: "media"}
 	own := map[int]string{7906: "AI 服务", 7907: "默认", 7909: "流媒体"}
 	for _, mode := range []string{"rule", "global", "direct"} {
@@ -99,7 +159,7 @@ func TestExtraPortsOfImportedRouting(t *testing.T) {
 }
 
 func TestExtraPortsValidate(t *testing.T) {
-	for _, bad := range [][]ExtraPort{{{0, "ai"}}, {{70000, "ai"}}, {{7901, ""}}} {
+	for _, bad := range [][]ExtraPort{{{Port: 0, Route: "ai"}}, {{Port: 70000, Route: "ai"}}, {{Port: 7901, Route: ""}}} {
 		o := DefaultOptions.Clone()
 		o.ExtraPorts = bad
 		if err := o.Validate(); err == nil {
@@ -107,7 +167,7 @@ func TestExtraPortsValidate(t *testing.T) {
 		}
 	}
 	o := DefaultOptions.Clone()
-	o.ExtraPorts = []ExtraPort{{7901, "ai"}}
+	o.ExtraPorts = []ExtraPort{{Port: 7901, Route: "ai"}}
 	if err := o.Validate(); err != nil {
 		t.Error(err)
 	}
@@ -115,6 +175,16 @@ func TestExtraPortsValidate(t *testing.T) {
 	c.ExtraPorts[0].Port = 1
 	if o.ExtraPorts[0].Port != 7901 {
 		t.Error("the clone shares the list")
+	}
+	// lan is left out where it is off, so settings saved before it are
+	// written as they were.
+	for e, want := range map[ExtraPort]string{
+		{Port: 7901, Route: "ai"}:            `{"port":7901,"route":"ai"}`,
+		{Port: 7901, Route: "ai", Lan: true}: `{"port":7901,"route":"ai","lan":true}`,
+	} {
+		if b, _ := json.Marshal(e); string(b) != want {
+			t.Errorf("%+v: %s", e, b)
+		}
 	}
 }
 
@@ -148,7 +218,7 @@ func TestExtraPortsRealCore(t *testing.T) {
 		Providers: []ProviderRef{{ID: "aaa", Path: filepath.Join(dir, "a.txt")}},
 		Routes:    routes.Template(), Mode: "direct", MixedPort: mixed, LogLevel: "info",
 		TestURL: "http://x/", ProbePort: probe, Controller: m.ControllerFields(),
-		Options: Options{FindProcess: "off", ExtraPorts: []ExtraPort{{ai, "ai"}, {media, "media"}, {held, "dev"}}},
+		Options: Options{FindProcess: "off", ExtraPorts: []ExtraPort{{Port: ai, Route: "ai"}, {Port: media, Route: "media"}, {Port: held, Route: "dev"}}},
 	}
 	cfg, err := BuildConfig(in)
 	if err != nil {
