@@ -295,7 +295,7 @@ func Build(p Plan, users []UserRule) []Route {
 		if cf.Off {
 			moved[out[i].ID] = true
 		}
-		s := Service{ID: b.id, Name: b.name, Group: out[i].ID, Builtin: true, Off: cf.Off,
+		s := Service{ID: b.id, Name: b.name, Group: out[i].ID, Builtin: true, Off: cf.Off, Except: slices.Clone(b.except),
 			Changed: cf.Off || out[i].ID != b.group || len(cf.OffRules) > 0}
 		for _, text := range b.rules {
 			r := ruleOf(text)
@@ -397,14 +397,11 @@ type Line struct {
 // RuleSetProvider is the name of a rule set's rule-provider in the core.
 func RuleSetProvider(id string) string { return "rs-" + id }
 
-// rank orders rules so that there is no priority to manage: the more
-// specific rule goes first. A whole name, then longer suffixes, longer
-// keywords, the built-in domain lists, longer address prefixes, the
-// built-in address lists.
-//
-// A rule for an application goes before them all: it says where that
-// program's traffic goes, all of it, and after the domain rules it would
-// keep only what no service knows.
+// rank orders the rules of one route group: an application's first, then
+// a whole name, longer suffixes, longer keywords, GeoSite lists, longer
+// address prefixes, GeoIP lists. A group's rules all have its exit, so
+// this only says which of them a connection is put down to; which group
+// takes it is the list's order alone (Lines).
 func rank(text string) (class, length int) {
 	kind, rest, _ := strings.Cut(text, ",")
 	value, _, _ := strings.Cut(rest, ",")
@@ -444,37 +441,48 @@ func Listed(all []Route) []Route {
 	return append(out, last...)
 }
 
-// Lines are all rules in the order the core tries them. Of two equally
-// specific rules the user's goes first, then the routes' as they are
-// listed (Listed).
+// Lines are all rules in the order the core tries them, which is the order
+// of the list (Listed): route group by route group from the top, the
+// default route last, before MATCH. The first group with a rule that
+// matches takes the connection. Nothing else counts: not how specific a
+// rule is, whose it is or what kind; a broad rule in a group above a
+// narrow one in a group below comes first (Shadowed tells of those).
 //
-// A rule set's lines can't be sorted in by how specific they are, so with
-// one in use the order is the user's rules, the sets, what ships; the sets
-// go as listed, by their route and then their place in it, which the user
-// arranges (MoveGroup, MoveRuleSet). Without a set nothing changes for
-// anybody.
+// Inside a group every rule has its exit, so their order there changes
+// nothing about where traffic goes, only which rule a connection is put
+// down to: the user's, then the exceptions of its services (to the
+// default route, Service.Except), what ships, the more specific first,
+// and its rule sets in their place in it.
 func Lines(all []Route, users []UserRule) []Line {
-	var mine, sets, shipped []Line
-	for _, u := range users {
-		if slices.ContainsFunc(all, func(r Route) bool { return r.ID == u.Route }) {
-			mine = append(mine, Line{Text: u.Mihomo(), Route: u.Route, Mine: true})
-		}
-	}
+	var out []Line
 	for _, r := range Listed(all) {
+		var mine, shipped []Line
+		for _, u := range users {
+			if u.Route == r.ID {
+				mine = append(mine, Line{Text: u.Mihomo(), Route: r.ID, Mine: true})
+			}
+		}
+		out = append(out, sorted(mine)...)
+		for _, s := range r.Services {
+			for _, t := range s.ExceptLines() {
+				out = append(out, Line{Text: t, Route: Default})
+			}
+		}
 		for _, t := range r.Rules {
 			shipped = append(shipped, Line{Text: t, Route: r.ID})
 		}
+		out = append(out, sorted(shipped)...)
 		for _, s := range r.Services {
-			if s.Source != "" && !s.Off {
-				sets = append(sets, Line{Text: "RULE-SET," + RuleSetProvider(s.ID) + ",no-resolve", Route: r.ID, Set: s.ID})
+			if liveSet(s) {
+				out = append(out, Line{Text: "RULE-SET," + RuleSetProvider(s.ID) + ",no-resolve", Route: r.ID, Set: s.ID})
 			}
 		}
 	}
-	if len(sets) == 0 {
-		return sorted(append(mine, shipped...))
-	}
-	return slices.Concat(sorted(mine), sets, sorted(shipped))
+	return out
 }
+
+// liveSet says whether s is a rule set in use.
+func liveSet(s Service) bool { return s.Source != "" && !s.Off }
 
 func sorted(lines []Line) []Line {
 	slices.SortStableFunc(lines, func(a, b Line) int {

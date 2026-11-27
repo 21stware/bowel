@@ -16,6 +16,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"github.com/oboo/moho/internal/devnet"
 	"github.com/oboo/moho/internal/geo"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/routes"
@@ -62,6 +63,12 @@ type routesUI struct {
 	reveal string
 
 	rs ruleSetDraft // 导入规则集
+
+	// order is what the list's order makes of the rules, this frame;
+	// added is the rule just added, by its routes.ShadowKey, to say what
+	// the order makes of it while that holds.
+	order routeOrder
+	added string
 }
 
 // ruleConflict is a rule that is already in another service.
@@ -116,7 +123,7 @@ func (u *UI) selectGroup(id string) {
 func (u *UI) clearRuleDraft() {
 	r := &u.routes
 	r.rule, r.ruleErr, r.conflict, r.snameOf, r.snameErr = "", "", nil, "", ""
-	r.editing, r.editErr = "", ""
+	r.editing, r.editErr, r.added = "", "", ""
 }
 
 // changeRouting changes route groups as setOpt changes an option, at once
@@ -622,14 +629,17 @@ func (u *UI) routesPage(c *ui.Context, p *pal) {
 			nrules += len(sv.Live())
 		}
 	}
+	st.order = u.orderOf(s, all)
 	ui.Column(c).Fill().Children(func() {
 		pageHead(c, p, i18n.T("路由组 · 流量往哪里去", "Routes · Where traffic goes"),
 			fmt.Sprintf(i18n.T("%d 个路由组", "%d route groups"), len(all)),
-			fmt.Sprintf(i18n.T("%d 个服务 · %d 条规则，写得越具体越优先", "%d services · %d rules, the more specific first"), nsvc, nrules), true, nil)
+			fmt.Sprintf(i18n.T("%d 个服务 · %d 条规则，从上到下匹配", "%d services · %d rules, tried from the top down"), nsvc, nrules), true, nil)
 		u.routesTester(c, p, s, all)
+		u.hiddenBanner(c, p, all)
 		ui.Row(c).Grow(1).Basis(0).MinHeight(0).Padding(0, 26, 18, 26).Gap(18).AlignItems(ui.Stretch).Children(func() {
 			ui.Column(c).Width(244).Shrink(0).Gap(8).Children(func() {
 				ui.Scroll(c.Key("list")).Grow(1).Basis(0).MinHeight(0).Gap(2).Children(func() {
+					u.devItem(c, p)
 					for _, r := range all {
 						if r.ID != routes.Default {
 							u.routesItem(c, p, r)
@@ -638,7 +648,7 @@ func (u *UI) routesPage(c *ui.Context, p *pal) {
 					ui.Text(c, i18n.T("以上规则都没命中", "None of the rules above matched")).FontSize(11).FontWeight(600).TextColor(p.mute).SingleLine().Padding(8, 10, 2, 10)
 					u.routesItem(c, p, all[slices.IndexFunc(all, func(r routes.Route) bool { return r.ID == routes.Default })])
 				})
-				ui.Text(c, i18n.T("拖动可以调整顺序。规则集从上到下匹配；其他规则越具体越优先，同样具体时靠上的路由组优先。", "Drag to reorder. Rule sets match from the top down; other rules go most specific first, and of two equally specific ones the higher group's wins.")).
+				ui.Text(c, i18n.T("从上到下匹配：第一个有规则能认出这个连接的路由组决定它走哪里，规则写得多具体都不改变这个顺序。拖动可以调整顺序。", "Tried from the top down: the first group with a rule that knows a connection decides where it goes, however specific a rule below is. Drag to reorder.")).
 					FontSize(11).TextColor(p.mute).Padding(0, 10)
 				btn(c.Key("new"), p, i18n.T("＋ 新建路由组", "＋ New route group")).AlignSelf(ui.Start).OnClick(func() { u.newGroup(all) })
 			})
@@ -785,6 +795,19 @@ func (u *UI) testerPath(c *ui.Context, p *pal, s settings.Settings, all []routes
 		ui.Text(c, err.Error()).FontSize(12).TextColor(p.signal).SingleLine()
 		return
 	}
+	if r, ok := u.takenByDev(all, routes.Active(all, s.Rules), host); ok { // before every group
+		swatch(c, p.faint, 9).Shrink(0)
+		ui.Text(c, i18n.T("开发者网络", "Developer networks")).FontSize(12.5).FontWeight(600).TextColor(p.ink).NoWrap().Shrink(0)
+		sep("/")
+		ui.Text(c, r.Text).FontSize(11.5).Font(actMono).TextColor(p.mute).SingleLine().Shrink(1).MinWidth(0)
+		sep("→")
+		to := r.Target
+		if to == devnet.Direct {
+			to = i18n.T("直接连接", "Direct")
+		}
+		ui.Text(c, to).FontSize(12.5).FontWeight(600).TextColor(p.ink).SingleLine().Shrink(1).MinWidth(0)
+		return
+	}
 	id, rule, set, _, sure := routes.ExplainSets(host, routes.Active(all, s.Rules), all, u.matchRuleSet())
 	seen := false
 	if !sure {
@@ -905,15 +928,14 @@ func (u *UI) routesGroup(c *ui.Context, p *pal, all []routes.Route, r routes.Rou
 		note(i18n.T("命中这里规则的连接会被拒绝，不经过节点，所以没有节点策略。", "Connections matching the rules here are refused, with no node, so there's no node strategy."))
 	} else if !routes.ChoosesExit(r.ID) {
 		note(i18n.T("这里的流量直接连接，不经过节点，所以没有节点策略。", "Traffic here connects directly, with no node, so there's no node strategy."))
-		u.meshRow(c, p)
 	} else {
 		ui.Column(c).Margin(0, 0, 14, 0).Children(func() { u.exitChoice(c, p, r.ID) })
 		if !r.Direct {
 			u.strategyCard(c, p, v)
 		}
 	}
-	if r.ID == routes.Default {
-		note(i18n.T("没命中任何规则的流量走这里。想让某个网站固定走这里，可以在这里加一条规则。", "Traffic no rule matched goes here. To keep a site here on purpose, add a rule here."))
+	if routes.Pointless(r.ID) {
+		note(pointlessNote())
 	}
 	u.servicesHead(c, p, all, r)
 	if st.rs.open {
@@ -934,6 +956,9 @@ func (u *UI) routesGroup(c *ui.Context, p *pal, all []routes.Route, r routes.Rou
 	slices.SortStableFunc(list, func(a, b routes.Service) int { return mineAt(a) - mineAt(b) })
 	ui.Column(c).Children(func() {
 		for _, sv := range list {
+			if sv.Mine && routes.Pointless(r.ID) && len(sv.Rules) == 0 { // nothing can be added there
+				continue
+			}
 			u.serviceRow(c, p, all, r, sv)
 		}
 	})
@@ -997,6 +1022,9 @@ func (u *UI) servicesHead(c *ui.Context, p *pal, all []routes.Route, r routes.Ro
 	}
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(4, 0, 8, 0).Children(func() {
 		ui.Text(c, fmt.Sprintf(i18n.T("服务 · %d", "Services · %d"), n)).FontSize(11.5).FontWeight(700).TextColor(p.mute).Grow(1)
+		if routes.Pointless(r.ID) { // nothing put here would change anything
+			return
+		}
 		head := i18n.T("移入已有服务…", "Move a service here…")
 		labels := []string{head}
 		var ids []string
@@ -1145,7 +1173,10 @@ func (u *UI) serviceEditor(c *ui.Context, p *pal, all []routes.Route, r routes.R
 					u.ruleLine(c, p, all, s, l)
 				}
 			})
-			u.ruleInput(c, p, all, s)
+			exceptNote(c, p, s)
+			if !routes.Pointless(s.Group) {
+				u.ruleInput(c, p, all, s)
+			}
 		}
 		if s.Mine {
 			return
@@ -1154,9 +1185,10 @@ func (u *UI) serviceEditor(c *ui.Context, p *pal, all []routes.Route, r routes.R
 			head := i18n.T("移到…", "Move to…")
 			labels := []string{head}
 			var ids []string
-			for _, g := range all {
-				if g.ID != s.Group {
-					labels, ids = append(labels, routes.Title(g)), append(ids, g.ID)
+			gl, gids := groupChoices(all, "")
+			for i, id := range gids {
+				if id != s.Group {
+					labels, ids = append(labels, gl[i]), append(ids, id)
 				}
 			}
 			cur := head
@@ -1267,33 +1299,42 @@ func (u *UI) ruleLine(c *ui.Context, p *pal, all []routes.Route, s routes.Servic
 		u.ruleEdit(c, p, all, s, l)
 		return
 	}
-	ui.Row(c.Key(l.Text)).Gap(10).Padding(5, 0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
-		col := p.ink
-		if l.Off || s.Off {
-			col = p.faint
-		}
-		ui.Text(c, l.Shown()).Font(actMono).FontSize(12.5).TextColor(col).SingleLine().Grow(1).Basis(0).MinWidth(0)
-		ui.Text(c, routes.KindName(l.Kind)).FontSize(11).TextColor(p.mute).NoWrap().Shrink(0)
-		if !l.Builtin && l.User(s).Unlisted() {
-			ui.Text(c, unlistedWord()).FontSize(11).TextColor(p.signal).NoWrap().Shrink(0)
-		}
-		if l.Builtin {
-			label := i18n.T("停用", "Turn off")
-			if l.Off {
-				label = i18n.T("启用", "Turn on")
-			}
-			btn(c.Key("t"), p, label).OnClick(func() {
-				u.changeRouting(func(st *settings.Settings) { st.Routing.ToggleRule(s.ID, l.Text) }, nil)
-			})
-			return
-		}
-		if slices.Contains(routeKinds()[1:], l.Kind) {
-			btn(c.Key("e"), p, i18n.T("编辑", "Edit")).OnClick(func() {
-				st.editing, st.editVal, st.editKind, st.editRoute, st.editErr = l.Text, l.Value, l.Kind, s.Group, ""
-			})
-		}
-		btn(c.Key("d"), p, i18n.T("删除", "Delete")).OnClick(func() { u.setRule(l.User(s), true) })
+	_, hid := st.order.shadows[routes.ShadowKey(s.ID, l.Text)]
+	ui.Column(c.Key(l.Text)).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
+		ui.Row(c).Gap(10).Padding(5, 0).AlignItems(ui.Center).Children(func() { u.ruleRow(c, p, s, l, hid) })
+		u.ruleOrderNote(c, p, all, s, l)
 	})
+}
+
+// ruleRow is a rule's line: what it matches, and what can be done to it. A
+// rule that never matches, a group above taking it all, reads as off.
+func (u *UI) ruleRow(c *ui.Context, p *pal, s routes.Service, l routes.Rule, hid bool) {
+	st := &u.routes
+	col := p.ink
+	if l.Off || s.Off || hid {
+		col = p.faint
+	}
+	ui.Text(c, l.Shown()).Font(actMono).FontSize(12.5).TextColor(col).SingleLine().Grow(1).Basis(0).MinWidth(0)
+	ui.Text(c, routes.KindName(l.Kind)).FontSize(11).TextColor(p.mute).NoWrap().Shrink(0)
+	if !l.Builtin && l.User(s).Unlisted() {
+		ui.Text(c, unlistedWord()).FontSize(11).TextColor(p.signal).NoWrap().Shrink(0)
+	}
+	if l.Builtin {
+		label := i18n.T("停用", "Turn off")
+		if l.Off {
+			label = i18n.T("启用", "Turn on")
+		}
+		btn(c.Key("t"), p, label).OnClick(func() {
+			u.changeRouting(func(st *settings.Settings) { st.Routing.ToggleRule(s.ID, l.Text) }, nil)
+		})
+		return
+	}
+	if slices.Contains(routeKinds()[1:], l.Kind) {
+		btn(c.Key("e"), p, i18n.T("编辑", "Edit")).OnClick(func() {
+			st.editing, st.editVal, st.editKind, st.editRoute, st.editErr = l.Text, l.Value, l.Kind, s.Group, ""
+		})
+	}
+	btn(c.Key("d"), p, i18n.T("删除", "Delete")).OnClick(func() { u.setRule(l.User(s), true) })
 }
 
 // ruleEdit is the row of a rule of the user's being edited: what it
@@ -1346,16 +1387,8 @@ func (u *UI) ruleEdit(c *ui.Context, p *pal, all []routes.Route, s routes.Servic
 				st.editKind, st.editErr = kinds[max(0, slices.Index(kl, cur))], ""
 			}
 			ui.Text(c, i18n.T("走", "via")).FontSize(12).TextColor(p.mute).NoWrap().Shrink(0)
-			// In the sidebar's order: 其他流量 last.
-			var gl, gids []string
-			for _, g := range all {
-				if g.ID != routes.Default {
-					gl, gids = append(gl, routes.Title(g)), append(gids, g.ID)
-				}
-			}
-			if i := slices.IndexFunc(all, func(r routes.Route) bool { return r.ID == routes.Default }); i >= 0 {
-				gl, gids = append(gl, routes.Title(all[i])), append(gids, routes.Default)
-			}
+			// In the sidebar's order; 其他流量 only for a rule already there.
+			gl, gids := groupChoices(all, old.Route)
 			gcur := gl[max(0, slices.Index(gids, st.editRoute))]
 			if ui.Select(c.Key("route"), &gcur, gl).Label(i18n.T("路由组", "Route group")).Width(130).Changed() {
 				st.editRoute, st.editErr = gids[max(0, slices.Index(gl, gcur))], ""
@@ -1406,6 +1439,7 @@ func (u *UI) ruleInput(c *ui.Context, p *pal, all []routes.Route, s routes.Servi
 		}
 		u.setRule(r, false)
 		st.rule, st.focusRule = "", true
+		st.added = routes.ShadowKey(s.ID, r.Mihomo())
 	}
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(4, 0, 0, 0).Children(func() {
 		hint := i18n.T("*.netflix.com、openai.com 或 10.0.0.0/8", "*.netflix.com, openai.com or 10.0.0.0/8")
@@ -1421,7 +1455,7 @@ func (u *UI) ruleInput(c *ui.Context, p *pal, all []routes.Route, s routes.Servi
 			Placeholder(hint).
 			Padding(5, 9).Radius(p.r(7)).Background(p.paper).Border(1, p.hair).FontSize(12.5).Font(actMono).Grow(1).Basis(0).MinWidth(0)
 		if in.Changed() {
-			st.ruleErr, st.conflict = "", nil
+			st.ruleErr, st.conflict, st.added = "", nil, ""
 		}
 		if in.Submitted() {
 			add()
@@ -1431,7 +1465,7 @@ func (u *UI) ruleInput(c *ui.Context, p *pal, all []routes.Route, s routes.Servi
 		cur := kl[max(0, slices.Index(kinds, st.kind))]
 		if ui.Select(c.Key("kind"), &cur, kl).Label(i18n.T("匹配方式", "Match")).Width(128).Changed() {
 			st.kind = kinds[max(0, slices.Index(kl, cur))]
-			st.ruleErr, st.conflict = "", nil
+			st.ruleErr, st.conflict, st.added = "", nil, ""
 		}
 		b := btn(c.Key("add"), p, i18n.T("添加", "Add"))
 		if typed && err == nil {
@@ -1443,14 +1477,16 @@ func (u *UI) ruleInput(c *ui.Context, p *pal, all []routes.Route, s routes.Servi
 	switch {
 	case st.ruleErr != "":
 		ui.Text(c, st.ruleErr).FontSize(11.5).TextColor(p.signal)
+	case u.addedWord(all) != "" && !typed:
+		ui.Text(c, u.addedWord(all)).FontSize(11.5).TextColor(p.signal)
 	case st.kind == routes.KindApp && u.shownSettings().FindProcess == "off":
 		ui.Text(c, i18n.T("「进程匹配」已在设置里关闭，按应用的规则不会生效。", "Process matching is off in Settings, so a rule for an app won't match.")).FontSize(11.5).TextColor(p.signal)
 	case st.kind == routes.KindApp && u.tick.AppsUnknown:
 		ui.Text(c, appsUnknownNote()).FontSize(11.5).TextColor(p.signal)
 	case !typed && st.kind == routes.KindApp && st.picker.none():
-		ui.Text(c, i18n.T("写应用或进程的名字，或粘贴日志里「进程」一栏的路径。它的所有连接都走这个路由组，排在其他规则之前；只管这台电脑上的应用。", "Type the app's or the program's name, or paste the path from the Log's Process row. Everything it connects to goes by this group, ahead of every other rule; only apps on this computer.")).FontSize(11.5).TextColor(p.faint)
+		ui.Text(c, i18n.T("写应用或进程的名字，或粘贴日志里「进程」一栏的路径。它的连接走这个路由组，上面路由组认得的网站除外：要它的全部连接都走这里，把这个路由组拖到最上面。只管这台电脑上的应用。", "Type the app's or the program's name, or paste the path from the Log's Process row. Its connections go by this group, but for the sites a group above knows: for all of them to, drag this group to the top. Only apps on this computer.")).FontSize(11.5).TextColor(p.faint)
 	case !typed && st.kind == routes.KindApp:
-		ui.Text(c, i18n.T("在下面点一个正在运行的应用，或写应用、进程的名字，也可以粘贴日志里「进程」一栏的路径。它的所有连接都走这个路由组，排在其他规则之前；只管这台电脑上的应用。", "Pick a running app below, or type the app's or the program's name, or paste the path from the Log's Process row. Everything it connects to goes by this group, ahead of every other rule; only apps on this computer.")).FontSize(11.5).TextColor(p.faint)
+		ui.Text(c, i18n.T("在下面点一个正在运行的应用，或写应用、进程的名字，也可以粘贴日志里「进程」一栏的路径。它的连接走这个路由组，上面路由组认得的网站除外：要它的全部连接都走这里，把这个路由组拖到最上面。只管这台电脑上的应用。", "Pick a running app below, or type the app's or the program's name, or paste the path from the Log's Process row. Its connections go by this group, but for the sites a group above knows: for all of them to, drag this group to the top. Only apps on this computer.")).FontSize(11.5).TextColor(p.faint)
 	case !typed && (st.kind == routes.KindGeo || st.kind == routes.KindGeoIP):
 		ui.Text(c, geoKindNote(st.kind)).FontSize(11.5).TextColor(p.faint)
 	case !typed:
@@ -1474,6 +1510,7 @@ func (u *UI) ruleInput(c *ui.Context, p *pal, all []routes.Route, s routes.Servi
 			btn(c.Key("cf-move"), p, i18n.T("移过来", "Move it here")).OnClick(func() {
 				u.setRule(cf.rule, false)
 				st.rule, st.conflict, st.focusRule = "", nil, true
+				st.added = routes.ShadowKey(s.ID, cf.rule.Mihomo())
 			})
 			btn(c.Key("cf-x"), p, i18n.T("取消", "Cancel")).OnClick(func() { st.conflict = nil })
 		})

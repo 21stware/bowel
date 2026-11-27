@@ -205,6 +205,8 @@ class _RoutesPageState extends State<RoutesPage> {
         final imported = app.routing?['imported'];
         if (imported is Map) return _ImportedRoutes(app: app, data: imported);
         final all = _groups(app);
+        final tailnet = app.routing?['tailnet'] == true;
+        final ahead = app.routing?['ahead'] as int? ?? 0, hidden = app.routing?['hidden'] as int? ?? 0;
         // The default route keeps its place, so a group moves among the rest.
         final movable = [for (final g in all) if (g['movable'] == true) g['id'] as String];
         var services = 0, rules = 0;
@@ -225,10 +227,18 @@ class _RoutesPageState extends State<RoutesPage> {
             if (all.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
-                child: Text(tr('{0} 个路由组 · {1} 个服务 · {2} 条规则，写得越具体越优先', '{0} route groups · {1} services · {2} rules, the more specific first', [all.length, services, rules]), style: l.text(13, color: l.mute, lh: 18)),
+                child: Text(tr('{0} 个路由组 · {1} 个服务 · {2} 条规则，从上到下匹配', '{0} route groups · {1} services · {2} rules, tried from the top down', [all.length, services, rules]), style: l.text(13, color: l.mute, lh: 18)),
+              ),
+            // The list is the order, all of it: a rule a group above takes
+            // all of never matches, which is said here and under the rule.
+            if (hidden > 0)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Text(tr('你加的 {0} 条规则不会生效：上面的路由组先匹配了它们。把它们的路由组移到上面去，或者改掉挡住它们的规则。', '{0} of your rules never match: a group above takes them first. Move their group up, or change the rule in the way.', [hidden]), style: l.text(13, color: l.warnT, lh: 18)),
               ),
             if (_result != null) _explained(l),
             const SizedBox(height: 6),
+            if (tailnet) Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: _tailnetRow(l, ahead)),
             for (final g in all)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -237,6 +247,29 @@ class _RoutesPageState extends State<RoutesPage> {
           ],
         );
       },
+    );
+  }
+
+  /// The tailnet at the top of the list: its rules go before every group's,
+  /// so it is first and doesn't move. The user's rules inside it go before it.
+  Widget _tailnetRow(Look l, int ahead) {
+    return hairBottom(
+      l,
+      Container(
+        constraints: const BoxConstraints(minHeight: 56),
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(children: [
+          Square(l.faint, size: 12),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Line1('Tailscale', l.text(15, color: l.ink, lh: 21)),
+              Text(tr('你的 Tailscale 网络 · 总在最前，不能移动', 'Your tailnet · always first, fixed'), style: l.text(12.5, color: l.mute, lh: 17)),
+              if (ahead > 0) Text(tr('你的 {0} 条规则在这些网络里，排在它前面', '{0} of your rules are inside them and go before it', [ahead]), style: l.text(12.5, color: l.ink2, lh: 17)),
+            ]),
+          ),
+        ]),
+      ),
     );
   }
 
@@ -835,7 +868,7 @@ class _GroupPageState extends State<GroupPage> {
             if (t.isNotEmpty) app.routeOp('renameService', {'id': sid, 'name': t});
           }, initial: name);
         case 'move':
-          pickSheet<String>(app, tr('移到', 'Move to'), [for (final o in _groups(app)) if (o['id'] != id) PickOption(o['id'] as String, o['name'] as String, leading: Builder(builder: (c) => Square(Skin.of(c).route(o['id'] as String))))], (to) async {
+          pickSheet<String>(app, tr('移到', 'Move to'), [for (final o in _groups(app)) if (o['id'] != id && o['pointless'] != true) PickOption(o['id'] as String, o['name'] as String, leading: Builder(builder: (c) => Square(Skin.of(c).route(o['id'] as String))))], (to) async {
             if (await app.routeOp('moveService', {'id': sid, 'to': to})) nav.pushReplacement(routeOf(GroupPage(app: app, id: to, service: sid)));
           });
         case 'split':
@@ -863,10 +896,15 @@ class _GroupPageState extends State<GroupPage> {
     final builtin = r['builtin'] == true, off = r['off'] == true || s['off'] == true;
     final skips = _skipsVpn(app, r);
     final unlisted = r['unlisted'] == true; // its GeoSite or GeoIP list isn't in the data
+    // What the list's order makes of it: a group above may take all of it.
+    final shadowed = off ? '' : r['shadowed'] as String? ?? '';
+    final ahead = !off && r['ahead'] == true; // inside the tailnet, so before it
     final note = skips ? _skipsWord() : (unlisted ? tr('数据里没有这个列表，未生效', 'Not in the data: not in use') : null);
     final label = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Line1(r['shown'] as String? ?? '', l.text(14, color: off || note != null ? l.mute : l.ink, lh: 20)),
+      Line1(r['shown'] as String? ?? '', l.text(14, color: off || note != null || shadowed.isNotEmpty ? l.mute : l.ink, lh: 20)),
       Text(note != null ? '${r['kindName']} · $note' : r['kindName'] as String? ?? '', style: l.text(12, color: note != null ? l.warnT : l.mute, lh: 16)),
+      if (shadowed.isNotEmpty) Text(shadowed, style: l.text(12, color: l.warnT, lh: 16)),
+      if (ahead) Text(tr('在 Tailscale 网络里，所以排在它前面', 'Inside the tailnet, so it goes before it'), style: l.text(12, color: l.mute, lh: 16)),
     ]);
     return Container(
       constraints: const BoxConstraints(minHeight: 44),
@@ -945,6 +983,7 @@ class _GroupPageState extends State<GroupPage> {
     final sid = s['id'] as String;
     final open = _openServices.contains(sid);
     final rules = _list(s, 'rules');
+    final except = ((s['except'] as List?) ?? const []).cast<String>(); // domains its rules leave to 其他流量
     final off = s['off'] == true, mine = s['mine'] == true;
     final set = s['set'] as Map?;
     final tag = mine
@@ -989,10 +1028,15 @@ class _GroupPageState extends State<GroupPage> {
             if (mine) Padding(padding: const EdgeInsets.only(bottom: 4), child: Text(tr('在活动页点开一条连接，选「让它走…」加的规则放在这里。', 'Rules made with Send via… in Activity land here.'), style: l.text(12.5, color: l.mute, lh: 17))),
             if (rules.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Text(tr('还没有规则，在下面加一条。', 'No rules yet. Add one below.'), style: l.text(13, color: l.faint, lh: 18))),
             for (final r in rules) _ruleRow(l, s, r),
+            if (except.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(tr('例外：{0} 不走这里，交给「其他流量」（Google Play 下载应用用到它们）。', 'Except {0}, which go to Other instead (Google Play downloads apps from them).', [except.map((d) => '*.$d').join(tr('、', ', '))]), style: l.text(12.5, color: l.mute, lh: 17)),
+              ),
             const SizedBox(height: 6),
             Row(children: [
-              Btn(tr('添加规则', 'Add rule'), minH: 36, fontSize: 13, onTap: () => _addRule(s)),
-              const SizedBox(width: 6),
+              // A rule of the default route's would change nothing.
+              if (g['pointless'] != true) ...[Btn(tr('添加规则', 'Add rule'), minH: 36, fontSize: 13, onTap: () => _addRule(s)), const SizedBox(width: 6)],
               if (!mine) Btn(tr('更多', 'More'), minH: 36, fontSize: 13, padH: 0, kind: BtnKind.plain, onTap: () => _serviceMenu(g, s)),
             ]),
           ]),
@@ -1066,7 +1110,8 @@ class _GroupPageState extends State<GroupPage> {
           title: g['name'] as String? ?? id,
           eager: true,
           actions: [
-            Btn(tr('添加服务', 'Add a service'), minH: 44, onTap: () => _addService(g)),
+            // A service in the default route would change nothing.
+            if (g['pointless'] != true) Btn(tr('添加服务', 'Add a service'), minH: 44, onTap: () => _addService(g)),
             if (canEdit) ...[const SizedBox(width: 8), IconBox('more', label: tr('更多', 'More'), onTap: () => _groupMenu(context, g))],
           ],
           children: [
@@ -1084,8 +1129,13 @@ class _GroupPageState extends State<GroupPage> {
               _note(l, tr('这里的流量直接连接，不经过节点，所以没有节点策略。', "Traffic here connects directly, with no node, so there's no node strategy."))
             else
               _strategy(l, g, _cfgOf(app, id)),
-            if (id == 'default') _note(l, tr('没命中任何规则的流量走这里。想让某个网站固定走这里，可以在这里加一条规则。', 'Traffic no rule matched goes here. To keep a site here on purpose, add a rule here.')),
-            section(l, tr('服务 · {0}', 'Services · {0}', [named]), [for (final s in _sorted(g)) _service(l, g, s)]),
+            if (g['pointless'] == true)
+              _note(l, tr('没命中上面任何规则的流量走这里。这里的规则排在最后，不会改变任何流量的去向，所以不能在这里加规则或服务；想让一个网站走这里的出口，就让上面的路由组都不认它。', 'Traffic no rule above matched goes here. Rules here come last and change nothing, so none can be added here; to send a site out this way, leave it to no group above.')),
+            // An empty 我的规则 of the default route: nothing can be added there.
+            section(l, tr('服务 · {0}', 'Services · {0}', [named]), [
+              for (final s in _sorted(g))
+                if (!(g['pointless'] == true && s['mine'] == true && _list(s, 'rules').isEmpty)) _service(l, g, s),
+            ]),
             if (!direct) _sites(l, g),
           ],
         );
@@ -1280,7 +1330,8 @@ class _RuleSheetState extends State<_RuleSheet> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxHeight: 220),
             child: ListView(shrinkWrap: true, padding: const EdgeInsets.only(top: 4), children: [
-              for (final g in groups)
+              // 其他流量 only for a rule already there: one sent there changes nothing.
+              for (final g in groups.where((g) => g['pointless'] != true || g['id'] == widget.route))
                 row(g['id'] as String, g['name'] as String? ?? '',
                     trailing: g['id'] == _route ? Ic('check', size: 16, color: l.ink2) : null,
                     onTap: () => setState(() {
@@ -1651,7 +1702,7 @@ class _SetSheetState extends State<_SetSheet> {
         ]),
       if (more > 0) Text(tr('还有 {0} 条', '{0} more', [more]), style: l.text(13, color: l.mute, lh: 18)),
       const SizedBox(height: 4),
-      Text(tr('命中的流量走「{0}」。优先级：你的规则 → 规则集 → 内置规则。', 'Matching traffic goes by {0}. Order: your rules → rule sets → built-in rules.', [widget.routeName]), style: l.text(13, color: l.ink2, lh: 18)),
+      Text(tr('命中的流量走「{0}」。和这个路由组里的其他规则一样，按它在列表里的位置匹配：上面的路由组先匹配。', "Matching traffic goes by {0}. Like the group's other rules, it is tried where the group is in the list: the groups above come first.", [widget.routeName]), style: l.text(13, color: l.ink2, lh: 18)),
     ]);
   }
 

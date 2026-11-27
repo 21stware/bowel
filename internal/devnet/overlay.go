@@ -119,8 +119,9 @@ func merge(first, more []string) []string {
 	return out
 }
 
-// Covers says whether a rule of the core's is about something o handles:
-// a user's more specific rule of that kind goes before o's own.
+// Covers says whether a rule of the core's is about something o handles,
+// which o's own rules, tried before every route group's, take first; a
+// rule of the user's there goes before them.
 func (o Overlay) Covers(text string) bool {
 	kind, rest, _ := strings.Cut(text, ",")
 	value, _, _ := strings.Cut(rest, ",")

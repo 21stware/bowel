@@ -118,16 +118,23 @@ func TestLockOtherModes(t *testing.T) {
 	}
 }
 
-// TestLockKeepsSpecificRule: a more specific rule of the user's that sends
-// a locked group's site elsewhere still comes first while guarding.
-func TestLockKeepsSpecificRule(t *testing.T) {
+// TestLockKeepsTheListsOrder: while guarding, the rules of a group above a
+// locked one still come first: a rule of the user's in 流媒体, dragged
+// above AI 服务, sends its site there, direct; below it, the lock has it.
+func TestLockKeepsTheListsOrder(t *testing.T) {
 	users := []routes.UserRule{{Kind: routes.KindDomain, Value: "status.openai.com", Route: "media"}}
-	all := routes.Build(func() routes.Plan { var p routes.Plan; p.SetLocked("ai", true); return p }(), users)
-	_, rules, _ := lockConfig(t, Input{Routes: all, UserRules: users, Mode: "rule", Guard: true})
-	at := slices.Index(rules, "DOMAIN,status.openai.com,DIRECT")
-	lock := slices.Index(rules, "DOMAIN-SUFFIX,openai.com,REJECT")
-	if at < 0 || lock < 0 || at > lock {
-		t.Errorf("the user's rule should come first, direct: %v", rules)
+	for above, want := range map[bool]bool{true: true, false: false} {
+		var p routes.Plan
+		p.SetLocked("ai", true)
+		if above {
+			p.MoveGroup("media", "ai")
+		}
+		_, rules, _ := lockConfig(t, Input{Routes: routes.Build(p, users), UserRules: users, Mode: "rule", Guard: true})
+		at := slices.Index(rules, "DOMAIN,status.openai.com,DIRECT")
+		lock := slices.Index(rules, "DOMAIN-SUFFIX,openai.com,REJECT")
+		if at < 0 || lock < 0 || (at < lock) != want {
+			t.Errorf("流媒体 above: %v: the user's rule at %d, the lock's at %d: %v", above, at, lock, rules)
+		}
 	}
 }
 

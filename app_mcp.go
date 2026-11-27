@@ -669,7 +669,7 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 			{
 				Name: "list_rules", Title: "Your rules", ReadOnly: true,
-				Description: "The user's own rules, in the order they apply (before the built-in ones): what each matches and its route. Also the imported rule sets, which apply after the user's rules and before the built-in ones.",
+				Description: "The user's own rules: what each matches and its route. Also the imported rule sets. Every rule, the built-in ones too, applies in the order of the route group list (list_routes), from the top down: the first group with a rule that matches takes the connection, however specific a rule in a group below is. The developer networks come before every group, and a rule of the user's inside them before those.",
 				Run: func(ctx context.Context, s *mcp.Session, _ json.RawMessage) (any, error) {
 					return map[string]any{"rules": mcpRules(a.settings.Get().Rules), "ruleSets": a.mcpRuleSets()}, nil
 				},

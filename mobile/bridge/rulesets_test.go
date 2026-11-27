@@ -121,8 +121,9 @@ func importChinaDNS(t *testing.T, x *bridge, route string) (id, link string, p *
 }
 
 // A list checked and imported on the phone reaches the core: as a file the
-// core reads, and a rule sending what it matches to the chosen group, after
-// the user's own rules and before the built-in ones and the last rule.
+// core reads, and a rule sending what it matches to the chosen group, where
+// the group is listed: after the groups above it, and the group's own other
+// rules, the user's among them; before the groups below and the last rule.
 func TestRuleSetReachesConfig(t *testing.T) {
 	x := testBridge(t)
 	ctx := context.Background()
@@ -164,10 +165,11 @@ func TestRuleSetReachesConfig(t *testing.T) {
 	}
 	target := strings.TrimPrefix(rules[mine], "DOMAIN-SUFFIX,mine.example.com,")
 	set := slices.Index(rules, "RULE-SET,rs-"+id+","+target+",no-resolve")
-	builtin := slices.IndexFunc(rules, func(r string) bool { return strings.HasPrefix(r, "GEOSITE,") || strings.HasPrefix(r, "GEOIP,") })
+	above := slices.IndexFunc(rules, func(r string) bool { return strings.HasPrefix(r, "GEOSITE,youtube,") })
+	below := slices.IndexFunc(rules, func(r string) bool { return strings.HasPrefix(r, "GEOSITE,cn,") })
 	last := slices.IndexFunc(rules, func(r string) bool { return strings.HasPrefix(r, "MATCH,") })
-	if set < 0 || !(mine < set && set < builtin && builtin < last) || last != len(rules)-1 {
-		t.Fatalf("order: mine %d, set %d, built-in %d, MATCH %d of %d\n%v", mine, set, builtin, last, len(rules), rules)
+	if set < 0 || above < 0 || !(above < mine && mine < set && set < below && below < last) || last != len(rules)-1 {
+		t.Fatalf("order: 流媒体 above %d, mine %d, set %d, 直连 below %d, MATCH %d of %d\n%v", above, mine, set, below, last, len(rules), rules)
 	}
 
 	s, ok := service(t, x, id)

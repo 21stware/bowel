@@ -12,6 +12,9 @@ import (
 type builtin struct {
 	id, name, group string
 	rules           []string
+	// except are domains (and what is under them) the rules would take but
+	// that go to the default route instead (Service.Except).
+	except []string
 }
 
 func sv(id, name, group, rules string) builtin {
@@ -65,8 +68,10 @@ var builtins = []builtin{
 	sv("openrouter", "OpenRouter", "ai", "openrouter.ai"),
 	sv("midjourney", "Midjourney", "ai", "midjourney.com"),
 	sv("characterai", "Character.AI", "ai", "character.ai"),
-	// Copilot's own hosts under githubusercontent.com are more specific
-	// than GitHub's suffix; its sign-in and token stay on github.com.
+	// Copilot's own hosts are under githubusercontent.com, which GitHub has:
+	// AI 服务 is listed before 开发, so they come here (were 开发 dragged
+	// above, the list would say they no longer match). Its sign-in and
+	// token stay on github.com.
 	sv("copilot", "GitHub Copilot", "ai", "githubcopilot.com copilot-proxy.githubusercontent.com origin-tracker.githubusercontent.com copilot-workspace.githubnext.com"),
 	sv("mscopilot", "Microsoft Copilot", "ai", "copilot.microsoft.com copilot.cloud.microsoft copilot.com"),
 	sv("windsurf", "Windsurf", "ai", "windsurf.com windsurf.build codeium.com codeiumdata.com"),
@@ -99,13 +104,16 @@ var builtins = []builtin{
 	sv("vercel", "Vercel", "dev", "vercel.com"),
 	sv("brew", "Homebrew", "dev", "brew.sh"),
 
-	// Play downloads apps from hosts under googleapis.cn, which the
-	// mainland list below also holds; from there they don't reach Google.
-	// A suffix goes before that list, so these take the default route.
-	sv("googleplay", "Google Play", Default, "googleapis.cn xn--ngstr-lra8j.com"),
-
 	sv("lan", "局域网", "direct", "geo:private geoip:private"),
-	sv("cn", "国内网站", "direct", "geo:cn geoip:CN"),
+	// Play downloads apps from hosts under googleapis.cn, which the
+	// mainland list holds; from there they don't reach Google. They are
+	// the list's exception, shown with it, and take the default route.
+	except(sv("cn", "国内网站", "direct", "geo:cn geoip:CN"), "googleapis.cn xn--ngstr-lra8j.com"),
+}
+
+func except(b builtin, domains string) builtin {
+	b.except = strings.Fields(domains)
+	return b
 }
 
 var serviceEn = map[string]string{"bahamut": "Bahamut", "cdn": "Web CDNs", "lan": "Local network", "cn": "Mainland sites"}
@@ -192,6 +200,24 @@ type Service struct {
 	Changed bool // a built-in that differs from what Moho ships
 	Rules   []Rule
 	Source  string // a rule set's link or file; its rules aren't in Rules
+	// Except are domains, and what is under them, that the service's rules
+	// would take but that go to the default route: they are tried right
+	// before its rules, wherever its group is. A built-in's own, shown with
+	// it (国内网站's Google Play hosts).
+	Except []string
+}
+
+// ExceptLines are the lines that send s's exceptions to the default route,
+// as the core writes them: none while s is off.
+func (s Service) ExceptLines() []string {
+	if s.Off {
+		return nil
+	}
+	var out []string
+	for _, d := range s.Except {
+		out = append(out, "DOMAIN-SUFFIX,"+d)
+	}
+	return out
 }
 
 // MineID is the id of group's 我添加的 service.

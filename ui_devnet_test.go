@@ -54,35 +54,45 @@ func TestTailscaleWord(t *testing.T) {
 	}
 }
 
-// TestMeshRow: 直连 says what happens to Tailscale's machines and opens
-// 设置 > 开发者网络; without Tailscale it says nothing.
+// TestMeshRow: the developer networks are the list's first item, fixed,
+// since their rules go before every group's; it says how Tailscale is and
+// opens 设置 > 开发者网络. 直连 no longer speaks of them.
 func TestMeshRow(t *testing.T) {
 	u := routesFixture()
 	open := func() *ui.Tester {
 		tt := ui.NewTesterWith(u.view, 1060, 760, ui.TesterOptions{})
 		tt.Advance(time.Second)
-		if err := tt.Click("直连"); err != nil {
-			t.Fatal(err)
-		}
-		tt.Advance(time.Second)
 		return tt
 	}
-	if tt := open(); hasTextPart(tt, "Tailscale") {
-		t.Errorf("a line about Tailscale without it: %q", tt.Texts())
+	if tt := open(); hasTextPart(tt, "已连接") {
+		t.Errorf("Tailscale's state without it: %q", tt.Texts())
 	}
 	u.snap.Dev.Env.Tailscale = devnet.Tailscale{Installed: true, State: "Running", Iface: "utun4",
 		Peers: []devnet.Peer{{Name: "mybox"}, {Name: "nas"}}}
 	tt := open()
-	if !tt.HasText("已连接 · 2 台设备") {
+	if !hasTextPart(tt, "Tailscale 已连接 · 2 台设备") {
 		t.Fatalf("no state: %q", tt.Texts())
 	}
-	shot(t, tt, "routes-direct-tailscale")
-	if err := tt.Click("Tailscale"); err != nil {
+	dev, _ := tt.Find("开发者网络")
+	first, _ := tt.Find("拦截")
+	if dev.Y >= first.Y {
+		t.Errorf("the developer networks at %v, not above the first group at %v", dev, first)
+	}
+	shot(t, tt, "routes-developer-networks")
+	if err := tt.Click("开发者网络"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
 	if u.set.opened != 1 || u.set.section != "devnet" {
 		t.Errorf("opened %d, section %q", u.set.opened, u.set.section)
+	}
+	tt = open()
+	if err := tt.Click("直连"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if hasTextPart(tt, "MagicDNS") {
+		t.Errorf("直连 still speaks of Tailscale: %q", tt.Texts())
 	}
 
 	for want, c := range map[string]struct {

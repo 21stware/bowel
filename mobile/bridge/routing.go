@@ -179,6 +179,11 @@ type ruleData struct {
 	// Unlisted is a rule of the user's whose GeoSite or GeoIP list the data
 	// doesn't have: it doesn't count until it does.
 	Unlisted bool `json:"unlisted,omitempty"`
+	// Shadowed says what takes all of its traffic first, a group above it or
+	// the tailnet: it never matches. Ahead is a rule of the user's inside the
+	// tailnet, which goes before the tailnet's own.
+	Shadowed string `json:"shadowed,omitempty"`
+	Ahead    bool   `json:"ahead,omitempty"`
 }
 
 type serviceData struct {
@@ -191,19 +196,25 @@ type serviceData struct {
 	Rules   []ruleData `json:"rules"`
 	// Set is there for a rule set, whose rules are the source's and not in Rules.
 	Set *ruleSetData `json:"set,omitempty"`
+	// Except are the domains its rules leave to 其他流量 (国内网站's Google
+	// Play hosts).
+	Except []string `json:"except,omitempty"`
 }
 
 type groupData struct {
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Summary   string          `json:"summary"`
-	Direct    bool            `json:"direct"`
-	Reject    bool            `json:"reject"`
-	Custom    bool            `json:"custom"`
-	Movable   bool            `json:"movable"`  // all but the default route, which stays last
-	Chooses   bool            `json:"chooses"`  // between a node and going direct, which Direct then says
-	Locked    bool            `json:"locked"`   // its exit lock: by a node or not at all
-	Lockable  bool            `json:"lockable"` // whether the lock can be put on it
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Summary  string `json:"summary"`
+	Direct   bool   `json:"direct"`
+	Reject   bool   `json:"reject"`
+	Custom   bool   `json:"custom"`
+	Movable  bool   `json:"movable"`  // all but the default route, which stays last
+	Chooses  bool   `json:"chooses"`  // between a node and going direct, which Direct then says
+	Locked   bool   `json:"locked"`   // its exit lock: by a node or not at all
+	Lockable bool   `json:"lockable"` // whether the lock can be put on it
+	// Pointless: a rule or service here changes nothing, its rules coming
+	// last, right before what takes the rest anyway (the default route).
+	Pointless bool            `json:"pointless"`
 	Mode      string          `json:"mode"`
 	Regions   []string        `json:"regions"`
 	Providers []string        `json:"providers"`
@@ -252,6 +263,12 @@ type routingData struct {
 	Regions   []regionData   `json:"regions"`
 	Providers []providerPick `json:"providers"`
 	Kinds     []kindData     `json:"kinds"`
+	// Tailnet: the tailnet's rules are in use, before every group's, as the
+	// list shows at its top. Ahead are the user's rules inside it, which go
+	// before those; Hidden the user's that a group above takes all of.
+	Tailnet bool `json:"tailnet"`
+	Ahead   int  `json:"ahead"`
+	Hidden  int  `json:"hidden"`
 }
 
 type kindData struct {
@@ -304,12 +321,26 @@ func (x *bridge) routing() routingData {
 		out.Regions = append(out.Regions, regionData{code, name, n})
 	}
 	slices.SortFunc(out.Regions, func(a, b regionData) int { return b.Count - a.Count })
+	// What the list's order makes of the rules: an imported config's routing
+	// has its own order, which the page doesn't edit.
+	dev := tailnetOverlay(s.Tailnet)
+	var covers func(string) bool
+	if !dev.Empty() && im == nil {
+		covers = dev.Covers
+	}
+	shadows := map[string]routes.Shadow{}
+	if im == nil {
+		shadows = routes.Shadowed(all, covers, x.ruleSets.Match)
+		out.Tailnet = covers != nil
+	}
 	for _, r := range all {
 		g := groupData{ID: r.ID, Name: routes.Title(r), Summary: routes.Describe(r), Direct: r.Direct, Reject: r.Reject, Custom: r.Custom, Movable: routes.Movable(r.ID), Chooses: choosesExit(r.ID), Locked: r.Locked, Lockable: routes.Lockable(r.ID),
 			Mode: r.Policy.Mode, Regions: nonNil(r.Policy.Regions), Providers: nonNil(r.Policy.Providers), Except: r.Policy.ExceptProviders, Order: nonNil(r.Policy.Order), Fixed: r.Policy.Fixed,
 			Services: []serviceData{}, Targets: []routes.Target{}, Sites: []siteDelay{}}
 		if im != nil {
 			g.Movable, g.Chooses, g.Locked, g.Lockable = false, false, false, false
+		} else {
+			g.Pointless = routes.Pointless(r.ID)
 		}
 		if !r.Direct && !r.Reject {
 			node := x.nodeOf(px, prov, r, im)
@@ -323,10 +354,23 @@ func (x *bridge) routing() routingData {
 			}
 		}
 		for _, sv := range r.Services {
-			d := serviceData{ID: sv.ID, Name: routes.ServiceTitle(sv), Builtin: sv.Builtin, Mine: sv.Mine, Off: sv.Off, Changed: sv.Changed, Rules: []ruleData{}}
+			d := serviceData{ID: sv.ID, Name: routes.ServiceTitle(sv), Builtin: sv.Builtin, Mine: sv.Mine, Off: sv.Off, Changed: sv.Changed, Rules: []ruleData{}, Except: sv.Except}
 			for _, l := range sv.Rules {
-				d.Rules = append(d.Rules, ruleData{Text: l.Text, Kind: l.Kind, KindName: routes.KindName(l.Kind), Value: l.Value, Shown: l.Shown(), Builtin: l.Builtin, Off: l.Off,
-					Unlisted: !l.Builtin && l.User(sv).Unlisted()})
+				rd := ruleData{Text: l.Text, Kind: l.Kind, KindName: routes.KindName(l.Kind), Value: l.Value, Shown: l.Shown(), Builtin: l.Builtin, Off: l.Off,
+					Unlisted: !l.Builtin && l.User(sv).Unlisted()}
+				if live := !l.Off && !sv.Off; live {
+					rd.Ahead = !l.Builtin && covers != nil && covers(l.Text)
+					if sh, ok := shadows[routes.ShadowKey(sv.ID, l.Text)]; ok {
+						rd.Shadowed = sh.Word(all)
+					}
+					switch {
+					case rd.Ahead:
+						out.Ahead++
+					case rd.Shadowed != "" && !l.Builtin:
+						out.Hidden++
+					}
+				}
+				d.Rules = append(d.Rules, rd)
 			}
 			if sv.Source != "" {
 				d.Set = x.ruleSetView(sv)
