@@ -33,6 +33,19 @@ type updateData struct {
 	URL     string `json:"url"`
 }
 
+// apkArch names the release's Android file that installs here: armv7 for the
+// 32-bit ARM userspace of many TV boxes, arm64 for phones. The bridge runs in
+// the app's process, so GOARCH is the ABI the system installed the app for.
+var apkArch = androidArch(runtime.GOARCH)
+
+// androidArch is the Android file's name for goarch.
+func androidArch(goarch string) string {
+	if goarch == "arm" {
+		return "armv7"
+	}
+	return "arm64"
+}
+
 // canSelfProxy: only Android leaves the app out of its own VPN, so only there
 // do the app's requests need a way into the core. On iOS they are in the
 // tunnel already, and the store updates the app.
@@ -105,7 +118,7 @@ func latestRelease(ctx context.Context, c *http.Client, current string) (*update
 		return nil, nil
 	}
 	up := &updateData{Version: version, URL: releasesURL + "/tag/" + tag}
-	apk := releasesURL + "/download/" + tag + "/bowel-" + version + "-android-arm64.apk"
+	apk := releasesURL + "/download/" + tag + "/bowel-" + version + "-android-" + apkArch + ".apk"
 	if _, err := redirect(ctx, c, http.MethodHead, apk); err == nil {
 		up.URL = apk
 	}
