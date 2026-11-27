@@ -593,6 +593,24 @@ func (u *UI) openSite(action string) bool {
 	return true
 }
 
+// projectURL is bowel's repository: its source, issues and releases.
+const projectURL = "https://github.com/21stware/bowel"
+
+// docsURL is the user guide at bowel.dev: the Chinese one for either
+// Chinese, the English one otherwise.
+func docsURL() string {
+	if strings.HasPrefix(i18n.Lang(), "zh") {
+		return "https://bowel.dev/docs/"
+	}
+	return "https://bowel.dev/en/docs/"
+}
+
+// openWeb is openURL, which tests swap out so as not to open a browser.
+var openWeb = openURL
+
+// browse opens one of bowel's own websites in the default browser.
+func (u *UI) browse(url string) { u.do(func() error { return openWeb(url) }) }
+
 // fixRoute opens where a broken group's strategy can be changed: its card
 // when already on 路由组, otherwise its expansion on 代理.
 func (u *UI) fixRoute(id string) {
