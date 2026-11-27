@@ -127,9 +127,9 @@ func tree() *Command {
 			configCommand(),
 			{Name: "tun", Args: "<on|off>", Min: 1, Max: 1, Choices: onOffChoices, Short: words{"打开或关闭 TUN（接管全部流量）", "Turn TUN on or off (it takes all traffic)"},
 				Examples: []string{"bowel tun on", "bowel tun off"}, Run: runTun},
-			{Name: "gateway", Args: "<on|off|check|auto|manual|devices>", Min: 1, Max: 1, Choices: []string{"on", "off", "check", "auto", "manual", "devices"},
-				Short:    words{"网关模式（让局域网其他设备经这台电脑上网）：开关、检测 DHCP、自动或手动接入、列出设备", "Gateway mode (other devices on the LAN go out through this computer): on and off, check for DHCP, automatic or manual, list devices"},
-				Examples: []string{"bowel gateway on", "bowel gateway check", "bowel gateway auto", "bowel gateway devices", "bowel gateway off"}, Run: runGateway},
+			{Name: "gateway", Args: "<on|off|check|auto|manual|devices|device>", Min: 1, Max: 3, Choices: []string{"on", "off", "check", "auto", "manual", "devices", "device"},
+				Short:    words{"网关模式（让局域网其他设备经这台电脑上网）：开关、检测 DHCP、自动或手动接入、列出设备、给一台设备单独设路由", "Gateway mode (other devices on the LAN go out through this computer): on and off, check for DHCP, automatic or manual, list devices, give one device a route of its own"},
+				Examples: []string{"bowel gateway on", "bowel gateway check", "bowel gateway auto", "bowel gateway devices", "bowel gateway device 192.168.1.50 media", "bowel gateway off"}, Run: runGateway},
 			{Name: "dns", Short: words{"DNS 相关操作", "Things to do with DNS"}, Sub: []*Command{
 				{Name: "flush", Short: words{"清空内核的 DNS 缓存和 fake-ip 映射", "Clear the core's DNS cache and fake-ip mappings"}, Examples: []string{"bowel dns flush"}, Run: runDNSFlush},
 			}},
@@ -1260,6 +1260,12 @@ func runTun(c *Ctx) error {
 }
 
 func runGateway(c *Ctx) error {
+	if c.args[0] == "device" {
+		return runGatewayDevice(c) // devices.go
+	}
+	if len(c.args) > 1 {
+		return usagef(c.path, i18n.T("多余的参数：%s", "Too many arguments: %s"), strings.Join(c.args[1:], " "))
+	}
 	switch c.args[0] {
 	case "check":
 		return runGatewayCheck(c)
@@ -1383,15 +1389,11 @@ func runGatewayAuto(c *Ctx, on bool) error {
 func runGatewayDevices(c *Ctx) error {
 	var out struct {
 		Devices []struct {
-			IP     string    `json:"ip"`
-			MAC    string    `json:"mac"`
-			Name   string    `json:"name"`
-			Via    string    `json:"via"`
-			Online bool      `json:"online"`
-			Conns  int       `json:"conns"`
-			Down   int64     `json:"down"`
-			Up     int64     `json:"up"`
-			Seen   time.Time `json:"seen"`
+			gatewayDevice
+			Conns int       `json:"conns"`
+			Down  int64     `json:"down"`
+			Up    int64     `json:"up"`
+			Seen  time.Time `json:"seen"`
 		} `json:"devices"`
 		Gateway gatewayView `json:"gateway"`
 	}
@@ -1430,8 +1432,8 @@ func runGatewayDevices(c *Ctx) error {
 		if !d.Seen.IsZero() {
 			seen = d.Seen.Local().Format("01-02 15:04")
 		}
-		rows = append(rows, []cell{st, t(name), t(d.IP), t(d.MAC), t(via), t(fmt.Sprint(d.Conns)), t("↓" + fmtBytes(d.Down) + " ↑" + fmtBytes(d.Up)), t(seen)})
+		rows = append(rows, []cell{st, t(name), t(d.IP), t(d.MAC), t(via), deviceRoute(d.gatewayDevice), t(fmt.Sprint(d.Conns)), t("↓" + fmtBytes(d.Down) + " ↑" + fmtBytes(d.Up)), t(seen)})
 	}
-	c.table([]string{i18n.T("状态", "State"), i18n.T("设备", "Device"), i18n.T("地址", "Address"), "MAC", i18n.T("接入", "Via"), i18n.T("连接", "Conns"), i18n.T("流量", "Traffic"), i18n.T("最近", "Last seen")}, rows)
+	c.table([]string{i18n.T("状态", "State"), i18n.T("设备", "Device"), i18n.T("地址", "Address"), "MAC", i18n.T("接入", "Via"), i18n.T("路由", "Route"), i18n.T("连接", "Conns"), i18n.T("流量", "Traffic"), i18n.T("最近", "Last seen")}, rows)
 	return nil
 }

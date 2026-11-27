@@ -1185,12 +1185,12 @@ func (u *UI) actDevList(c *ui.Context, p *pal) {
 			ui.Box(c).Width(10).Shrink(0)
 		})
 		for _, d := range devs {
-			open := a.devOpen == d.IP
-			row := ui.ButtonBase(c.Key("dev-"+d.IP)).Padding(9, 4).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).OnClick(func() {
+			open := a.devOpen == devKey(d)
+			row := ui.ButtonBase(c.Key("dev-"+devKey(d))).Padding(9, 4).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).OnClick(func() {
 				if open {
 					a.devOpen = ""
 				} else {
-					a.devOpen = d.IP
+					a.devOpen = devKey(d)
 				}
 			})
 			if row.Hovered() || open {
@@ -1204,6 +1204,7 @@ func (u *UI) actDevList(c *ui.Context, p *pal) {
 					}
 					ui.Box(c).Size(7, 7).Radius(p.r(3.5)).Background(dot).Shrink(0)
 					dispIn(ui.Text(c, deviceTitle(d)), p, name).FontSize(15).FontWeight(600).TextColor(name).Grow(1).Basis(0).MinWidth(0).MaxLines(1).Ellipsis("…")
+					actDevRouteTag(c, p, d) // ui_gateway_devices.go
 					ui.Text(c, d.IP).Font(actMono).FontSize(11.5).FontFeatures("tnum").TextColor(p.ink2).Width(actDevCols[0]).Shrink(0).NoWrap()
 					via := i18n.T("手动", "Manual")
 					if d.Via == "auto" {
@@ -1241,7 +1242,8 @@ func deviceNow(d DeviceView) string {
 
 // actDevEvents is when a device came and went, newest first.
 func (u *UI) actDevEvents(c *ui.Context, p *pal, d DeviceView) {
-	ui.Column(c.Key("dev-ev-"+d.IP)).Gap(3).Padding(9, 18, 12, 23).Background(p.paper2).BorderWidth(0, 0, 1, 0).BorderColor(p.hair).Children(func() {
+	ui.Column(c.Key("dev-ev-"+devKey(d))).Gap(3).Padding(9, 18, 12, 23).Background(p.paper2).BorderWidth(0, 0, 1, 0).BorderColor(p.hair).Children(func() {
+		u.actDevRoute(c, p, d) // ui_gateway_devices.go
 		if d.MAC != "" {
 			ui.Text(c, d.MAC).Font(actMono).FontSize(11).TextColor(p.faint).Selectable().Margin(0, 0, 3, 0)
 		}
