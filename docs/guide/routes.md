@@ -48,10 +48,11 @@ The APIs of OpenAI and Anthropic answer 403 to exits they don't serve, before th
 
 ## Download test
 
-A low delay says a node answers a small request quickly, not that it downloads fast. Downloads, beside the search box in Choose exit, downloads a test file through the five nodes with the lowest delay on the group's main site, and the node in use, one after another: up to 5 seconds or 50 MB each. The rates show in a column of the node list.
+A low delay says a node answers a small request quickly, not that it downloads fast. Downloads, beside the search box in Choose exit, takes the five nodes with the lowest delay on the group's main site among those the node list shows (Fastest's scope, or the region picked above it for Fixed node and Fallback, and only what the search finds when there is one), and the node in use, and downloads a test file through each, one after another: up to 5 seconds or 50 MB each. The rates show in a column of the node list.
 
 - A dialog first lists the nodes and the most traffic it may use. Mind it on a metered subscription; some providers don't allow speed tests.
-- Nothing is switched to: you choose. Fastest still goes by delay.
+- Nothing is switched to: you choose.
+- Fastest can also choose by download speed: set By to Download speed, and every 6, 12 or 24 hours a round tests the five nodes in scope with the lowest delay (and the one in use), 20 MB at most each, and moves to the fastest download; the node in use stays if it came within a fifth of it. Downloads then reads Test round now: it runs the round at once and switches by its result, and the next round is counted from then. Rounds run with takeover off too, since apps pointed at bowel's port go by the groups all the same.
 - When three or more nodes come out within a fifth of each other, your own line is likely the limit.
 - The test file is Cloudflare's by default; change it under Settings › Testing › Download test file.
 - Desktop only for now: the phone and the command line have none.
