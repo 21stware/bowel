@@ -154,7 +154,8 @@ echo "a route of its own for the device"
 by_node() { docker exec bowel-e2e-node grep -c -- "--> $1" /node/log || true; }
 fetch_org() { client 'curl -sS -m 10 -o /dev/null -w "%{http_code}" https://example.org 2>/dev/null || true'; }
 like "it is sent direct" "$(gw "bowel gateway device $CLIENT direct 2>&1; echo exit=\$?")" 'exit=0'
-like "the list says so" "$(gw 'bowel gateway devices --json' | tr -d ' \n')" "\"ip\":\"$CLIENT\"[^}]*\"route\":\"direct\""
+# The route comes after the device's events, a list of objects.
+like "the list says so" "$(gw 'bowel gateway devices --json' | tr -d ' \n')" "\"ip\":\"$CLIENT\"[^]]*\],\"route\":\"direct\""
 before="$(by_node example.org:443)"
 check "it still gets out" "$(fetch_org)" 200
 check "but not through the node" "$(by_node example.org:443)" "$before"
