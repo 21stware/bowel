@@ -23,9 +23,9 @@ docker exec -it bowel bowel tui
 | --- | --- |
 | `ghcr.io/21stware/bowel:latest` | the latest release |
 | `ghcr.io/21stware/bowel:0.4` | the latest 0.4.x |
-| `ghcr.io/21stware/bowel:0.4.8` | one release |
+| `ghcr.io/21stware/bowel:0.4.9` | one release; 0.4.9 is the first with an image |
 
-The same image is on Docker Hub as `21stware/bowel` (`docker pull 21stware/bowel`), which is where Synology's Container Manager, Unraid and other NAS interfaces search; every command here takes either name.
+The same tags are on Docker Hub as `21stware/bowel` (`docker pull 21stware/bowel`), the registry that Synology's Container Manager and other NAS interfaces search; every command here takes either name. Both are public: pulling needs no `docker login`.
 
 The amd64 image carries mihomo's `v1` build, which runs on every x86-64 CPU, including the Atoms and Celerons of many NAS boxes. Each release pushes the image after the release itself is published; the image does not update itself, so pull a new tag to update (`docker compose pull && docker compose up -d`). The data volume carries over.
 
@@ -52,6 +52,19 @@ volumes:
 ```
 
 [docker/compose.tun.yaml](docker/compose.tun.yaml) runs TUN on the host's network, for the host's own traffic or for gateway mode (below).
+
+## NAS
+
+**Synology** (Container Manager, DSM 7.2 or later). In *Project*, *Create* a project with a folder of its own as its path, create its `docker-compose.yml` in the editor and paste [docker/compose.yaml](docker/compose.yaml), with your subscription in it. Or, without compose: search for `21stware/bowel` in *Registry* (Docker Hub is its default) and download it, then select it in *Image* and *Run* it, with local port 7899 for the container's 7899, a folder mounted at `/data`, and `BOWEL_SUBSCRIPTION` and `TZ` in its environment. The image has no shell, so open the interface over SSH: `sudo docker exec -it bowel bowel tui`.
+
+**Unraid.** [docker/unraid.xml](docker/unraid.xml) is a template for the Docker page: the proxy port, `/data` in `/mnt/user/appdata/bowel`, the subscription and who may use the proxy. Unraid keeps its containers' templates in `/boot/config/plugins/dockerMan/templates-user`; save it there from Unraid's terminal and install it from *Apps*, *Previous Apps* (Community Applications):
+
+```bash
+curl -fsSL -o /boot/config/plugins/dockerMan/templates-user/my-bowel.xml \
+  https://raw.githubusercontent.com/21stware/bowel/main/docs/docker/unraid.xml
+```
+
+The interface is `docker exec -it bowel bowel tui` in Unraid's terminal; the container's *Console* has no shell to open. For MCP from other machines, add port 7900 with *Add another Path, Port, Variable, Label or Device*. For TUN, set *Network Type* to *Host*, add `--cap-add=NET_ADMIN` to *Extra Parameters* (*Advanced View*) and `/dev/net/tun` as a *Device*, and set the variable `BOWEL_MCP_HTTP` to `127.0.0.1:7900` (on the host's network, 7900 is the server's own port); then see [TUN and gateway mode](#tun-and-gateway-mode).
 
 ## Settings
 

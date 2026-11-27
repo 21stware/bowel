@@ -23,9 +23,9 @@ docker exec -it bowel bowel tui
 | --- | --- |
 | `ghcr.io/21stware/bowel:latest` | 最新版本 |
 | `ghcr.io/21stware/bowel:0.4` | 最新的 0.4.x |
-| `ghcr.io/21stware/bowel:0.4.8` | 某一个版本 |
+| `ghcr.io/21stware/bowel:0.4.9` | 某一个版本；镜像从 0.4.9 开始才有 |
 
-同一个镜像也在 Docker Hub 上，叫 `21stware/bowel`（`docker pull 21stware/bowel`）。群晖的 Container Manager、Unraid 等 NAS 界面默认在那里搜索；本文的命令用哪个名字都可以。
+Docker Hub 上也有同样的标签，叫 `21stware/bowel`（`docker pull 21stware/bowel`）。群晖的 Container Manager 等 NAS 界面默认在 Docker Hub 上搜索；本文的命令用哪个名字都可以。两边都是公开的，拉取不需要 `docker login`。
 
 amd64 镜像用的是 mihomo 的 `v1` 构建，任何 x86-64 CPU 都能运行，包括很多 NAS 用的 Atom 和赛扬。每个版本发布之后才推送镜像；镜像不会自己更新，拉取新标签即可更新（`docker compose pull && docker compose up -d`），数据卷原样保留。
 
@@ -52,6 +52,19 @@ volumes:
 ```
 
 [docker/compose.tun.yaml](docker/compose.tun.yaml) 在主机网络上运行 TUN，接管主机自己的流量，或者配合网关模式使用（见下文）。
+
+## NAS
+
+**群晖**（Container Manager，DSM 7.2 或更新版本）。在「项目」里「创建」一个项目，路径选一个单独的文件夹，用编辑器创建 `docker-compose.yml`，粘贴 [docker/compose.yaml](docker/compose.yaml) 并填上你的订阅。不用 compose 的话：在「镜像仓库」里搜索 `21stware/bowel`（默认就在 Docker Hub 上搜）并「下载」，再到「映像」里选中它、点「运行」：本地端口 7899 对应容器的 7899，把一个文件夹挂载到 `/data`，环境变量里填 `BOWEL_SUBSCRIPTION` 和 `TZ`。镜像里没有 shell，界面要通过 SSH 打开：`sudo docker exec -it bowel bowel tui`。
+
+**Unraid。** [docker/unraid.xml](docker/unraid.xml) 是 Docker 页面用的模板：代理端口、放在 `/mnt/user/appdata/bowel` 的 `/data`、订阅，以及谁能用代理。Unraid 把容器的模板放在 `/boot/config/plugins/dockerMan/templates-user`；在 Unraid 的终端里把它存到那里，再从「Apps」的「Previous Apps」安装（需要 Community Applications）：
+
+```bash
+curl -fsSL -o /boot/config/plugins/dockerMan/templates-user/my-bowel.xml \
+  https://raw.githubusercontent.com/21stware/bowel/main/docs/docker/unraid.xml
+```
+
+界面是在 Unraid 的终端里运行 `docker exec -it bowel bowel tui`；容器菜单里的「Console」没有 shell 可开。要让别的机器上的 agent 用 MCP，用「Add another Path, Port, Variable, Label or Device」加上 7900 端口。要用 TUN：「Network Type」选「Host」，在「Extra Parameters」（「Advanced View」里）加上 `--cap-add=NET_ADMIN`，把 `/dev/net/tun` 加为「Device」，并把变量 `BOWEL_MCP_HTTP` 设成 `127.0.0.1:7900`（在主机网络上，7900 就是服务器自己的端口）；然后见 [TUN 和网关模式](#tun-和网关模式)。
 
 ## 设置
 
