@@ -156,6 +156,13 @@ func TestSetGatewayOffGuard(t *testing.T) {
 	if out, err := callTool(t, srv, agent, "get_gateway", nil); err != nil || out["step"] != "automatic" {
 		t.Fatalf("get_gateway: %v %v", out, err)
 	}
+	// A container's docker exec with no terminal is refused as an agent's
+	// is, and told why, since the command line has no force to pass.
+	unattended := &mcp.Session{}
+	unattended.Set("unattended", true)
+	if _, err := callTool(t, a.cliServer(), unattended, "set_gateway", map[string]any{"enabled": false}); err == nil || !strings.Contains(err.Error(), "leases") || !strings.Contains(err.Error(), "docker exec -it") || !a.settings.Get().Gateway {
+		t.Fatalf("an unattended off: %v", err)
+	}
 	_, _ = callTool(t, srv, agent, "set_gateway", map[string]any{"enabled": false, "force": true})
 	if a.settings.Get().Gateway {
 		t.Fatal("force didn't turn it off")
