@@ -571,12 +571,17 @@ class AppState extends ChangeNotifier {
 
   // ---- Providers ----
 
-  Future<bool> addProvider(String input) async {
+  Future<bool> addProvider(String input) async => await addLink(input) == null;
+
+  /// addProvider, saying why not: null when it was added.
+  Future<String?> addLink(String input) async {
     final text = input.trim();
-    if (text.isEmpty || addBusy) return false;
+    if (text.isEmpty) return tr('内容为空', 'The content is empty');
+    if (addBusy) return tr('正在添加上一个链接，请稍等', 'Still adding the last link. Wait a moment.');
     if (!_live) {
-      _toast(tr('内核没有启动，暂时不能添加', 'The core isn\'t running, so this can\'t be added yet'), ms: 5000);
-      return false;
+      final why = tr('内核没有启动，暂时不能添加', 'The core isn\'t running, so this can\'t be added yet');
+      _toast(why, ms: 5000);
+      return why;
     }
     addBusy = true;
     _toast(tr('正在添加', 'Adding'), ms: 0);
@@ -584,14 +589,31 @@ class AppState extends ChangeNotifier {
       await Core.instance.call('addProvider', {'input': text});
       providerField.clear();
       _toast(tr('已添加', 'Added'));
-      return true;
+      return null;
     } catch (e) {
       // The link stays in the field so it can be read and retried.
-      _toast(Core.message(e), ms: 6000);
-      return false;
+      final why = Core.message(e);
+      _toast(why, ms: 6000);
+      return why;
     } finally {
       addBusy = false;
     }
+  }
+
+  /// Adds a link another device sent (the receive sheet), as a pasted one is
+  /// added: into the add bar, or on the setup's first step into its field.
+  /// Null when it was added, otherwise why not.
+  Future<String?> receiveLink(String link) async {
+    if (setup == 1) {
+      set(() {
+        setupField.text = link;
+        setupLink = link;
+      });
+      await submitSetupLink();
+      return setup == 1 ? setupError ?? tr('正在添加上一个链接，请稍等', 'Still adding the last link. Wait a moment.') : null;
+    }
+    providerField.text = link;
+    return addLink(link);
   }
 
   void updateProvider(ProviderInfo p) async {

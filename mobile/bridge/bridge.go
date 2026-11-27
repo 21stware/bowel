@@ -420,6 +420,17 @@ func Call(method, payload string) (string, error) {
 		// The latency probe does nothing else, on purpose.
 		return payload, nil
 	}
+	if method == "qr" {
+		// Needs nothing started, so the receive sheet shows its code
+		// whatever state the core is in.
+		var args struct {
+			Input string `json:"input"`
+		}
+		if err := json.Unmarshal([]byte(payload), &args); err != nil {
+			return "", err
+		}
+		return encode(qrData(args.Input))
+	}
 	bMu.Lock()
 	x := b
 	bMu.Unlock()
