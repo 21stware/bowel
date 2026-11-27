@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<!--
+  bowel on Unraid's Docker page: a proxy for the LAN, as docker/compose.yaml
+  sets it up. See ../docker.md, NAS.
+-->
+<Container version="2">
+  <Name>bowel</Name>
+  <Repository>ghcr.io/21stware/bowel</Repository>
+  <Registry>https://github.com/orgs/21stware/packages/container/package/bowel</Registry>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/21stware/bowel/issues</Support>
+  <Project>https://bowel.dev</Project>
+  <ReadMe>https://github.com/21stware/bowel/blob/main/docs/docker.md</ReadMe>
+  <Overview>bowel without a window: a mihomo (Clash Meta) proxy for the LAN, with routes, a terminal interface and MCP for agents. Point programs at http://[server]:7899 (HTTP and SOCKS5 on one port). The interface is "docker exec -it bowel bowel tui" in Unraid's terminal; the image has no shell, so Console opens nothing.</Overview>
+  <Category>Network:Proxy</Category>
+  <TemplateURL>https://raw.githubusercontent.com/21stware/bowel/main/docs/docker/unraid.xml</TemplateURL>
+  <Icon>https://bowel.dev/icon.png</Icon>
+  <Config Name="Proxy port" Target="7899" Default="7899" Mode="tcp" Description="HTTP and SOCKS5 on one port." Type="Port" Display="always" Required="true" Mask="false">7899</Config>
+  <Config Name="Data" Target="/data" Default="/mnt/user/appdata/bowel" Mode="rw" Description="Settings, Providers, rules and statistics." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/bowel</Config>
+  <Config Name="Subscription" Target="BOWEL_SUBSCRIPTION" Default="" Description="Subscription URLs or node links, separated by commas. Each that no Provider has yet is added when the container starts." Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="Allowed clients" Target="BOWEL_LAN_ALLOWED_IPS" Default="" Description="Who may use the proxy, as CIDRs separated by commas. Empty leaves the setting as it is, which starts as private addresses." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+</Container>

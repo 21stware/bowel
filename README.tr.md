@@ -136,7 +136,7 @@ Debian, Ubuntu ve Fedora. Bu işlem imzalı bir paket deposu ekler, böylece `ap
 curl -fsSL https://21stware.github.io/packages/install.sh | sh
 ```
 
-Ekranı olmayan bir sunucu, NAS veya yönlendirici, Docker'da (amd64, arm64, armv7). Ardından `docker exec -it bowel bowel tui`; TUN, ağ geçidi modu, compose dosyaları ve ajanlar için MCP [docs/docker.md](docs/docker.md) dosyasındadır:
+Ekranı olmayan bir sunucu, NAS veya yönlendirici, Docker'da (amd64, arm64, armv7): imaj `ghcr.io/21stware/bowel`; NAS arayüzlerinin arama yaptığı Docker Hub'da ise `oboochin/bowel`. Ardından `docker exec -it bowel bowel tui`; TUN, ağ geçidi modu, compose dosyaları, Synology ve Unraid ile ajanlar için MCP [docs/docker.md](docs/docker.md) dosyasındadır:
 
 ```bash
 docker run -d --name bowel --restart unless-stopped -p 7899:7899 -v bowel:/data \
