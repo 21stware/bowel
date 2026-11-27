@@ -38,7 +38,7 @@
 # ghcr.io/21stware/bowel with the workflow's own token once the release is
 # published, for amd64, arm64 and armv7, by docker.yml, which checks that
 # anyone can pull it. It goes to Docker Hub as well when the repository
-# variable DOCKERHUB_IMAGE names a repository there (such as 21stware/bowel)
+# variable DOCKERHUB_IMAGE names a repository there (such as oboochin/bowel)
 # and these secrets are set:
 #   DOCKERHUB_USERNAME           the account, or the organization's bot
 #   DOCKERHUB_TOKEN              an access token with read, write and delete

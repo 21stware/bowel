@@ -25,7 +25,7 @@ docker exec -it bowel bowel tui
 | `ghcr.io/21stware/bowel:0.4` | the latest 0.4.x |
 | `ghcr.io/21stware/bowel:0.4.9` | one release; 0.4.9 is the first with an image |
 
-The same tags are on Docker Hub as `21stware/bowel` (`docker pull 21stware/bowel`), the registry that Synology's Container Manager and other NAS interfaces search; every command here takes either name. Both are public: pulling needs no `docker login`.
+The same tags are on Docker Hub as `oboochin/bowel` (`docker pull oboochin/bowel`), the registry that Synology's Container Manager and other NAS interfaces search; every command here takes either name. Both are public: pulling needs no `docker login`.
 
 The amd64 image carries mihomo's `v1` build, which runs on every x86-64 CPU, including the Atoms and Celerons of many NAS boxes. Each release pushes the image after the release itself is published; the image does not update itself, so pull a new tag to update (`docker compose pull && docker compose up -d`). The data volume carries over.
 
@@ -55,7 +55,7 @@ volumes:
 
 ## NAS
 
-**Synology** (Container Manager, DSM 7.2 or later). In *Project*, *Create* a project with a folder of its own as its path, create its `docker-compose.yml` in the editor and paste [docker/compose.yaml](docker/compose.yaml), with your subscription in it. Or, without compose: search for `21stware/bowel` in *Registry* (Docker Hub is its default) and download it, then select it in *Image* and *Run* it, with local port 7899 for the container's 7899, a folder mounted at `/data`, and `BOWEL_SUBSCRIPTION` and `TZ` in its environment. The image has no shell, so open the interface over SSH: `sudo docker exec -it bowel bowel tui`.
+**Synology** (Container Manager, DSM 7.2 or later). In *Project*, *Create* a project with a folder of its own as its path, create its `docker-compose.yml` in the editor and paste [docker/compose.yaml](docker/compose.yaml), with your subscription in it. Or, without compose: search for `oboochin/bowel` in *Registry* (Docker Hub is its default) and download it, then select it in *Image* and *Run* it, with local port 7899 for the container's 7899, a folder mounted at `/data`, and `BOWEL_SUBSCRIPTION` and `TZ` in its environment. The image has no shell, so open the interface over SSH: `sudo docker exec -it bowel bowel tui`.
 
 **Unraid.** [docker/unraid.xml](docker/unraid.xml) is a template for the Docker page: the proxy port, `/data` in `/mnt/user/appdata/bowel`, the subscription and who may use the proxy. Unraid keeps its containers' templates in `/boot/config/plugins/dockerMan/templates-user`; save it there from Unraid's terminal and install it from *Apps*, *Previous Apps* (Community Applications):
 

@@ -1,7 +1,7 @@
 # Builds the Docker image (Dockerfile, docs/docker.md) for amd64, arm64 and
 # armv7 and, given a release's tag, pushes it to ghcr.io/21stware/bowel with
 # the workflow's own token. It goes to Docker Hub as well when the repository
-# variable DOCKERHUB_IMAGE names a repository there (such as 21stware/bowel)
+# variable DOCKERHUB_IMAGE names a repository there (such as oboochin/bowel)
 # and these secrets are set:
 #   DOCKERHUB_USERNAME           the account, or the organization's bot; an
 #                                admin of the repository, for its overview
@@ -83,7 +83,7 @@ jobs:
           missing=0
           if [ -n "$DOCKERHUB_IMAGE" ]; then
             if ! [[ "$DOCKERHUB_IMAGE" =~ ^[a-z0-9][a-z0-9_.-]*/[a-z0-9][a-z0-9_.-]*$ ]]; then
-              echo "::error::DOCKERHUB_IMAGE is $DOCKERHUB_IMAGE; it should be the repository's namespace and name, such as 21stware/bowel, with no registry or tag"
+              echo "::error::DOCKERHUB_IMAGE is $DOCKERHUB_IMAGE; it should be the repository's namespace and name, such as oboochin/bowel, with no registry or tag"
               missing=1
             fi
             for name in DOCKERHUB_USERNAME DOCKERHUB_TOKEN; do
