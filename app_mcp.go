@@ -628,7 +628,7 @@ func (a *App) mcpServer() *mcp.Server {
 		routeIDs[i] = r.ID
 	}
 	routeArg := str("A route's id: "+strings.Join(routeIDs, ", ")+".", routeIDs...)
-	return &mcp.Server{
+	srv := &mcp.Server{
 		Name: "bowel", Title: "bowel", Version: mygo.App.Version(),
 		Instructions: mcpInstructions,
 		Tools: []mcp.Tool{
@@ -1191,6 +1191,10 @@ func (a *App) mcpServer() *mcp.Server {
 			},
 		},
 	}
+	srv.Tools = append(srv.Tools, a.gatewayTools()...)  // app_mcp_gateway.go
+	srv.Tools = append(srv.Tools, a.providerTools()...) // app_mcp_providers.go
+	srv.Instructions += "\n\n" + gatewayInstructions
+	return srv
 }
 
 // ruleFor is the user's rule a target names: one with that value (and

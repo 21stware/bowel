@@ -40,6 +40,8 @@ A DHCP server in `.servers` has to be turned off in that router's admin page fir
 
 Do not stop bowel, turn the gateway off or go back to manual as a test while automatic is on, or where the router's DHCP hands out G: the whole LAN goes offline. IPv4 only: a device with IPv6 can pass the gateway by.
 
+The gateway is reachable over MCP too, with no shell on G: `get_gateway` (the state, and `next`: each next step and whether it is the user's or yours), `check_dhcp`, `set_gateway` (on/off), `set_gateway_auto` (auto/manual), `list_devices`, and `provider_add` for step 2. The rules above are built in: automatic is refused while another DHCP server answers or G's address is leased, and an agent's off or manual is refused, with the reason, while it would take devices offline. Pass `force: true` only after the user heard the reason and agreed.
+
 - [Gateway mode, in full](https://raw.githubusercontent.com/21stware/bowel/main/docs/gateway.md): how it works, the systemd unit for a Linux server, pointing devices, what survives a crash or a restart, troubleshooting by symptom, limits
 
 ## Using bowel
@@ -56,6 +58,10 @@ The same pages are on the website, at https://bowel.dev/en/docs/ (Chinese: https
 - [README: the command line](https://raw.githubusercontent.com/21stware/bowel/main/README.md): `status`, `on`/`off`, `mode`, `routes`, `route use`, `nodes`, `providers`, `rules`, `conns`, `logs`, `settings`, `tun`, `gateway`, `tui`, `bar`
 - [The command line, in full](https://raw.githubusercontent.com/21stware/bowel/main/docs/cli.md): `tui`, `bar` for status bars, a port per route group, `--json` and exit codes, `daemon` and `stop`, what agents may change
 - [README（中文）](https://raw.githubusercontent.com/21stware/bowel/main/README.zh-CN.md): the same in Chinese, with installation for each system
+
+## Several machines
+
+- [One agent, several bowels](https://raw.githubusercontent.com/21stware/bowel/main/docs/mcp-http.md): MCP over HTTP on each machine (`BOWEL_MCP_HTTP`), TLS (`BOWEL_MCP_TLS=on`, `bowel mcp cert`, `NODE_EXTRA_CA_CERTS`), one server per machine (`bowel mcp token --name bowel-home`), and what the gateway's and the providers' tools refuse. A call changes only the machine of the server it is made on.
 
 ## How it works
 

@@ -45,6 +45,6 @@ Restart=on-failure
 
 ## Agents
 
-With `BOWEL_MCP_HTTP` set (`:7900`, say), bowel also serves MCP over HTTP at `/mcp`, for agents on other machines, behind a bearer token kept in the data folder; `bowel mcp token` prints it and the lines that add bowel to Claude Code and other clients. `BOWEL_MCP_TOKEN` gives a token of your own.
+With `BOWEL_MCP_HTTP` set (`:7900`, say), bowel also serves MCP over HTTP at `/mcp`, for agents on other machines, behind a bearer token kept in the data folder; `bowel mcp token` prints it and the lines that add bowel to Claude Code and other clients (`--name bowel-home` names the server, for an agent that drives several bowels). `BOWEL_MCP_TOKEN` gives a token of your own. `BOWEL_MCP_TLS=on` makes it HTTPS with a self-signed certificate, which `bowel mcp cert` prints for clients to trust; [mcp-http.md](mcp-http.md) has the rest.
 
 Commands you type are not asked about. A command run by an agent (Claude Code, Codex, Cursor and others are recognised by their environment) follows the same policy as MCP: ask, allow or deny. The daemon has no window to ask in, so under "ask" it refuses an agent's change; allow them with `bowel settings set mcpPolicy allow`, which only you can run.

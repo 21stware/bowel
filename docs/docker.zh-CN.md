@@ -65,6 +65,9 @@ volumes:
 | `BOWEL_LAN_ALLOWED_IPS` | 允许使用端口的地址，CIDR，用逗号或空格分隔。用 `-p` 映射时，Docker 会把客户端的真实地址交给容器，所以在有公网地址的服务器上，互联网上的客户端在列进来之前都会被拒绝；同时请设置 `authentication`（`bowel settings set authentication '["用户:密码"]'`）。 |
 | `BOWEL_MCP_HTTP` | MCP over HTTP 监听的地址（`:7900`）；留空则关闭。见 [Agent](#agentmcp)。 |
 | `BOWEL_MCP_TOKEN` | 自己指定 MCP 令牌，代替第一次启动时生成的那个。 |
+| `BOWEL_MCP_TLS` | 设为 `on` 时用 HTTPS 提供 MCP，证书是保存在 `/data` 里的自签名证书。 |
+| `BOWEL_MCP_TLS_HOSTS` | 客户端连接时用的主机名和地址，写进那张证书。 |
+| `BOWEL_MCP_TLS_CERT`、`BOWEL_MCP_TLS_KEY` | 你自己的证书和私钥（PEM 文件），文件变了会重新读取。 |
 | `TZ` | 日志时间和统计按天划分所用的时区。 |
 
 其他都是设置项，用 `bowel settings set <key> <值>` 修改（`bowel settings list` 列出全部），也可以在 TUI 的设置页里改，或者交给 agent。比如 `bowel settings set language zh` 换成中文。设置保存在 `/data/settings.json`，和 Provider、规则、统计放在一起；请把 `/data` 放在数据卷上。容器默认以 root 运行；用 `--user` 换成别的用户时，这个用户要拥有 `/data`。
@@ -94,7 +97,7 @@ docker exec bowel bowel mcp token
 claude mcp add --transport http bowel http://<主机>:7900/mcp --header "Authorization: Bearer <令牌>"
 ```
 
-其他客户端用同样的 URL 和请求头（`"type": "http"`、`"url"`、`"headers"`）。`BOWEL_MCP_TOKEN` 可以指定自己的令牌（至少 16 个字符）；`BOWEL_MCP_HTTP` 留空则关闭这个端点。它是明文 HTTP，令牌也明文传输：只在 `127.0.0.1`、VPN 或内网上发布 7900，或者放在保留 `Host` 请求头的 TLS 反向代理后面。
+其他客户端用同样的 URL 和请求头（`"type": "http"`、`"url"`、`"headers"`）。`BOWEL_MCP_TOKEN` 可以指定自己的令牌（至少 16 个字符）；`BOWEL_MCP_HTTP` 留空则关闭这个端点。不开 TLS 时它是明文 HTTP，令牌也明文传输：只在 `127.0.0.1`、VPN 或内网上发布 7900，或者开启 TLS。`BOWEL_MCP_TLS=on` 会在 `/data` 里生成一张自签名证书（客户端用来连接的主机名或地址写进 `BOWEL_MCP_TLS_HOSTS`，例如 `nas.lan,192.168.1.5`）；之后 `docker exec bowel bowel mcp token` 会打印证书指纹和 `https://` 的配置，`docker exec bowel bowel mcp cert` 打印证书，让 agent 所在的机器信任它。`BOWEL_MCP_TLS_CERT` 和 `BOWEL_MCP_TLS_KEY` 可以改用你自己的证书。客户端那边怎么配置、一个 agent 怎么管理几台 bowel，见 [mcp-http.md](mcp-http.md)（英文）。
 
 容器里没有窗口可以弹出询问，所以在默认的「询问」策略下，agent 能读取一切，但改不了任何东西。要让 agent 能修改，执行 `docker exec bowel bowel settings set mcpPolicy allow`。同一台主机上的 agent 也可以运行 `docker exec -i bowel bowel mcp`，也就是 stdio 版本的 MCP，不需要令牌。
 
