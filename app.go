@@ -849,7 +849,7 @@ func (a *App) buildConfig(s settings.Settings, dev devnet.Overlay, im *core.Impo
 		Guard:    a.guarding(s),
 		Gateway:  a.gatewayOn(s),
 		LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
-		Options: s.Options, Dev: dev, IPv6Usable: a.devEnv().IPv6.Usable, Imported: im,
+		Options: s.Options, Dev: dev, IPv6Usable: a.devEnv().IPv6.Usable, Imported: im, Devices: a.deviceRoutes(s),
 	})
 }
 
@@ -2661,7 +2661,7 @@ func (a *App) snapshot() Snapshot {
 	tk.Gateway = gatewayView(s, on, tk.Tun.Status, a.gw.System().Ready(), a.gw.Awake(), gwp, gwErr)
 	tk.Gateway.Auto = a.autoView(s, tk.Gateway.Status == "on")
 	if s.Gateway {
-		snap.Devices = a.devs.view(a.mon.Conns())
+		snap.Devices = a.withRoutes(a.devs.view(a.mon.Conns()), s) // app_gateway_devices.go
 	}
 	snap.Takeover = tk
 	snap.Dev = a.devReport(s, tk.Tun.Status == "on")

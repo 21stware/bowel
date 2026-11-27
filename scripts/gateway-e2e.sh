@@ -148,6 +148,24 @@ docker exec -d bowel-e2e-client sh -c 'curl -s -m 20 --limit-rate 200 -o /dev/nu
 sleep 9
 like "the gateway counts the device" "$(gw 'bowel status --json' | grep '"devices"')" '[1-9]'
 
+echo "a route of its own for the device"
+# by_node counts the node's connections to a host: a fetch the device makes
+# through the node adds one.
+by_node() { docker exec bowel-e2e-node grep -c -- "--> $1" /node/log || true; }
+fetch_org() { client 'curl -sS -m 10 -o /dev/null -w "%{http_code}" https://example.org 2>/dev/null || true'; }
+like "it is sent direct" "$(gw "bowel gateway device $CLIENT direct 2>&1; echo exit=\$?")" 'exit=0'
+like "the list says so" "$(gw 'bowel gateway devices --json' | tr -d ' \n')" "\"ip\":\"$CLIENT\"[^}]*\"route\":\"direct\""
+before="$(by_node example.org:443)"
+check "it still gets out" "$(fetch_org)" 200
+check "but not through the node" "$(by_node example.org:443)" "$before"
+like "it is blocked" "$(gw "bowel gateway device $CLIENT reject 2>&1; echo exit=\$?")" 'exit=0'
+check "and gets nowhere" "$(fetch_org)" 000
+like "DNS still answers it" "$(client 'dig +short +time=3 +tries=1 example.org')" '^198\.18\.'
+like "it goes back to the rules" "$(gw "bowel gateway device $CLIENT rules 2>&1; echo exit=\$?")" 'exit=0'
+check "and out through the node again" "$(fetch_org)" 200
+like "the node carried it" "$(by_node example.org:443)" "^$((before + 1))$|^$((before + 2))$"
+check "no device has a route of its own" "$(gw 'cat /data/settings.json' | grep -c '"gatewayDevices"' || true)" 0
+
 echo "handing out addresses"
 # The node plays the router's DHCP server.
 router_dhcp() { docker exec -d bowel-e2e-node dnsmasq --keep-in-foreground --port=0 --dhcp-range=$SUBNET.150,$SUBNET.160,2m --dhcp-option=3,$NODE; sleep 1; }
@@ -172,6 +190,19 @@ check "it gets out" "$(lease 'curl -sS -m 10 -o /dev/null -w "%{http_code}" http
 sleep 6
 like "the gateway lists it as automatic" "$(gw 'bowel gateway devices --json' | tr -d ' \n')" '"via":"auto","online":true'
 like "and the hand-pointed device as manual" "$(gw 'bowel gateway devices --json' | tr -d ' \n')" "\"ip\":\"$CLIENT\"[^}]*\"via\":\"manual\""
+# Left out of the gateway: at its next lease it gets the real router as its
+# router and DNS, and keeps its address, which bowel keeps for it.
+leased="$(lease 'ip -4 -o addr show eth0' | grep -oE "$SUBNET\.[0-9]+" | head -1)"
+realrouter="$(gw 'ip route show default' | awk '{print $3; exit}')"
+like "the leased device is left out" "$(gw "bowel gateway device $leased bypass 2>&1; echo exit=\$?")" 'exit=0'
+like "its address is kept for it" "$(gw 'cat /data/settings.json' | tr -d ' \n')" "\"gatewayDevices\":\[\{\"ip\":\"$leased\",\"mac\":\"[0-9a-f:]{17}\""
+lease "udhcpc -i eth0 -n -q -t 5 -T 2 >/tmp/udhcpc.log 2>&1" >/dev/null || true
+check "at its next lease, the same address" "$(lease 'ip -4 -o addr show eth0' | grep -oE "$SUBNET\.[0-9]+" | head -1)" "$leased"
+like "with the real router as its router" "$(lease 'ip route show default')" "default via $realrouter "
+like "and as its DNS" "$(lease 'cat /etc/resolv.conf')" "nameserver $realrouter"
+like "it goes back in" "$(gw "bowel gateway device $leased rules 2>&1; echo exit=\$?")" 'exit=0'
+lease "udhcpc -i eth0 -n -q -t 5 -T 2 >/tmp/udhcpc.log 2>&1" >/dev/null || true
+like "and has the gateway as its router again" "$(lease 'ip route show default')" "default via $GW "
 # The router's DHCP comes back: bowel says so.
 router_dhcp
 like "a second server is reported" "$(gw 'bowel gateway check 2>&1')" "$NODE"

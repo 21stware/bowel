@@ -441,9 +441,12 @@ func (a *App) syncDHCP() {
 		cfg.Own = ifc.HardwareAddr
 	}
 	if r, err := netip.ParseAddr(n.Router); err == nil {
-		cfg.Avoid = []netip.Addr{r}
+		cfg.Avoid, cfg.Router = []netip.Addr{r}, r
 	}
 	srv, err := dhcp.New(cfg)
+	if err == nil {
+		srv.Reserve(reservations(s)) // app_gateway_devices.go
+	}
 	var conn net.PacketConn
 	if err == nil {
 		conn, err = osDHCP.listen(srv)
@@ -582,7 +585,9 @@ func (a *App) updateDevices() {
 		}
 		sources = append(sources, ip)
 	}
-	a.devs.update(time.Now(), sources, a.leases(), a.neighbours())
+	now, leases, neigh := time.Now(), a.leases(), a.neighbours()
+	a.devs.update(now, sources, leases, neigh)
+	a.followDevices(now, leases, neigh) // app_gateway_devices.go
 }
 
 func containsAddr(list []netip.Addr, a netip.Addr) bool {

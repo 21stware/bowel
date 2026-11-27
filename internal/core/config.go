@@ -72,6 +72,9 @@ type Input struct {
 
 	// Dev keeps the machine's own networks off the proxy; see devnet.
 	Dev devnet.Overlay
+	// Devices are the gateway's devices with a route of their own
+	// (devices.go): the app gives them only while the gateway is in effect.
+	Devices []DeviceRoute
 
 	// IPv6Usable is what Options.IPv6 Auto found of the current network.
 	IPv6Usable bool
@@ -596,29 +599,50 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 	// network's own, which go before every route group's: the interface
 	// shows both at the top of the list.
 	var mine, rest []string
-	for _, l := range routes.Lines(in.Routes, in.UserRules) {
-		if _, ok := sets[routes.RuleSetProvider(l.Set)]; l.Set != "" && !ok {
-			continue
+	// The lines are taken group by group (Lines of one group is its part of
+	// the list), for the devices with a route of their own: their rules go
+	// in before the first group that holds for every device (heldFor), and
+	// the held groups' lines further down are repeated for them there.
+	devAt, held := -1, []heldLine{}
+	for _, r := range routes.Listed(in.Routes) {
+		if devAt < 0 && !heldFor(in.Routes, r.ID) {
+			devAt = len(rest)
 		}
-		target, ok := exitOf(in.Routes, l.Route, guard)
-		if !ok {
-			continue
-		}
-		locked := isLocked(in.Routes, l.Route)
-		if lockMode && !locked {
-			target = other
-		}
-		lines := []string{withTarget(l.Text, target)}
-		if locked && target != "REJECT" {
-			if hold, ok := udpHold(l.Text); ok {
-				lines = append(lines, hold)
+		for _, l := range routes.Lines([]routes.Route{r}, in.UserRules) {
+			if _, ok := sets[routes.RuleSetProvider(l.Set)]; l.Set != "" && !ok {
+				continue
+			}
+			target, ok := exitOf(in.Routes, l.Route, guard)
+			if !ok {
+				continue
+			}
+			locked := isLocked(in.Routes, l.Route)
+			if lockMode && !locked {
+				target = other
+			}
+			lines := []string{withTarget(l.Text, target)}
+			if locked && target != "REJECT" {
+				if hold, ok := udpHold(l.Text); ok {
+					lines = append(lines, hold)
+				}
+			}
+			if l.Mine && dev.Covers(l.Text) {
+				mine = append(mine, lines...)
+				continue
+			}
+			rest = append(rest, lines...)
+			if devAt >= 0 && heldFor(in.Routes, r.ID) {
+				held = append(held, heldLine{l, target, locked && target != "REJECT"})
 			}
 		}
-		if l.Mine && dev.Covers(l.Text) {
-			mine = append(mine, lines...)
-		} else {
-			rest = append(rest, lines...)
-		}
+	}
+	if devAt < 0 {
+		devAt = len(rest)
+	}
+	if !lockMode && in.Mode == "rule" { // the app gives devices only while the gateway is in effect
+		top, section := deviceRules(in, held, guard)
+		mine = append(top, mine...)
+		rest = slices.Concat(rest[:devAt], section, rest[devAt:])
 	}
 	var def routes.Route
 	for _, r := range in.Routes {
