@@ -39,6 +39,9 @@ type Config struct {
 	Own net.HardwareAddr
 	// Avoid are addresses never handed out: the real router, at least.
 	Avoid []netip.Addr
+	// Router is the LAN's own router: the router and DNS of a device that
+	// is left out (Reservation.Bypass). None leaves no device out.
+	Router netip.Addr
 	// LeaseTime is how long a lease holds; DefaultLease when zero.
 	LeaseTime time.Duration
 	// Path is the file the leases are kept in; none when empty.
@@ -78,6 +81,69 @@ type Server struct {
 	// declined are addresses a device refused because someone else answers
 	// there, and until when they are given to nobody.
 	declined map[netip.Addr]time.Time
+	// fixed are the reservations by hardware address, and kept their
+	// addresses, each with the hardware address it is kept for ("" when
+	// that is not known).
+	fixed map[string]Reservation
+	kept  map[netip.Addr]string
+}
+
+// Reservation is an address kept for one device: it gets that address and
+// no other device does. Bypass leaves the device out of the gateway: its
+// router and DNS are the LAN's router (Config.Router), not this computer.
+// A reservation without a MAC only keeps the address out of what new
+// devices are offered: the device it is for is not known by its hardware.
+type Reservation struct {
+	MAC    string
+	IP     netip.Addr
+	Bypass bool
+}
+
+// Reserve replaces the reservations. A device is told at its next renewal
+// at the latest (half a lease): there is no way to tell it sooner.
+func (s *Server) Reserve(list []Reservation) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.fixed, s.kept = map[string]Reservation{}, map[netip.Addr]string{}
+	for _, r := range list {
+		if r.MAC != "" {
+			s.fixed[r.MAC] = r
+		}
+		if r.IP.IsValid() {
+			s.kept[r.IP] = r.MAC
+		}
+	}
+}
+
+// Reservations are the reservations as last given, by address.
+func (s *Server) Reservations() []Reservation {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []Reservation
+	for ip, mac := range s.kept {
+		r := Reservation{MAC: mac, IP: ip}
+		if mac != "" {
+			r = s.fixed[mac]
+		}
+		out = append(out, r)
+	}
+	for _, r := range s.fixed {
+		if !r.IP.IsValid() {
+			out = append(out, r)
+		}
+	}
+	slices.SortFunc(out, func(a, b Reservation) int { return a.IP.Compare(b.IP) })
+	return out
+}
+
+// reserved is the address kept for mac, when there is one it can have now.
+// Under s.mu.
+func (s *Server) reserved(mac string) netip.Addr {
+	r, ok := s.fixed[mac]
+	if !ok || !r.IP.IsValid() || !s.usable(r.IP, mac) || s.taken(r.IP, mac) {
+		return netip.Addr{}
+	}
+	return r.IP
 }
 
 type offered struct {
@@ -185,6 +251,9 @@ func (s *Server) usable(ip netip.Addr, mac string) bool {
 	if p.Bits() < 31 && ip == broadcastOf(p) {
 		return false
 	}
+	if m := s.kept[ip]; m != "" && m != mac { // another device's own
+		return false
+	}
 	now := s.now()
 	if until, ok := s.declined[ip]; ok && now.Before(until) {
 		// Kept away from everyone but the device that holds it by a lease
@@ -243,9 +312,12 @@ func (s *Server) prune(now time.Time) (changed bool) {
 	return changed
 }
 
-// pick chooses the address to offer mac: the one it had, the one it asks
-// for, or the first of the pool that is free.
+// pick chooses the address to offer mac: the one kept for it, the one it
+// had, the one it asks for, or the first of the pool that is free.
 func (s *Server) pick(mac string, want netip.Addr) netip.Addr {
+	if ip := s.reserved(mac); ip.IsValid() {
+		return ip
+	}
 	if l := s.leases[mac]; l != nil && s.usable(l.IP, mac) {
 		return l.IP
 	}
@@ -261,6 +333,9 @@ func (s *Server) pick(mac string, want netip.Addr) netip.Addr {
 	first, last := s.Pool()
 	for pass := 0; pass < 2; pass++ {
 		for ip := first; ip.Compare(last) <= 0; ip = ip.Next() {
+			if m, kept := s.kept[ip]; kept && m != mac { // kept for a device not known by its hardware
+				continue
+			}
 			if (pass == 0 && held[ip]) || !s.usable(ip, mac) {
 				continue
 			}
@@ -327,6 +402,11 @@ func (s *Server) handle(m *Message) *reply {
 		// the server itself.
 		if ip == s.cfg.Self {
 			return nil
+		}
+		// A device with an address kept for it is not confirmed another:
+		// refused, it asks again and is offered its own.
+		if own := s.reserved(mac); own.IsValid() && own != ip {
+			return s.answer(m, Nak, netip.Addr{})
 		}
 		// An address it holds from the router that handed them out before
 		// is confirmed too, as long as nobody else has it: that is what
@@ -405,7 +485,12 @@ func (s *Server) answer(m *Message, t byte, ip netip.Addr) *reply {
 			out.Opts[optLease], out.Opts[optRenew], out.Opts[optRebind] = secs(lease), secs(lease/2), secs(lease*7/8)
 		}
 		mask := net.CIDRMask(s.cfg.Prefix.Bits(), 32)
-		out.Opts[optMask], out.Opts[optRouter], out.Opts[optDNS] = mask, addrBytes(s.cfg.Self), addrBytes(s.cfg.Self)
+		// A device left out of the gateway is given the LAN's own router.
+		via := s.cfg.Self
+		if r := s.fixed[m.CHAddr.String()]; r.Bypass && s.cfg.Router.IsValid() {
+			via = s.cfg.Router
+		}
+		out.Opts[optMask], out.Opts[optRouter], out.Opts[optDNS] = mask, addrBytes(via), addrBytes(via)
 	}
 	to := &net.UDPAddr{IP: net.IPv4bcast, Port: clientPort}
 	switch {

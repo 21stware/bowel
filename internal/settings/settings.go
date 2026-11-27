@@ -56,6 +56,9 @@ type Settings struct {
 	// nowhere else, so a laptop taken to another network offers itself to
 	// nobody there.
 	GatewayAutoLAN string `json:"gatewayAutoLan,omitempty"`
+	// GatewayDevices are the devices of the gateway's LAN that have a route
+	// of their own (devices.go).
+	GatewayDevices []GatewayDevice `json:"gatewayDevices,omitempty"`
 
 	Mode      string   `json:"mode"` // rule, global, direct
 	MixedPort int      `json:"mixedPort"`
@@ -302,7 +305,7 @@ func Decode(b []byte) (Settings, error) {
 func (s *Settings) takeMachine(from Settings) {
 	from = from.Clone()
 	s.SystemProxy, s.Tun, s.Paused, s.Gateway = from.SystemProxy, from.Tun, from.Paused, from.Gateway
-	s.GatewayAuto, s.GatewayAutoLAN = from.GatewayAuto, from.GatewayAutoLAN
+	s.GatewayAuto, s.GatewayAutoLAN, s.GatewayDevices = from.GatewayAuto, from.GatewayAutoLAN, from.GatewayDevices
 	s.MixedPort, s.AllowLan = from.MixedPort, from.AllowLan
 	s.MCPPolicy = from.MCPPolicy
 	s.HTTPPort, s.SocksPort, s.ExtraPorts = from.HTTPPort, from.SocksPort, from.ExtraPorts
@@ -362,6 +365,7 @@ func (s Settings) Clone() Settings {
 	s.Rules = slices.Clone(s.Rules)
 	s.Routing = s.Routing.Clone()
 	s.CommonRegions = slices.Clone(s.CommonRegions)
+	s.GatewayDevices = slices.Clone(s.GatewayDevices)
 	s.Options = s.Options.Clone()
 	if s.RouteTargets != nil {
 		m := make(map[string][]routes.Target, len(s.RouteTargets))
@@ -460,6 +464,9 @@ func (s Settings) Validate() error {
 		return errors.New(i18n.T("设备名只能用字母、数字和连字符", "The device name may only have letters, digits and hyphens"))
 	}
 	if err := s.Tailnet.validate(); err != nil {
+		return err
+	}
+	if err := validDevices(s.GatewayDevices); err != nil {
 		return err
 	}
 	for _, b := range s.Bypass {
