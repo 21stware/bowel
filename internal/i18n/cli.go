@@ -157,6 +157,8 @@ var jaCLI = map[string]string{
 	"给状态栏（waybar、polybar 等）每秒输出一行：当前网速，提示里有状态和节点": "ステータスバー（waybar、polybar など）向けに毎秒 1 行を出力：現在の速度、ツールチップに状態とノード",
 	"输出格式：waybar（JSON，默认）或 text（纯文字）":             "出力形式：waybar（JSON、既定）または text（プレーンテキスト）",
 	"只输出一行就退出，给按间隔运行命令的状态栏用":                      "1 行だけ出力して終了（一定間隔でコマンドを実行するステータスバー向け）",
+
+	"这个终端连不上 bowel。打包应用（如 Claude 桌面版）里的终端看到的是它自己的一份 AppData，而 bowel 0.4.9 及以前把套接字放在那里。bowel 若在运行，重启它就会换成这个版本；否则用 `bowel daemon` 启动，或打开应用。": "この端末から bowel に接続できません。パッケージ化されたアプリ（Claude デスクトップ版など）の端末は自分専用の AppData のコピーを見ており、bowel 0.4.9 以前はソケットをそこに置いていました。bowel が実行中なら、再起動するとこのバージョンに切り替わります。そうでなければ `bowel daemon` で起動するか、アプリを開いてください。",
 }
 
 var hantCLI = map[string]string{
@@ -303,4 +305,6 @@ var hantCLI = map[string]string{
 	"给状态栏（waybar、polybar 等）每秒输出一行：当前网速，提示里有状态和节点": "給狀態列（waybar、polybar 等）每秒輸出一行：目前網速，提示裡有狀態和節點",
 	"输出格式：waybar（JSON，默认）或 text（纯文字）":             "輸出格式：waybar（JSON，預設）或 text（純文字）",
 	"只输出一行就退出，给按间隔运行命令的状态栏用":                      "只輸出一行就結束，給按間隔執行命令的狀態列用",
+
+	"这个终端连不上 bowel。打包应用（如 Claude 桌面版）里的终端看到的是它自己的一份 AppData，而 bowel 0.4.9 及以前把套接字放在那里。bowel 若在运行，重启它就会换成这个版本；否则用 `bowel daemon` 启动，或打开应用。": "這個終端機連不上 bowel。封裝的 App（如 Claude 桌面版）裡的終端機看到的是它自己的一份 AppData，而 bowel 0.4.9 及以前把通訊端放在那裡。bowel 若在執行，重新啟動它就會換成這個版本；否則用 `bowel daemon` 啟動，或開啟 App。",
 }
