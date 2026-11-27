@@ -48,11 +48,15 @@ func TestRuleSetInConfig(t *testing.T) {
 	if p["type"] != "file" || p["behavior"] != "classical" || p["format"] != "yaml" || p["path"] != "/data/rulesets/s1.yaml" {
 		t.Errorf("%v", p)
 	}
-	if rules[0] != "DOMAIN-KEYWORD,corp,DIRECT" {
-		t.Errorf("the user's rule first: %s", rules[0])
-	}
-	if rules[1] != "RULE-SET,rs-s1,AI 服务,no-resolve" {
-		t.Errorf("then the set, its target before no-resolve: %s", rules[1])
+	// The set, its target before no-resolve, with AI 服务: after what it
+	// ships, before 流媒体, listed below it, and 直连, where the user's
+	// rule is.
+	set := slices.Index(rules, "RULE-SET,rs-s1,AI 服务,no-resolve")
+	openai := slices.Index(rules, "DOMAIN-SUFFIX,openai.com,AI 服务")
+	media := slices.IndexFunc(rules, func(r string) bool { return strings.HasPrefix(r, "GEOSITE,youtube,") })
+	mine := slices.Index(rules, "DOMAIN-KEYWORD,corp,DIRECT")
+	if set < 0 || openai < 0 || media < 0 || mine < 0 || !(openai < set && set < media && media < mine) {
+		t.Errorf("openai.com at %d, the set at %d, YouTube at %d, the user's rule at %d: %v", openai, set, media, mine, rules)
 	}
 }
 

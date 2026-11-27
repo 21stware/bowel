@@ -624,13 +624,28 @@ func ExplainSets(host string, user []UserRule, tpl []Route, match func(id, host,
 			}
 			continue
 		}
-		r := ruleOf(l.Text)
-		if r.Kind == KindGeo || r.Kind == KindGeoIP {
-			continue
-		}
-		if (UserRule{Kind: r.Kind, Value: r.Value}).Matches(host, ip) {
+		if l.takes(host, ip) {
 			return l.Route, l.Text, "", l.Mine, true
 		}
 	}
 	return "", "", "", false, false
+}
+
+// Takes says whether line l takes a connection to host, a name or an
+// address, as far as can be told without the core: never a rule set's or
+// a GeoSite or GeoIP list's line.
+func (l Line) Takes(host string) bool {
+	ip := ""
+	if _, err := netip.ParseAddr(host); err == nil {
+		ip, host = host, ""
+	}
+	return l.takes(host, ip)
+}
+
+func (l Line) takes(host, ip string) bool {
+	r := ruleOf(l.Text)
+	if l.Set != "" || r.Kind == KindGeo || r.Kind == KindGeoIP {
+		return false
+	}
+	return (UserRule{Kind: r.Kind, Value: r.Value}).Matches(host, ip)
 }

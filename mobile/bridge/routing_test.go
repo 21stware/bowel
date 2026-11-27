@@ -390,9 +390,9 @@ func TestReloadKeepsTunDescriptor(t *testing.T) {
 }
 
 // A route group moves on the phone as it does on the desktop: it takes
-// another's place in the list, and of two equally specific rules the core
-// is given the one of the group listed first before the other's. 直连 and
-// 拦截 move too; the default route neither moves nor gives up its place.
+// another's place in the list, and the core is given the rules of the group
+// listed first before the other's. 直连 and 拦截 move too; the default route
+// neither moves nor gives up its place.
 func TestMoveGroup(t *testing.T) {
 	x := testBridge(t)
 	ctx := context.Background()
@@ -423,23 +423,27 @@ func TestMoveGroup(t *testing.T) {
 			t.Fatalf("%s at %d, %s at %d: the first should come first", a, ia, b, ib)
 		}
 	}
-	const ai, media = "DOMAIN-SUFFIX,chatgpt.com", "DOMAIN-SUFFIX,netflix.com" // as specific as each other
-	want(routes.Default, "ai", "media", "dev", "direct", routes.Reject)
+	const ai, media = "DOMAIN-SUFFIX,chatgpt.com", "DOMAIN-SUFFIX,netflix.com"
+	want(routes.Default, routes.Reject, "ai", "media", "dev", "direct")
 	first(ai, media)
 
 	if err := x.routeOp(ctx, callArgs{Op: "moveGroup", ID: "media", To: "ai"}); err != nil {
 		t.Fatal(err)
 	}
-	want(routes.Default, "media", "ai", "dev", "direct", routes.Reject)
+	want(routes.Default, routes.Reject, "media", "ai", "dev", "direct")
 	first(media, ai)
 
 	if err := x.routeOp(ctx, callArgs{Op: "moveGroup", ID: "media", To: "dev"}); err != nil {
 		t.Fatal(err)
 	}
-	want(routes.Default, "ai", "dev", "media", "direct", routes.Reject)
+	want(routes.Default, routes.Reject, "ai", "dev", "media", "direct")
 	first(ai, media)
 
-	// 直连 and 拦截 move too: 拦截 first, its rules before the others'.
+	// 直连 and 拦截 move too: 拦截 below 开发, then back on top.
+	if err := x.routeOp(ctx, callArgs{Op: "moveGroup", ID: routes.Reject, To: "dev"}); err != nil {
+		t.Fatal(err)
+	}
+	want(routes.Default, "ai", "dev", routes.Reject, "media", "direct")
 	if err := x.routeOp(ctx, callArgs{Op: "moveGroup", ID: routes.Reject, To: "ai"}); err != nil {
 		t.Fatal(err)
 	}
@@ -539,5 +543,48 @@ func TestGroupGoesDirect(t *testing.T) {
 	}
 	if g := group(t, x, "AI 服务"); g.Direct || g.Mode != routes.ModeOrder {
 		t.Fatalf("back on a node: %+v", g)
+	}
+}
+
+// The list is the order on the phone too: a rule a group above takes all
+// of says what takes it, and counts for the word over the list; moving
+// its group above that one ends it. 其他流量's rules change nothing, and
+// 国内网站 shows the hosts it leaves to it.
+func TestRoutingSaysWhatNeverMatches(t *testing.T) {
+	x := testBridge(t)
+	ctx := context.Background()
+	if err := x.routeOp(ctx, callArgs{Op: "addRule", Kind: routes.KindSuffix, Text: "api.openai.com", Route: "dev"}); err != nil {
+		t.Fatal(err)
+	}
+	find := func(d routingData, group, value string) (ruleData, serviceData) {
+		for _, g := range d.Groups {
+			for _, s := range g.Services {
+				for _, r := range s.Rules {
+					if g.ID == group && r.Value == value {
+						return r, s
+					}
+				}
+			}
+		}
+		t.Fatalf("no %s in %s", value, group)
+		return ruleData{}, serviceData{}
+	}
+	d := x.routing()
+	if r, _ := find(d, "dev", "api.openai.com"); d.Hidden != 1 || r.Shadowed != "不会生效：上面「AI 服务 / OpenAI」的 *.openai.com 先匹配" {
+		t.Errorf("hidden %d, the rule %+v", d.Hidden, r)
+	}
+	if _, cn := find(d, "direct", "cn"); !slices.Equal(cn.Except, []string{"googleapis.cn", "xn--ngstr-lra8j.com"}) {
+		t.Errorf("国内网站: %+v", cn)
+	}
+	for _, g := range d.Groups {
+		if g.Pointless != (g.ID == routes.Default) {
+			t.Errorf("%s: pointless %v", g.ID, g.Pointless)
+		}
+	}
+	if err := x.routeOp(ctx, callArgs{Op: "moveGroup", ID: "dev", To: "ai"}); err != nil {
+		t.Fatal(err)
+	}
+	if d := x.routing(); d.Hidden != 0 {
+		t.Errorf("with 开发 above AI 服务: hidden %d", d.Hidden)
 	}
 }

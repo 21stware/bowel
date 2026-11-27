@@ -64,6 +64,9 @@ func index(t *testing.T, rules []string, prefix string) int {
 	return i
 }
 
+// The developer networks' rules come before every route group's, as the
+// list shows them at its top, and a rule of the user's inside one of them
+// before those: the list says so there too.
 func TestRuleOrderWithOverlay(t *testing.T) {
 	dev := devnet.Compile(devnet.Options{}, devEnv())
 	rules := strs(build(t, devInput("rule", dev))["rules"])

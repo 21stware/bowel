@@ -60,6 +60,7 @@ Map _group(String id, String name, List<Map> services, {bool direct = false, boo
       'movable': !const {'default', 'direct', 'reject'}.contains(id),
       'chooses': !const {'default', 'direct', 'reject'}.contains(id),
       'lockable': !const {'default', 'direct', 'reject'}.contains(id),
+      'pointless': id == 'default',
       'locked': id == 'ai' && _aiLocked,
       'mode': mode,
       'regions': <String>[],
@@ -569,7 +570,7 @@ void main() {
     for (final r in _dnsRules) {
       expect(find.text(r), findsOneWidget);
     }
-    expect(find.text('命中的流量走「单项」。优先级：你的规则 → 规则集 → 内置规则。'), findsOneWidget);
+    expect(find.text('命中的流量走「单项」。和这个路由组里的其他规则一样，按它在列表里的位置匹配：上面的路由组先匹配。'), findsOneWidget);
     await tester.tap(find.text('导入'));
     await _settle(tester);
     expect(called(), ['checkRuleSet', 'importRuleSet']);
@@ -1042,5 +1043,24 @@ void main() {
     await _settle(tester);
     expect(find.widgetWithText(Chip, 'IP 段'), findsOneWidget, reason: 'the end of the kinds');
     expect(find.widgetWithText(Chip, '应用'), findsNothing);
+  });
+
+  testWidgets('a rule a group above takes all of says what takes it', (tester) async {
+    _myAiRules = [
+      {'text': 'DOMAIN-SUFFIX,api.example.com', 'kind': 'suffix', 'kindName': '域名后缀', 'value': 'api.example.com', 'shown': 'api.example.com', 'builtin': false, 'off': false, 'shadowed': '不会生效：上面「单项 / 唯一」的 *.example.com 先匹配'},
+      {'text': 'DOMAIN-SUFFIX,ok.example.org', 'kind': 'suffix', 'kindName': '域名后缀', 'value': 'ok.example.org', 'shown': 'ok.example.org', 'builtin': false, 'off': false},
+    ];
+    final app = _app();
+    await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'ai', service: 'mine:ai')));
+    await _settle(tester);
+    expect(find.text('不会生效：上面「单项 / 唯一」的 *.example.com 先匹配'), findsOneWidget, reason: 'only under the rule taken');
+  });
+
+  testWidgets('其他流量 takes no rule or service, and says why', (tester) async {
+    final app = _app();
+    await tester.pumpWidget(_host(app, GroupPage(app: app, id: 'default')));
+    await _settle(tester);
+    expect(find.textContaining('不能在这里加规则或服务'), findsOneWidget);
+    expect(find.text('添加服务'), findsNothing);
   });
 }

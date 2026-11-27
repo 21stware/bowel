@@ -51,7 +51,7 @@ type Input struct {
 	Providers []ProviderRef
 	RuleSets  []RuleSetRef // a set with no entry here has no rule: the core refuses a RULE-SET it can't find
 	Routes    []routes.Route
-	UserRules []routes.UserRule // sorted in with the routes' own, the more specific first
+	UserRules []routes.UserRule // each with its route group, in the order of the list (routes.Lines)
 	Mode      string
 	MixedPort int
 	AllowLan  bool
@@ -155,7 +155,8 @@ func withTarget(rule, target string) string {
 // BuildConfig writes the mihomo config: one file proxy-provider per enabled
 // provider, a selector per route with the groups it can point at (an
 // automatic url-test one, and a fallback one if it has an order), every
-// rule, the more specific first, and a listener bound to the probe group.
+// rule in the order of the route list after the developer networks' own
+// (and the user's inside them), and a listener bound to the probe group.
 func BuildConfig(in Input) ([]byte, error) {
 	o := in.Options.Clone()
 	o.Fill()
@@ -584,13 +585,16 @@ func templateRouting(in Input, o Options, dev devnet.Overlay, cfg map[string]any
 	// With the exit lock, rule mode's list is kept outside it too, and while
 	// takeover is off (guard): a group that isn't locked sends its traffic
 	// where the mode (or, off, no bowel) would, and a locked one's rules keep
-	// their place, so that a more specific rule elsewhere still comes first.
+	// their place, so that a group above it still comes first.
 	guard := in.guarding()
 	lockMode := in.locks() && (guard || in.Mode != "rule")
 	other := modeTarget(in.Mode)
 	if guard {
 		other = "DIRECT"
 	}
+	// A rule of the user's inside a developer network goes before the
+	// network's own, which go before every route group's: the interface
+	// shows both at the top of the list.
 	var mine, rest []string
 	for _, l := range routes.Lines(in.Routes, in.UserRules) {
 		if _, ok := sets[routes.RuleSetProvider(l.Set)]; l.Set != "" && !ok {

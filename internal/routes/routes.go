@@ -116,15 +116,17 @@ var summaryEn = map[string]string{
 }
 
 // Template returns the routes in the order their rules apply; the default
-// route comes first for display, its rule (MATCH) last.
+// route comes first for display, its rule (MATCH) last. 拦截 is first, so
+// that what the user blocks stays blocked whatever else would take it, and
+// 直连, whose lists are broad, last before the default route.
 func Template() []Route {
 	return []Route{
 		{ID: Default, Name: defaultGroup, Color: "--r-default", Summary: "没命中任何规则的流量"},
+		{ID: Reject, Name: "拦截", Color: "--r-reject", Summary: "命中规则的连接会被拒绝", Direct: true, Reject: true},
 		{ID: "ai", Name: "AI 服务", Color: "--r-ai", Summary: "OpenAI · Claude · Gemini · Perplexity 等", Rules: builtinRules("ai")},
 		{ID: "media", Name: "流媒体", Color: "--r-media", Summary: "YouTube · Netflix · Spotify · Disney+ 等", Rules: builtinRules("media")},
 		{ID: "dev", Name: "开发", Color: "--r-dev", Summary: "GitHub · npm · Docker · PyPI · Go 等", Rules: builtinRules("dev")},
 		{ID: "direct", Name: "直连", Color: "--r-direct", Summary: "国内网站 · 局域网", Direct: true, Rules: builtinRules("direct")},
-		{ID: Reject, Name: "拦截", Color: "--r-reject", Summary: "命中规则的连接会被拒绝", Direct: true, Reject: true},
 	}
 }
 

@@ -140,10 +140,11 @@ func TestBuildConfigWithoutProviders(t *testing.T) {
 	}
 }
 
-// TestUserRulesComeFirst: the user's rules go before the template's, each
-// to its route's group, a direct route's to DIRECT; a rule for a route
-// that is gone is left out.
-func TestUserRulesComeFirst(t *testing.T) {
+// TestUserRulesGoWithTheirGroup: the user's rules go where their group is
+// listed, each to its route's group, a direct route's to DIRECT: one in
+// 直连 after AI 服务's, which is listed above it, one in AI 服务 before
+// 直连's. A rule for a route that is gone is left out.
+func TestUserRulesGoWithTheirGroup(t *testing.T) {
 	out, err := BuildConfig(Input{Routes: routes.Template(), Mode: "rule", MixedPort: 7899, ProbePort: 7900, TestURL: "x",
 		UserRules: []routes.UserRule{
 			{Kind: "suffix", Value: "openai.com", Route: "direct"},
@@ -157,8 +158,9 @@ func TestUserRulesComeFirst(t *testing.T) {
 	s := string(out)
 	mine := strings.Index(s, "- DOMAIN-SUFFIX,openai.com,DIRECT")
 	tpl := strings.Index(s, "- DOMAIN-SUFFIX,openai.com,AI 服务")
-	if mine < 0 || tpl < 0 || mine > tpl {
-		t.Errorf("user rule not before the template's (%d, %d):\n%s", mine, tpl, s)
+	ip, cn := strings.Index(s, "- IP-CIDR,1.2.3.0/24,AI 服务"), strings.Index(s, "- GEOSITE,cn,DIRECT")
+	if mine < 0 || tpl < 0 || tpl > mine || ip < 0 || cn < 0 || ip > cn {
+		t.Errorf("not in the list's order: AI 服务's openai.com %d, 直连's %d; AI 服务's address %d, 直连's GeoSite %d:\n%s", tpl, mine, ip, cn, s)
 	}
 	for _, want := range []string{"- IP-CIDR,1.2.3.0/24,AI 服务,no-resolve", "- DOMAIN,x.cn,默认"} {
 		if !strings.Contains(s, want) {

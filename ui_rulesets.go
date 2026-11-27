@@ -150,7 +150,7 @@ func (u *UI) ruleSetImport(c *ui.Context, p *pal, all []routes.Route, r routes.R
 		case d.checked != nil:
 			set := d.checked.Set
 			ui.Text(c, ruleSetCount(len(set.Rules), set.Skipped)+" · "+fmt.Sprintf(i18n.T("来自 %s", "from %s"), ruleSetWhere(d.checked.Source))).FontSize(11.5).FontWeight(600).TextColor(p.ink2)
-			ui.Text(c, fmt.Sprintf(i18n.T("命中的流量走「%s」。优先级：你的规则 → 规则集 → 内置规则。", "Matching traffic goes by %s. Order: your rules → rule sets → built-in rules."), u.routeName(r.ID))).FontSize(12).TextColor(p.ink2)
+			ui.Text(c, fmt.Sprintf(i18n.T("命中的流量走「%s」。和这个路由组里的其他规则一样，按它在列表里的位置匹配：上面的路由组先匹配。", "Matching traffic goes by %s. Like the group's other rules, it is tried where the group is in the list: the groups above come first."), u.routeName(r.ID))).FontSize(12).TextColor(p.ink2)
 		default:
 			ui.Text(c, i18n.T("粘贴规则集链接，或选择本地 .yaml / .list 文件。", "Paste a link to a rule set, or choose a local .yaml or .list file.")).FontSize(11.5).TextColor(p.faint)
 		}

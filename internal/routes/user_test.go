@@ -141,8 +141,9 @@ func TestEdit(t *testing.T) {
 func TestExplain(t *testing.T) {
 	user := []UserRule{{Kind: KindSuffix, Value: "openai.com", Route: "direct"}, {Kind: KindIP, Value: "1.1.1.0/24", Route: "dev"}}
 	tpl := Template()
-	if id, _, mine, sure := Explain("chat.openai.com", user, tpl); id != "direct" || !mine || !sure {
-		t.Errorf("user rule first: %s %v %v", id, mine, sure)
+	// AI 服务 is listed above 直连: its openai.com comes first.
+	if id, rule, mine, sure := Explain("chat.openai.com", user, tpl); id != "ai" || mine || !sure || rule != "DOMAIN-SUFFIX,openai.com" {
+		t.Errorf("the group above first: %s %s %v %v", id, rule, mine, sure)
 	}
 	if id, rule, mine, sure := Explain("api.anthropic.com", user, tpl); id != "ai" || mine || !sure || rule != "DOMAIN-SUFFIX,anthropic.com" {
 		t.Errorf("template domain: %s %s %v %v", id, rule, mine, sure)

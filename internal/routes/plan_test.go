@@ -53,42 +53,67 @@ func TestBuildMatchesTemplate(t *testing.T) {
 	}
 }
 
-// TestRulesBySpecificity: more specific rules go first and the user's win
-// ties, whichever group they are in.
-func TestRulesBySpecificity(t *testing.T) {
+// TestRulesGoByTheList: the groups go in the order of the list, and the
+// first with a rule that matches takes the connection. A narrower rule of
+// the user's in 直连 comes after AI 服务's broader one, which takes its
+// traffic, until 直连 is dragged above AI 服务. Inside a group the more
+// specific rule comes first.
+func TestRulesGoByTheList(t *testing.T) {
 	users := []UserRule{
 		{Kind: KindSuffix, Value: "api.anthropic.com", Route: "direct"},
-		{Kind: KindDomain, Value: "x.example.com", Route: "default"},
+		{Kind: KindDomain, Value: "x.example.com", Route: "direct"},
 		{Kind: KindKeyword, Value: "tracker", Route: "direct"},
 	}
-	lines := lineTexts(Build(Plan{}, users), users)
+	all := Build(Plan{}, users)
+	lines := lineTexts(all, users)
 	at := func(s string) int { return slices.Index(lines, s) }
-	long, short := at("DOMAIN-SUFFIX,api.anthropic.com→direct"), at("DOMAIN-SUFFIX,anthropic.com→ai")
-	exact, kw, cn := at("DOMAIN,x.example.com→default"), at("DOMAIN-KEYWORD,tracker→direct"), at("GEOSITE,cn→direct")
-	if long < 0 || short < 0 || exact < 0 || kw < 0 || cn < 0 {
+	short, long := at("DOMAIN-SUFFIX,anthropic.com→ai"), at("DOMAIN-SUFFIX,api.anthropic.com→direct")
+	exact, kw, cn := at("DOMAIN,x.example.com→direct"), at("DOMAIN-KEYWORD,tracker→direct"), at("GEOSITE,cn→direct")
+	if short < 0 || long < 0 || exact < 0 || kw < 0 || cn < 0 {
 		t.Fatalf("missing lines: %q", lines)
 	}
-	if !(exact < long && long < short && short < kw && kw < cn) {
-		t.Errorf("order: exact %d, long %d, short %d, keyword %d, geo %d", exact, long, short, kw, cn)
+	if !(short < exact && exact < long && long < kw && kw < cn) {
+		t.Errorf("order: AI 服务's anthropic.com %d, then 直连's: exact %d, long %d, keyword %d, geo %d", short, exact, long, kw, cn)
+	}
+	if r, _, mine, _ := Explain("api.anthropic.com", users, all); r != "ai" || mine {
+		t.Errorf("api.anthropic.com: %s %v, want AI 服务, listed above 直连", r, mine)
+	}
+	var p Plan
+	if !p.MoveGroup("direct", "ai") {
+		t.Fatal("直连 didn't move up")
+	}
+	if r, _, mine, _ := Explain("api.anthropic.com", users, Build(p, users)); r != "direct" || !mine {
+		t.Errorf("with 直连 above AI 服务: %s %v", r, mine)
 	}
 }
 
-// TestGooglePlayBeforeMainland: Play's download hosts are under
-// googleapis.cn, which the mainland list also holds. They go through a
-// node, by the default route, before that list sends them direct.
-func TestGooglePlayBeforeMainland(t *testing.T) {
-	all := Build(Plan{}, nil)
-	if _, ok := serviceIn(groupOf(t, all, Default), "googleplay"); !ok {
-		t.Fatalf("the default route has no Google Play: %+v", groupOf(t, all, Default).Services)
+// TestGooglePlayExcepted: Play's download hosts are under googleapis.cn,
+// which the mainland list also holds. 国内网站 has them as its exception,
+// shown with it: they go to the default route right before its rules,
+// wherever 直连 is listed, and not while it is off.
+func TestGooglePlayExcepted(t *testing.T) {
+	var up Plan
+	up.MoveGroup("direct", "ai")
+	for name, p := range map[string]Plan{"as shipped": {}, "直连 first": up} {
+		all := Build(p, nil)
+		cn, ok := serviceIn(groupOf(t, all, "direct"), "cn")
+		if !ok || !slices.Equal(cn.Except, []string{"googleapis.cn", "xn--ngstr-lra8j.com"}) {
+			t.Fatalf("%s: 国内网站 %+v", name, cn)
+		}
+		lines := lineTexts(all, nil)
+		at := func(s string) int { return slices.Index(lines, s) }
+		play, list, ai := at("DOMAIN-SUFFIX,googleapis.cn→default"), at("GEOSITE,cn→direct"), at("DOMAIN-SUFFIX,openai.com→ai")
+		if play < 0 || list < 0 || ai < 0 || play > list || (play < ai) != (name == "直连 first") {
+			t.Errorf("%s: googleapis.cn at %d, the mainland list at %d, openai.com at %d", name, play, list, ai)
+		}
+		if r, rule, _, sure := Explain("play.googleapis.cn", nil, all); r != Default || rule != "DOMAIN-SUFFIX,googleapis.cn" || !sure {
+			t.Errorf("%s: play.googleapis.cn: %s %s %v", name, r, rule, sure)
+		}
 	}
-	lines := lineTexts(all, nil)
-	at := func(s string) int { return slices.Index(lines, s) }
-	play, cn := at("DOMAIN-SUFFIX,googleapis.cn→default"), at("GEOSITE,cn→direct")
-	if play < 0 || cn < 0 {
-		t.Fatalf("missing lines: %q", lines)
-	}
-	if play > cn {
-		t.Errorf("googleapis.cn at %d, after the mainland list at %d", play, cn)
+	var off Plan
+	off.ToggleService("cn")
+	if lines := lineTexts(Build(off, nil), nil); slices.Contains(lines, "DOMAIN-SUFFIX,googleapis.cn→default") {
+		t.Error("an exception of 国内网站 while it is off")
 	}
 }
 
@@ -175,7 +200,7 @@ func TestCustomGroups(t *testing.T) {
 	if groupOf(t, all, a).Label == groupOf(t, all, b).Label {
 		t.Error("two groups share a name")
 	}
-	if n := len(all); all[n-2].ID != "direct" || all[n-1].ID != Reject {
+	if n := len(all); all[n-2].ID != b || all[n-1].ID != "direct" {
 		t.Errorf("last are %q, %q", all[n-2].ID, all[n-1].ID)
 	}
 	p.DeleteGroup(nil, a, Default)
@@ -299,36 +324,49 @@ func TestRuleSetIsAServiceOfItsGroup(t *testing.T) {
 	}
 }
 
-// With a set in use the user's rules come first, whatever kind, and what
-// ships last. Without one the order is what it always was.
+// A rule set goes with its group, after what the group ships: after every
+// line of the groups above it, before every line of those below, the
+// user's rules in them too.
 func TestLinesOrderWithARuleSet(t *testing.T) {
 	users := []UserRule{{Kind: KindKeyword, Value: "corp", Route: "direct"}}
-	plain := Lines(Build(Plan{}, users), users)
-	if slices.IndexFunc(plain, func(l Line) bool { return l.Mine }) == 0 {
-		t.Fatal("a keyword should sort after the built-in names when no set is in use")
-	}
-	p, id := withRuleSet(t, "ai")
+	p, id := withRuleSet(t, "media")
 	lines := Lines(Build(p, users), users)
-	if !lines[0].Mine {
-		t.Errorf("first: %+v", lines[0])
+	set := slices.IndexFunc(lines, func(l Line) bool { return l.Set == id })
+	if set < 0 || lines[set].Text != "RULE-SET,"+RuleSetProvider(id)+",no-resolve" || lines[set].Route != "media" {
+		t.Fatalf("no line for the set: %+v", lines)
 	}
-	if lines[1].Set != id || lines[1].Text != "RULE-SET,"+RuleSetProvider(id)+",no-resolve" || lines[1].Route != "ai" {
-		t.Errorf("second: %+v", lines[1])
-	}
-	if rest := lines[2:]; slices.ContainsFunc(rest, func(l Line) bool { return l.Mine || l.Set != "" }) {
-		t.Error("what ships should be all that's left")
+	for i, l := range lines {
+		if l.Set != "" {
+			continue
+		}
+		if above := l.Route == "ai" || l.Route == "media"; above != (i < set) {
+			t.Errorf("%s of %s at %d, the set of 流媒体 at %d", l.Text, l.Route, i, set)
+		}
 	}
 }
 
+// 测试一个地址 looks inside the rule sets, which apply where their group is
+// listed: a set in 流媒体 doesn't take what AI 服务, above it, ships, and
+// does once 流媒体 is dragged above AI 服务.
 func TestExplainLooksInsideRuleSets(t *testing.T) {
 	p, id := withRuleSet(t, "media")
-	all := Build(p, nil)
 	match := func(set, host, ip string) (string, bool) {
-		return "DOMAIN-SUFFIX,anthropic.com", set == id && host == "api.anthropic.com"
+		switch {
+		case set != id:
+		case host == "api.anthropic.com":
+			return "DOMAIN-SUFFIX,anthropic.com", true
+		case host == "cdn.example.net":
+			return "DOMAIN-SUFFIX,example.net", true
+		}
+		return "", false
 	}
-	r, rule, set, mine, sure := ExplainSets("api.anthropic.com", nil, all, match)
-	if r != "media" || rule != "DOMAIN-SUFFIX,anthropic.com" || set != id || mine || !sure {
-		t.Errorf("%s %s %s %v %v", r, rule, set, mine, sure)
+	all := Build(p, nil)
+	r, rule, set, mine, sure := ExplainSets("cdn.example.net", nil, all, match)
+	if r != "media" || rule != "DOMAIN-SUFFIX,example.net" || set != id || mine || !sure {
+		t.Errorf("what ships nowhere: %s %s %s %v %v", r, rule, set, mine, sure)
+	}
+	if r, rule, set, _, _ := ExplainSets("api.anthropic.com", nil, all, match); r != "ai" || rule != "DOMAIN-SUFFIX,anthropic.com" || set != "" {
+		t.Errorf("Claude, in AI 服务 above the set: %s %s %s", r, rule, set)
 	}
 	// A rule set says nothing: on to what ships.
 	if r, _, set, _, _ := ExplainSets("chat.openai.com", nil, all, match); r != "ai" || set != "" {
@@ -337,6 +375,38 @@ func TestExplainLooksInsideRuleSets(t *testing.T) {
 	// Without a way to look inside, as on mobile.
 	if r, _, _, _ := Explain("api.anthropic.com", nil, all); r != "ai" {
 		t.Errorf("%s", r)
+	}
+	if !p.MoveGroup("media", "ai") {
+		t.Fatal("流媒体 didn't move up")
+	}
+	if r, _, set, _, _ := ExplainSets("api.anthropic.com", nil, Build(p, nil), match); r != "media" || set != id {
+		t.Errorf("with 流媒体 above AI 服务: %s %s", r, set)
+	}
+}
+
+// TestRuleSetKeepsItsPlace is #294: a GFW list in a group of the user's
+// below AI 服务 holds chat.com, which OpenAI ships. AI 服务 is listed first,
+// so ChatGPT goes there; what OpenAI doesn't ship goes by the list; and
+// dragging the group above AI 服务 lets the list have it all.
+func TestRuleSetKeepsItsPlace(t *testing.T) {
+	var p Plan
+	g := p.AddGroup(nil, "国外穿墙")
+	gfw := p.AddRuleSet(nil, g, "GFW", "https://x.example/gfw.txt")
+	match := func(set, host, ip string) (string, bool) {
+		if set == gfw && (host == "chat.com" || strings.HasSuffix(host, ".chat.com") || strings.HasSuffix(host, ".google.com")) {
+			return "+." + host, true
+		}
+		return "", false
+	}
+	if r, _, set, _, _ := ExplainSets("ws.chat.com", nil, Build(p, nil), match); r != "ai" || set != "" {
+		t.Errorf("ws.chat.com: %s %s, want AI 服务 by OpenAI's chat.com", r, set)
+	}
+	if r, _, set, _, _ := ExplainSets("www.google.com", nil, Build(p, nil), match); r != g || set != gfw {
+		t.Errorf("www.google.com: %s %s, want the list's group", r, set)
+	}
+	p.MoveGroup(g, "ai")
+	if r, _, set, _, _ := ExplainSets("ws.chat.com", nil, Build(p, nil), match); r != g || set != gfw {
+		t.Errorf("with the group above AI 服务: %s %s", r, set)
 	}
 }
 
@@ -429,45 +499,45 @@ func TestMoveGroup(t *testing.T) {
 			t.Errorf("groups %v, want %v", got, ids)
 		}
 	}
-	want(Default, "ai", "media", "dev", g, "direct", Reject)
+	want(Default, Reject, "ai", "media", "dev", g, "direct")
 	if !p.MoveGroup(g, "ai") {
 		t.Error("moving up did nothing")
 	}
-	want(Default, g, "ai", "media", "dev", "direct", Reject)
+	want(Default, Reject, g, "ai", "media", "dev", "direct")
 	if !p.MoveGroup(g, "media") {
 		t.Error("moving down did nothing")
 	}
-	want(Default, "ai", "media", g, "dev", "direct", Reject)
+	want(Default, Reject, "ai", "media", g, "dev", "direct")
 	if !p.MoveGroup("ai", "dev") {
-		t.Error("moving to the end did nothing")
+		t.Error("moving further down did nothing")
 	}
-	want(Default, "media", g, "dev", "ai", "direct", Reject)
+	want(Default, Reject, "media", g, "dev", "ai", "direct")
 	for _, c := range [][2]string{{g, g}, {g, Default}, {Default, "ai"}, {g, "nope"}, {"nope", g}} {
 		if p.MoveGroup(c[0], c[1]) {
 			t.Errorf("%s moved to the place of %s", c[0], c[1])
 		}
 	}
-	want(Default, "media", g, "dev", "ai", "direct", Reject)
-	// 直连 and 拦截 move as the others do, and others past them.
-	if !p.MoveGroup(Reject, "media") {
-		t.Error("拦截 didn't move up")
-	}
 	want(Default, Reject, "media", g, "dev", "ai", "direct")
+	// 直连 and 拦截 move as the others do, and others past them.
+	if !p.MoveGroup(Reject, "dev") {
+		t.Error("拦截 didn't move down")
+	}
+	want(Default, "media", g, "dev", Reject, "ai", "direct")
 	if !p.MoveGroup("dev", "direct") {
 		t.Error("a group didn't move past 直连")
 	}
-	want(Default, Reject, "media", g, "ai", "direct", "dev")
+	want(Default, "media", g, Reject, "ai", "direct", "dev")
 	// A new group goes after the last that isn't fixed: here, at the end.
 	h := p.AddGroup(nil, "Mine")
-	want(Default, Reject, "media", g, "ai", "direct", "dev", h)
+	want(Default, "media", g, Reject, "ai", "direct", "dev", h)
 	if err := p.Check(); err != nil {
 		t.Error(err)
 	}
-	// With 直连 and 拦截 still last, before them, as ever.
+	// With 直连 moved up, after the last group, at the end too.
 	var q Plan
 	q.MoveGroup("direct", "ai")
 	k := q.AddGroup(nil, "Mine")
-	if got := groupIDs(q); !slices.Equal(got, []string{Default, "direct", "ai", "media", "dev", k, Reject}) {
+	if got := groupIDs(q); !slices.Equal(got, []string{Default, Reject, "direct", "ai", "media", "dev", k}) {
 		t.Errorf("new group after moving 直连 up: %v", got)
 	}
 }
@@ -513,47 +583,53 @@ func TestRuleSetsGoAsListed(t *testing.T) {
 
 	// What decides between two sets is their order alone.
 	inSet := func(id, host, ip string) (string, bool) {
-		return "DOMAIN-SUFFIX,openai.com", (id == broad || id == narrow) && host == "api.openai.com"
+		return "DOMAIN-SUFFIX,openai.example", (id == broad || id == narrow) && host == "api.openai.example"
 	}
-	if r, _, set, _, _ := ExplainSets("api.openai.com", nil, Build(p, nil), inSet); r != g || set != narrow {
+	if r, _, set, _, _ := ExplainSets("api.openai.example", nil, Build(p, nil), inSet); r != g || set != narrow {
 		t.Errorf("with the narrow set first: %s %s", r, set)
 	}
 	p.MoveGroup(g, "dev")
-	if r, _, set, _, _ := ExplainSets("api.openai.com", nil, Build(p, nil), inSet); r != "ai" || set != broad {
+	if r, _, set, _, _ := ExplainSets("api.openai.example", nil, Build(p, nil), inSet); r != "ai" || set != broad {
 		t.Errorf("with the broad set first: %s %s", r, set)
 	}
 }
 
-// TestGroupOrderBreaksTies: rules stay sorted by how specific they are
-// wherever their groups are; of two equally specific ones, the group listed
-// first has its rule first.
-func TestGroupOrderBreaksTies(t *testing.T) {
+// TestGroupsGoInListOrder: all of a group's lines come before those of the
+// groups below it, however specific, and dragging a group takes them all
+// along. Inside a group the more specific rule comes first.
+func TestGroupsGoInListOrder(t *testing.T) {
 	var p Plan
-	before := Lines(Build(p, nil), nil)
 	p.MoveGroup("dev", "ai")
-	after := Lines(Build(p, nil), nil)
-	if len(before) != len(after) {
-		t.Fatalf("%d lines became %d", len(before), len(after))
+	lines := Lines(Build(p, nil), nil)
+	var order []string
+	for i, l := range lines {
+		if l.Route == Default { // 国内网站's exceptions, in 直连
+			continue
+		}
+		if !slices.Contains(order, l.Route) {
+			order = append(order, l.Route)
+		} else if order[len(order)-1] != l.Route {
+			t.Fatalf("%s's %q comes after %s's", l.Route, l.Text, order[len(order)-1])
+		}
+		if i > 0 && lines[i-1].Route == l.Route {
+			ca, la := rank(lines[i-1].Text)
+			cb, lb := rank(l.Text)
+			if ca > cb || ca == cb && la > lb {
+				t.Errorf("%q is before the more specific %q of the same group", lines[i-1].Text, l.Text)
+			}
+		}
 	}
-	for i := 1; i < len(after); i++ {
-		ca, la := rank(after[i-1].Text)
-		cb, lb := rank(after[i].Text)
-		if ca > cb || ca == cb && la > lb {
-			t.Fatalf("%q is before the more specific %q", after[i-1].Text, after[i].Text)
-		}
-		if ca == cb && la == lb && after[i-1].Route == "ai" && after[i].Route == "dev" {
-			t.Fatalf("%q of AI is before the equally specific %q of dev, which is listed first", after[i-1].Text, after[i].Text)
-		}
+	if !slices.Equal(order, []string{"dev", "ai", "media", "direct"}) {
+		t.Errorf("groups in the order %v", order)
 	}
 }
 
-// TestAppRulesGoFirst: a rule for an application comes before every rule
-// by domain or address, the user's and the built-in ones, with a rule set
-// in use or not: it speaks for all of that program's traffic.
-func TestAppRulesGoFirst(t *testing.T) {
+// TestAppRules: a rule for an application comes first in its group, before
+// the group's rules by domain or address. It doesn't jump the groups above
+// it: they take what of the program's traffic they match.
+func TestAppRules(t *testing.T) {
 	asOn(t, true)
 	users := []UserRule{
-		{Kind: KindDomain, Value: "x.example.com", Route: "default"},
 		{Kind: KindIP, Value: "10.0.0.0/8", Route: "direct"},
 		{Kind: KindApp, Value: "Telegram.exe", Route: "ai"},
 		{Kind: KindApp, Value: "Google Chrome.app", Route: "direct"},
@@ -563,8 +639,11 @@ func TestAppRulesGoFirst(t *testing.T) {
 		"a set":  {Services: []ServiceConf{{ID: "s1", Custom: true, Name: "set", Group: "ai", Source: "https://example.com/a.list"}}},
 	} {
 		lines := lineTexts(Build(plan, users), users)
-		if len(lines) < 4 || lines[0] != "PROCESS-NAME,Telegram.exe→ai" || lines[1] != "PROCESS-PATH-WILDCARD,*/Google Chrome.app/*→direct" {
-			t.Errorf("%s: the first lines are %q", name, lines[:min(4, len(lines))])
+		at := func(s string) int { return slices.Index(lines, s) }
+		tg, ai := at("PROCESS-NAME,Telegram.exe→ai"), at("DOMAIN-SUFFIX,openai.com→ai")
+		chrome, ip := at("PROCESS-PATH-WILDCARD,*/Google Chrome.app/*→direct"), at("IP-CIDR,10.0.0.0/8,no-resolve→direct")
+		if tg != 0 || !(tg < ai && ai < chrome && chrome < ip) {
+			t.Errorf("%s: Telegram %d, openai.com %d, Chrome %d, 10/8 %d: %q", name, tg, ai, chrome, ip, lines[:min(4, len(lines))])
 		}
 	}
 	if c, _ := rank("PROCESS-NAME,x"); c >= 0 {

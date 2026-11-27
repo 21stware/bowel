@@ -259,7 +259,8 @@ func TestRoutesEditRule(t *testing.T) {
 		t.Fatalf("after Escape: %+v", got)
 	}
 
-	// The groups to pick from are in the sidebar's order: 其他流量 last.
+	// The groups to pick from are in the sidebar's order, without 其他流量:
+	// a rule there would change nothing.
 	edit("x.example.com")
 	sel, ok := tt.AccessByRole(ui.RolePopUpButton, "路由组")
 	if !ok {
@@ -274,12 +275,12 @@ func TestRoutesEditRule(t *testing.T) {
 		}
 	}
 	slices.SortFunc(opts, func(a, b ui.AccessInfo) int { return cmp.Compare(a.Bounds.Y, b.Bounds.Y) })
-	if len(opts) < 2 || opts[len(opts)-1].Name != "其他流量" {
-		var names []string
-		for _, o := range opts {
-			names = append(names, o.Name)
-		}
-		t.Errorf("route options %q, want 其他流量 last", names)
+	var names []string
+	for _, o := range opts {
+		names = append(names, o.Name)
+	}
+	if want := []string{"拦截", "AI 服务", "流媒体", "开发", "直连"}; !slices.Equal(names, want) {
+		t.Errorf("route options %q, want %q", names, want)
 	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
@@ -840,7 +841,7 @@ func TestDragToReorder(t *testing.T) {
 	second := plan.AddRuleSet(nil, "ai", "窄的规则集", "https://x.example/b.yaml")
 	tt := ui.NewTesterWith(u.view, 1060, 860, ui.TesterOptions{})
 	tt.Advance(time.Second)
-	if !hasTextPart(tt, "规则集从上到下匹配") {
+	if !hasTextPart(tt, "从上到下匹配：第一个有规则能认出这个连接的路由组决定它走哪里") {
 		t.Errorf("no word on what the order means: %q", tt.Texts())
 	}
 	order := func() []string {
@@ -851,17 +852,21 @@ func TestDragToReorder(t *testing.T) {
 		return out
 	}
 	dragOnto(t, tt, "OpenAI", "AI 服务")
-	if got, want := order(), []string{routes.Default, g, "ai", "media", "dev", "direct", routes.Reject}; !slices.Equal(got, want) {
+	if got, want := order(), []string{routes.Default, routes.Reject, g, "ai", "media", "dev", "direct"}; !slices.Equal(got, want) {
 		t.Errorf("after dragging up: %v, want %v", got, want)
 	}
 	shot(t, tt, "routes-reordered")
 	dragOnto(t, tt, "OpenAI", "开发")
-	if got, want := order(), []string{routes.Default, "ai", "media", "dev", g, "direct", routes.Reject}; !slices.Equal(got, want) {
+	if got, want := order(), []string{routes.Default, routes.Reject, "ai", "media", "dev", g, "direct"}; !slices.Equal(got, want) {
 		t.Errorf("after dragging down: %v, want %v", got, want)
+	}
+	dragOnto(t, tt, "拦截", "开发")
+	if got, want := order(), []string{routes.Default, "ai", "media", "dev", routes.Reject, g, "direct"}; !slices.Equal(got, want) {
+		t.Errorf("after dragging 拦截 down: %v, want %v", got, want)
 	}
 	dragOnto(t, tt, "拦截", "AI 服务")
 	if got, want := order(), []string{routes.Default, routes.Reject, "ai", "media", "dev", g, "direct"}; !slices.Equal(got, want) {
-		t.Errorf("after dragging 拦截 to the top: %v, want %v", got, want)
+		t.Errorf("after dragging 拦截 back to the top: %v, want %v", got, want)
 	}
 	dragOnto(t, tt, "OpenAI", "直连")
 	if got, want := order(), []string{routes.Default, routes.Reject, "ai", "media", "dev", "direct", g}; !slices.Equal(got, want) {
@@ -929,17 +934,17 @@ func TestHomeRoutesDrag(t *testing.T) {
 		return ra.Y < rb.Y
 	}
 	order := func() []string { return u.shownSettings().Routing.GroupOrder() }
-	dragOnto(t, tt, "拦截", "AI 服务")
+	dragOnto(t, tt, "拦截", "流媒体")
 	tt.Advance(time.Second) // the names glide to their rows
-	if got, want := order(), []string{routes.Default, routes.Reject, "ai", "media", "dev", "direct"}; !slices.Equal(got, want) {
-		t.Errorf("after dragging 拦截 onto AI 服务: %v, want %v", got, want)
+	if got, want := order(), []string{routes.Default, "ai", "media", routes.Reject, "dev", "direct"}; !slices.Equal(got, want) {
+		t.Errorf("after dragging 拦截 onto 流媒体: %v, want %v", got, want)
 	}
-	if !above("拦截", "AI 服务") {
-		t.Error("拦截 isn't shown above AI 服务")
+	if !above("AI 服务", "拦截") {
+		t.Error("拦截 isn't shown below AI 服务")
 	}
 	dragOnto(t, tt, "直连", "流媒体")
 	tt.Advance(time.Second)
-	if got, want := order(), []string{routes.Default, routes.Reject, "ai", "direct", "media", "dev"}; !slices.Equal(got, want) {
+	if got, want := order(), []string{routes.Default, "ai", "direct", "media", routes.Reject, "dev"}; !slices.Equal(got, want) {
 		t.Errorf("after dragging 直连 onto 流媒体: %v, want %v", got, want)
 	}
 	shot(t, tt, "home-routes-dragged")
@@ -947,7 +952,7 @@ func TestHomeRoutesDrag(t *testing.T) {
 		t.Errorf("a drag opened group %q", u.home.sub)
 	}
 	dragOnto(t, tt, "AI 服务", "其他流量")
-	if got, want := order(), []string{routes.Default, routes.Reject, "ai", "direct", "media", "dev"}; !slices.Equal(got, want) {
+	if got, want := order(), []string{routes.Default, "ai", "direct", "media", routes.Reject, "dev"}; !slices.Equal(got, want) {
 		t.Errorf("after a drop on 其他流量: %v", got)
 	}
 	r, _ := tt.Find("AI 服务")
@@ -1196,4 +1201,58 @@ func TestScopeExceptProviders(t *testing.T) {
 	if q := u.policy("ai"); q.ExceptProviders || len(q.Providers) > 0 {
 		t.Errorf("after 全部: %+v", q)
 	}
+}
+
+// TestRoutesSayWhatNeverMatches: the list is the order, so a rule a group
+// above takes all of never matches; the page says so over the list, under
+// the rule and right as one is added, and stops once the group is dragged
+// above. 其他流量 takes no rules, its rules changing nothing.
+func TestRoutesSayWhatNeverMatches(t *testing.T) {
+	u := routesFixture()
+	u.snap.Settings.Rules = []routes.UserRule{{Kind: routes.KindSuffix, Value: "api.openai.com", Route: "dev"}}
+	u.selectGroup("dev")
+	u.routes.svc = routes.MineID("dev")
+	tt := ui.NewTester(u.view, 1060, 1500)
+	tt.Advance(time.Second)
+	if !hasTextPart(tt, "你加的 1 条规则不会生效") {
+		t.Fatalf("no word over the list: %q", tt.Texts())
+	}
+	if !hasTextPart(tt, "不会生效：上面「AI 服务 / OpenAI」的 *.openai.com 先匹配") {
+		t.Errorf("no word under the rule: %q", tt.Texts())
+	}
+	shot(t, tt, "routes-never-matches")
+
+	typeInto(t, tt, "新规则", "files.openai.com")
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if !hasTextPart(tt, "上面「AI 服务 / OpenAI」的 *.openai.com 先匹配。要它生效，把这个路由组拖到上面去。") || !hasTextPart(tt, "你加的 2 条规则不会生效") {
+		t.Errorf("no word on the rule just added: %q", tt.Texts())
+	}
+
+	dragOnto(t, tt, "开发", "AI 服务")
+	tt.Advance(time.Second)
+	if hasTextPart(tt, "不会生效") {
+		t.Errorf("with 开发 above AI 服务: %q", tt.Texts())
+	}
+
+	// 国内网站 shows the hosts it leaves to 其他流量.
+	for _, name := range []string{"直连", "国内网站"} {
+		if err := tt.Click(name); err != nil {
+			t.Fatal(err)
+		}
+		tt.Advance(time.Second)
+	}
+	if !hasTextPart(tt, "例外：*.googleapis.cn、*.xn--ngstr-lra8j.com 不走这里，交给「其他流量」") {
+		t.Errorf("no word on 国内网站's exception: %q", tt.Texts())
+	}
+	shot(t, tt, "routes-mainland-exception")
+
+	if err := tt.Click("其他流量"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if !hasTextPart(tt, "不能在这里加规则或服务") || hasTextPart(tt, "＋ 新建服务") {
+		t.Errorf("其他流量 takes rules: %q", tt.Texts())
+	}
+	shot(t, tt, "routes-other-traffic")
 }
