@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -196,6 +198,32 @@ func TestCancel(t *testing.T) {
 	r := c.read()
 	if r["id"] != "slow2" || r["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"] != "released" {
 		t.Errorf("released: %v", r)
+	}
+}
+
+// TestCancelAtOnce: a call cancelled by the very next message ends, even
+// when its own goroutine has not run yet as the cancellation is read.
+func TestCancelAtOnce(t *testing.T) {
+	const n = 50
+	var ended atomic.Int32
+	c := start(t, &Server{Name: "t", Tools: []Tool{{Name: "wait", Run: func(ctx context.Context, _ *Session, _ json.RawMessage) (any, error) {
+		<-ctx.Done()
+		ended.Add(1)
+		return nil, ctx.Err()
+	}}}})
+	for i := range n {
+		id := fmt.Sprintf("w%d", i)
+		c.send(map[string]any{"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": map[string]any{"name": "wait"}})
+		c.send(map[string]any{"jsonrpc": "2.0", "method": "notifications/cancelled", "params": map[string]any{"requestId": id}})
+	}
+	// Answered after every cancellation was read; none of the calls is.
+	if r := c.call("ping", nil); r["error"] != nil {
+		t.Fatalf("ping: %v", r)
+	}
+	for deadline := time.Now().Add(5 * time.Second); ended.Load() < n && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	}
+	if got := ended.Load(); got != n {
+		t.Errorf("%d of %d cancelled calls ended", got, n)
 	}
 }
 
