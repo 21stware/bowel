@@ -22,15 +22,19 @@ import (
 // terminal to ask at (as in a script, `docker exec` without -t, or `ssh`).
 func cliApp(t *testing.T) (a *App, asks *int, run func(agent string, args ...string) (int, string, string)) {
 	t.Helper()
-	return cliAppAsking(t, nil)
+	return cliAppAsking(t, nil, nil)
 }
 
 // cliAppAsking is cliApp with a terminal: ask answers what the command
-// asks there. nil is no terminal.
-func cliAppAsking(t *testing.T, ask func(prompt string) (string, error)) (a *App, asks *int, run func(agent string, args ...string) (int, string, string)) {
+// asks there, nil being no terminal, and *person says whether a person's
+// terminal is behind the command (cli.Env.Person), nil being no.
+func cliAppAsking(t *testing.T, ask func(prompt string) (string, error), person *bool) (a *App, asks *int, run func(agent string, args ...string) (int, string, string)) {
 	t.Helper()
 	if ask == nil {
 		ask = func(string) (string, error) { return "", cli.ErrNoTerminal }
+	}
+	if person == nil {
+		person = new(bool)
 	}
 	a, asks, _ = mcpApp(t)
 	l, err := mcp.Listen(cliSocket(a.dataDir))
@@ -44,6 +48,7 @@ func cliAppAsking(t *testing.T, ask func(prompt string) (string, error)) (a *App
 		var out, errOut bytes.Buffer
 		code := cli.Run(cli.Env{
 			Args: args, Stdout: &out, Stderr: &errOut, Socket: cliSocket(a.dataDir), Version: "test", Ask: ask,
+			Person: func() bool { return *person },
 			Getenv: func(k string) string {
 				if k == "BOWEL_AGENT" {
 					return agent
@@ -126,6 +131,24 @@ func TestCLIRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCLISessionIs(t *testing.T) {
+	yes, no := true, false
+	for _, c := range []struct {
+		agent     string
+		terminal  *bool
+		container bool
+		want      string
+	}{
+		{"Robot", &yes, false, "agent"}, {"Robot", &yes, true, "agent"},
+		{"", nil, false, "user"}, {"", &no, false, "user"}, {"", &yes, false, "user"},
+		{"", &yes, true, "user"}, {"", &no, true, "unattended"}, {"", nil, true, "unattended"},
+	} {
+		if got := cliSessionIs(c.agent, c.terminal, c.container); got != c.want {
+			t.Errorf("%q, terminal %v, container %v: %s", c.agent, c.terminal != nil && *c.terminal, c.container, got)
+		}
+	}
+}
+
 // TestCLIPolicy: the user's own command makes the policy stricter at once,
 // and looser only once the person at the terminal types the policy's name.
 // Being on cli.sock says no more than that the environment named no agent,
@@ -139,7 +162,7 @@ func TestCLIPolicy(t *testing.T) {
 			return "", cli.ErrNoTerminal
 		}
 		return answer, nil
-	})
+	}, nil)
 	if _, err := a.settings.Update(func(s *settings.Settings) { s.Language = "en" }); err != nil {
 		t.Fatal(err)
 	}

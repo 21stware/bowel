@@ -53,6 +53,9 @@ type Env struct {
 	// ErrNoTerminal when there is no terminal to ask at; nil is the
 	// terminal's own (askLine).
 	Ask func(prompt string) (string, error)
+	// Person says whether a person's terminal is behind the command: its
+	// stdin a terminal of some size (atTerminal). nil asks this process's.
+	Person func() bool
 	// Context ends the commands that go on (logs -f, conns --watch); Poll
 	// is how often they ask. Both have defaults; tests set them.
 	Context context.Context
@@ -188,6 +191,12 @@ func IsTerminal(f *os.File) bool {
 	fi, err := f.Stat()
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
+
+// atTerminal says whether a person's terminal is behind f, the command's
+// stdin: a terminal, with a size. `docker exec` gives a command none
+// without -t, and with -t but no terminal behind it (an agent's shell)
+// one of 0×0; a person's `docker exec -it` brings its size along.
+func atTerminal(f *os.File) bool { return IsTerminal(f) && termSized(f) }
 
 // Run runs the command line and returns the exit code.
 func Run(env Env) int {

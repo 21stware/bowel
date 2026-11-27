@@ -209,8 +209,8 @@ func (a *App) approve(ctx context.Context, s *mcp.Session, what words, detail st
 		return nil
 	case "deny":
 		a.noteAgentChange(agentChange{At: time.Now(), Client: s.Name(), What: what, Outcome: "denied"})
-		return errors.New(i18n.T("bowel 设置为不允许 agent 做变更（设置 > MCP）。请让用户自己修改，或请用户改这项设置。",
-			"bowel is set not to let agents make changes (Settings > MCP). Ask the user to make the change, or to change that setting."))
+		return unattendedNote(s, errors.New(i18n.T("bowel 设置为不允许 agent 做变更（设置 > MCP）。请让用户自己修改，或请用户改这项设置。",
+			"bowel is set not to let agents make changes (Settings > MCP). Ask the user to make the change, or to change that setting.")))
 	}
 	if s.Get("allowed") == true {
 		return nil
@@ -224,7 +224,7 @@ func (a *App) approve(ctx context.Context, s *mcp.Session, what words, detail st
 		if errors.Is(err, errDenied) {
 			return errors.New(i18n.T("用户拒绝了这次变更。", "The user denied this change."))
 		}
-		return err
+		return unattendedNote(s, err) // the daemon's, which can't ask
 	}
 	if remember {
 		s.Set("allowed", true)

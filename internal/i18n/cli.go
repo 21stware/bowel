@@ -166,6 +166,8 @@ var jaCLI = map[string]string{
 	"mcpPolicy：%s → %s。%s。\n只有你能允许：如果这条命令是 agent 运行的，直接回车取消。\n输入 %s 确认：": "mcpPolicy：%s → %s。%s。\n許可できるのはあなただけです。このコマンドをエージェントが実行したのなら、そのまま Enter を押して取り消してください。\n確認するには %s と入力してください：",
 	"已取消：mcpPolicy 仍是 %s": "取り消しました：mcpPolicy は %s のままです",
 	"%s。输入 %s 确认":         "%s。確認するには %s と入力",
+
+	"没有终端的 `docker exec` 命令算作 agent 的命令，因为 bowel 分不清是谁运行的。用户可以在自己的终端里用 `docker exec -it` 运行；agent 不行。": "端末のない `docker exec` のコマンドは、誰が実行したのか bowel には区別できないため、エージェントのコマンドとして扱います。ユーザーは自分の端末で `docker exec -it` を使って実行できます。エージェントにはできません。",
 }
 
 var hantCLI = map[string]string{
@@ -321,4 +323,6 @@ var hantCLI = map[string]string{
 	"mcpPolicy：%s → %s。%s。\n只有你能允许：如果这条命令是 agent 运行的，直接回车取消。\n输入 %s 确认：": "mcpPolicy：%s → %s。%s。\n只有你能允許：如果這條指令是 agent 執行的，直接按 Enter 取消。\n輸入 %s 確認：",
 	"已取消：mcpPolicy 仍是 %s": "已取消：mcpPolicy 仍是 %s",
 	"%s。输入 %s 确认":         "%s。輸入 %s 確認",
+
+	"没有终端的 `docker exec` 命令算作 agent 的命令，因为 bowel 分不清是谁运行的。用户可以在自己的终端里用 `docker exec -it` 运行；agent 不行。": "沒有終端機的 `docker exec` 指令算作 agent 的指令，因為 bowel 分不清是誰執行的。使用者可以在自己的終端機裡用 `docker exec -it` 執行；agent 不行。",
 }

@@ -29,6 +29,14 @@ func termRaw(in, out *os.File) (restore func(), err error) {
 	return func() { _ = unix.IoctlSetTermios(fd, ioctlSetTermios, &old) }, nil
 }
 
+// termSized says whether f is a terminal of some size. A person's has
+// one; the one `docker exec -t` makes when nobody's terminal is behind it,
+// as from an agent's shell, is 0×0.
+func termSized(f *os.File) bool {
+	ws, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ)
+	return err == nil && ws.Col > 0 && ws.Row > 0
+}
+
 // termSize is the terminal's size in columns and rows.
 func termSize(out *os.File) (w, h int) {
 	ws, err := unix.IoctlGetWinsize(int(out.Fd()), unix.TIOCGWINSZ)

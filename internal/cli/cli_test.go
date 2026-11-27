@@ -527,6 +527,39 @@ func TestFollow(t *testing.T) {
 	}
 }
 
+// TestInitTerminal: a command tells bowel in initialize whether a
+// person's terminal is behind it, which in a container decides whether
+// it is the user's.
+func TestInitTerminal(t *testing.T) {
+	dir, err := os.MkdirTemp("", "bc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	socket := filepath.Join(dir, "cli.sock")
+	l, err := mcp.Listen(socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	said := make(chan map[string]any, 2)
+	srv := &mcp.Server{Name: "fake", OnInit: func(_ *mcp.Session, params json.RawMessage) {
+		p := map[string]any{}
+		_ = json.Unmarshal(params, &p)
+		said <- p
+	}, Tools: []mcp.Tool{{Name: "health", Run: func(context.Context, *mcp.Session, json.RawMessage) (any, error) {
+		return map[string]any{"ok": true, "text": "OK"}, nil
+	}}}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go srv.Accept(ctx, l)
+	for _, person := range []bool{true, false} {
+		run(t, Env{Socket: socket, Person: func() bool { return person }}, "health")
+		if p := <-said; p["terminal"] != person || p["agent"] != "" {
+			t.Errorf("person %v: initialize said %v", person, p)
+		}
+	}
+}
+
 func TestAgent(t *testing.T) {
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 	if a := Agent(env(nil)); a != "" {

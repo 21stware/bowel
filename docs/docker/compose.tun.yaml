@@ -4,8 +4,8 @@
 # ../docker.md.
 #
 #   docker compose -f compose.tun.yaml up -d
-#   docker exec bowel bowel tun on
-#   docker exec bowel bowel gateway on      # optional
+#   docker exec -it bowel bowel tun on
+#   docker exec -it bowel bowel gateway on      # optional
 services:
   bowel:
     image: ghcr.io/21stware/bowel

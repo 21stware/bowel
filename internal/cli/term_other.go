@@ -12,3 +12,5 @@ func termRaw(in, out *os.File) (func(), error) {
 }
 
 func termSize(out *os.File) (w, h int) { return 80, 24 }
+
+func termSized(*os.File) bool { return true }

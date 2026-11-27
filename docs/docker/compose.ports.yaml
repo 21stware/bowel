@@ -3,7 +3,7 @@
 # other containers".
 #
 #   docker compose -f compose.ports.yaml up -d
-#   docker exec bowel bowel route use ai <node>      # each group's node
+#   docker exec -it bowel bowel route use ai <node>      # each group's node
 services:
   bowel:
     image: ghcr.io/21stware/bowel

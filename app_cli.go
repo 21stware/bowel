@@ -19,6 +19,13 @@ package main
 // from mattering most, so loosening it takes more than a command on
 // cli.sock: the person typing the confirmation at a terminal, which the
 // command says with update_settings' confirmed (policyChange).
+//
+// In a container every command comes through `docker exec`, so there the
+// user is who has a terminal: a command whose stdin is no person's
+// terminal (internal/cli's atTerminal: none, or the 0×0 one of an agent's
+// `docker exec -t`) is unattended, and its changes follow the policy as an
+// agent's do. The user's `docker exec -it`, and so `bowel tui`, are still
+// the user's.
 
 import (
 	"context"
@@ -66,6 +73,30 @@ func cliSocketIn(dir, dataDir string) string {
 // isLocal says the session is the user's own command, not an agent's.
 func isLocal(s *mcp.Session) bool { return s != nil && s.Get("local") == true }
 
+// cliSessionIs is who a session on cli.sock is, from what its initialize
+// says: an agent by its environment, unattended (a command in a container
+// with no person's terminal, which may be an agent's), or the user. A
+// command older than terminal says none, and in a container is unattended.
+func cliSessionIs(agent string, terminal *bool, container bool) string {
+	switch {
+	case agent != "":
+		return "agent"
+	case container && (terminal == nil || !*terminal):
+		return "unattended"
+	}
+	return "user"
+}
+
+// unattendedNote is err with why an unattended command (cliSessionIs) is
+// refused what the user's would not be.
+func unattendedNote(s *mcp.Session, err error) error {
+	if err == nil || s == nil || s.Get("unattended") != true {
+		return err
+	}
+	return fmt.Errorf("%s %w", i18n.T("没有终端的 `docker exec` 命令算作 agent 的命令，因为 bowel 分不清是谁运行的。用户可以在自己的终端里用 `docker exec -it` 运行；agent 不行。",
+		"A command through `docker exec` with no terminal counts as an agent's, since bowel can't tell who ran it. The user can run it at their own terminal with `docker exec -it`; an agent can't."), err)
+}
+
 // cliServer is mcpServer with the command line's own tools, for sessions
 // that are the user's unless they say an agent runs them.
 func (a *App) cliServer() *mcp.Server {
@@ -84,11 +115,15 @@ func (a *App) cliServer() *mcp.Server {
 	srv.Tools = append(srv.Tools, a.healthTool()) // app_container.go
 	srv.OnInit = func(s *mcp.Session, params json.RawMessage) {
 		var p struct {
-			Agent string `json:"agent"`
+			Agent    string `json:"agent"`
+			Terminal *bool  `json:"terminal"`
 		}
 		_ = json.Unmarshal(params, &p)
-		if p.Agent == "" {
+		switch cliSessionIs(p.Agent, p.Terminal, inContainer()) {
+		case "user":
 			s.Set("local", true)
+		case "unattended":
+			s.Set("unattended", true)
 		}
 	}
 	return srv
@@ -432,7 +467,7 @@ func (a *App) cliTools() []mcp.Tool {
 // an agent's to run, whatever the policy.
 func userOnly(s *mcp.Session, path string) error {
 	if !isLocal(s) {
-		return errors.New(i18n.T("导出和导入配置只能由用户自己操作", "Only the user can export or import the configuration"))
+		return unattendedNote(s, errors.New(i18n.T("导出和导入配置只能由用户自己操作", "Only the user can export or import the configuration")))
 	}
 	if !filepath.IsAbs(path) {
 		return errors.New("path must be absolute")
