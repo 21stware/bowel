@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: User guide / 使用指南
+    url: https://bowel.dev/en/docs/
+    about: Installing, takeover, routes and common questions. / 安装、接管、路由和常见问题。
+  - name: Telegram
+    url: https://t.me/+BI3KVgBn7SE3YjVh
+    about: Ask and chat with other users. / 和其他用户交流、提问。

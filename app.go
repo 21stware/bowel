@@ -717,9 +717,10 @@ func (a *App) takeoverOn(s settings.Settings) bool { return !s.Paused && (s.Syst
 // guarding says whether the exit lock holds while takeover is off: a route
 // group of bowel's own has it, so the system proxy stays on the core, which
 // lets everything out directly but that group's traffic, which it refuses
-// (core.Input.Guard).
+// (core.Input.Guard). Not in a container, which has no system proxy: there
+// the ports keep the lock (app_container_egress.go).
 func (a *App) guarding(s settings.Settings) bool {
-	return !a.takeoverOn(s) && locks(s)
+	return !a.takeoverOn(s) && locks(s) && !inContainer()
 }
 
 // locks says whether a route group of bowel's own has the exit lock.
@@ -849,7 +850,7 @@ func (a *App) buildConfig(s settings.Settings, dev devnet.Overlay, im *core.Impo
 		Guard:    a.guarding(s),
 		Gateway:  a.gatewayOn(s),
 		LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
-		Options: s.Options, Dev: dev, IPv6Usable: a.devEnv().IPv6.Usable, Imported: im, Devices: a.deviceRoutes(s),
+		Options: coreOptions(s.Options), Dev: dev, IPv6Usable: a.devEnv().IPv6.Usable, Imported: im, Devices: a.deviceRoutes(s),
 	})
 }
 
@@ -2653,8 +2654,8 @@ func (a *App) snapshot() Snapshot {
 	// The exit lock, as it really holds: by TUN while that carries traffic,
 	// by the system proxy otherwise, and not at all when neither brings
 	// the locked groups' traffic to the core.
-	held := a.proxyWanted(s) && sys.Ours || on && s.Tun && !a.tunLost(s, cs)
-	tk.Lock = lockEntry(locks(s), guard, a.lockFallback(s, cs), held, proxyErr)
+	held := a.proxyWanted(s) && sys.Ours || on && s.Tun && !a.tunLost(s, cs) || portsHold(s)
+	tk.Lock = containerLock(lockEntry(locks(s), guard, a.lockFallback(s, cs), held, proxyErr))
 	if s.AllowLan {
 		tk.LanAddr = lanAddr(s.MixedPort)
 	}

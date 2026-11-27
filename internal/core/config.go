@@ -359,7 +359,9 @@ func BuildConfig(in Input) ([]byte, error) {
 	}}
 	// A provider's own routing has none of the route groups: there a port
 	// names one of the config's own groups. One that names nothing that is
-	// there stays closed.
+	// there stays closed. A port is the way in that the mixed port is, UDP
+	// for SOCKS5 included; one open to the LAN has the mixed port's guards,
+	// which the core gives every listener that has no users of its own.
 	for _, e := range o.ExtraPorts {
 		// A port is a way in to its group of its own, takeover or not.
 		exit, ok := exitOf(in.Routes, e.Route, false)
@@ -368,8 +370,12 @@ func BuildConfig(in Input) ([]byte, error) {
 			_, ok = im.GroupOf(e.Route)
 		}
 		if ok {
+			listen := "127.0.0.1"
+			if e.Lan && in.AllowLan {
+				listen = anyAddr()
+			}
 			listeners = append(listeners, map[string]any{
-				"name": ExtraPortListener(e.Port), "type": "mixed", "listen": "127.0.0.1", "port": e.Port, "proxy": exit,
+				"name": ExtraPortListener(e.Port), "type": "mixed", "listen": listen, "port": e.Port, "proxy": exit, "udp": true,
 			})
 		}
 	}

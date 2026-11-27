@@ -133,7 +133,7 @@ Debian、Ubuntu 和 Fedora。这条命令会添加一个已签名的软件源，
 curl -fsSL https://21stware.github.io/packages/install.sh | sh
 ```
 
-没有屏幕的服务器、NAS 或软路由，用 Docker（amd64、arm64、armv7）。之后用 `docker exec -it bowel bowel tui` 管理；TUN、网关模式、compose 文件和给 agent 用的 MCP 见 [docs/docker.zh-CN.md](docs/docker.zh-CN.md)：
+没有屏幕的服务器、NAS 或软路由，用 Docker（amd64、arm64、armv7）：镜像是 `ghcr.io/21stware/bowel`，Docker Hub 上叫 `oboochin/bowel`，NAS 界面里搜得到。之后用 `docker exec -it bowel bowel tui` 管理；TUN、网关模式、compose 文件、群晖和 Unraid，以及给 agent 用的 MCP 见 [docs/docker.zh-CN.md](docs/docker.zh-CN.md)：
 
 ```bash
 docker run -d --name bowel --restart unless-stopped -p 7899:7899 -v bowel:/data \
@@ -255,6 +255,10 @@ bowel 原名 Moho。Go 模块仍是 `github.com/oboo/moho`，Bundle ID 仍是 `d
 - [Flutter](https://flutter.dev)：移动端界面框架。
 - [OPPO Sans](resources/fonts/)：桌面版的界面字体。手机版用系统字体。
 
+## 贡献者
+
+<a href="https://github.com/21stware/bowel/graphs/contributors"><img src="https://contrib.rocks/image?repo=21stware/bowel" alt="贡献者"></a>
+
 ## 许可证
 
 bowel 采用 [PolyForm Noncommercial License 1.0.0](LICENSE) 授权，仅限非商业用途。如需商业授权，请[提交 issue](https://github.com/21stware/bowel/issues)。
@@ -262,3 +266,12 @@ bowel 采用 [PolyForm Noncommercial License 1.0.0](LICENSE) 授权，仅限非�
 Linux 发行版、软件仓库和应用商店可以依照[打包豁免](PACKAGING-EXCEPTION.md)从源码编译并分发 bowel，分发方是否为商业机构都可以。最终用户拿到的 bowel 仍仅限非商业用途。豁免以英文原文为准。
 
 随应用打包的 mihomo 内核仍适用 GPL-3.0。桌面版的资源目录里附有它的许可证（macOS 上是 `Contents/Resources/licenses/mihomo/`），Android 版在设置中注明，每个 Release 都附带对应版本的源码。`assets/flags/` 中的旗帜图片和 `resources/fonts/` 中的字体属于第三方文件，仍适用各自的许可证。
+
+## Star 趋势
+
+<a href="https://star-history.com/#21stware/bowel&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=21stware/bowel&type=Date&theme=dark">
+    <img src="https://api.star-history.com/svg?repos=21stware/bowel&type=Date" width="600" alt="Star 趋势">
+  </picture>
+</a>

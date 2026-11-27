@@ -1,0 +1,50 @@
+# One bowel, several exits: each container, and each machine on the LAN,
+# picks its route group by the port it uses. See ../docker.md, "Egress for
+# other containers".
+#
+#   docker compose -f compose.ports.yaml up -d
+#   docker exec bowel bowel route use ai <node>      # each group's node
+services:
+  bowel:
+    image: ghcr.io/21stware/bowel
+    container_name: bowel
+    restart: unless-stopped
+    ports:
+      - "7899:7899" # by the rules
+      - "7901:7901" # always by ai
+      - "7902:7902" # always by media
+    volumes:
+      - bowel:/data
+    environment:
+      BOWEL_SUBSCRIPTION: https://example.com/your-subscription
+      BOWEL_EXTRA_PORTS: 7901=ai 7902=media
+      TZ: Asia/Shanghai
+
+  # Programs read these in either case, some in one only (curl takes
+  # http_proxy in lower case alone): give both. One that reads neither
+  # goes out by itself; the TUN recipe catches those.
+  assistant:
+    image: node:22-bookworm # whatever calls the AI APIs
+    command: sleep infinity
+    environment:
+      http_proxy: http://bowel:7901
+      https_proxy: http://bowel:7901
+      HTTP_PROXY: http://bowel:7901
+      HTTPS_PROXY: http://bowel:7901
+      no_proxy: localhost,127.0.0.1
+      NO_PROXY: localhost,127.0.0.1
+
+  downloader:
+    image: curlimages/curl # whatever fetches from the streaming sites
+    entrypoint: ["sleep", "infinity"]
+    environment:
+      http_proxy: http://bowel:7902
+      https_proxy: http://bowel:7902
+      HTTP_PROXY: http://bowel:7902
+      HTTPS_PROXY: http://bowel:7902
+      ALL_PROXY: socks5h://bowel:7902 # SOCKS5, for what takes it
+      no_proxy: localhost,127.0.0.1
+      NO_PROXY: localhost,127.0.0.1
+
+volumes:
+  bowel:
