@@ -57,13 +57,25 @@ type HTTPHandler struct {
 
 	mu       sync.Mutex
 	sessions map[string]*httpSession
+	uses     uint64 // the sessions' uses so far
+}
+
+// touch notes that s was used now. h.mu is held.
+func (h *HTTPHandler) touch(s *httpSession) {
+	h.uses++
+	s.last, s.used = h.now(), h.uses
 }
 
 type httpSession struct {
-	c      *conn
-	ctx    context.Context
-	end    context.CancelFunc
-	last   time.Time
+	c    *conn
+	ctx  context.Context
+	end  context.CancelFunc
+	last time.Time
+	// used orders the sessions by when they were last used (HTTPHandler's
+	// uses), which last can't: the clock may read the same for several in
+	// a row (by half a millisecond on Windows), and the cap would then end
+	// any of them.
+	used   uint64
 	active int // requests being answered
 }
 
@@ -196,7 +208,7 @@ func (h *HTTPHandler) post(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			h.mu.Lock()
 			s.active--
-			s.last = h.now()
+			h.touch(s)
 			h.mu.Unlock()
 		}()
 	}
@@ -272,7 +284,7 @@ func (h *HTTPHandler) add(s *httpSession) (string, error) {
 	for len(h.sessions) >= maxSessions {
 		oldest := ""
 		for k, o := range h.sessions {
-			if o.active == 0 && (oldest == "" || o.last.Before(h.sessions[oldest].last)) {
+			if o.active == 0 && (oldest == "" || o.used < h.sessions[oldest].used) {
 				oldest = k
 			}
 		}
@@ -283,7 +295,7 @@ func (h *HTTPHandler) add(s *httpSession) (string, error) {
 		h.sessions[oldest].end()
 		delete(h.sessions, oldest)
 	}
-	s.last = h.now()
+	h.touch(s)
 	h.sessions[id] = s
 	return id, nil
 }

@@ -150,10 +150,13 @@ func (srv *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 				send(reply)
 			}
 			if call {
+				// Known before the next message is read, so that a
+				// cancellation sent right behind it finds it.
+				run := c.start(ctx, req)
 				inflight.Add(1)
 				go func() {
 					defer inflight.Done()
-					if resp := c.answer(ctx, req); resp != nil {
+					if resp := run(); resp != nil {
 						send(resp)
 					}
 				}()
@@ -214,22 +217,30 @@ func (c *conn) message(line []byte) (req request, call bool, reply *response) {
 
 // answer runs the request req: nil when it was cancelled before it ended,
 // as a cancelled request gets no answer.
-func (c *conn) answer(ctx context.Context, req request) *response {
+func (c *conn) answer(ctx context.Context, req request) *response { return c.start(ctx, req)() }
+
+// start makes req one that a cancellation can name, from now on, and
+// returns what runs it and answers as answer does. A stream reads on while
+// its requests run; one started before the next read is there for a
+// cancellation sent right behind it.
+func (c *conn) start(ctx context.Context, req request) func() *response {
 	rctx, rcancel := context.WithCancel(ctx)
 	key := string(req.ID)
 	c.mu.Lock()
 	c.cancels[key] = rcancel
 	c.mu.Unlock()
-	res, rerr := c.srv.handle(rctx, c.sess, req)
-	cancelled := rctx.Err() != nil // the agent gave up on it, or left
-	c.mu.Lock()
-	delete(c.cancels, key)
-	c.mu.Unlock()
-	rcancel()
-	if cancelled {
-		return nil
+	return func() *response {
+		res, rerr := c.srv.handle(rctx, c.sess, req)
+		cancelled := rctx.Err() != nil // the agent gave up on it, or left
+		c.mu.Lock()
+		delete(c.cancels, key)
+		c.mu.Unlock()
+		rcancel()
+		if cancelled {
+			return nil
+		}
+		return &response{ID: req.ID, Result: res, Error: rerr}
 	}
-	return &response{ID: req.ID, Result: res, Error: rerr}
 }
 
 // encode is resp as it is sent.

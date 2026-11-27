@@ -225,7 +225,9 @@ func TestHTTPSessions(t *testing.T) {
 	if resp, _ := a.call("ping", nil); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("expired session: %d", resp.StatusCode)
 	}
-	h.now = time.Now
+	// The clock reads the same for all of them, as Windows' does for half
+	// a millisecond: the order they were used in still tells them apart.
+	h.now = func() time.Time { return now }
 	first := &httpClient{t: t, url: a.url, token: a.token}
 	first.initialize("first")
 	for i := 0; i < maxSessions; i++ {
