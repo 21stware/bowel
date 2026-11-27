@@ -36,6 +36,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"path/filepath"
@@ -137,7 +138,15 @@ func claimHandover(dataDir string) (handover, bool) {
 		return handover{}, false
 	}
 	f.Close()
-	_ = os.Remove(handoverPath(dataDir))
+	// Windows will not delete a file while another reads it, as the other
+	// claimant or the guard's watch may for a moment. The claim holds
+	// whatever comes of this.
+	for try := 0; try < 20; try++ {
+		if err := os.Remove(handoverPath(dataDir)); err == nil || errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	return h, true
 }
 
