@@ -1156,6 +1156,10 @@ func (u *UI) aboutSection(c *ui.Context, p *pal, _ settings.Settings) {
 			})
 		})
 	}
+	optRow(c, p, i18n.T("项目主页", "Project"), i18n.T("源码、问题反馈和新版本在 GitHub 上，使用说明在 bowel.dev", "Source, issues and releases are on GitHub; the user guide is at bowel.dev"), func() {
+		btn(c.Key("github"), p, "GitHub").OnClick(func() { u.browse(projectURL) })
+		btn(c.Key("docs"), p, i18n.T("使用指南", "User guide")).OnClick(func() { u.browse(docsURL()) })
+	})
 	u.updateRow(c, p)
 	optRow(c, p, i18n.T("运行配置", "Running config"), i18n.T("bowel 生成、mihomo 正在用的配置文件", "The config file bowel writes and mihomo runs on"), func() {
 		btn(c.Key("reveal"), p, revealLabel()).OnClick(func() {

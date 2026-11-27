@@ -569,3 +569,40 @@ func TestSettingsSearchJump(t *testing.T) {
 		t.Error("tun mtu lights the wrong options")
 	}
 }
+
+// TestAboutProjectLinks: 关于 opens bowel's repository and its user
+// guide, in the interface's language (#288: the app had no way there).
+func TestAboutProjectLinks(t *testing.T) {
+	opened := make(chan string, 1)
+	openWeb = func(url string) error { opened <- url; return nil }
+	t.Cleanup(func() { openWeb = openURL })
+	prev := i18n.Lang()
+	t.Cleanup(func() { i18n.Set(prev) })
+	for _, c := range []struct{ lang, button, url string }{
+		{"zh", "GitHub", "https://github.com/21stware/bowel"},
+		{"zh", "使用指南", "https://bowel.dev/docs/"},
+		{"zh-Hant", "使用指南", "https://bowel.dev/docs/"},
+		{"en", "User guide", "https://bowel.dev/en/docs/"},
+		{"ja", "ユーザーガイド", "https://bowel.dev/en/docs/"},
+	} {
+		i18n.Set(c.lang)
+		u := fixtureUI()
+		u.set.section = "about"
+		tt := ui.NewTester(u.settingsView, 760, 900)
+		tt.Advance(time.Second)
+		if c.lang == "zh" && c.button == "GitHub" {
+			shot(t, tt, "about-project")
+		}
+		if err := tt.Click(c.button); err != nil {
+			t.Fatalf("%s: %v: %q", c.lang, err, tt.Texts())
+		}
+		select {
+		case got := <-opened:
+			if got != c.url {
+				t.Errorf("%s: %s opened %s, want %s", c.lang, c.button, got, c.url)
+			}
+		case <-time.After(5 * time.Second):
+			t.Errorf("%s: %s opened nothing", c.lang, c.button)
+		}
+	}
+}
