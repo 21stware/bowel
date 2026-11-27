@@ -13,7 +13,8 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
   <a href="https://bowel.dev/">官网</a> ·
   <a href="https://bowel.dev/docs/">文档</a> ·
   <a href="https://t.me/+BI3KVgBn7SE3YjVh">Telegram 群</a> ·
-  <a href="README.md">English</a>
+  <a href="README.md">English</a> ·
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 <p align="center">
