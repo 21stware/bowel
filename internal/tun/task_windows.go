@@ -15,14 +15,17 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/nowindow"
 )
 
 // Task is the core as a start of TUN runs it: elevated through a UAC
-// prompt, by the launcher beside it, not a child of the app.
+// prompt, by the launcher beside it, not a child of the app. Or one
+// another run of the app left running elevated (left: see Attach).
 type Task struct {
 	exe  string // the core's file name, as the process list has it
 	root uint32 // the elevated process: the launcher, or cmd.exe around it
 	pid  int
+	left bool // Attach's: proc is the core's own, 0 where refused, and there is no stop
 
 	proc windows.Handle // root's, as the prompt gave it
 	stop windows.Handle // the event that asks the launcher to end the core (see appRef)
@@ -292,19 +295,88 @@ func (t *Task) await(log string) error {
 	}
 }
 
+// Attach is the running core pid as a task, for a core another run of the
+// app left running elevated from bin (core.Manager.Detach, or a crash);
+// nil when bin is not the copy TUN runs on, or pid is a core the app may
+// end itself as any process. The app has no right to end this one. A core
+// this version's launcher started ends with the app that started it,
+// which is gone, so it is only waited for: an update's restart cannot
+// hand it over. One that an earlier version's scheduled task started is
+// ended through that task, which the user may end unelevated, until the
+// next start's elevated command deletes the task and ends whatever still
+// runs from bin.
+func Attach(bin string, pid int) *Task {
+	if !Installed(bin) {
+		return nil
+	}
+	if h, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid)); err == nil {
+		own := !sameImage(imagePath(h), bin)
+		windows.CloseHandle(h)
+		if own {
+			return nil
+		}
+	}
+	t := &Task{exe: filepath.Base(bin), pid: pid, left: true, done: make(chan struct{})}
+	if h, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid)); err == nil {
+		t.proc = h
+	}
+	return t
+}
+
+// endLeft ends a core Attach found: through an earlier version's tasks,
+// and as a process where the app happens to be allowed (an elevated app).
+func (t *Task) endLeft() {
+	for _, name := range []string{taskName(), fallbackName(taskName())} {
+		_ = schtasks("/End", "/TN", name)
+	}
+	if h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(t.pid)); err == nil {
+		_ = windows.TerminateProcess(h, 1)
+		windows.CloseHandle(h)
+	}
+}
+
+// listed is whether the process list has pid running exe: for a process
+// whose handle the app is refused.
+func listed(pid uint32, exe string) bool {
+	for _, p := range snapshot() {
+		if p.pid == pid && strings.EqualFold(p.exe, exe) {
+			return true
+		}
+	}
+	return false
+}
+
+// schtasks runs the Task Scheduler's command, hidden.
+func schtasks(args ...string) error {
+	sys, err := windows.GetSystemDirectory()
+	if err != nil {
+		return err
+	}
+	return nowindow.Command(filepath.Join(sys, "schtasks.exe"), args...).Run()
+}
+
 func (t *Task) Pid() int { return t.pid }
 
 // Wait returns once the elevated process is gone, which the launcher is
-// only once the core is.
+// only once the core is. A core Attach found is waited for by its own
+// handle, or where that is refused by asking the process list twice a
+// second.
 func (t *Task) Wait() error {
 	t.once.Do(func() {
 		defer close(t.done)
+		if t.left && t.proc == 0 {
+			for listed(uint32(t.pid), t.exe) {
+				time.Sleep(500 * time.Millisecond)
+			}
+			t.release()
+			return
+		}
 		if _, err := windows.WaitForSingleObject(t.proc, windows.INFINITE); err != nil {
 			t.err = err
 			return // the handles stay: Stop may still need them
 		}
 		var code uint32
-		if windows.GetExitCodeProcess(t.proc, &code) == nil && code != 0 {
+		if !t.left && windows.GetExitCodeProcess(t.proc, &code) == nil && code != 0 {
 			t.err = fmt.Errorf("exit status %d", code)
 		}
 		t.release()
@@ -316,11 +388,15 @@ func (t *Task) Wait() error {
 // Stop asks the launcher to end the core. Asked again, it also ends the
 // elevated process itself, where the prompt's handle allows it: the
 // launcher's job takes the core with it, and cmd.exe's end leaves the
-// launcher to the event.
+// launcher to the event. A core Attach found is ended as endLeft can.
 func (t *Task) Stop() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.closed {
+		return
+	}
+	if t.left {
+		t.endLeft()
 		return
 	}
 	if t.asked {
@@ -336,8 +412,11 @@ func (t *Task) release() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if !t.closed {
-		windows.CloseHandle(t.proc)
-		windows.CloseHandle(t.stop)
+		for _, h := range []windows.Handle{t.proc, t.stop} {
+			if h != 0 {
+				windows.CloseHandle(h)
+			}
+		}
 		t.closed = true
 	}
 }

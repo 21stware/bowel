@@ -460,3 +460,51 @@ func TestSpawnLauncherEnds(t *testing.T) {
 		t.Fatalf("spawn: %v, %v", task, err)
 	}
 }
+
+// A core another run left running from the copy is a task the app waits
+// for, not a process it ends; one of another program is the manager's
+// own to end; and nothing is attached for a core that is not TUN's.
+// (Stop is not run here: it ends this user's real tasks of an earlier
+// version, where there are any.)
+func TestAttach(t *testing.T) {
+	bin, src := fakeTun(t)
+	self, _ := os.Executable()
+	copyTo(t, self, bin)
+	start := func(exe string) *exec.Cmd {
+		c := exec.Command(exe, "-d", t.TempDir())
+		c.Env = fakeAs("core")
+		if err := c.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = c.Process.Kill() })
+		return c
+	}
+	left, other := start(bin), start(src)
+	if Attach(bin, other.Process.Pid) != nil {
+		t.Error("another program's core was attached as TUN's")
+	}
+	if Attach(src, left.Process.Pid) != nil {
+		t.Error("a core that is not TUN's copy was attached")
+	}
+	task := Attach(bin, left.Process.Pid)
+	if task == nil || !task.left || task.Pid() != left.Process.Pid {
+		t.Fatalf("attach: %+v", task)
+	}
+	done := make(chan error, 1)
+	go func() { done <- task.Wait() }()
+	select {
+	case err := <-done:
+		t.Fatalf("waited while the core runs: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	_ = left.Process.Kill()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("wait: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the core's end was not seen")
+	}
+	task.Stop() // after the end: nothing is run
+}

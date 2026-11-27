@@ -1,7 +1,9 @@
 package core
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -90,5 +92,34 @@ func TestStartCoreDetachedMissing(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "nonexistent") {
 		t.Errorf("no reason in the output: %q", out.String())
+	}
+}
+
+// TestStartCoreDetachedToFile: given a file, the core prints into it
+// itself, with no pipe that would end it at its next line once the app
+// is gone.
+func TestStartCoreDetachedToFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "core.log")
+	f, err := openLog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := startCore("/bin/sh", []string{"-c", `echo one; echo two >&2; exec sleep 30`}, t.TempDir(), nil, f)
+	f.Close() // as the manager does: the core has its own
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop()
+	var got []byte
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if got, _ = os.ReadFile(path); strings.Contains(string(got), "two") {
+			break
+		}
+	}
+	if string(got) != "one\ntwo\n" {
+		t.Errorf("the file has %q", got)
+	}
+	if fds, err := exec.Command("lsof", "-a", "-p", strconv.Itoa(p.Pid()), "-d", "1", "-F", "t").Output(); err == nil && !strings.Contains(string(fds), "tREG") {
+		t.Errorf("the core's output is not the file: %q", fds)
 	}
 }

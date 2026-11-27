@@ -26,6 +26,18 @@ func spawnTun(bin, src string) (core.Process, error) {
 	return t, err
 }
 
+// attachTun is spawnTun's other half: a core already running, which the
+// last run of the app left (a restart for an update, or a crash), as
+// tun.Attach has it when it runs elevated from the copy TUN runs on, which
+// the app may not end as a process. nil for any other, which the manager
+// waits for and ends as a process.
+func attachTun(bin string, pid int) core.Process {
+	if t := tun.Attach(bin, pid); t != nil {
+		return t
+	}
+	return nil
+}
+
 // startBin is the core the app starts with, and whether the copy TUN runs
 // on, tunBin, is another version than the bundled core bin. Where the copy
 // has its rights by itself, it runs once it is installed, unless it is

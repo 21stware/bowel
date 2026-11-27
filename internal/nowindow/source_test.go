@@ -24,6 +24,9 @@ var allowed = map[string]string{
 	// shows.
 	"reveal_windows.go: revealFile": "explorer.exe is a GUI program: no console would flash, but the hide flag makes its window open hidden",
 	"reveal_windows.go: openURL":    "rundll32.exe is a GUI program: no console would flash, and the hide flag could pass on to the browser it starts the way it does to Explorer",
+	// The guard is bowel's own program, started detached from any console;
+	// it asks in a message box, which the hide flag could open hidden.
+	"handover_windows.go: startGuard": "bowel's own program, detached from any console; the hide flag could open the message box it asks in hidden",
 }
 
 // starters are the ways os/exec makes a command.

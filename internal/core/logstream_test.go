@@ -24,7 +24,7 @@ type waiting struct {
 	once sync.Once
 }
 
-func (w *waiting) Pid() int    { return os.Getpid() } // not a core's: killStale leaves it be
+func (w *waiting) Pid() int    { return os.Getpid() } // not a core's: endStray leaves it be
 func (w *waiting) Wait() error { <-w.done; return nil }
 func (w *waiting) Stop()       { w.once.Do(func() { close(w.done) }) }
 

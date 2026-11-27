@@ -74,6 +74,9 @@ type App struct {
 	// tunFirewall is whether a firewall that may drop what comes back on
 	// the TUN device was on at the last look (probeTunDNS).
 	tunFirewall atomic.Bool
+	// handingOver: the quit under way is a restart for an update, which
+	// leaves the core running for the new version (app_handover.go).
+	handingOver atomic.Bool
 
 	setMu     sync.Mutex // serialises updateSettings
 	routesMu  sync.Mutex // guards the two below: see routes
@@ -228,6 +231,10 @@ func newApp() (*App, error) {
 			return b
 		}
 	}
+	// By the copy TUN runs on whatever the next start runs: on Windows a
+	// core left running elevated is not the app's to end as a process
+	// (tun.Attach), also when it is replaced.
+	cm.Attach = func(pid int) core.Process { return attachTun(tunBin, pid) }
 	probe, err := core.FreePort()
 	if err != nil {
 		return nil, err
@@ -365,6 +372,7 @@ func (a *App) start() {
 	a.copyGeo()
 	geodata.Use(a.core.Dir)
 	go func() {
+		a.takeOverCore() // the core the last version left, if it left one
 		a.detectDev(2 * time.Second)
 		if err := a.applyConfig(); err != nil {
 			log.Println("core:", err)
