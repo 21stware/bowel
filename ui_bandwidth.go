@@ -63,7 +63,8 @@ func downloadsAlike(nodes []NodeView) bool {
 }
 
 // bandwidthDialog asks before a download test of route r: which nodes, and
-// how much traffic it may use. Nothing is chosen when it ends.
+// how much traffic it may use. Nothing is chosen when it ends, but by a
+// round of a group that chooses by download speed (bandwidthPlan.Round).
 func (u *UI) bandwidthDialog(c *ui.Context, p *pal, r RouteView) {
 	h := &u.home
 	plan := h.bwPlan
@@ -71,13 +72,17 @@ func (u *UI) bandwidthDialog(c *ui.Context, p *pal, r RouteView) {
 		ui.Column(c).Gap(12).Width(440).Children(func() {
 			ui.Text(c, fmt.Sprintf(i18n.T("测%s的下载速度", "Test downloads on %s"), r.Name)).FontSize(18).FontWeight(700).TextColor(p.ink).MaxLines(1)
 			if len(plan.Nodes) == 0 {
-				ui.Text(c, i18n.T("还没有测得通延迟的节点。先点「全部测速」，再来测下载。", "No node has answered a delay test yet. Click Test all first, then test downloads.")).FontSize(12).TextColor(p.mute)
+				ui.Text(c, i18n.T("列表里的节点还没有测得通延迟的。先点「全部测速」，再来测下载。", "None of the nodes listed has answered a delay test yet. Click Test all first, then test downloads.")).FontSize(12).TextColor(p.mute)
 				ui.Row(c).Justify(ui.End).Children(func() {
 					btn(c.Key("bw-close"), p, i18n.T("关闭", "Close")).OnClick(func() { h.bwOpen = false })
 				})
 				return
 			}
-			ui.Text(c, fmt.Sprintf(i18n.T("经下面 %d 个节点依次下载测速文件，每个最多 %d 秒，比较真实的下载速度。测完不会自动换节点，由你来选。", "The test file is downloaded through each of these %d nodes in turn, for up to %d seconds each, to compare real download speeds. No node is switched to afterwards: you choose."), len(plan.Nodes), int(speed.DownloadTime/time.Second))).FontSize(12).TextColor(p.mute)
+			say := fmt.Sprintf(i18n.T("经下面 %d 个节点依次下载测速文件，每个最多 %d 秒，比较真实的下载速度。测完不会自动换节点，由你来选。", "The test file is downloaded through each of these %d nodes in turn, for up to %d seconds each, to compare real download speeds. No node is switched to afterwards: you choose."), len(plan.Nodes), int(speed.DownloadTime/time.Second))
+			if plan.Round {
+				say = fmt.Sprintf(i18n.T("现在就测一轮：经下面 %d 个节点依次下载测速文件，每个最多 %d 秒。测完换到下载最快的节点（正在用的慢不到五分之一就不换），下一轮从测完时算起。", "A round, now: the test file is downloaded through each of these %d nodes in turn, for up to %d seconds each. The fastest download is then used (the node in use stays if it came within a fifth of it), and the next round is counted from then."), len(plan.Nodes), int(speed.DownloadTime/time.Second))
+			}
+			ui.Text(c, say).FontSize(12).TextColor(p.mute)
 			ui.Column(c).Children(func() {
 				for _, name := range plan.Nodes {
 					ui.Row(c.Key(name)).Gap(10).Padding(6, 0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.hair2).Children(func() {
@@ -90,7 +95,7 @@ func (u *UI) bandwidthDialog(c *ui.Context, p *pal, r RouteView) {
 					})
 				}
 			})
-			ui.Text(c, fmt.Sprintf(i18n.T("最多会用掉约 %s 流量（每个节点最多 %s）。订阅按流量计费的话请留意；有的机场不允许测速。", "This uses up to about %s of traffic (%s at most per node). Mind it if your subscription is metered; some providers don't allow speed tests."), fmtBytes(plan.MaxBytes), fmtBytes(speed.DownloadCap))).FontSize(12).TextColor(p.ink2)
+			ui.Text(c, fmt.Sprintf(i18n.T("最多会用掉约 %s 流量（每个节点最多 %s）。订阅按流量计费的话请留意；有的机场不允许测速。", "This uses up to about %s of traffic (%s at most per node). Mind it if your subscription is metered; some providers don't allow speed tests."), fmtBytes(plan.MaxBytes), fmtBytes(plan.Cap))).FontSize(12).TextColor(p.ink2)
 			ui.Text(c, fmt.Sprintf(i18n.T("测速文件：%s（可以在设置里换）", "Test file: %s (you can change it in Settings)"), plan.URL)).FontSize(11).TextColor(p.mute).MaxLines(2).Ellipsis("…").Tooltip(plan.URL)
 			ui.Row(c).Gap(8).Margin(4, 0, 0, 0).AlignItems(ui.Center).Children(func() {
 				ui.Box(c).Grow(1)
@@ -98,7 +103,7 @@ func (u *UI) bandwidthDialog(c *ui.Context, p *pal, r RouteView) {
 				btn(c.Key("bw-start"), p, i18n.T("开始测试", "Start")).OnClick(func() {
 					h.bwOpen = false
 					rid := r.ID
-					u.do(func() error { return u.app.testBandwidth(bg(), rid) })
+					u.do(func() error { return u.app.testBandwidth(bg(), rid, plan) })
 				})
 			})
 		})
@@ -118,12 +123,9 @@ func (u *UI) downloadSay(r RouteView, q routes.Policy) string {
 		bandwidthNodes, scheduledCap>>20, runs, fmtBytes(round*int64(runs)*30))
 	var state string
 	d := r.Download
-	st := u.snap.Settings
 	switch {
 	case u.pending(bandwidthKey(r.ID)):
 		state = i18n.T("正在测这一轮…", "This round is being tested…")
-	case st.Paused || !st.SystemProxy && !st.Tun:
-		state = i18n.T("接管关着时不测，先用延迟最低的。", "Not tested while takeover is off; the lowest delay is used.")
 	case d == nil || d.At.IsZero():
 		state = i18n.T("马上测第一轮；测完前先用延迟最低的。", "The first round runs now; until it's done, the lowest delay is used.")
 	case d.Node == "":
