@@ -44,7 +44,39 @@ var (
 	elevate   = shellRunas
 	guarded   = protected
 	spawnWait = 30 * time.Second
+	// endTask ends what an earlier version's scheduled task runs.
+	endTask = func(name string) error { return schtasks("/End", "/TN", name) }
 )
+
+// EndOldTasks ends what the scheduled tasks of versions before this one
+// may still run from bin, before any core of this run starts. Such a core
+// holds the ports and the adapter, so neither the bundled core nor this
+// version's own could start while it runs, and the elevated command that
+// ends it and deletes the tasks runs only once its prompt is answered:
+// one unseen at a start with the window hidden, which Windows cancels by
+// itself, left the old core in place (and the proxy port with it). The
+// user may end their own task unelevated, as those versions did at every
+// start. Nothing is done once a start of this version made the copy (its
+// mark says so, and the tasks are gone), nor where no copy was ever made.
+func EndOldTasks(bin string) {
+	if !Installed(bin) {
+		return
+	}
+	if _, err := os.Lstat(winDir(bin)); err != nil {
+		return
+	}
+	if b, err := os.ReadFile(markPath(bin)); err == nil && strings.TrimSpace(string(b)) == markText {
+		return
+	}
+	for _, name := range []string{taskName(), fallbackName(taskName())} {
+		_ = endTask(name)
+	}
+	// The core a task ran takes a moment to go, and the next core needs
+	// its ports. One that stays is ended by the next elevated start.
+	for deadline := time.Now().Add(5 * time.Second); len(running(bin)) > 0 && time.Now().Before(deadline); {
+		time.Sleep(100 * time.Millisecond)
+	}
+}
 
 // Spawn starts the core at bin, elevated, when bin is the copy TUN runs
 // on, and returns nil for any other: that one runs as a child. src is the
@@ -63,7 +95,8 @@ var (
 //
 // The prompt's answer is waited for, and then the core: until it appears
 // under the elevated process, or that process ends without it, which is a
-// failure, with the reason the command's log gives.
+// failure, with the reason the command's log gives. The app is told of
+// the prompt as it comes and goes (OnPrompt).
 func Spawn(bin, src string) (*Task, error) {
 	if !Installed(bin) {
 		return nil, nil
@@ -82,7 +115,12 @@ func Spawn(bin, src string) (*Task, error) {
 		windows.CloseHandle(stop)
 		return nil, err
 	}
-	proc, err := elevate(file, params, CoreDir)
+	owner, answered := uintptr(0), func() {}
+	if OnPrompt != nil {
+		owner, answered = OnPrompt()
+	}
+	proc, err := elevate(file, params, CoreDir, owner)
+	answered()
 	if err != nil {
 		windows.CloseHandle(stop)
 		if log != "" {
@@ -327,7 +365,7 @@ func Attach(bin string, pid int) *Task {
 // and as a process where the app happens to be allowed (an elevated app).
 func (t *Task) endLeft() {
 	for _, name := range []string{taskName(), fallbackName(taskName())} {
-		_ = schtasks("/End", "/TN", name)
+		_ = endTask(name)
 	}
 	if h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(t.pid)); err == nil {
 		_ = windows.TerminateProcess(h, 1)

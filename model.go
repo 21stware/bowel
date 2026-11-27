@@ -148,6 +148,9 @@ type Entry struct {
 	// (TUN needs its one-time authorisation), error (Detail says why).
 	Status string `json:"status"`
 	Detail string `json:"detail,omitempty"`
+	// Asking is TUN's alone, on Windows: the UAC prompt of a start of its
+	// core waits for an answer.
+	Asking bool `json:"asking,omitempty"`
 }
 
 type Takeover struct {

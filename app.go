@@ -67,6 +67,7 @@ type App struct {
 	// tunFault is why the core at tunBin did not start; while it is set
 	// the bundled core runs in its place, with TUN out of its config.
 	tunFault  atomic.Pointer[string]
+	tunAsking atomic.Bool // Windows' UAC prompt for TUN's core waits for an answer (tunPrompt)
 	lockFell  atomic.Bool // the exit lock's fallback to the system proxy, as refresh last found it
 	tunUp     tunUpProbe  // whether the core's TUN device is up, as last asked (app_tun.go); under mu
 	probePort int
@@ -371,8 +372,10 @@ func (a *App) start() {
 	a.setupTray()
 	a.copyGeo()
 	geodata.Use(a.core.Dir)
+	tun.OnPrompt = a.tunPrompt
 	go func() {
-		a.takeOverCore() // the core the last version left, if it left one
+		tun.EndOldTasks(a.tunBin) // Windows: what an earlier version's task still runs
+		a.takeOverCore()          // the core the last version left, if it left one
 		a.detectDev(2 * time.Second)
 		if err := a.applyConfig(); err != nil {
 			log.Println("core:", err)
@@ -2632,6 +2635,7 @@ func (a *App) snapshot() Snapshot {
 		fault = *f
 	}
 	tk.Tun = tunEntry(s.Tun, on, osTun.installed(a.tunBin), fault, cs.State)
+	tk.Tun.Asking = a.tunAsking.Load()
 	if tk.Tun.Status == "on" {
 		// The setting is not the device: a core that could not bring it up
 		// goes on without it.

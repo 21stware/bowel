@@ -14,6 +14,9 @@ type Task struct{}
 // Spawn starts nothing here, and says so with a nil task.
 func Spawn(bin, src string) (*Task, error) { return nil, nil }
 
+// EndOldTasks has no tasks to end here: only Windows registered any.
+func EndOldTasks(bin string) {}
+
 // Attach has no task's core to attach to here: every core is a process the
 // app may end itself.
 func Attach(bin string, pid int) *Task { return nil }

@@ -1410,7 +1410,7 @@ func (u *UI) choice(c *ui.Context, p *pal, id, word, desc string) {
 		if busy {
 			msg := i18n.T("正在接管…", "Taking over…")
 			switch {
-			case id == "tun" && tunAsks:
+			case id == "tun" && u.snap.Takeover.Tun.Asking:
 				msg = tunAskWait()
 			case id == "tun" && u.snap.Takeover.Tun.Status == "install":
 				msg = i18n.T("正在安装，请在系统弹窗中确认…", "Installing; confirm in the system dialog…")
@@ -2300,6 +2300,8 @@ func (u *UI) entryWord(c *ui.Context, p *pal, id, word string, e Entry) {
 			shimmer(dispIn(ui.Text(c, word), p, col).FontSize(20).FontWeight(600).TextColor(col).NoWrap().Shrink(0).Grow(1).Opacity(flyAlpha()).Transition(fly(entryMatch{id})), busy, p)
 			dot, text, tcol := p.faint, i18n.T("未使用", "Not in use"), p.mute
 			switch {
+			case id == "tun" && e.Asking:
+				dot, text, tcol = p.warn, tunAskWait(), p.warn
 			case busy:
 				text = i18n.T("正在应用…", "Applying…")
 			case e.Status == "hijacked":
@@ -2374,10 +2376,10 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 		section(c, p, "TUN", i18n.T("所有应用，包括不认系统代理的，比如 EA App", "All apps, including those that ignore the system proxy, such as EA App"), func() {
 			status := i18n.T("未使用", "Not in use")
 			switch {
+			case t.Tun.Asking:
+				status = tunAskWait()
 			case u.pending("entry:tun") && t.Tun.Status == "install":
 				status = i18n.T("正在安装，请在系统弹窗中确认…", "Installing; confirm in the system dialog…")
-			case u.pending("entry:tun") && tunAsks && t.Tun.Status != "on":
-				status = tunAskWait()
 			case u.pending("entry:tun"):
 				status = i18n.T("正在应用…", "Applying…")
 			case t.Tun.Status == "on":

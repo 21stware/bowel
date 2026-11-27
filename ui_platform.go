@@ -42,10 +42,11 @@ func tunAskNote() string {
 		"Windows asks in a User Account Control prompt each time TUN's core starts: bowel isn't code-signed yet, and Windows Defender blocks as malware an unsigned program that registers a scheduled task to run elevated without asking, so bowel no longer registers one")
 }
 
-// tunAskWait is what TUN's switch says while the core may be starting
-// elevated: the prompt comes only when the core is not already.
+// tunAskWait is what TUN's switch and card say while Windows' prompt for
+// the elevated start waits (Entry.Asking): Windows cancels one nobody
+// answers.
 func tunAskWait() string {
-	return i18n.T("如果 Windows 弹出用户账户控制，请确认…", "Confirm in the User Account Control prompt if Windows shows one…")
+	return i18n.T("请在用户账户控制窗口中确认；约 2 分钟内没有回应，Windows 会自动取消", "Confirm in the User Account Control prompt; Windows cancels it if nobody answers within about 2 minutes")
 }
 
 // firewallTip is the gateway's warning that the system's firewall is on.

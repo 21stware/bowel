@@ -38,6 +38,33 @@ func attachTun(bin string, pid int) core.Process {
 	return nil
 }
 
+// tunPrompt is told that Windows is about to show the UAC prompt for an
+// elevated start of TUN's core (tun.OnPrompt), and returns the window the
+// prompt is to belong to. A prompt asked for with no window of the app's
+// in front goes to the taskbar: at a start with the window hidden (at
+// login) nobody saw it, and Windows cancelled it after about two minutes.
+// So the window comes forward to own it, flashes where it cannot take the
+// front, and says what it waits for (Entry.Asking) until it is answered.
+func (a *App) tunPrompt() (owner uintptr, answered func()) {
+	a.tunAsking.Store(true)
+	a.emit()
+	a.mu.Lock()
+	win := a.win
+	a.mu.Unlock()
+	if win != nil && !a.isQuitting() {
+		a.showWindow()
+		win.FlashFrame(true)
+		owner = win.NativeHandle()
+	}
+	return owner, func() {
+		if owner != 0 {
+			win.FlashFrame(false)
+		}
+		a.tunAsking.Store(false)
+		a.emit()
+	}
+}
+
 // startBin is the core the app starts with, and whether the copy TUN runs
 // on, tunBin, is another version than the bundled core bin. Where the copy
 // has its rights by itself, it runs once it is installed, unless it is

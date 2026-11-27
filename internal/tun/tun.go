@@ -42,6 +42,16 @@ func (canceled) Error() string {
 // anything else is called.
 var CoreDir string
 
+// OnPrompt, if set, is told when Windows is about to show the UAC prompt
+// of a start of TUN's core (Spawn). It returns the window the prompt is to
+// belong to, 0 for none, and what to call once the prompt is answered. A
+// prompt asked for with no window of the app's in front goes to the
+// taskbar, where it goes unseen at a start with the window hidden, and
+// Windows cancels it unanswered after about two minutes: the app brings
+// its window forward with this, and says what it waits for. The other
+// systems do not call it. Set once, before anything else is called.
+var OnPrompt func() (owner uintptr, answered func())
+
 // device is the TUN device's name in the settings, "" for the core's own
 // choice.
 var device atomic.Value

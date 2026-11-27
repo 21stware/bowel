@@ -51,6 +51,13 @@ func Launch(args []string) int {
 	}
 	defer windows.CloseHandle(app)
 	defer windows.CloseHandle(stop)
+	// What the last refresh of the copy moved aside, which only an elevated
+	// process may delete: nothing runs from it now that this launcher starts
+	// the core (the refresh ended what ran from there). One still in use,
+	// another run's, stays for the next start.
+	for _, old := range []string{l.core + ".old", self + ".old"} {
+		_ = os.Remove(old)
+	}
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return launchNoJob

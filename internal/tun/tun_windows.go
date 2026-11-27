@@ -168,8 +168,10 @@ var procShellExecuteEx = windows.NewLazySystemDLL("shell32.dll").NewProc("ShellE
 // shellRunas runs file with params elevated, hidden, in dir ("" for the
 // caller's), after Windows' own prompt, and returns the process: a
 // handle that waits and reads the exit code, and may be refused more.
-// A prompt the user dismissed is windows.ERROR_CANCELLED.
-func shellRunas(file, params, dir string) (windows.Handle, error) {
+// owner is the window the prompt belongs to, 0 for none. A prompt the
+// user dismissed, or that Windows cancelled unanswered, is
+// windows.ERROR_CANCELLED.
+func shellRunas(file, params, dir string, owner uintptr) (windows.Handle, error) {
 	verb, _ := windows.UTF16PtrFromString("runas")
 	f, err := windows.UTF16PtrFromString(file)
 	if err != nil {
@@ -185,7 +187,7 @@ func shellRunas(file, params, dir string) (windows.Handle, error) {
 			return 0, err
 		}
 	}
-	info := shellExecuteInfo{mask: seeNoCloseProcess | seeNoUI, verb: verb, file: f, parameters: p, directory: d, show: windows.SW_HIDE}
+	info := shellExecuteInfo{mask: seeNoCloseProcess | seeNoUI, hwnd: windows.Handle(owner), verb: verb, file: f, parameters: p, directory: d, show: windows.SW_HIDE}
 	info.size = uint32(unsafe.Sizeof(info))
 	if r, _, err := procShellExecuteEx.Call(uintptr(unsafe.Pointer(&info))); r == 0 {
 		return 0, err
@@ -211,7 +213,7 @@ func runAdmin(_ string, steps []Step) error {
 		return err
 	}
 	// /s: what is between the outer quotes is the command, as written.
-	h, err := shellRunas(filepath.Join(sys, "cmd.exe"), `/d /s /c "`+sh+`"`, "")
+	h, err := shellRunas(filepath.Join(sys, "cmd.exe"), `/d /s /c "`+sh+`"`, "", 0)
 	if err != nil {
 		if errors.Is(err, windows.ERROR_CANCELLED) {
 			if log != "" {

@@ -239,8 +239,8 @@ func TestSameFile(t *testing.T) {
 // startInstead starts what elevate would, as this user and with the fake
 // roles' environment, and returns the process; it remembers what it was
 // asked to start.
-func startInstead(t *testing.T, asked *[]string) func(file, params, dir string) (windows.Handle, error) {
-	return func(file, params, dir string) (windows.Handle, error) {
+func startInstead(t *testing.T, asked *[]string) func(file, params, dir string, owner uintptr) (windows.Handle, error) {
+	return func(file, params, dir string, owner uintptr) (windows.Handle, error) {
 		*asked = append(*asked, file)
 		c := exec.Command(file)
 		c.SysProcAttr = &syscall.SysProcAttr{CmdLine: windows.EscapeArg(file) + " " + params}
@@ -302,7 +302,9 @@ func replace[T any](t *testing.T, p *T, v T) {
 }
 
 // A copy that is current and closed to the user: the launcher beside it
-// is what the prompt elevates, it starts the core, and the app ends it.
+// is what the prompt elevates, owned by the window the app gives, it
+// starts the core after deleting what the last refresh moved aside, and
+// the app ends it.
 func TestSpawnTheLauncher(t *testing.T) {
 	bin, src := fakeTun(t)
 	self, _ := os.Executable()
@@ -311,9 +313,23 @@ func TestSpawnTheLauncher(t *testing.T) {
 	if err := os.WriteFile(markPath(bin), []byte(markText+"\r\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	for _, old := range []string{bin + ".old", launcherPath(bin) + ".old"} {
+		if err := os.WriteFile(old, []byte("an earlier version"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	var asked []string
-	replace(t, &elevate, startInstead(t, &asked))
+	var events []string
+	start := startInstead(t, &asked)
+	replace(t, &elevate, func(file, params, dir string, owner uintptr) (windows.Handle, error) {
+		events = append(events, fmt.Sprintf("elevate %#x", owner))
+		return start(file, params, dir, owner)
+	})
 	replace(t, &guarded, func(string) bool { return true })
+	replace(t, &OnPrompt, func() (uintptr, func()) {
+		events = append(events, "prompt")
+		return 0x1234, func() { events = append(events, "answered") }
+	})
 
 	task, err := Spawn(bin, src)
 	if err != nil || task == nil {
@@ -321,6 +337,14 @@ func TestSpawnTheLauncher(t *testing.T) {
 	}
 	if len(asked) != 1 || asked[0] != launcherPath(bin) {
 		t.Errorf("elevated %q, want the launcher alone", asked)
+	}
+	if got := strings.Join(events, ", "); got != "prompt, elevate 0x1234, answered" {
+		t.Errorf("the app was told %s", got)
+	}
+	for _, old := range []string{bin + ".old", launcherPath(bin) + ".old"} {
+		if _, err := os.Lstat(old); err == nil {
+			t.Errorf("%s is still there", filepath.Base(old))
+		}
 	}
 	if task.Pid() == 0 || gone(uint32(task.Pid()), 300*time.Millisecond) {
 		t.Fatalf("no core running: %d", task.Pid())
@@ -429,7 +453,7 @@ func TestSpawnReportsTheCopy(t *testing.T) {
 // A prompt the user dismissed starts nothing, and says so.
 func TestSpawnCanceled(t *testing.T) {
 	bin, src := fakeTun(t)
-	replace(t, &elevate, func(string, string, string) (windows.Handle, error) { return 0, windows.ERROR_CANCELLED })
+	replace(t, &elevate, func(string, string, string, uintptr) (windows.Handle, error) { return 0, windows.ERROR_CANCELLED })
 	task, err := Spawn(bin, src)
 	if task != nil || !errors.Is(err, ErrCanceled) {
 		t.Fatalf("spawn: %v, %v", task, err)
@@ -452,8 +476,8 @@ func TestSpawnLauncherEnds(t *testing.T) {
 	var asked []string
 	start := startInstead(t, &asked)
 	// The launcher is given an app that is not this one.
-	replace(t, &elevate, func(file, params, dir string) (windows.Handle, error) {
-		return start(file, strings.Replace(params, "--app "+strconv.Itoa(os.Getpid())+":", "--app 1:", 1), dir)
+	replace(t, &elevate, func(file, params, dir string, owner uintptr) (windows.Handle, error) {
+		return start(file, strings.Replace(params, "--app "+strconv.Itoa(os.Getpid())+":", "--app 1:", 1), dir, owner)
 	})
 	task, err := Spawn(bin, src)
 	if task != nil || err == nil || !strings.Contains(err.Error(), "退出码 "+strconv.Itoa(launchNoApp)) {
@@ -507,4 +531,66 @@ func TestAttach(t *testing.T) {
 		t.Fatal("the core's end was not seen")
 	}
 	task.Stop() // after the end: nothing is run
+}
+
+// Before any core starts, what an earlier version's tasks run from the
+// copy is ended unelevated, so that a prompt nobody answers cannot leave
+// it holding the ports; once this version made the copy, or where none
+// was ever made, nothing is run.
+func TestEndOldTasks(t *testing.T) {
+	bin, _ := fakeTun(t)
+	var ended []string
+	var core *exec.Cmd
+	replace(t, &endTask, func(name string) error {
+		ended = append(ended, name)
+		if core != nil {
+			_ = core.Process.Kill() // as the Task Scheduler ends its action
+		}
+		return nil
+	})
+	want := taskName() + " " + fallbackName(taskName())
+
+	EndOldTasks(bin)
+	if len(ended) != 0 {
+		t.Errorf("no copy was made, and %q was ended", ended)
+	}
+
+	self, _ := os.Executable()
+	copyTo(t, self, bin)
+	_ = os.WriteFile(markPath(bin), []byte("683192c73d93601c\r\n"), 0o644) // 0.4.1's
+	core = exec.Command(bin, "-d", t.TempDir())
+	core.Env = fakeAs("core")
+	if err := core.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = core.Process.Kill() })
+	go core.Wait()
+	if len(running(bin)) != 1 {
+		t.Fatalf("the old core is not seen: %v", running(bin))
+	}
+	EndOldTasks(bin)
+	if strings.Join(ended, " ") != want {
+		t.Errorf("ended %q, want %s", ended, want)
+	}
+	if n := len(running(bin)); n != 0 {
+		t.Errorf("%d cores still run from the copy when it returns", n)
+	}
+
+	// Also with no mark at all: an installation that stopped half way.
+	ended = nil
+	_ = os.Remove(markPath(bin))
+	EndOldTasks(bin)
+	if strings.Join(ended, " ") != want {
+		t.Errorf("without a mark, ended %q", ended)
+	}
+
+	ended = nil
+	_ = os.WriteFile(markPath(bin), []byte(markText+"\r\n"), 0o644)
+	EndOldTasks(bin)
+	if len(ended) != 0 {
+		t.Errorf("this version's copy, and %q was ended", ended)
+	}
+	if EndOldTasks(`C:\elsewhere\mihomo.exe`); len(ended) != 0 {
+		t.Errorf("a core that is not TUN's, and %q was ended", ended)
+	}
 }

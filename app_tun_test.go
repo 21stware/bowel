@@ -641,3 +641,24 @@ func TestTunStackFirewallNote(t *testing.T) {
 		t.Errorf("title bar: state %v, issue %+v", st, is)
 	}
 }
+
+// While Windows' prompt for TUN's elevated start waits, the TUN entry says
+// so, and stops saying so once it is answered; an app with no window
+// (bowel daemon) gives the prompt no owner.
+func TestTunPromptIsShown(t *testing.T) {
+	a, _, _ := mcpApp(t)
+	if a.snapshot().Takeover.Tun.Asking {
+		t.Fatal("asking before any prompt")
+	}
+	owner, answered := a.tunPrompt()
+	if owner != 0 {
+		t.Errorf("a window owns the prompt of an app with none: %#x", owner)
+	}
+	if !a.snapshot().Takeover.Tun.Asking {
+		t.Error("the entry does not say the prompt waits")
+	}
+	answered()
+	if a.snapshot().Takeover.Tun.Asking {
+		t.Error("still asking once answered")
+	}
+}

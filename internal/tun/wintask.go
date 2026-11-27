@@ -284,11 +284,12 @@ func launchErr(code uint32, said string) error {
 
 // startCanceled is ErrCanceled as a start of the core has it: the
 // prompt comes with every start, and the TUN entry says how to see it
-// again.
+// again. Windows cancels a prompt no one answers after about two
+// minutes, which reads the same as a refusal.
 type startCanceled struct{}
 
 func (startCanceled) Error() string {
-	return i18n.T("用户账户控制的授权被取消了，关掉再打开 TUN 会再请求一次", "The User Account Control prompt was canceled; turn TUN off and on to be asked again")
+	return i18n.T("用户账户控制的授权被取消了，或者约 2 分钟内没有人回应；关掉再打开 TUN 会再请求一次", "The User Account Control prompt was canceled, or nobody answered it within about 2 minutes; turn TUN off and on to be asked again")
 }
 
 func (startCanceled) Is(target error) bool { return target == ErrCanceled }
