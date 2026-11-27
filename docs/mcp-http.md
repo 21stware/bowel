@@ -93,7 +93,9 @@ The agent sees each server's tools under its name (`mcp__bowel-home__get_status`
 
 ## What an agent can do on each
 
-The tools are those of the socket, with the same policy: each bowel's own `mcpPolicy` (ask, allow or deny), which only the user sets, on that machine. A daemon or a container has no window to ask in, so under the default, ask, an agent reads everything there and changes nothing until the user allows changes on that machine.
+The tools are those of the socket, with the same policy: each bowel's own `mcpPolicy` (ask, allow or deny), which only the user sets, on that machine. A daemon or a container has no window to ask in, so under the default, ask, an agent reads everything there and changes nothing until the user allows changes on that machine, at a terminal of their own: `bowel settings set mcpPolicy allow` asks them to type `allow` (`docker exec -it`, `ssh -t`), as [cli.md](cli.md#agents) explains.
+
+The guard rails below hold for agents on MCP. A command an agent runs through `docker exec` or `ssh` arrives without the agent's environment and reads as the user's, so on that path they don't apply: give an agent MCP rather than a shell on the machine.
 
 Besides the reading tools (`get_status`, `list_routes`, `list_connections`, `get_logs` and the rest), the gateway and the providers can be driven without a shell on the machine:
 
