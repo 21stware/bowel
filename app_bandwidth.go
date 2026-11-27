@@ -32,23 +32,45 @@ type bandwidthResult struct {
 type bandwidthPlan struct {
 	Nodes    []string
 	MaxBytes int64
+	Cap      int64 // the most downloaded through each node
 	URL      string
+	// Round: the route chooses by download speed, and this is a round of
+	// its schedule run now, which puts it on the fastest download.
+	Round bool
 }
 
-// planBandwidth is what testBandwidth(routeID) would do now.
-func (a *App) planBandwidth(routeID string) bandwidthPlan {
-	return a.planBandwidthOf(routeID, false)
+// planBandwidth is what a download test of route routeID by hand would do
+// now, of listed, the rows its node list shows (the range in 自动最快, the
+// region and the search otherwise): the few of them that answered fastest,
+// and with them the node in use, whatever its delay or region. Of a group
+// that chooses by download speed it is a Round, of the rows in its range
+// alone.
+func (a *App) planBandwidth(routeID string, listed []string) bandwidthPlan {
+	r := a.route(routeID)
+	shown := make(map[string]bool, len(listed))
+	for _, n := range listed {
+		shown[n] = true
+	}
+	if r.Policy.ByDownload() && !r.Direct {
+		inRange := func(n string) bool { return a.pickInRange(r, n) }
+		plan := a.planBandwidthOf(routeID, func(n string) bool { return shown[n] && inRange(n) }, inRange, scheduledCap)
+		plan.Round = true
+		return plan
+	}
+	return a.planBandwidthOf(routeID, func(n string) bool { return shown[n] }, func(string) bool { return true }, speed.DownloadCap)
 }
 
-// planBandwidthOf is planBandwidth, of the nodes in the range of the
-// route's automatic choice alone if inRange.
-func (a *App) planBandwidthOf(routeID string, inRange bool) bandwidthPlan {
+// planBandwidthOf is the plan of a test of route routeID: of the nodes
+// among says yes to, the bandwidthNodes with the lowest delay on its main
+// target, and then the node in use if current says yes to it; up to
+// capBytes each.
+func (a *App) planBandwidthOf(routeID string, among, current func(string) bool, capBytes int64) bandwidthPlan {
 	r := a.route(routeID)
 	a.mu.Lock()
 	px := a.proxies
 	a.mu.Unlock()
 	s := a.settings.Get()
-	plan := bandwidthPlan{URL: s.DownloadURL}
+	plan := bandwidthPlan{URL: s.DownloadURL, Cap: capBytes}
 	if plan.URL == "" {
 		plan.URL = settings.Defaults.DownloadURL // cleared in Settings, not yet saved back
 	}
@@ -62,18 +84,8 @@ func (a *App) planBandwidthOf(routeID string, inRange bool) bandwidthPlan {
 		delay int
 	}
 	var list []cand
-	in := func(string) bool { return true }
-	if q := r.Policy; inRange && q.Scoped() {
-		in = func(n string) bool {
-			country := ""
-			if pl := a.loc.Guess(n, display(n)).Place; pl != nil {
-				country = pl.Country
-			}
-			return inScope(q, n, providerOf(n), country)
-		}
-	}
 	for _, t := range speed.OfRoute(px, r, main) {
-		if providerOf(t.Node) == "" || !in(t.Node) {
+		if providerOf(t.Node) == "" || !among(t.Node) {
 			continue
 		}
 		if h, ok := speed.Last(px[t.Node].HistoryOf(main), stale, now); ok && h.Delay > 0 {
@@ -86,19 +98,25 @@ func (a *App) planBandwidthOf(routeID string, inRange bool) bandwidthPlan {
 	for _, c := range list[:min(len(list), bandwidthNodes)] {
 		plan.Nodes = append(plan.Nodes, c.node)
 	}
-	// The node in use is worth comparing with, whatever its delay.
-	if n := currentNode(px, r); providerOf(n) != "" && in(n) && !slices.Contains(plan.Nodes, n) {
+	// The node in use is worth comparing with, whatever its delay; with
+	// nothing to compare it with, it is not worth the traffic alone.
+	if n := currentNode(px, r); len(plan.Nodes) > 0 && providerOf(n) != "" && current(n) && !slices.Contains(plan.Nodes, n) {
 		plan.Nodes = append(plan.Nodes, n)
 	}
-	plan.MaxBytes = int64(len(plan.Nodes)) * speed.DownloadCap
+	plan.MaxBytes = int64(len(plan.Nodes)) * capBytes
 	return plan
 }
 
-// testBandwidth downloads the test file through each node of
-// planBandwidth(routeID), one after another, through the probe listener.
-// Nothing is chosen by it: the results show beside the delays.
-func (a *App) testBandwidth(ctx context.Context, routeID string) error {
-	_, err := a.runBandwidth(ctx, routeID, a.planBandwidth(routeID), speed.DownloadCap)
+// testBandwidth runs plan, as the dialog showed it, on route routeID: one
+// download through each of its nodes, one after another, through the probe
+// listener. A test chooses nothing, and the results show beside the delays;
+// a Round puts the group on the fastest download, as a scheduled one does,
+// and the next is due from now.
+func (a *App) testBandwidth(ctx context.Context, routeID string, plan bandwidthPlan) error {
+	if plan.Round {
+		return a.downloadRound(ctx, routeID, plan)
+	}
+	_, err := a.runBandwidth(ctx, routeID, plan, plan.Cap)
 	return err
 }
 

@@ -21,7 +21,8 @@ import (
 // fastest, and its selector put on the fastest download: a selector's
 // position, so nothing reloads. The pick holds until the next test, or
 // until it stops answering the group's main target: then the group is back
-// on its automatic group, the fastest to answer, till the next test.
+// on its automatic group, the fastest to answer, till the next test. Its
+// 测下载 is a round run now (bandwidthPlan.Round).
 
 const (
 	// scheduledCap is the most a scheduled test downloads through a node:
@@ -113,11 +114,12 @@ func downloadDue(r routes.Route, p downloadPick, ok bool, tried, now time.Time) 
 }
 
 // runDueDownloads starts the scheduled tests that are due, one group at a
-// time. It is cheap when none is: refresh calls it every few seconds.
+// time. It is cheap when none is: refresh calls it every few seconds, once
+// it has read the core. Takeover off is no reason to wait: apps that are
+// pointed at the core's port go by these groups all the same (issue 267).
 func (a *App) runDueDownloads() {
-	s := a.settings.Get()
-	if a.importedNow() != nil || !a.takeoverOn(s) {
-		return // nobody's traffic goes by these groups now: no traffic for nothing
+	if a.importedNow() != nil {
+		return // the config's own groups: none of them chooses by download
 	}
 	now := time.Now()
 	a.mu.Lock()
@@ -154,24 +156,54 @@ func (a *App) runDueDownloads() {
 // scheduledDownload runs route routeID's scheduled test and puts it on the
 // fastest download.
 func (a *App) scheduledDownload(routeID string) {
+	a.downloadTriedNow(routeID)
+	plan := a.planRound(routeID)
+	if len(plan.Nodes) == 0 {
+		return // no delays yet: tried again in a while
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(len(plan.Nodes))*(speed.DownloadTime+20*time.Second))
+	defer cancel()
+	if err := a.downloadRound(ctx, routeID, plan); err != nil {
+		log.Println("download round of", routeID+":", err)
+	}
+}
+
+// planRound is the plan of a scheduled round of route routeID: of the nodes
+// in the range of its automatic choice alone, the node in use too.
+func (a *App) planRound(routeID string) bandwidthPlan {
+	r := a.route(routeID)
+	inRange := func(n string) bool { return a.pickInRange(r, n) }
+	return a.planBandwidthOf(routeID, inRange, inRange, scheduledCap)
+}
+
+// downloadTriedNow notes that a round of route routeID starts now, so that
+// none is started beside it, nor again before downloadRetry if it can't run.
+func (a *App) downloadTriedNow(routeID string) {
 	a.mu.Lock()
+	defer a.mu.Unlock()
 	next := maps.Clone(a.downloadTried)
 	if next == nil {
 		next = map[string]time.Time{}
 	}
 	next[routeID] = time.Now()
 	a.downloadTried = next
+}
+
+// downloadRound runs plan, a round of route routeID's schedule, and puts
+// the group on the fastest download. The next round is due from now. A
+// round that tested nothing (no core, or cut short as the app quits) is not
+// one: it is tried again in a while.
+func (a *App) downloadRound(ctx context.Context, routeID string, plan bandwidthPlan) error {
+	a.downloadTriedNow(routeID)
+	a.mu.Lock()
 	prev := a.picks[routeID]
 	a.mu.Unlock()
-	plan := a.planBandwidthOf(routeID, true)
-	if len(plan.Nodes) == 0 {
-		return // no delays yet: tried again in a while
+	res, err := a.runBandwidth(ctx, routeID, plan, plan.Cap)
+	if len(res) == 0 || (ctx.Err() != nil && len(res) < len(plan.Nodes)) {
+		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(len(plan.Nodes))*(speed.DownloadTime+20*time.Second))
-	defer cancel()
-	res, err := a.runBandwidth(ctx, routeID, plan, scheduledCap)
-	if ctx.Err() != nil && len(res) < len(plan.Nodes) {
-		return // cut short (the app quits): tried again in a while
+	if !a.route(routeID).Policy.ByDownload() {
+		return err // it went back to delay meanwhile: the results show, and nothing is chosen
 	}
 	pick := choosePick(res, prev.Node, time.Now())
 	if err != nil {
@@ -180,6 +212,7 @@ func (a *App) scheduledDownload(routeID string) {
 	a.setDownloadPick(routeID, pick)
 	logPolicyErr(a.followPolicies())
 	a.refresh()
+	return err
 }
 
 // choosePick is the node a test's results choose: the fastest download,
