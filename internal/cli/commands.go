@@ -58,7 +58,7 @@ func tree() *Command {
 				Examples: []string{"bowel mode", "bowel mode global", "bowel mode rule"}, Run: runMode},
 			{Name: "routes", Short: words{"列出路由，以及每条路由现在用的节点", "List the routes and the node each uses now"},
 				Examples: []string{"bowel routes", "bowel routes --json"}, Run: runRoutes},
-			{Name: "route", Short: words{"操作一条路由", "Work on one route"}, Sub: []*Command{
+			{Name: "route", Short: words{"操作一条路由，或新建、排序和设置路由组", "Work on one route, or make, order and set up route groups"}, Sub: append([]*Command{
 				{Name: "use", Args: i18n.T("<路由> <节点|auto>", "<route> <node|auto>"), Min: 2, Max: 2,
 					Short:    words{"让一条路由使用某个节点，auto 为自动选最快的", "Make a route use a node; auto picks the fastest"},
 					Examples: []string{"bowel route use ai auto", `bowel route use default "🇯🇵 Tokyo 02"`}, Run: runRouteUse},
@@ -68,7 +68,8 @@ func tree() *Command {
 				{Name: "unlock", Args: i18n.T("<路由>", "<route>"), Min: 1, Max: 1,
 					Short:    words{"解除出口锁定", "Unlock the exit"},
 					Examples: []string{"bowel route unlock ai"}, Run: runRouteLock(false)},
-			}},
+			}, groupCommands()...)}, // groups.go
+			routingCommand(),
 			{Name: "nodes", Short: words{"列出节点和延迟", "List the nodes and their delays"},
 				Flags: []Flag{
 					{Name: "route", Short: "r", Kind: "string", Help: words{"按这条路由的测速目标显示延迟（默认 default）", "Show delays on this route's test target (default: default)"}},

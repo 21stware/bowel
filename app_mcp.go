@@ -627,7 +627,8 @@ func (a *App) mcpServer() *mcp.Server {
 	for i, r := range a.routes() {
 		routeIDs[i] = r.ID
 	}
-	routeArg := str("A route's id: "+strings.Join(routeIDs, ", ")+".", routeIDs...)
+	// No enum: groups made after the server started are routes too.
+	routeArg := str("A route's id (" + strings.Join(routeIDs, ", ") + " when bowel started; list_routes has them now), or its name.")
 	srv := &mcp.Server{
 		Name: "bowel", Title: "bowel", Version: mygo.App.Version(),
 		Instructions: mcpInstructions,
@@ -1202,6 +1203,7 @@ func (a *App) mcpServer() *mcp.Server {
 	srv.Tools = append(srv.Tools, a.gatewayTools()...)  // app_mcp_gateway.go
 	srv.Tools = append(srv.Tools, a.providerTools()...) // app_mcp_providers.go
 	srv.Instructions += "\n\n" + gatewayInstructions
+	srv.Tools = append(srv.Tools, a.routeGroupTools()...) // app_mcp_groups.go
 	return srv
 }
 
@@ -1406,7 +1408,9 @@ const mcpInstructions = `bowel is the user's client for the mihomo proxy core, o
 
 Read freely: get_status first, then get_settings, list_routes, list_rules, explain, list_connections, get_logs, get_whitelists, get_dev_network.
 
-Changes (set_mode, set_takeover, retake_system_proxy, select_node, lock_route, add_rule, remove_rule, whitelist_add/remove, update_settings, update_providers, flush_dns) follow the user's policy: by default bowel asks the user in a dialog, which may take a while; they may also be always allowed or always refused. A refusal is the user's decision: don't retry it, tell the user. Prefer the narrowest change: to send a site somewhere, add_rule; to let a site skip the proxy, whitelist_add to direct.`
+Changes (set_mode, set_takeover, retake_system_proxy, select_node, lock_route, add_rule, remove_rule, whitelist_add/remove, update_settings, update_providers, flush_dns) follow the user's policy: by default bowel asks the user in a dialog, which may take a while; they may also be always allowed or always refused. A refusal is the user's decision: don't retry it, tell the user. Prefer the narrowest change: to send a site somewhere, add_rule; to let a site skip the proxy, whitelist_add to direct.
+
+Route groups are set up here as in the window: list_route_groups reads them with their strategies and test sites; create_route_group, rename_route_group, move_route_group, delete_route_group, set_route_strategy, set_route_sites and set_routing_source (bowel's routing or an imported config's) are changes as above. A new group takes traffic once add_rule sends some to it, in its place in the list: groups are tried from the top.`
 
 var mcpStop context.CancelFunc
 
