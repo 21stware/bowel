@@ -62,7 +62,7 @@ type activityUI struct {
 	route  string // route id, "" for all
 	app    string // app name, "" or actAllApps() for all
 	net    string // actAllNet, "TCP" or "UDP"
-	sort   string // rate, down, up, dur ("" is rate)
+	sort   string // rate, down, up, dur, app, host, rule or exit ("" is rate)
 	asc    bool
 	open   string // the connection whose detail shows
 
@@ -282,6 +282,25 @@ func (u *UI) actFilter(now time.Time) []Conn {
 			out = append(out, c)
 		}
 	}
+	if words := u.actWords(a.sort); words != nil {
+		// What a column of words shows, without case; a row that shows
+		// nothing there goes last either way.
+		w := make(map[string]string, len(out))
+		for _, c := range out {
+			w[c.ID] = strings.ToLower(words(c))
+		}
+		sort.SliceStable(out, func(i, j int) bool {
+			wi, wj := w[out[i].ID], w[out[j].ID]
+			switch {
+			case (wi == "") != (wj == ""):
+				return wj == ""
+			case wi != wj:
+				return wi < wj == a.asc
+			}
+			return out[i].Start.After(out[j].Start) // newest first among equals
+		})
+		return out
+	}
 	key := func(c Conn) float64 {
 		switch a.sort {
 		case "down":
@@ -301,6 +320,22 @@ func (u *UI) actFilter(now time.Time) []Conn {
 		return out[i].Start.After(out[j].Start) // newest first among equals
 	})
 	return out
+}
+
+// actWords is the text a column of words sorts its rows by, as the row
+// shows it, or nil for a column of numbers.
+func (u *UI) actWords(key string) func(Conn) string {
+	switch key {
+	case "app":
+		return func(c Conn) string { return c.App }
+	case "host":
+		return actTarget
+	case "rule":
+		return u.actRuleWord
+	case "exit":
+		return func(c Conn) string { return u.actRouteName(c) + " · " + actNode(c) }
+	}
+	return nil
 }
 
 // sig names the filter, so an armed 断开筛选结果 disarms when it changes.
@@ -656,16 +691,16 @@ type actCol struct {
 	w      float32 // a fixed width, or 0 to share by grow
 	grow   float32
 	min    float32
-	end    bool
+	end    bool // numbers: aligned right, and sorted largest first
 }
 
 var actCols = []actCol{
 	{w: 12},
-	{zh: "应用", en: "App", w: 72},
-	{zh: "目标", en: "Target", grow: 1.45, min: 150},
+	{zh: "应用", en: "App", sort: "app", w: 72},
+	{zh: "目标", en: "Target", sort: "host", grow: 1.45, min: 150},
 	{zh: "协议", en: "Net", w: 36},
-	{zh: "命中规则", en: "Rule", grow: 1.2, min: 100},
-	{zh: "路由 · 出口", en: "Route · Exit", grow: 1.2, min: 120},
+	{zh: "命中规则", en: "Rule", sort: "rule", grow: 1.2, min: 100},
+	{zh: "路由 · 出口", en: "Route · Exit", sort: "exit", grow: 1.2, min: 120},
 	{zh: "速率", en: "Rate", sort: "rate", w: 76, end: true},
 	{zh: "下载", en: "Down", sort: "down", w: 66, end: true},
 	{zh: "上传", en: "Up", sort: "up", w: 66, end: true},
@@ -719,11 +754,16 @@ func (u *UI) actTable(c *ui.Context, p *pal) {
 			if on {
 				label += map[bool]string{true: " ↑", false: " ↓"}[a.asc]
 			}
-			b := ui.ButtonBase(c.Key("sort:" + key)).Row().Justify(ui.End).OnClick(func() {
+			// Words sort A to Z first, numbers largest first.
+			words, justify := !col.end, ui.End
+			if words {
+				justify = ui.Start
+			}
+			b := ui.ButtonBase(c.Key("sort:" + key)).Row().Justify(justify).OnClick(func() {
 				if on {
 					a.asc = !a.asc
 				} else {
-					a.sort, a.asc = key, false
+					a.sort, a.asc = key, words
 				}
 			})
 			actCell(b, i).Children(func() {
