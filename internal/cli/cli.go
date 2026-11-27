@@ -37,9 +37,12 @@ type Env struct {
 	// TTY: Stdout is a terminal, so colors and progress may be shown.
 	TTY    bool
 	Getenv func(string) string
-	// Socket is the running bowel's command socket.
-	Socket  string
-	Version string
+	// Socket is the running bowel's command socket. OlderSocket, when not
+	// "", is where a bowel older than this command served it: tried when
+	// nothing answers on Socket, so that the commands reach a bowel that
+	// an update has not restarted yet.
+	Socket, OlderSocket string
+	Version             string
 	// Local are the commands that run in this process, by name: the main
 	// package's daemon, mcp and devtools.
 	Local map[string]func(args []string) error

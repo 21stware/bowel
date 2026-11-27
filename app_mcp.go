@@ -37,10 +37,19 @@ import (
 	"github.com/oboo/moho/internal/settings"
 )
 
-// mcpSocket is where the app serves MCP: in its data folder, or, when that
-// path is too long for a unix socket, in the temporary folder.
-func mcpSocket(dataDir string) string {
-	p := filepath.Join(dataDir, "mcp.sock")
+// mcpSocket is where the app serves MCP: in its data folder (on Windows,
+// see app_socket.go), or, when that path is too long for a unix socket,
+// in the temporary folder.
+func mcpSocket(dataDir string) string { return mcpSocketIn(socketDir(dataDir)) }
+
+// olderMCPSocket is where bowel 0.4.9 and before served it, "" when that
+// is mcpSocket.
+func olderMCPSocket(dataDir string) string {
+	return olderSocket(mcpSocket(dataDir), mcpSocketIn(dataDir))
+}
+
+func mcpSocketIn(dir string) string {
+	p := filepath.Join(dir, "mcp.sock")
 	if len(p) < 100 {
 		return p
 	}
@@ -52,6 +61,7 @@ var mcpErr atomic.Pointer[string]
 
 // serveMCP serves the tools until ctx is done.
 func (a *App) serveMCP(ctx context.Context) {
+	dropOlderSocket(olderMCPSocket(a.dataDir))
 	l, err := mcp.Listen(mcpSocket(a.dataDir))
 	if err != nil {
 		log.Println("mcp:", err)
@@ -77,13 +87,19 @@ var mcpCommand = func() string {
 }
 
 // runMCPBridge is `bowel mcp`: it carries the agent's stdio to the running
-// app, opening the app first when it is not running.
+// app, opening the app first when it is not running. An app older than
+// this command, which an update has not restarted yet, is reached where
+// it serves.
 func runMCPBridge() error {
 	data, err := mygo.App.Path(mygo.PathUserData)
 	if err != nil {
 		return err
 	}
-	return mcp.Bridge(mcpSocket(data), os.Stdin, os.Stdout, startOwnApp)
+	paths := []string{mcpSocket(data)}
+	if p := olderMCPSocket(data); p != "" {
+		paths = append(paths, p)
+	}
+	return mcp.Bridge(paths, os.Stdin, os.Stdout, startOwnApp)
 }
 
 // startOwnApp opens the .app this executable belongs to, in the

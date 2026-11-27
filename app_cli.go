@@ -34,9 +34,20 @@ import (
 	"github.com/oboo/moho/internal/routes"
 )
 
-// cliSocket is where the app serves the command line, beside mcp.sock.
-func cliSocket(dataDir string) string {
-	p := filepath.Join(dataDir, "cli.sock")
+// cliSocket is where the app serves the command line, beside mcp.sock
+// (app_socket.go).
+func cliSocket(dataDir string) string { return cliSocketIn(socketDir(dataDir), dataDir) }
+
+// olderCLISocket is where bowel 0.4.9 and before served it, "" when that
+// is cliSocket.
+func olderCLISocket(dataDir string) string {
+	return olderSocket(cliSocket(dataDir), cliSocketIn(dataDir, dataDir))
+}
+
+// cliSocketIn is cli.sock in the folder dir, or, when that path is too
+// long for a unix socket, in the temporary folder.
+func cliSocketIn(dir, dataDir string) string {
+	p := filepath.Join(dir, "cli.sock")
 	if len(p) < 100 {
 		return p
 	}
@@ -445,6 +456,7 @@ var cliStop context.CancelFunc
 func (a *App) startCLI() {
 	ctx, cancel := context.WithCancel(context.Background())
 	cliStop = cancel
+	dropOlderSocket(olderCLISocket(a.dataDir))
 	l, err := mcp.Listen(cliSocket(a.dataDir))
 	if err != nil {
 		log.Println("cli:", err)

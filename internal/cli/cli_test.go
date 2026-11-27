@@ -5,9 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -124,6 +127,33 @@ func TestParse(t *testing.T) {
 		if _, err := parsed(help...); !errors.Is(err, errHelp) {
 			t.Errorf("%v: want help, got %v", help, err)
 		}
+	}
+}
+
+// TestOlderSocket: with nothing on its socket, a command reaches a bowel
+// older than it where that one serves; with nothing there either, bowel
+// isn't running. A packaged app's terminal that can't reach the older
+// place at all (WSAEINVAL, Windows only) is told so, as maybe running.
+func TestOlderSocket(t *testing.T) {
+	socket, calls := fake(t, map[string]func(map[string]any) (any, error){
+		"set_mode": func(a map[string]any) (any, error) { return "The mode is now " + a["mode"].(string) + ".", nil },
+	})
+	none := filepath.Join(t.TempDir(), "none.sock")
+	if code, out, errOut := run(t, Env{Socket: none, OlderSocket: socket}, "mode", "global"); code != ExitOK || len(*calls) != 1 {
+		t.Errorf("through the older socket: %d %q %q %v", code, out, errOut, *calls)
+	}
+	code, _, errOut := run(t, Env{Socket: none, OlderSocket: filepath.Join(t.TempDir(), "old.sock")}, "mode", "global")
+	if code != ExitFail || !strings.Contains(errOut, "bowel isn't running") {
+		t.Errorf("neither: %d %q", code, errOut)
+	}
+
+	inCopy := &net.OpError{Op: "dial", Net: "unix", Err: os.NewSyscallError("connect", syscall.Errno(10022))}
+	if behindCopy(inCopy) != (runtime.GOOS == "windows") || behindCopy(errors.New("connection refused")) {
+		t.Errorf("behind a copy: %v", behindCopy(inCopy))
+	}
+	i18n.Set("en")
+	if msg := (errNotRunning{inCopy, true}).Error(); !strings.Contains(msg, "AppData") || !strings.Contains(msg, "If bowel is running, restart it") {
+		t.Errorf("said: %s", msg)
 	}
 }
 

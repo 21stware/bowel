@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/oboo/moho/internal/i18n"
@@ -50,18 +52,43 @@ type client struct {
 }
 
 // errNotRunning is the failure to reach bowel, said with what to do.
-type errNotRunning struct{ err error }
+// inCopy: the older socket is in a copy of AppData this terminal can't
+// reach (behindCopy), so bowel may be running.
+type errNotRunning struct {
+	err    error
+	inCopy bool
+}
 
 func (e errNotRunning) Error() string {
+	if e.inCopy {
+		return i18n.T("这个终端连不上 bowel。打包应用（如 Claude 桌面版）里的终端看到的是它自己的一份 AppData，而 bowel 0.4.9 及以前把套接字放在那里。bowel 若在运行，重启它就会换成这个版本；否则用 `bowel daemon` 启动，或打开应用。",
+			"This terminal can't reach bowel. A terminal of a packaged app, such as Claude's desktop app, sees its own copy of AppData, and bowel 0.4.9 and before keep their socket there. If bowel is running, restart it to run this version; otherwise start it with `bowel daemon`, or open the app.")
+	}
 	return i18n.T("bowel 没在运行：用 `bowel daemon` 启动，或打开应用。", "bowel isn't running: start it with `bowel daemon`, or open the app.")
 }
 
 func (e errNotRunning) Unwrap() error { return e.err }
 
+// behindCopy says that a socket was there and could not be connected to
+// because it is in AppData and this process is a packaged app's, which
+// sees a copy of AppData: Windows then fails the connect with WSAEINVAL
+// (10022), whether anything listens or the file is stale.
+func behindCopy(err error) bool {
+	return runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(10022))
+}
+
 func dial(env Env) (*client, error) {
 	conn, err := net.DialTimeout("unix", env.Socket, 2*time.Second)
+	if err != nil && env.OlderSocket != "" {
+		c, oerr := net.DialTimeout("unix", env.OlderSocket, 2*time.Second)
+		if oerr == nil {
+			conn, err = c, nil
+		} else if behindCopy(oerr) {
+			return nil, errNotRunning{oerr, true}
+		}
+	}
 	if err != nil {
-		return nil, errNotRunning{err}
+		return nil, errNotRunning{err: err}
 	}
 	cl := &client{conn: conn, br: bufio.NewReaderSize(conn, 64<<10)}
 	name, agent := "bowel CLI", Agent(env.Getenv)
@@ -88,7 +115,7 @@ func (cl *client) request(method string, params any) (json.RawMessage, error) {
 		return nil, err
 	}
 	if _, err := cl.conn.Write(append(b, '\n')); err != nil {
-		return nil, errNotRunning{err}
+		return nil, errNotRunning{err: err}
 	}
 	for {
 		line, err := cl.br.ReadBytes('\n')
