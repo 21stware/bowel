@@ -86,8 +86,8 @@ func runDaemon([]string) error {
 	// No window to ask in: an agent's change under "ask" is refused, and
 	// says how the user can let it through.
 	askAgent = func(context.Context, string, string, string) (bool, bool, error) {
-		return false, false, errors.New(i18n.T("bowel 在无窗口模式下运行，没法弹窗询问。请让用户自己执行这条命令，或用 `bowel settings set mcpPolicy allow` 允许 agent 变更。",
-			"bowel runs without a window and can't ask. Have the user run this command, or allow agents' changes with `bowel settings set mcpPolicy allow`."))
+		return false, false, errors.New(i18n.T("bowel 在无窗口模式下运行，没法弹窗询问。请让用户自己执行这条命令，或者请用户在自己的终端里用 `bowel settings set mcpPolicy allow` 允许 agent 变更。",
+			"bowel runs without a window and can't ask. Have the user run this command, or have them allow agents' changes at a terminal of their own with `bowel settings set mcpPolicy allow`."))
 	}
 	a.startContainer() // the environment, and what a container needs: app_container.go
 	a.startHeadless()

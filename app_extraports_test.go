@@ -28,7 +28,7 @@ func TestExtraPortsOnCore(t *testing.T) {
 	a, _ := routingApp(t, nil)
 	port := freePortFor(t)
 	set := func(v string) error {
-		patch, err := a.settingsPatch(map[string]json.RawMessage{"extraPorts": json.RawMessage(v)}, true)
+		patch, err := a.settingsPatch(map[string]json.RawMessage{"extraPorts": json.RawMessage(v)}, true, false)
 		if err != nil {
 			return err
 		}
@@ -112,7 +112,7 @@ func TestExtraPortsOfImportedRouting(t *testing.T) {
 	ctx := context.Background()
 	port := freePortFor(t)
 	set := func(v string) error {
-		patch, err := a.settingsPatch(map[string]json.RawMessage{"extraPorts": json.RawMessage(v)}, true)
+		patch, err := a.settingsPatch(map[string]json.RawMessage{"extraPorts": json.RawMessage(v)}, true, false)
 		if err != nil {
 			return err
 		}

@@ -44,3 +44,5 @@ Restart=on-failure
 ## Agent
 
 你自己敲的命令不会被询问。由 agent 运行的命令（Claude Code、Codex、Cursor 等，按它们的环境变量识别）和 MCP 用同一个策略：询问、允许或拒绝。daemon 没有窗口可以弹框，策略为“询问”时会拒绝 agent 的变更；可以用 `bowel settings set mcpPolicy allow` 放行，这条命令只有你自己能执行。
+
+这些环境变量过不了 `docker exec` 和 `ssh`：agent 经由它们运行的命令看起来和你的一样，也不会被询问。但它放宽不了策略：放宽（从“询问”到“允许”，或从“拒绝”到“询问”）要你本人在终端里确认。`bowel settings set mcpPolicy allow` 会让你输入 `allow`，没有终端可以询问时会被拒绝：在脚本里、不带 `-it` 的 `docker exec` 里、不带 `-t` 的 `ssh` 里都是这样。`bowel tui` 的设置页也这样确认；应用的 设置 > MCP 不需要。收紧策略从不询问。

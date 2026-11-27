@@ -8,6 +8,9 @@
 
 ## [Unreleased]
 
+- agent 不能再经由 `docker exec` 或 `ssh` 放宽自己的权限了。bowel 靠环境变量（`CLAUDECODE`、`CODEX_THREAD_ID` 等）认出 agent 运行的命令，而 `docker exec` 和 `ssh` 不会把这些变量带过去，所以 agent 执行 `docker exec bowel bowel settings set mcpPolicy allow`（Docker 文档里就是这么写的）会被当成你，策略就成了「允许」。现在放宽策略（「询问」→「允许」、「拒绝」→「询问」）要你在终端里输入新策略的名字确认：`docker exec -it bowel bowel settings set mcpPolicy allow`，或者在 `bowel tui` 的设置页里；没有终端可以询问时（脚本、不带 `-it` 的 `docker exec`、不带 `-t` 的 `ssh`）会被拒绝。收紧策略不用确认，应用里的 设置 > MCP 也不变。
+  - 只带 `-t` 不带 `-i` 时有终端但没人能输入，一分钟后取消。
+  - 经由 `docker exec` 或 `ssh` 运行的其他命令仍会被当成你的、不会询问；要让 agent 的修改遵循策略，就让它用 MCP。
 - Windows 上 TUN 不再注册计划任务，改成每次启动 TUN 的内核时弹出用户账户控制请求授权。原因是 Windows Defender：在一台默认设置的 Windows 11 Pro（26300，云保护、行为监控和防篡改都开着）上，0.4.8 第一次 `bowel tun on` 后 `bowel.exe` 被当成 `Behavior:Win32/Persistence.A!ml` 隔离，开始菜单和任务栏的快捷方式、开机启动项和卸载信息也一起被删掉。换了名字照 bowel 做法写的测试程序，只要注册一个以最高权限运行的计划任务，5 到 15 秒后就被拦下（只注册一个直接运行内核的任务也一样）；只把自己复制到 `%ProgramData%`、以管理员身份运行一次而不注册任务的，没有被拦。Defender 的日志里是注册任务时上报行为、接着按发起安装的程序的哈希查云端信誉、约 5 秒后拦截。bowel 还没有代码签名，Windows 版有了签名以后可以再改回计划任务
   - 什么时候会弹：开着 TUN 启动 bowel、普通内核在运行时打开 TUN、内核崩溃后重启、升级后第一次启动。内核已经以管理员身份运行时开关 TUN 只是重新加载配置，不会再弹；关着 TUN 启动 bowel 时用的是普通内核，也不弹。取消授权时 TUN 一栏会说明，关掉再打开 TUN 会再请求一次。授权窗口开着时内核没有在运行，经过 bowel 的网络要等你确认。首页和 TUN 一栏写明了 Windows 为什么每次都要授权
   - 授权窗口约 2 分钟内没有人回应，Windows 会自动取消，和拒绝一样。登录时隐藏窗口启动的 bowel 弹出的授权窗口以前会落到任务栏里，没人看见就被取消了；现在请求授权前 bowel 会把自己的窗口拿到前面、作为授权窗口的所属窗口并在任务栏闪烁，TUN 一栏写着正在等用户账户控制的确认、约 2 分钟不回应会被取消（`bowel status --json` 里是 `takeover.tun.asking`）

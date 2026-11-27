@@ -187,6 +187,17 @@ func (s Settings) Policy() string {
 	return s.MCPPolicy
 }
 
+// policyRank orders the policies by what they let agents do.
+var policyRank = map[string]int{"deny": 0, "ask": 1, "": 1, "allow": 2}
+
+// PolicyLooser says whether going from the policy from to to lets agents
+// do more. A value that is not a policy is not: Validate refuses it.
+func PolicyLooser(from, to string) bool {
+	f, ok1 := policyRank[from]
+	t, ok2 := policyRank[to]
+	return ok1 && ok2 && t > f
+}
+
 // LogLevels are the core's log levels.
 var LogLevels = []string{"debug", "info", "warning", "error", "silent"}
 

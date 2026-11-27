@@ -96,7 +96,7 @@ claude mcp add --transport http bowel http://<主机>:7900/mcp --header "Authori
 
 其他客户端用同样的 URL 和请求头（`"type": "http"`、`"url"`、`"headers"`）。`BOWEL_MCP_TOKEN` 可以指定自己的令牌（至少 16 个字符）；`BOWEL_MCP_HTTP` 留空则关闭这个端点。它是明文 HTTP，令牌也明文传输：只在 `127.0.0.1`、VPN 或内网上发布 7900，或者放在保留 `Host` 请求头的 TLS 反向代理后面。
 
-容器里没有窗口可以弹出询问，所以在默认的「询问」策略下，agent 能读取一切，但改不了任何东西。要让 agent 能修改，执行 `docker exec bowel bowel settings set mcpPolicy allow`。同一台主机上的 agent 也可以运行 `docker exec -i bowel bowel mcp`，也就是 stdio 版本的 MCP，不需要令牌。
+容器里没有窗口可以弹出询问，所以在默认的「询问」策略下，经 MCP 连接的 agent 能读取一切，但改不了任何东西。要让 agent 能修改，你自己执行 `docker exec -it bowel bowel settings set mcpPolicy allow`，在它询问时输入 `allow`（也可以在 `bowel tui` 的设置页里选）。不带 `-it` 会被拒绝：`docker exec` 带进去的是容器的环境变量，不是调用者的，所以 bowel 分不清 agent 的 `docker exec` 和你的，只有你在终端前能回答。也因为这样，agent 用 `docker exec bowel bowel …` 运行的命令会被当成你的，不会被询问；要让 agent 的修改遵循策略，就让它用 MCP。同一台主机上的 agent 也可以运行 `docker exec -i bowel bowel mcp`，也就是 stdio 版本的 MCP，不需要令牌。
 
 ## 健康检查和日志
 
