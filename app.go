@@ -2817,7 +2817,7 @@ func (a *App) switchFor(n *switchNote, px map[string]mihomo.Proxy, provNodes map
 		return nil
 	}
 	note := *n // the fields are written once, before the note is published
-	if !on || cs.State != core.Running || switchExpired(&note, time.Now()) || a.switchStale(&note, px, s) {
+	if !judgedOn(on) || cs.State != core.Running || switchExpired(&note, time.Now()) || a.switchStale(&note, px, s) {
 		a.dropSwitch(n)
 		return nil
 	}
@@ -2863,7 +2863,7 @@ func (a *App) switchStale(n *switchNote, px map[string]mihomo.Proxy, s settings.
 }
 
 func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, snap Snapshot, sw *switchSay) (State, *Issue) {
-	if !on {
+	if !judgedOn(on) { // a container's ports are always on: app_container_status.go
 		return StateOff, nil
 	}
 	if cs.State == core.Failed {

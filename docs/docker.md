@@ -113,7 +113,7 @@ There is no window to ask in, so under the default policy, "ask", an agent can r
 
 ## Health and logs
 
-The image's health check is `bowel health`: healthy while the daemon answers, the core runs and its port accepts connections. `docker logs bowel` has the daemon's log; the core's is `docker exec bowel bowel logs -f`. `docker stop` stops it cleanly.
+The image's health check is `bowel health`: healthy while the daemon answers, the core runs and its port accepts connections. `bowel status` judges the container as a takeover that runs, since its ports carry traffic with or without TUN: its first line and `issue` in `--json` name a core that fails, a port that won't open, or a locked group that refuses every connection for lack of a node. `docker logs bowel` has the daemon's log; the core's is `docker exec bowel bowel logs -f`. `docker stop` stops it cleanly.
 
 ## Egress for other containers
 

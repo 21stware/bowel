@@ -185,6 +185,13 @@ func TestSwitchForRendersAndClears(t *testing.T) {
 	if a.switched != nil {
 		t.Error("the note was kept with traffic not taken over")
 	}
+	// A container's ports carry traffic with takeover off.
+	t.Setenv(containerEnv, "1")
+	a.switched = &switchNote{route: r.ID, from: from, to: to, at: time.Now()}
+	if say := a.switchFor(a.switched, px, a.provNodes, running, s, false); say == nil {
+		t.Error("a container's switch is not said with takeover off")
+	}
+	t.Setenv(containerEnv, "")
 
 	// A core that is not running is not switching anything.
 	a.switched = &switchNote{route: r.ID, from: from, to: to, at: time.Now()}
