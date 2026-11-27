@@ -1,0 +1,28 @@
+name: Feature request / 功能建议
+description: Something bowel could do, or do better. / bowel 可以做的，或者可以做得更好的事。
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: Write in whichever language you like. / 用中文写就好。
+  - type: textarea
+    id: need
+    attributes:
+      label: What you're trying to do / 想做什么
+      description: The situation, and what gets in the way today. / 是什么场景，现在卡在哪里。
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How you'd like it to work / 希望怎么做
+  - type: dropdown
+    id: system
+    attributes:
+      label: System / 系统
+      multiple: true
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - Android

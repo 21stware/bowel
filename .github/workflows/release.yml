@@ -25,10 +25,24 @@
 #
 # After the release, one job each updates the APT and DNF repositories on the
 # Pages site of 21stware/packages, the Homebrew tap, the MCP Registry
-# (mcp-registry.yml, which needs no secret) and the AUR. They are separate so
-# that one failing leaves the others done and can be re-run alone.
+# (mcp-registry.yml, which needs no secret), the AUR, winget and Scoop. They
+# are separate so that one failing leaves the others done and can be re-run
+# alone.
 # The AUR job runs once the repository variable AUR_ENABLED is true: it needs an
 # AUR account that holds the public half of AUR_SSH_PRIVATE_KEY.
+#
+# The winget and Scoop jobs run once the repository variables WINGET_ENABLED
+# and SCOOP_ENABLED are true, and then need these secrets:
+#   WINGET_TOKEN                 classic token with the public_repo scope of the
+#                                account whose fork of microsoft/winget-pkgs
+#                                opens the pull request; wingetcreate forks it
+#                                when the account has no fork
+#   SCOOP_BUCKET_DEPLOY_KEY      SSH deploy key with write access to
+#                                21stware/scoop-bucket, which holds
+#                                bucket/bowel.json
+# winget offers a version once winget-pkgs has reviewed and merged its pull
+# request (scripts/render-winget.sh); re-running the job opens another. Scoop
+# offers it as soon as the bucket has it (scripts/render-scoop.sh).
 #
 # MYGO_UPDATER_PRIVATE_KEY signs the updates that installed apps download
 # (app_update.go): the archive and manifest of each desktop platform, which the
@@ -36,12 +50,16 @@
 #
 # The Docker image (Dockerfile, docs/docker.md) is pushed to
 # ghcr.io/21stware/bowel with the workflow's own token once the release is
-# published, for amd64, arm64 and armv7. It goes to Docker Hub as well when the
-# repository variable DOCKERHUB_IMAGE names a repository there (such as
-# 21stware/bowel) and these secrets are set:
+# published, for amd64, arm64 and armv7, by docker.yml, which checks that
+# anyone can pull it. It goes to Docker Hub as well when the repository
+# variable DOCKERHUB_IMAGE names a repository there (such as oboochin/bowel)
+# and these secrets are set:
 #   DOCKERHUB_USERNAME           the account, or the organization's bot
-#   DOCKERHUB_TOKEN              an access token with write access to it
+#   DOCKERHUB_TOKEN              an access token with read, write and delete
+#                                access to it
 # Run by hand, the image is built for every platform and pushed nowhere.
+# docker.yml run by hand with a release's tag publishes that release's image
+# again.
 #
 # iOS is not released yet and builds, unsigned, only when run by hand: it links
 # mihomo (GPL-3.0) into the app, which the PolyForm license and the README's
@@ -93,6 +111,10 @@ jobs:
           DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          WINGET_ENABLED: ${{ vars.WINGET_ENABLED }}
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          SCOOP_ENABLED: ${{ vars.SCOOP_ENABLED }}
+          SCOOP_BUCKET_DEPLOY_KEY: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
         run: |
           if [ "$TAG" != "v$VERSION" ]; then
             echo "::error::Tag $TAG does not match version $VERSION in mygo.json"
@@ -117,6 +139,15 @@ jobs:
               fi
             done
           fi
+          # The same for winget and Scoop, once switched on.
+          for pair in WINGET_ENABLED:WINGET_TOKEN SCOOP_ENABLED:SCOOP_BUCKET_DEPLOY_KEY; do
+            switch="${pair%%:*}"
+            name="${pair#*:}"
+            if [ "${!switch}" = true ] && [ -z "${!name}" ]; then
+              echo "::error::$switch is true, but repository secret $name is not set"
+              missing=1
+            fi
+          done
           exit "$missing"
 
   macos:
@@ -392,62 +423,19 @@ jobs:
 
   docker:
     # After the release on a tag, so that the image never names a version
-    # with nothing published; on its own when run by hand.
+    # with nothing published; on its own, with no tag and so pushing
+    # nothing, when run by hand.
     needs: [check, publish]
     if: ${{ !cancelled() && needs.check.result == 'success' && (needs.publish.result == 'success' || github.event_name != 'push') }}
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/docker.yml
+    with:
+      tag: ${{ github.event_name == 'push' && github.ref_name || '' }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     permissions:
       contents: read
       packages: write
-    env:
-      DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: docker/setup-buildx-action@v4
-
-      - name: Log in to GitHub's registry
-        if: env.PUBLISH == 'true'
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-
-      - name: Log in to Docker Hub
-        if: env.PUBLISH == 'true' && env.DOCKERHUB_IMAGE != ''
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: |
-            ghcr.io/${{ github.repository }}
-            ${{ env.DOCKERHUB_IMAGE }}
-          # 0.4.8, 0.4 and latest; a hand-run build is tagged with its commit.
-          tags: |
-            type=semver,pattern={{version}},value=v${{ needs.check.outputs.version }},enable=${{ env.PUBLISH == 'true' }}
-            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.check.outputs.version }},enable=${{ env.PUBLISH == 'true' }}
-            type=raw,value=latest,enable=${{ env.PUBLISH == 'true' }}
-            type=sha,enable=${{ env.PUBLISH != 'true' }}
-
-      # Every stage that runs a command runs on the runner and cross-compiles,
-      # so the three platforms need no emulation.
-      - uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
-          push: ${{ env.PUBLISH == 'true' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: VERSION=${{ needs.check.outputs.version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: mode=max
-          sbom: true
 
   linux-repos:
     needs: publish
@@ -569,3 +557,86 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add PKGBUILD .SRCINFO bowel-bin.install
           git diff --cached --quiet || { git commit -m "bowel $VERSION" && git push origin HEAD:master; }
+
+  winget:
+    if: vars.WINGET_ENABLED == 'true'
+    needs: publish
+    # wingetcreate, which checks the manifests and opens the pull request,
+    # runs on Windows only.
+    runs-on: windows-latest
+    steps:
+      # Git for Windows checks files out with CRLF line endings, on which
+      # bash stops.
+      - name: Check out with LF line endings
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v7
+
+      - name: Write the manifests
+        id: manifests
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          gh release download "$TAG" --pattern SHA256SUMS
+          sum() { awk -v f="bowel-setup-$VERSION-$1.exe" '$2 == f { print $1 }' SHA256SUMS; }
+          amd64="$(sum amd64)"
+          arm64="$(sum arm64)"
+          test -n "$amd64" && test -n "$arm64"
+          date="$(gh release view "$TAG" --json publishedAt --jq .publishedAt | cut -c1-10)"
+          ./scripts/render-winget.sh "$VERSION" "$amd64" "$arm64" winget "$date"
+          # winget-pkgs titles the first pull request of a package apart.
+          if gh api repos/microsoft/winget-pkgs/contents/manifests/2/21stware/bowel --silent 2>/dev/null; then
+            kind="New version"
+          else
+            kind="New package"
+          fi
+          echo "title=$kind: 21stware.bowel version $VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Submit them to microsoft/winget-pkgs
+        env:
+          WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          TITLE: ${{ steps.manifests.outputs.title }}
+        run: |
+          Invoke-WebRequest -Uri https://github.com/microsoft/winget-create/releases/download/v1.28.1.0/wingetcreate.exe -OutFile wingetcreate.exe
+          if ((Get-FileHash wingetcreate.exe -Algorithm SHA256).Hash -ne '63d980ba79e97042395bd6eb5992c2db9e01e9e7a8a22958a95c288f27310413') {
+            throw 'wingetcreate.exe does not have the SHA-256 of the release it is pinned to'
+          }
+          ./wingetcreate.exe submit --no-open --prtitle $env:TITLE winget
+
+  scoop:
+    if: vars.SCOOP_ENABLED == 'true'
+    needs: publish
+    runs-on: ubuntu-latest
+    env:
+      GIT_SSH_COMMAND: ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install the deploy key
+        env:
+          DEPLOY_KEY: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
+        run: ./scripts/install-deploy-key.sh
+
+      - name: Update the manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          gh release download "$TAG" --pattern SHA256SUMS
+          sum() { awk -v f="bowel-$VERSION-windows-$1.tar.gz" '$2 == f { print $1 }' SHA256SUMS; }
+          amd64="$(sum amd64)"
+          arm64="$(sum arm64)"
+          test -n "$amd64" && test -n "$arm64"
+          git clone git@github.com:21stware/scoop-bucket.git bucket
+          mkdir -p bucket/bucket
+          ./scripts/render-scoop.sh "$VERSION" "$amd64" "$arm64" >bucket/bucket/bowel.json
+          cd bucket
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bucket/bowel.json
+          # To the branch the bucket was made with: BucketTemplate's is master.
+          git diff --cached --quiet || { git commit -m "bowel $VERSION" && git push origin HEAD; }

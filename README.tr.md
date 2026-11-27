@@ -110,7 +110,7 @@ Tüm arayüzün görünümünü değiştiren on altı tema.
 - **İndirme kaynakları**: npm, pip, Go ve Cargo için resmi kaynağı ve her yansıyı ölçer ve tek tıkla geçiş yapar. Mevcut kaynak yanıt vermeyi durdurduğunda, tek tıkla yanıt veren en hızlı kaynağa geçirir veya tekrar bir düğüm üzerinden gönderir.
 - **Özel ağlar**: LAN, Tailscale ve şirket VPN'inizdeki adresler genel (global) modda da otomatik olarak doğrudan geçer.
 - **Çıkış kilidi (Exit lock)**: AI gibi bir rota grubunu panodaki sayfasından kilitleyin: trafiği yalnızca bir düğüm üzerinden geçer ve hiçbir düğüm taşıyamadığında doğrudan gönderilmek yerine kesilir; bu kural global, direct modlarında ve devralma kapalıyken de geçerlidir. bowel kapandığında hiçbir şey engellenmez. `bowel route lock ai` aynı işi yapar. TUN ile ve TUN olmadan neleri tuttuğu ve Android üzerindeki davranışı: [Devralma, TUN ve çıkış kilidi](https://bowel.dev/en/docs/takeover/#exit-lock).
-- **MCP**: Claude Code ve diğer ajanların durumu okuması ve bağlantı sorunlarını gidermesi için yerleşik MCP sunucusu. Varsayılan olarak ayarları değiştirmeden önce size sorar. Aşağıdaki komut macOS içindir; Windows ve Linux'ta bowel programının yolunu kullanın.
+- **MCP**: Claude Code ve diğer ajanların durumu okuması ve bağlantı sorunlarını gidermesi için yerleşik MCP sunucusu. Varsayılan olarak ayarları değiştirmeden önce size sorar; ajanların sormadan değiştirmesine yalnızca siz izin verebilirsiniz: Ayarlar > MCP'de ya da kendi terminalinizde `bowel settings set mcpPolicy allow` ile, onaylamak için `allow` yazarak. Aşağıdaki komut macOS içindir; Windows ve Linux'ta bowel programının yolunu kullanın.
   ```bash
   claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp
   ```
@@ -136,7 +136,7 @@ Debian, Ubuntu ve Fedora. Bu işlem imzalı bir paket deposu ekler, böylece `ap
 curl -fsSL https://21stware.github.io/packages/install.sh | sh
 ```
 
-Ekranı olmayan bir sunucu, NAS veya yönlendirici, Docker'da (amd64, arm64, armv7). Ardından `docker exec -it bowel bowel tui`; TUN, ağ geçidi modu, compose dosyaları ve ajanlar için MCP [docs/docker.md](docs/docker.md) dosyasındadır:
+Ekranı olmayan bir sunucu, NAS veya yönlendirici, Docker'da (amd64, arm64, armv7): imaj `ghcr.io/21stware/bowel`; NAS arayüzlerinin arama yaptığı Docker Hub'da ise `oboochin/bowel`. Ardından `docker exec -it bowel bowel tui`; TUN, ağ geçidi modu, compose dosyaları, Synology ve Unraid ile ajanlar için MCP [docs/docker.md](docs/docker.md) dosyasındadır:
 
 ```bash
 docker run -d --name bowel --restart unless-stopped -p 7899:7899 -v bowel:/data \
@@ -258,6 +258,10 @@ bowel eskiden Moho olarak adlandırılıyordu. Go modülü hâlâ `github.com/ob
 - [Flutter](https://flutter.dev): mobil uygulamaların arayüzü.
 - [OPPO Sans](resources/fonts/): masaüstü uygulamalarının yazı tipi. Mobil uygulamalar sistem yazı tipini kullanır.
 
+## Katkıda bulunanlar
+
+<a href="https://github.com/21stware/bowel/graphs/contributors"><img src="https://contrib.rocks/image?repo=21stware/bowel" alt="Katkıda bulunanlar"></a>
+
 ## Lisans
 
 bowel, yalnızca ticari olmayan kullanıma izin veren [PolyForm Noncommercial License 1.0.0](LICENSE) altında lisanslanmıştır. Ticari lisans için [bir issue açın](https://github.com/21stware/bowel/issues).
@@ -265,3 +269,12 @@ bowel, yalnızca ticari olmayan kullanıma izin veren [PolyForm Noncommercial Li
 Linux dağıtımları, paket depoları ve uygulama mağazaları, bir işletme olup olmadıklarına bakılmaksızın [paketleme istisnası](PACKAGING-EXCEPTION.md) kapsamında bowel'ı kaynaktan derleyip dağıtabilir. Kullanıcıları yine bowel'ı yalnızca ticari olmayan amaçlarla edinir.
 
 Pakete dahil edilen mihomo çekirdeği GPL-3.0 altında kalır. Masaüstü uygulamaları lisansını kaynakları arasında taşır (macOS'ta `Contents/Resources/licenses/mihomo/`), Android uygulaması Ayarlar'da adını belirtir ve her sürüm eşleşen kaynak kodu ekler. `assets/flags/` içindeki bayrak görselleri ve `resources/fonts/` içindeki yazı tipleri üçüncü taraf dosyalardır ve kendi lisanslarını korurlar.
+
+## Yıldız geçmişi
+
+<a href="https://star-history.com/#21stware/bowel&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=21stware/bowel&type=Date&theme=dark">
+    <img src="https://api.star-history.com/svg?repos=21stware/bowel&type=Date" width="600" alt="Yıldız geçmişi">
+  </picture>
+</a>

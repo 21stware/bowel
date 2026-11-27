@@ -1,0 +1,196 @@
+# Builds the Docker image (Dockerfile, docs/docker.md) for amd64, arm64 and
+# armv7 and, given a release's tag, pushes it to ghcr.io/21stware/bowel with
+# the workflow's own token. It goes to Docker Hub as well when the repository
+# variable DOCKERHUB_IMAGE names a repository there (such as oboochin/bowel)
+# and these secrets are set:
+#   DOCKERHUB_USERNAME           the account, or the organization's bot; an
+#                                admin of the repository, for its overview
+#   DOCKERHUB_TOKEN              its access token, with read, write and delete
+#                                access (the overview needs delete)
+#
+# The release workflow calls this once a release is published, and with no
+# tag when it is run by hand, which builds the image and pushes nothing. Run
+# this by hand, with a release's tag, to publish that release's image again:
+# for a release made before Docker Hub was set up, or to retry. That builds
+# the tag's source again, so its digest changes. `latest` and the minor tag
+# (0.4) go only to the newest release and the newest of its minor, so an older
+# release published again leaves them where they are.
+#
+# After pushing, it writes Docker Hub's overview from docs/docker.md, as this
+# workflow's branch has it, and checks that every name can be pulled without
+# logging in (scripts/check-image-public.sh): a private GHCR package or Docker
+# Hub repository fails the run with what to change.
+name: Docker image
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The release's tag; empty builds without pushing
+        required: false
+        type: string
+        default: ""
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release's tag, such as v0.4.9
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag }}
+      PUSH: ${{ inputs.tag != '' }}
+      GHCR_IMAGE: ghcr.io/${{ github.repository }}
+      DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+    steps:
+      # This workflow's branch, for the scripts and the docs; the image is
+      # built from src, the tag's source.
+      - uses: actions/checkout@v7
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag != '' && format('refs/tags/{0}', inputs.tag) || github.sha }}
+          path: src
+
+      - name: Check the tag and Docker Hub's secrets, and choose the tags
+        id: tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          version="$(jq -r .version src/mygo.json)"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "revision=$(git -C src rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+          if [ "$PUSH" != true ]; then
+            exit 0
+          fi
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Tag $TAG does not match version $version in its mygo.json"
+            exit 1
+          fi
+          missing=0
+          if [ -n "$DOCKERHUB_IMAGE" ]; then
+            if ! [[ "$DOCKERHUB_IMAGE" =~ ^[a-z0-9][a-z0-9_.-]*/[a-z0-9][a-z0-9_.-]*$ ]]; then
+              echo "::error::DOCKERHUB_IMAGE is $DOCKERHUB_IMAGE; it should be the repository's namespace and name, such as oboochin/bowel, with no registry or tag"
+              missing=1
+            fi
+            for name in DOCKERHUB_USERNAME DOCKERHUB_TOKEN; do
+              if [ -z "${!name}" ]; then
+                echo "::error::DOCKERHUB_IMAGE is $DOCKERHUB_IMAGE, but repository secret $name is not set"
+                missing=1
+              fi
+            done
+          fi
+          [ "$missing" = 0 ] || exit 1
+
+          # The published releases, newest last; a pre-release gets only its
+          # own tag.
+          releases="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --exclude-drafts --exclude-pre-releases \
+            --json tagName --jq '.[].tagName' | sed -n 's/^v\([0-9]*\.[0-9]*\.[0-9]*\)$/\1/p' | sort -V)"
+          minor="$(cut -d. -f1-2 <<<"$version")"
+          newest="$(tail -n 1 <<<"$releases")"
+          newest_minor="$(awk -F. -v m="$minor" '$1 "." $2 == m' <<<"$releases" | tail -n 1)"
+          latest=false
+          minor_tag=false
+          if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            [ "$version" = "$newest" ] && latest=true
+            [ "$version" = "$newest_minor" ] && minor_tag=true
+          fi
+          echo "latest=$latest" >>"$GITHUB_OUTPUT"
+          echo "minor=$minor_tag" >>"$GITHUB_OUTPUT"
+          echo "$version: latest $latest (newest release $newest), $minor $minor_tag (newest $minor.x $newest_minor)"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub's registry
+        if: env.PUSH == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Log in to Docker Hub
+        if: env.PUSH == 'true' && env.DOCKERHUB_IMAGE != ''
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            ${{ env.GHCR_IMAGE }}
+            ${{ env.DOCKERHUB_IMAGE }}
+          flavor: latest=false
+          # The tag's commit, not this branch's, which the label would name
+          # otherwise. (`context: git:src` would do it, but v6 has no such
+          # source yet.)
+          labels: org.opencontainers.image.revision=${{ steps.tags.outputs.revision }}
+          # 0.4.9, 0.4 and latest; a build that pushes nothing is tagged with
+          # its commit.
+          tags: |
+            type=semver,pattern={{version}},value=${{ inputs.tag }},enable=${{ env.PUSH == 'true' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag }},enable=${{ steps.tags.outputs.minor == 'true' }}
+            type=raw,value=latest,enable=${{ steps.tags.outputs.latest == 'true' }}
+            type=sha,enable=${{ env.PUSH != 'true' }}
+
+      # Every stage that runs a command runs on the runner and cross-compiles,
+      # so the three platforms need no emulation.
+      - id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: src
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: ${{ env.PUSH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ steps.tags.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true
+
+      - name: Write Docker Hub's overview
+        if: env.PUSH == 'true' && env.DOCKERHUB_IMAGE != ''
+        run: |
+          ./scripts/render-dockerhub-readme.sh docs/docker.md "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/main/docs/" \
+            >"$RUNNER_TEMP/dockerhub.md"
+          wc -c "$RUNNER_TEMP/dockerhub.md"
+
+      - name: Update Docker Hub's overview
+        if: env.PUSH == 'true' && env.DOCKERHUB_IMAGE != ''
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.DOCKERHUB_IMAGE }}
+          short-description: A mihomo proxy with routes, a terminal interface and MCP for agents, without a window
+          readme-filepath: ${{ runner.temp }}/dockerhub.md
+
+      # Even when the overview failed: whether anyone can pull the image
+      # matters more.
+      - name: Check that anyone can pull the image
+        if: ${{ !cancelled() && env.PUSH == 'true' && steps.push.outcome == 'success' }}
+        env:
+          VERSION: ${{ steps.tags.outputs.version }}
+        run: |
+          images=("$GHCR_IMAGE:$VERSION")
+          if [ -n "$DOCKERHUB_IMAGE" ]; then
+            images+=("docker.io/$DOCKERHUB_IMAGE:$VERSION")
+          fi
+          ./scripts/check-image-public.sh "${images[@]}"

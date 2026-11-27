@@ -397,14 +397,30 @@ func (t *tui) editSetting() {
 	}
 	key := t.setKeys[t.sel[tabSettings]]
 	old := t.set.Settings[key]
-	send := func(val string) {
+	sendAs := func(val string, confirmed bool) {
 		t.act(i18n.T("正在应用…", "Applying…"), key+" → "+val, func() error {
-			_, err := t.c.sendSetting(key, val, old)
+			_, err := t.c.sendSetting(key, val, old, confirmed)
 			if err == nil && key == "language" { // this screen speaks it too
 				i18n.Set(val)
 			}
 			return err
 		})
+	}
+	send := func(val string) {
+		from := plain(old)
+		if key != "mcpPolicy" || !looser(from, val) {
+			sendAs(val, false)
+			return
+		}
+		// Letting agents do more: the policy's name typed, as the command
+		// line asks (confirmPolicy).
+		t.input = &prompt{label: fmt.Sprintf(i18n.T("%s。输入 %s 确认", "%s. Type %s to confirm"), policyMeans(val), val), submit: func(s string) {
+			if strings.EqualFold(strings.TrimSpace(s), val) {
+				sendAs(val, true)
+			} else {
+				t.say(fmt.Sprintf(i18n.T("已取消：mcpPolicy 仍是 %s", "Cancelled: mcpPolicy stays %s"), from), true)
+			}
+		}}
 	}
 	// One of a few values: a list to take one from.
 	if ch := t.set.Choices[key]; len(ch) > 0 {
