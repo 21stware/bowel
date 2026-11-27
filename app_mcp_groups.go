@@ -686,7 +686,7 @@ func (a *App) routeGroupTools() []mcp.Tool {
 		},
 		{
 			Name: "delete_route_group", Title: "Delete a route group", Destructive: true,
-			Description: "Deletes a route group. Its services and the user's rules in it move to group to (default unless given), and its test sites go. default, direct and reject can't be deleted. An extra port pointing at it stays in the settings, closed.",
+			Description: "Deletes a route group. Its services and the user's rules in it move to group to (default unless given), and its test sites go. default, direct and reject can't be deleted. An extra port pointing at it stays in the settings, closed, and a gateway device given it (set_device_route) follows the rules again: neither moves to group to.",
 			Input:       obj(map[string]any{"route": routeArg, "to": str("The group that takes its services and rules; default unless given.")}, "route"),
 			Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
 				var p struct{ Route, To string }
