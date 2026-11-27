@@ -233,7 +233,7 @@ func (a *App) envSettingsJSON(v string) envChange {
 	if err := json.Unmarshal([]byte(v), &changes); err != nil {
 		return envChange{line: "BOWEL_SETTINGS: ignored: not a JSON object of settings"}
 	}
-	patch, err := a.settingsPatch(changes, false)
+	patch, err := a.settingsPatch(changes, false, false)
 	if err != nil {
 		return envChange{line: "BOWEL_SETTINGS: ignored: " + err.Error()}
 	}

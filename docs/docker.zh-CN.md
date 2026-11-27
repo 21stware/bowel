@@ -113,7 +113,7 @@ claude mcp add --transport http bowel http://<主机>:7900/mcp --header "Authori
 
 ## 健康检查和日志
 
-镜像的健康检查是 `bowel health`：daemon 有响应、内核在运行、端口能连上时为健康。`docker logs bowel` 是 daemon 的日志；内核的日志用 `docker exec bowel bowel logs -f` 查看。`docker stop` 会干净地停止它。
+镜像的健康检查是 `bowel health`：daemon 有响应、内核在运行、端口能连上时为健康。容器的端口不论开不开 TUN 都在承载流量，所以 `bowel status` 把容器当作正在接管来判断：内核出错、端口打不开、锁定的路由组因为没有节点而拦下所有连接，都会写在第一行和 `--json` 的 `issue` 里。`docker logs bowel` 是 daemon 的日志；内核的日志用 `docker exec bowel bowel logs -f` 查看。`docker stop` 会干净地停止它。
 
 ## 给其他容器当出口
 

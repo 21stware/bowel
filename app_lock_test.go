@@ -180,6 +180,53 @@ func TestJudgeSaysLockNotHeld(t *testing.T) {
 	}
 }
 
+// In a container the ports are how traffic comes in, takeover or not, so
+// the status is judged as under a takeover that runs though takeover (the
+// system proxy, refused there, or TUN) is off: a core that fails, a port
+// that won't open and a locked group with no node are said. The ports
+// hold the lock, so what is said of it is the refusing. Elsewhere,
+// takeover off is off.
+func TestJudgeInContainer(t *testing.T) {
+	a := &App{}
+	s := lockedSettings(settings.Settings{Mode: "rule"})
+	running := core.Status{State: core.Running}
+	judge := func(s settings.Settings, cs core.Status, snap Snapshot) (State, *Issue) {
+		// The lock's entry as the snapshot makes it, with no system proxy and no TUN.
+		tk := Takeover{Lock: containerLock(lockEntry(locks(s), a.guarding(s), a.lockFallback(s, cs), portsHold(s), ""))}
+		return a.judge(a.takeoverOn(s), s, cs, tk, snap, nil)
+	}
+	noNode := Snapshot{Routes: []RouteView{{ID: "ai", Name: "AI 服务", Locked: true}}}
+
+	t.Setenv(containerEnv, "")
+	if st, is := judge(s, core.Status{State: core.Failed, Error: "boom"}, noNode); st != StateOff || is != nil {
+		t.Errorf("outside a container, takeover off: %v %+v", st, is)
+	}
+
+	t.Setenv(containerEnv, "1")
+	if st, is := judge(s, running, noNode); st != StateDegraded || is == nil || !strings.Contains(is.Detail, "AI 服务") || !strings.Contains(is.Detail, "拦下") {
+		t.Errorf("locked group, no node at all: %v %+v", st, is)
+	}
+	dead := NodeView{Name: "n", Display: "n", Tested: true, Routes: map[string]NodeTest{}}
+	refused := Snapshot{Nodes: []NodeView{dead}, Routes: []RouteView{{ID: "ai", Name: "AI 服务", Broken: "fixed", Locked: true, Policy: routes.Policy{Mode: routes.ModeFixed, Fixed: "n"}}}}
+	if st, is := judge(s, running, refused); st != StateDegraded || is == nil || is.Detail != lockedOutSay() || is.Action != "fix:ai" {
+		t.Errorf("locked group, its node down: %v %+v", st, is)
+	}
+	if st, is := judge(s, core.Status{State: core.Failed, Error: "exit status 1\nmore"}, noNode); st != StateError || is == nil || is.Detail != "exit status 1" {
+		t.Errorf("core failed: %v %+v", st, is)
+	}
+	if st, is := judge(s, core.Status{State: core.Running, Error: "listen tcp :7899: bind: address already in use"}, noNode); st != StateError || is == nil || !strings.Contains(is.Detail, "7899") {
+		t.Errorf("port won't open: %v %+v", st, is)
+	}
+	paused := s.Clone()
+	paused.Paused = true
+	if st, is := judge(paused, core.Status{State: core.Failed, Error: "boom"}, noNode); st != StateError || is == nil {
+		t.Errorf("takeover paused, core failed: %v %+v", st, is)
+	}
+	if st, is := judge(settings.Settings{Mode: "rule"}, running, Snapshot{Nodes: []NodeView{{Name: "n"}}}); st != StateOK || is != nil {
+		t.Errorf("nothing wrong: %v %+v", st, is)
+	}
+}
+
 // A locked group with no node that works is refused, not merely down: the
 // issue says the lock refuses it and how to get out, in every mode and
 // before groups that are only down.
