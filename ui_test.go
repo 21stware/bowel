@@ -452,6 +452,45 @@ func TestMapPanZoom(t *testing.T) {
 	}
 }
 
+// On the expanded map, a node name too long for its route card ends in …
+// inside the card, and the delay keeps one line at the card's right
+// (#288: the name ran past the card and pushed "194 ms" onto two lines
+// over its edge).
+func TestMapCardLongName(t *testing.T) {
+	const name = "新加坡 01 Hysteria2 IPv6 直连 · 家宽 · 0.5x 倍率 · 解锁 Netflix"
+	u := fixtureUI()
+	for i := range u.snap.Nodes {
+		if u.snap.Nodes[i].Display == "新加坡 01" {
+			u.snap.Nodes[i].Display = name
+		}
+	}
+	const w, h = 1060, 760
+	tt := ui.NewTester(u.view, w, h)
+	u.home.x = "map"
+	tt.Frame()
+	tt.Advance(2 * time.Second)
+	shot(t, tt, "x-map-long-name")
+	// The cards are 270 wide, 18 from the right, with 10 of padding.
+	right := float32(w - 18 - 10)
+	r, ok := tt.Find(name)
+	if !ok {
+		t.Fatalf("no card for the long name: %q", tt.Texts())
+	}
+	if r.X+r.W > right {
+		t.Errorf("the name ends at %v, past the card's padding at %v", r.X+r.W, right)
+	}
+	d, ok := tt.Find("143 ms")
+	if !ok {
+		t.Fatalf("no delay: %q", tt.Texts())
+	}
+	if d.X+d.W > right || d.Y < r.Y-10 || d.Y > r.Y+r.H+10 {
+		t.Errorf("the delay at %+v is not beside the name at %+v within the card", d, r)
+	}
+	if d.H > 24 {
+		t.Errorf("the delay takes %v DIPs of height: it broke onto two lines", d.H)
+	}
+}
+
 // As the map zooms, you go with it smoothly: one of the land's dots stays
 // under you rather than sliding past (they were laid out from 0°, 0°,
 // half a world away, so each step shifted them up to a pitch around
