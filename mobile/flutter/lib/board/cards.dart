@@ -8,6 +8,7 @@ import '../app/shown.dart';
 import '../app/state.dart';
 import '../pages/sheet.dart' show PickOption, pickSheet;
 import '../ui/atoms.dart';
+import '../ui/focus.dart';
 import '../ui/skin.dart';
 import 'fly.dart';
 
@@ -675,7 +676,7 @@ class _RoutesCard extends StatelessWidget {
         ]),
       ),
     );
-    return r.direct ? content : Tap(onTap: () => s.openSub(r.id), child: content);
+    return r.direct ? content : FocusMark('route:${r.id}', child: Tap(onTap: () => s.openSub(r.id), child: content));
   }
 }
 
@@ -811,7 +812,7 @@ class _PickRow extends StatelessWidget {
       app: s,
       node: n.name,
       route: route.id,
-      child: Tap(
+      child: FocusMark(on ? 'picked' : 'node:${n.name}', child: Tap(
       onTap: () => s.pickNode(route.id, n.name),
       child: Container(
         constraints: const BoxConstraints(minHeight: 58),
@@ -844,7 +845,7 @@ class _PickRow extends StatelessWidget {
           SizedBox(width: 17, child: on ? Ic('check', size: 17, color: l.ink) : null),
         ]),
       ),
-      ),
+      )),
     );
   }
 }
@@ -887,7 +888,7 @@ class _ModeCard extends StatelessWidget {
       title: Text(tr('模式与规则', 'Mode and rules'), style: _h3(l)),
       body: ListView(padding: EdgeInsets.zero, children: [
         for (final (i, x) in modes.indexed)
-          Unroll(
+          FocusMark(x.$1 == s.mode ? 'picked' : 'mode:${x.$1}', child: Unroll(
             step: (i + 1) * 2,
             child: Tap(
               onTap: () => s.setMode(x.$1),
@@ -906,7 +907,7 @@ class _ModeCard extends StatelessWidget {
                 ),
               ),
             ),
-          ),
+          )),
         Unroll(
           step: 8,
           child: _Hairline(

@@ -1,0 +1,206 @@
+import 'package:flutter/widgets.dart';
+
+import 'skin.dart';
+
+// A TV remote, or a keyboard, moves a focus around the screen: the D-pad
+// moves it within the level that is up (the board, an opened card, a sheet,
+// a page), OK presses what has it, and Back goes up a level. Under touch
+// none of this shows: the ring is drawn only while keys are driving, and
+// levels take focus as they open only then.
+
+/// Keys, not a finger, are driving: Flutter's own switch, flipped by the
+/// last key or touch.
+bool get keyDriven => FocusManager.instance.highlightMode == FocusHighlightMode.traditional;
+
+/// Focuses [node] the way a D-pad move does, scrolling it into view.
+void focusTo(FocusNode node) => FocusTraversalPolicy.defaultTraversalRequestFocusCallback(node);
+
+/// The ring a focused target wears: the theme color where it stands out on
+/// the paper, the ink where it doesn't (a lime on white).
+BoxDecoration focusRing(Look l, double radius) {
+  final c = contrast(l.accent, l.paper) >= 3 ? l.accent : l.ink;
+  return BoxDecoration(
+    borderRadius: l.br(radius),
+    border: Border.all(color: c, width: 2.5, strokeAlign: BorderSide.strokeAlignInside),
+  );
+}
+
+/// Something OK presses. A finger still goes through the [child]'s own
+/// gesture detector; this only adds the focus, the ring and the key.
+class KeyTarget extends StatefulWidget {
+  const KeyTarget({super.key, required this.onActivate, required this.child, this.radius = 10, this.focusNode});
+
+  /// Null leaves it out of the focus order, as a disabled button is.
+  final VoidCallback? onActivate;
+  final Widget child;
+  final double radius;
+  final FocusNode? focusNode;
+
+  @override
+  State<KeyTarget> createState() => _KeyTargetState();
+}
+
+class _KeyTargetState extends State<KeyTarget> {
+  bool _lit = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final on = widget.onActivate;
+    return FocusableActionDetector(
+      enabled: on != null,
+      focusNode: widget.focusNode,
+      onShowFocusHighlight: (v) {
+        if (v != _lit) setState(() => _lit = v);
+      },
+      actions: {
+        ActivateIntent: CallbackAction<ActivateIntent>(
+          onInvoke: (_) {
+            on?.call();
+            return null;
+          },
+        ),
+      },
+      child: _lit ? DecoratedBox(position: DecorationPosition.foreground, decoration: focusRing(Skin.of(context), widget.radius), child: widget.child) : widget.child,
+    );
+  }
+}
+
+/// Marks the target under it, so a level can pick it to focus first or
+/// return to: the chosen option, the row a page was opened from.
+class FocusMark extends StatelessWidget {
+  const FocusMark(this.id, {super.key, required this.child});
+  final String id;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => child;
+}
+
+/// One level the D-pad moves in. Only an [active] level that isn't [covered]
+/// lets anything in it take focus. When it opens, or [entry] changes, with
+/// keys driving: what had focus there last, else the target marked
+/// [initial], else the first in reading order. With [restore], focus goes
+/// back to where it came from when the level closes.
+class FocusLevel extends StatefulWidget {
+  const FocusLevel({super.key, required this.child, this.active = true, this.covered = false, this.restore = false, this.take = true, this.initial, this.entry});
+
+  final Widget child;
+  final bool active, covered, restore;
+
+  /// Takes focus from wherever it is. Without, only focus that was lost: a
+  /// tab's page leaves the D-pad on the tab that opened it.
+  final bool take;
+  final String? initial;
+
+  /// A change opens the level afresh: an opened card that shows another page.
+  final Object? entry;
+
+  @override
+  State<FocusLevel> createState() => _FocusLevelState();
+}
+
+class _FocusLevelState extends State<FocusLevel> {
+  final _node = FocusNode(debugLabel: 'level', skipTraversal: true, canRequestFocus: false);
+  FocusNode? _from, _last;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.active) _enter();
+  }
+
+  @override
+  void didUpdateWidget(FocusLevel old) {
+    super.didUpdateWidget(old);
+    if (widget.active && !old.active) {
+      _enter();
+    } else if (!widget.active && old.active) {
+      _leave();
+    } else if (widget.active && widget.entry != old.entry) {
+      _last = null;
+      _enter(force: true);
+    }
+  }
+
+  @override
+  void deactivate() {
+    if (widget.active) _leave();
+    super.deactivate();
+  }
+
+  @override
+  void dispose() {
+    _node.dispose();
+    super.dispose();
+  }
+
+  void _enter({bool force = false}) {
+    final now = FocusManager.instance.primaryFocus;
+    if (!force) _from = now == null || now is FocusScopeNode || _inside(now) ? null : now;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _land(force: force));
+  }
+
+  /// Puts the focus in the level. An opened card is still growing into place,
+  /// with its list not yet built down to the [FocusLevel.initial] row: for a
+  /// few frames, until the D-pad moves, focus goes on to that row when it is.
+  void _land({required bool force, FocusNode? landed, int frames = 0}) {
+    if (!mounted || !widget.active || widget.covered || !keyDriven) return;
+    if (landed == null) {
+      if (!force && _node.hasFocus) return;
+      final now = FocusManager.instance.primaryFocus;
+      if (!force && !widget.take && now != null && now is! FocusScopeNode && now.canRequestFocus) return;
+      landed = _pick();
+      if (landed == null) return;
+      focusTo(landed);
+    } else {
+      if (FocusManager.instance.primaryFocus != landed) return;
+      final marked = _marked();
+      if (marked != null) {
+        if (marked != landed) focusTo(marked);
+        return;
+      }
+    }
+    if (widget.initial == null || _markOf(landed) == widget.initial || frames >= 40) return;
+    final at = landed;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _land(force: force, landed: at, frames: frames + 1));
+  }
+
+  void _leave() {
+    final now = FocusManager.instance.primaryFocus;
+    final had = now != null && _inside(now);
+    if (had) _last = now;
+    final from = _from;
+    _from = null;
+    if (!widget.restore || !had || from == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (keyDriven && from.context != null && from.canRequestFocus) focusTo(from);
+    });
+  }
+
+  bool _inside(FocusNode n) => n == _node || n.ancestors.contains(_node);
+
+  static String? _markOf(FocusNode n) => n.context?.findAncestorWidgetOfExactType<FocusMark>()?.id;
+
+  List<FocusNode> get _targets => _node.traversalDescendants.where((n) => n is! FocusScopeNode && n.context != null).toList();
+
+  FocusNode? _marked() {
+    final want = widget.initial;
+    return want == null ? null : _targets.where((n) => _markOf(n) == want).firstOrNull;
+  }
+
+  FocusNode? _pick() {
+    final last = _last;
+    if (last != null && last.context != null && last.canRequestFocus && _inside(last)) return last;
+    final all = _targets;
+    if (all.isEmpty) return null;
+    return _marked() ?? ReadingOrderTraversalPolicy().sortDescendants(all, _node).first;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final open = widget.active && !widget.covered;
+    return FocusTraversalGroup(
+      child: Focus(focusNode: _node, canRequestFocus: false, skipTraversal: true, descendantsAreFocusable: open, descendantsAreTraversable: open, child: widget.child),
+    );
+  }
+}

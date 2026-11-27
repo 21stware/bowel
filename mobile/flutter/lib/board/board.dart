@@ -1,3 +1,4 @@
+import 'dart:async' show Timer;
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show mapEquals;
@@ -6,6 +7,7 @@ import 'package:flutter/widgets.dart';
 import '../app/state.dart';
 import '../pages/frame.dart';
 import '../ui/atoms.dart';
+import '../ui/focus.dart';
 import '../ui/skin.dart';
 import 'cards.dart';
 import 'fly.dart';
@@ -61,6 +63,10 @@ const _medium = _Grid([1, 1], [300, 200, 220, 200], [
 
 const _sqRow = 78.0, _sqCol = 190.0;
 
+/// What an opened card wants at the least: room for its switch (cards.dart's
+/// 300) and a little over.
+const _openRoom = 316.0;
+
 /// [tracks] scaled to fill [total]: closed tracks stay at [sq] points, and the
 /// [open] ones share the rest in equal parts.
 List<double> _openTracks(List<double> tracks, double total, double sq, Iterable<int> open) {
@@ -85,14 +91,24 @@ Map<String, Rect> _gridLayout(_Grid g, String? x, double height, double width) {
   final short = [for (var i = 0; i < rows.length; i++) math.max(0.0, mins[i] - rows[i])].reduce((p, n) => p + n);
   if (short > 0) {
     final spare = [for (var i = 0; i < rows.length; i++) over(i)].reduce((p, n) => p + n);
-    final keep = spare > short ? (spare - short) / spare : 0.0;
-    rows = [for (var i = 0; i < rows.length; i++) mins[i] + over(i) * keep];
+    if (spare > short) {
+      final keep = (spare - short) / spare;
+      rows = [for (var i = 0; i < rows.length; i++) mins[i] + over(i) * keep];
+    } else {
+      // Barely tall enough, as a TV's 540 is: the rows stand at their least,
+      // and what's left goes to them as the grid shares it out.
+      final left = math.max(0.0, fullH - sum(mins));
+      rows = [for (var i = 0; i < rows.length; i++) mins[i] + left * g.rows[i] / sum(g.rows)];
+    }
   }
+  // The closed rows give up room down to a strip, so a short board's opened
+  // card still has the height its switch needs.
+  final sqRow = ((fullH - _openRoom) / (g.rows.length - 1)).clamp(_strip, _sqRow);
   for (final s in g.slots) {
     if (s.id != x) continue;
     // A card as wide as the grid has no column to take from.
     if (s.cols.length < g.cols.length) cols = _openTracks(cols, fullW, _sqCol, s.cols);
-    rows = _openTracks(rows, fullH, _sqRow, [s.row]);
+    rows = _openTracks(rows, fullH, sqRow, [s.row]);
   }
   final out = <String, Rect>{};
   double before(List<double> a, int i) => a.take(i).fold(0.0, (p, n) => p + n) + i;
@@ -223,12 +239,24 @@ class _CellState extends State<_Cell> with TickerProviderStateMixin {
   String? _leaving;
   Size _leavingSize = Size.zero;
   bool _down = false;
+  Timer? _up;
+  final _focus = FocusNode(debugLabel: 'cell');
 
   Size _sizeFor(_Cell w, String kind) => kind == 'normal' ? w.normalBox.size : w.box.size;
 
   @override
   void didUpdateWidget(_Cell old) {
     super.didUpdateWidget(old);
+    if (widget.kind == 'expanded' && old.kind != 'expanded') {
+      _sub = widget.app.sub;
+      _fromSub = null;
+    }
+    // Back out of the card: the D-pad is where it went in.
+    if (old.kind == 'expanded' && widget.kind != 'expanded') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && keyDriven && _focus.canRequestFocus) focusTo(_focus);
+      });
+    }
     if (old.kind != widget.kind) {
       _leaving = old.kind;
       _leavingSize = _sizeFor(old, old.kind);
@@ -242,13 +270,39 @@ class _CellState extends State<_Cell> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _up?.cancel();
+    _focus.dispose();
     _enter.dispose();
     _leave.dispose();
     super.dispose();
   }
 
   void _setDown(bool v) {
-    if (_down != v) setState(() => _down = v);
+    if (_down != v && mounted) setState(() => _down = v);
+  }
+
+  /// OK on a remote: the tint a finger gives, for a moment.
+  void _key() {
+    final onTap = _onTap;
+    if (onTap == null) return;
+    _setDown(true);
+    _up?.cancel();
+    _up = Timer(const Duration(milliseconds: 120), () => _setDown(false));
+    onTap();
+  }
+
+  /// The route whose exits the routes card showed, and the one before.
+  String? _sub, _fromSub;
+
+  /// Where focus starts in the opened card: the exit in use, or the route
+  /// whose exits were just left.
+  String get _initial {
+    final sub = widget.app.sub;
+    if (sub != _sub) {
+      _fromSub = _sub;
+      _sub = sub;
+    }
+    return sub == null && _fromSub != null ? 'route:$_fromSub' : 'picked';
   }
 
   VoidCallback? get _onTap {
@@ -274,19 +328,26 @@ class _CellState extends State<_Cell> with TickerProviderStateMixin {
       top: 0,
       width: size.width,
       height: size.height,
+      // On the board a card is one stop for the D-pad, and OK opens it: what
+      // is in it is pressed once it's open, where all of it is.
       child: shown
-          ? EntranceScope(notifier: _enter, child: body)
-          : IgnorePointer(
-              child: AnimatedBuilder(
-                animation: _leave,
-                child: body,
-                builder: (context, child) {
-                  final t = const Cubic(.4, 0, 1, 1).transform(_leave.value);
-                  return ClipRect(
-                    clipper: _Rolled(1 - t),
-                    child: Transform.translate(offset: Offset(0, -6 * t), child: child),
-                  );
-                },
+          ? EntranceScope(
+              notifier: _enter,
+              child: kind == 'expanded' ? FocusLevel(entry: widget.app.sub, initial: _initial, child: body) : ExcludeFocus(child: body),
+            )
+          : ExcludeFocus(
+              child: IgnorePointer(
+                child: AnimatedBuilder(
+                  animation: _leave,
+                  child: body,
+                  builder: (context, child) {
+                    final t = const Cubic(.4, 0, 1, 1).transform(_leave.value);
+                    return ClipRect(
+                      clipper: _Rolled(1 - t),
+                      child: Transform.translate(offset: Offset(0, -6 * t), child: child),
+                    );
+                  },
+                ),
               ),
             ),
     );
@@ -299,7 +360,7 @@ class _CellState extends State<_Cell> with TickerProviderStateMixin {
     final bg = expanded ? l.sheet : (_down ? Color.lerp(l.paper, l.ink, .07)! : l.paper);
     final onTap = _onTap;
     final look = l;
-    return GestureDetector(
+    final cell = GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapDown: onTap == null ? null : (_) => _setDown(true),
       onTapUp: (_) => _setDown(false),
@@ -321,6 +382,11 @@ class _CellState extends State<_Cell> with TickerProviderStateMixin {
           ),
         ),
       ),
+    );
+    // Beside an opened card the others are squeezed, not a level of their own.
+    return ExcludeFocus(
+      excluding: widget.kind == 'compact',
+      child: FocusMark('cell:${widget.id}', child: KeyTarget(onActivate: expanded ? null : _key, radius: 0, focusNode: _focus, child: cell)),
     );
   }
 }

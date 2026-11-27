@@ -15,6 +15,7 @@ import 'pages/providers.dart';
 import 'pages/settings.dart';
 import 'pages/sheet.dart';
 import 'pages/setup.dart';
+import 'ui/focus.dart';
 import 'ui/skin.dart';
 
 Future<void> main() async {
@@ -96,11 +97,12 @@ class _RootState extends State<_Root> {
                     nativeBar: Shell.instance.native,
                     homeIndicator: media.bottom,
                     form: windowFormOf(MediaQuery.sizeOf(context)),
+                    overscan: overscanOf(MediaQuery.sizeOf(context)),
                   );
                   return Frame(
                     data: frame,
                     child: Stack(fit: StackFit.expand, children: [
-                      app.setup != 0 ? SetupPage(app: app) : _Tabs(app: app),
+                      app.setup != 0 ? Padding(padding: frame.overscan, child: FocusLevel(take: false, child: SetupPage(app: app))) : _Tabs(app: app),
                       const IgnorePointer(child: Deco()),
                     ]),
                   );
@@ -114,31 +116,75 @@ class _RootState extends State<_Root> {
   }
 }
 
-class _Tabs extends StatelessWidget {
+class _Tabs extends StatefulWidget {
   const _Tabs({required this.app});
   final AppState app;
 
   @override
+  State<_Tabs> createState() => _TabsState();
+}
+
+class _TabsState extends State<_Tabs> {
+  /// The tabs in the bar Flutter draws, where Back brings a remote's focus.
+  final _tabFocus = List.generate(4, (i) => FocusNode(debugLabel: 'tab $i'));
+
+  @override
+  void dispose() {
+    for (final n in _tabFocus) {
+      n.dispose();
+    }
+    super.dispose();
+  }
+
+  /// Back, up one level. A finger's: a sheet, a 设置 page, an opened card,
+  /// the 代理 tab, out. A remote's goes through the levels it moves in: out
+  /// of a text field, a sheet, a 设置 page, a route's exits, an opened card,
+  /// to the tabs, then the same.
+  void _back() {
+    final app = widget.app;
+    final keys = keyDriven;
+    final nav = app.settingsNav.currentState;
+    final now = FocusManager.instance.primaryFocus;
+    final inBar = _tabFocus.any((n) => n.hasFocus);
+    final bar = _tabFocus[app.tab];
+    if (keys && now != null && now.context?.findAncestorStateOfType<EditableTextState>() != null) {
+      // Android has closed the keyboard already; this leaves the field
+      final box = now.ancestors.where((n) => n is! FocusScopeNode && n.canRequestFocus && !n.skipTraversal).firstOrNull;
+      box == null ? now.unfocus() : focusTo(box);
+    } else if (app.sheet != null) {
+      app.closeSheet();
+    } else if (app.tab == 3 && nav != null && nav.canPop()) {
+      nav.pop();
+    } else if (app.tab == 0 && app.x != null) {
+      keys && app.sub != null ? app.subBack() : app.collapse();
+    } else if (keys && !inBar && bar.context != null && bar.canRequestFocus) {
+      focusTo(bar);
+    } else if (app.tab != 0) {
+      app.selectTab(0);
+      if (keys && inBar) focusTo(_tabFocus[0]);
+    } else {
+      SystemNavigator.pop();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final app = widget.app;
     final frame = Frame.of(context);
     final kb = MediaQuery.viewInsetsOf(context).bottom;
-    Widget page(int i, Widget child) => TickerMode(enabled: app.tab == i, child: child);
+    final safe = frame.overscan;
+    // Each tab's page is a level: only the one shown takes focus, and none
+    // while a sheet is over it.
+    Widget page(int i, Widget child) => TickerMode(
+          enabled: app.tab == i,
+          child: FocusLevel(active: app.tab == i, covered: app.sheet != null, take: false, child: child),
+        );
+    // The tabs are there to go to from a page, not from a card or a sheet.
+    final barShut = app.sheet != null || (app.tab == 0 && app.x != null);
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        final nav = app.settingsNav.currentState;
-        if (app.sheet != null) {
-          app.closeSheet();
-        } else if (app.tab == 3 && nav != null && nav.canPop()) {
-          nav.pop();
-        } else if (app.tab == 0 && app.x != null) {
-          app.collapse();
-        } else if (app.tab != 0) {
-          app.selectTab(0);
-        } else {
-          SystemNavigator.pop();
-        }
+        if (!didPop) _back();
       },
       child: Column(children: [
       Expanded(
@@ -146,9 +192,14 @@ class _Tabs extends StatelessWidget {
         child: Stack(fit: StackFit.expand, children: [
           Padding(
             // With the bar up top, nothing else keeps the pages off the gesture area.
-            padding: EdgeInsets.only(top: frame.top, bottom: frame.drawnTopBar && kb == 0 ? frame.homeIndicator : 0),
+            padding: EdgeInsets.only(
+              left: safe.left,
+              right: safe.right,
+              top: frame.top + safe.top,
+              bottom: (frame.drawnTopBar && kb == 0 ? frame.homeIndicator : 0) + (kb == 0 ? safe.bottom : 0),
+            ),
             child: Column(children: [
-              if (frame.drawnTopBar) TopTabs(app: app),
+              if (frame.drawnTopBar) ExcludeFocus(excluding: barShut, child: TopTabs(app: app, focus: _tabFocus)),
               Expanded(
                 child: IndexedStack(
                   index: app.tab,
@@ -159,7 +210,7 @@ class _Tabs extends StatelessWidget {
                         // a keyboard squeezes the opened card rather than covering its footer
                         padding: EdgeInsets.only(bottom: frame.nativeBar ? (kb > frame.barInset ? kb : frame.barReserve) : kb),
                         child: Column(children: [
-                          UpdateNotice(app: app),
+                          ExcludeFocus(excluding: app.x != null, child: UpdateNotice(app: app)),
                           Expanded(child: Board(app: app)),
                         ]),
                       ),
@@ -176,7 +227,7 @@ class _Tabs extends StatelessWidget {
           if (app.toast != null) Toast(app.toast!),
         ]),
       ),
-      if (!frame.nativeBar && !frame.drawnTopBar && !Platform.isIOS) AndroidBar(app: app),
+      if (!frame.nativeBar && !frame.drawnTopBar && !Platform.isIOS) ExcludeFocus(excluding: barShut, child: AndroidBar(app: app, focus: _tabFocus)),
     ]),
     );
   }

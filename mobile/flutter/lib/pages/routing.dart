@@ -9,6 +9,7 @@ import '../app/shell.dart';
 import '../app/shown.dart';
 import '../app/state.dart';
 import '../ui/atoms.dart';
+import '../ui/focus.dart';
 import '../ui/skin.dart';
 import 'frame.dart';
 import 'rows.dart';
@@ -1835,7 +1836,8 @@ void pushPage(BuildContext context, Widget page) {
 PageRoute<void> routeOf(Widget page) => PageRouteBuilder<void>(
       transitionDuration: const Duration(milliseconds: 320),
       reverseTransitionDuration: const Duration(milliseconds: 260),
-      pageBuilder: (_, _, _) => page,
+      // a level for the D-pad, which goes back to the row it came from
+      pageBuilder: (_, _, _) => FocusLevel(restore: true, child: page),
       transitionsBuilder: (_, a, _, child) => SlideTransition(
         position: Tween(begin: const Offset(1, 0), end: Offset.zero).animate(CurvedAnimation(parent: a, curve: easeCard)),
         child: child,

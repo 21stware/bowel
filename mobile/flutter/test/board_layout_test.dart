@@ -14,7 +14,34 @@ void main() {
     expect(windowFormOf(const Size(899, 1200)), WindowForm.medium);
     expect(windowFormOf(const Size(900, 600)), WindowForm.wide);
     expect(windowFormOf(const Size(1376, 1032)), WindowForm.wide);
-    expect(windowFormOf(const Size(1000, 599)), WindowForm.phone); // too short for the grids
+    expect(windowFormOf(const Size(1000, 519)), WindowForm.phone); // too short for the grids
+    expect(windowFormOf(const Size(960, 540)), WindowForm.wide); // a 1080p TV
+    expect(windowFormOf(const Size(915, 412)), WindowForm.phone); // a big phone on its side
+  });
+
+  test('only a TV-shaped window keeps off the edges', () {
+    expect(overscanOf(const Size(960, 540)), const EdgeInsets.symmetric(horizontal: 48, vertical: 27));
+    expect(overscanOf(const Size(1280, 720)), const EdgeInsets.symmetric(horizontal: 64, vertical: 36));
+    expect(overscanOf(const Size(844, 390)), EdgeInsets.zero); // a phone on its side
+    expect(overscanOf(const Size(1194, 834)), EdgeInsets.zero); // a tablet
+  });
+
+  // A TV's 960x540, less the margins and the tabs along the top.
+  test('a TV board holds every card, opened or not', () {
+    const size = Size(864, 436);
+    for (final x in [null, ..._ids]) {
+      final cells = boardLayout(WindowForm.wide, x, size.height, size.width);
+      final bottom = cells.values.map((r) => r.bottom).reduce((p, n) => p > n ? p : n);
+      expect(bottom, closeTo(size.height, .01), reason: '$x');
+      if (x == null) {
+        expect(cells['hero']!.height, greaterThanOrEqualTo(146 - 1e-9));
+        expect(cells['routes']!.height, greaterThanOrEqualTo(166 - 1e-9));
+        expect(cells['speed']!.height, greaterThanOrEqualTo(104 - 1e-9));
+      } else {
+        // room for the opened card's switch
+        expect(cells[x]!.height, greaterThanOrEqualTo(300), reason: x);
+      }
+    }
   });
 
   for (final (form, size) in [
