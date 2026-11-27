@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -90,7 +91,7 @@ func screen(t *testing.T) (*tui, *[]string) {
 		"set_gateway":    func(map[string]any) (any, error) { return map[string]any{}, nil },
 		"get_settings": func(map[string]any) (any, error) {
 			return map[string]any{"settings": map[string]any{"logLevel": "info", "mixedPort": 7899, "allowLan": false, "mcpPolicy": "ask", "mode": "rule"},
-				"editable": []string{"mixedPort", "logLevel", "allowLan"}, "choices": map[string][]string{"logLevel": {"debug", "info"}}}, nil
+				"editable": []string{"mixedPort", "logLevel", "allowLan"}, "choices": map[string][]string{"logLevel": {"debug", "info"}, "mcpPolicy": {"ask", "allow", "deny"}}}, nil
 		},
 		"update_settings": func(map[string]any) (any, error) { return map[string]any{"changed": []string{"x"}}, nil },
 	})
@@ -364,6 +365,45 @@ func TestTUIChanges(t *testing.T) {
 	keys(ui, "q")
 	if !ui.quit {
 		t.Errorf("q did not quit")
+	}
+}
+
+// TestTUIPolicy: letting agents do more is typed out, as on the command
+// line, and goes as confirmed; a stricter policy is taken from the list.
+func TestTUIPolicy(t *testing.T) {
+	ui, calls := screen(t)
+	sent := func(want string) bool { return slices.Contains(*calls, want) }
+	keys(ui, "6jj\r") // allowLan, logLevel, mcpPolicy
+	if ui.choose == nil || ui.choose.title != "mcpPolicy" {
+		t.Fatalf("not the policy's list:\n%s", text(ui))
+	}
+	keys(ui, "j\r") // allow
+	if ui.input == nil || !strings.Contains(text(ui), "without asking you. Type allow to confirm") {
+		t.Fatalf("allow was not asked for:\n%s", text(ui))
+	}
+	keys(ui, "y\r")
+	if slices.ContainsFunc(*calls, func(c string) bool { return strings.HasPrefix(c, "update_settings") }) || !strings.Contains(text(ui), "Cancelled: mcpPolicy stays ask") {
+		t.Errorf("y let it through: %v\n%s", *calls, text(ui))
+	}
+	keys(ui, "\rj\rallow\r")
+	if !sent(`update_settings {"changes":{"mcpPolicy":"allow"},"confirmed":true}`) {
+		t.Errorf("typed allow: %v", *calls)
+	}
+	keys(ui, "\rjj\r") // deny: nothing to type
+	if ui.input != nil || !sent(`update_settings {"changes":{"mcpPolicy":"deny"}}`) {
+		t.Errorf("deny: %v", *calls)
+	}
+}
+
+func TestLooser(t *testing.T) {
+	for _, c := range []struct {
+		from, to string
+		want     bool
+	}{{"ask", "allow", true}, {"deny", "ask", true}, {"deny", "allow", true}, {"", "allow", true},
+		{"allow", "ask", false}, {"ask", "deny", false}, {"ask", "ask", false}, {"", "ask", false}, {"ask", "everything", false}} {
+		if got := looser(c.from, c.to); got != c.want {
+			t.Errorf("looser(%q, %q) = %v", c.from, c.to, got)
+		}
 	}
 }
 

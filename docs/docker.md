@@ -23,9 +23,9 @@ docker exec -it bowel bowel tui
 | --- | --- |
 | `ghcr.io/21stware/bowel:latest` | the latest release |
 | `ghcr.io/21stware/bowel:0.4` | the latest 0.4.x |
-| `ghcr.io/21stware/bowel:0.4.8` | one release |
+| `ghcr.io/21stware/bowel:0.4.9` | one release; 0.4.9 is the first with an image |
 
-The same image is on Docker Hub as `21stware/bowel` (`docker pull 21stware/bowel`), which is where Synology's Container Manager, Unraid and other NAS interfaces search; every command here takes either name.
+The same tags are on Docker Hub as `oboochin/bowel` (`docker pull oboochin/bowel`), the registry that Synology's Container Manager and other NAS interfaces search; every command here takes either name. Both are public: pulling needs no `docker login`.
 
 The amd64 image carries mihomo's `v1` build, which runs on every x86-64 CPU, including the Atoms and Celerons of many NAS boxes. Each release pushes the image after the release itself is published; the image does not update itself, so pull a new tag to update (`docker compose pull && docker compose up -d`). The data volume carries over.
 
@@ -52,6 +52,19 @@ volumes:
 ```
 
 [docker/compose.tun.yaml](docker/compose.tun.yaml) runs TUN on the host's network, for the host's own traffic or for gateway mode (below).
+
+## NAS
+
+**Synology** (Container Manager, DSM 7.2 or later). In *Project*, *Create* a project with a folder of its own as its path, create its `docker-compose.yml` in the editor and paste [docker/compose.yaml](docker/compose.yaml), with your subscription in it. Or, without compose: search for `oboochin/bowel` in *Registry* (Docker Hub is its default) and download it, then select it in *Image* and *Run* it, with local port 7899 for the container's 7899, a folder mounted at `/data`, and `BOWEL_SUBSCRIPTION` and `TZ` in its environment. The image has no shell, so open the interface over SSH: `sudo docker exec -it bowel bowel tui`.
+
+**Unraid.** [docker/unraid.xml](docker/unraid.xml) is a template for the Docker page: the proxy port, `/data` in `/mnt/user/appdata/bowel`, the subscription and who may use the proxy. Unraid keeps its containers' templates in `/boot/config/plugins/dockerMan/templates-user`; save it there from Unraid's terminal and install it from *Apps*, *Previous Apps* (Community Applications):
+
+```bash
+curl -fsSL -o /boot/config/plugins/dockerMan/templates-user/my-bowel.xml \
+  https://raw.githubusercontent.com/21stware/bowel/main/docs/docker/unraid.xml
+```
+
+The interface is `docker exec -it bowel bowel tui` in Unraid's terminal; the container's *Console* has no shell to open. For MCP from other machines, add port 7900 with *Add another Path, Port, Variable, Label or Device*. For TUN, set *Network Type* to *Host*, add `--cap-add=NET_ADMIN` to *Extra Parameters* (*Advanced View*) and `/dev/net/tun` as a *Device*, and set the variable `BOWEL_MCP_HTTP` to `127.0.0.1:7900` (on the host's network, 7900 is the server's own port); then see [TUN and gateway mode](#tun-and-gateway-mode).
 
 ## Settings
 
@@ -99,11 +112,96 @@ claude mcp add --transport http bowel http://<host>:7900/mcp --header "Authoriza
 
 Other clients take the same URL and header (`"type": "http"`, `"url"`, `"headers"`). `BOWEL_MCP_TOKEN` sets a token of your own (16 characters or more) instead; an empty `BOWEL_MCP_HTTP` turns the endpoint off. Without TLS it is plain HTTP and the token travels in the clear: publish 7900 on `127.0.0.1`, a VPN or a private network only, or turn TLS on. `BOWEL_MCP_TLS=on` makes a self-signed certificate in `/data` (name the host clients use in `BOWEL_MCP_TLS_HOSTS`, as `nas.lan,192.168.1.5`); `docker exec bowel bowel mcp token` then prints its fingerprint and the `https://` lines, and `docker exec bowel bowel mcp cert` the certificate for the agent's machine to trust. `BOWEL_MCP_TLS_CERT` and `BOWEL_MCP_TLS_KEY` serve a certificate of your own instead. [mcp-http.md](mcp-http.md) has the clients' side, and how one agent drives several bowels.
 
-There is no window to ask in, so under the default policy, "ask", an agent can read everything and change nothing. Let agents change things with `docker exec bowel bowel settings set mcpPolicy allow`. Agents on the same host can also run `docker exec -i bowel bowel mcp`, the stdio server, which needs no token.
+There is no window to ask in, so under the default policy, "ask", an agent on MCP can read everything and change nothing. To let agents change things, run `docker exec -it bowel bowel settings set mcpPolicy allow` yourself and type `allow` when it asks (or choose it on `bowel tui`'s settings page). Without `-it` it is refused: `docker exec` brings the container's environment, not the caller's, so bowel can't tell an agent's `docker exec` from yours, and only you are at the terminal to answer. For the same reason, a command an agent runs with `docker exec bowel bowel …` is taken as yours and not asked about; give agents MCP when their changes should follow the policy. Agents on the same host can also run `docker exec -i bowel bowel mcp`, the stdio server, which needs no token.
 
 ## Health and logs
 
-The image's health check is `bowel health`: healthy while the daemon answers, the core runs and its port accepts connections. `docker logs bowel` has the daemon's log; the core's is `docker exec bowel bowel logs -f`. `docker stop` stops it cleanly.
+The image's health check is `bowel health`: healthy while the daemon answers, the core runs and its port accepts connections. `bowel status` judges the container as a takeover that runs, since its ports carry traffic with or without TUN: its first line and `issue` in `--json` name a core that fails, a port that won't open, or a locked group that refuses every connection for lack of a node. `docker logs bowel` has the daemon's log; the core's is `docker exec bowel bowel logs -f`. `docker stop` stops it cleanly.
+
+## Egress for other containers
+
+Other containers, and machines on the LAN, can go out through bowel and pick their exit. There are three ways in:
+
+- **The proxy port, 7899.** Traffic goes where the rules send it, as for any client.
+- **A port per route group.** `BOWEL_EXTRA_PORTS: 7901=ai 7902=media` opens 7901 and 7902, which take HTTP and SOCKS5, UDP included. Everything that comes in by one of them leaves by its group, whatever the rules and the mode say. In a container every extra port is open as 7899 is: to the networks of `BOWEL_LAN_ALLOWED_IPS` (the private ones at first), and behind `authentication` when that is set. So `-p 7901:7901` reaches it from the LAN, and other containers reach it at `bowel:7901`.
+- **TUN, for a container that shares bowel's network** (`network_mode: service:bowel`). Every connection it makes goes through bowel, including those of programs that ignore proxy variables, and the rules route them.
+
+The exit lock is the kill switch. A locked group leaves by one of its nodes or not at all. It never goes direct: not when no node answers, not while the subscription is still downloading, and not when its nodes are gone. What it holds depends on the way in. Through a port of a locked group, it holds everything that comes in by that port. Under TUN, it holds the traffic the rules send to the locked groups. The default route can't be locked, and the direct route goes direct by design (domestic sites and the LAN). A container has no system proxy, so the lock holds the same way whether takeover is on or off.
+
+The environment sets all of this at every start, so a compose file is enough:
+
+| Variable | What |
+| --- | --- |
+| `BOWEL_EXTRA_PORTS` | The extra ports, as `7901=ai 7902=media` (port=route ID, separated by spaces or commas; `bowel routes` lists the IDs) or as the setting's JSON. `none` closes them. |
+| `BOWEL_LOCK` | The route groups whose exit is locked, by ID (`ai dev`); the others are unlocked. If an entry names no group that can be locked (`default`, `direct` and `reject` can't be), the valid ones are still locked and nothing is unlocked, so a typo never loosens the lock. `none` unlocks them all. |
+| `BOWEL_TUN` | `true` turns TUN on, as `bowel tun on` does. It needs `NET_ADMIN` and `/dev/net/tun`. |
+| `BOWEL_SETTINGS` | Any other settings, as a JSON object by their keys (`{"sniff": true}`), checked as `bowel settings set` checks them. It is applied first, so the variables above win over it. It can't set `mcpPolicy`. |
+
+Each is applied and saved on its own, so one the settings refuse (a port that is taken, say) is logged and leaves the others in place.
+
+### An agent behind bowel
+
+[docker/compose.agent.yaml](docker/compose.agent.yaml) runs an agent, a devcontainer or a CI runner on bowel's network, with TUN on and `ai` and `dev` locked:
+
+```yaml
+services:
+  bowel:
+    image: ghcr.io/21stware/bowel
+    cap_add: [NET_ADMIN]
+    devices: [/dev/net/tun:/dev/net/tun]
+    dns: [1.1.1.1]
+    volumes: [bowel:/data]
+    environment:
+      BOWEL_SUBSCRIPTION: https://example.com/your-subscription
+      BOWEL_TUN: "true"
+      BOWEL_LOCK: ai dev
+      BOWEL_SETTINGS: '{"sniff": true}'
+  agent:
+    image: node:22-bookworm
+    network_mode: service:bowel
+    depends_on:
+      bowel: {condition: service_healthy}
+```
+
+The agent's API calls (`ai`) and its GitHub, npm, PyPI and Docker Hub traffic (`dev`) leave by a node or are refused. `docker exec bowel bowel logs` shows each connection with the group and node it took.
+
+The lock goes by the rules, so the rules have to see the names, and two lines see to that. `dns` makes Docker's resolver ask a server through TUN, where bowel answers. Without it the host's resolver answers, and bowel sees only addresses: an API call then matches no rule of `ai` and takes the default route. `sniff` reads the name from the traffic, for programs that resolve names by themselves. Traffic no rule matches takes the default route, which leaves by its node, or directly when it has none. For a container whose every connection must leave by a node, use a port of a locked group on an internal network, as in the next recipe.
+
+A container on bowel's network shares its ports too: the agent reaches bowel's MCP at `http://127.0.0.1:7900/mcp`, with the token `docker exec bowel bowel mcp token` prints, and any extra port at `127.0.0.1:<port>`.
+
+### A download client with no way out but bowel
+
+[docker/compose.downloads.yaml](docker/compose.downloads.yaml) puts qBittorrent on an internal network whose only other member is bowel, so it has no route out and no DNS for outside names. Its proxy is bowel's port 7902, which leaves by `media`, locked:
+
+```yaml
+services:
+  bowel:
+    networks: [default, downloads]
+    environment:
+      BOWEL_EXTRA_PORTS: 7902=media
+      BOWEL_LOCK: media
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent
+    networks: [downloads]
+  webui:
+    image: caddy:2-alpine
+    networks: [default, downloads]
+    ports: ["8080:8080"]
+    command: caddy reverse-proxy --from :8080 --to qbittorrent:8080
+networks:
+  downloads:
+    internal: true
+```
+
+In qBittorrent at `http://<host>:8080` (the first password is in `docker logs qbittorrent`), set Tools → Options → Connection → Proxy server to SOCKS5, host `bowel`, port `7902`, with peer connections and hostname lookups through the proxy. Whatever qBittorrent sends around the proxy has nowhere to go. What it sends through the port leaves by `media`'s node or is refused, so a node that goes down, or a subscription that fails, stops the downloads instead of sending them from your own address.
+
+An internal network can't publish ports, which is what the reverse proxy is for. qBittorrent wants the same port on both sides: to move it, change `WEBUI_PORT`, the mapping and caddy's two ports together. Any group works in place of `media`, and a group of its own, with its own node, is best. Many providers forbid BitTorrent, so check yours first.
+
+### A port per container
+
+[docker/compose.ports.yaml](docker/compose.ports.yaml) gives two containers two exits by the usual proxy variables: `assistant` uses `bowel:7901` (`ai`) and `downloader` uses `bowel:7902` (`media`). Set the variables in both cases, since curl reads `http_proxy` only in lower case; a program that reads neither goes out by itself, and the TUN recipe catches those. The ports are published too, so a machine on the LAN picks its exit the same way, with `http://<host>:7901`. With `BOWEL_LOCK: ai media`, a port whose group has no node refuses instead of going direct.
+
+On a Mac or PC the app does the same: `bowel settings set extraPorts '[{"port":7901,"route":"ai","lan":true}]'` with Allow LAN on (see [cli.md](cli.md#a-port-per-route-group)).
 
 ## Building it yourself
 

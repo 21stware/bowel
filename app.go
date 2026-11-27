@@ -717,9 +717,10 @@ func (a *App) takeoverOn(s settings.Settings) bool { return !s.Paused && (s.Syst
 // guarding says whether the exit lock holds while takeover is off: a route
 // group of bowel's own has it, so the system proxy stays on the core, which
 // lets everything out directly but that group's traffic, which it refuses
-// (core.Input.Guard).
+// (core.Input.Guard). Not in a container, which has no system proxy: there
+// the ports keep the lock (app_container_egress.go).
 func (a *App) guarding(s settings.Settings) bool {
-	return !a.takeoverOn(s) && locks(s)
+	return !a.takeoverOn(s) && locks(s) && !inContainer()
 }
 
 // locks says whether a route group of bowel's own has the exit lock.
@@ -849,7 +850,7 @@ func (a *App) buildConfig(s settings.Settings, dev devnet.Overlay, im *core.Impo
 		Guard:    a.guarding(s),
 		Gateway:  a.gatewayOn(s),
 		LogLevel: s.LogLevel, TestURL: s.TestURL, MainURLs: mainURLs(s), ProbePort: a.probePort, Controller: a.core.ControllerFields(),
-		Options: s.Options, Dev: dev, IPv6Usable: a.devEnv().IPv6.Usable, Imported: im,
+		Options: coreOptions(s.Options), Dev: dev, IPv6Usable: a.devEnv().IPv6.Usable, Imported: im,
 	})
 }
 
@@ -2653,8 +2654,8 @@ func (a *App) snapshot() Snapshot {
 	// The exit lock, as it really holds: by TUN while that carries traffic,
 	// by the system proxy otherwise, and not at all when neither brings
 	// the locked groups' traffic to the core.
-	held := a.proxyWanted(s) && sys.Ours || on && s.Tun && !a.tunLost(s, cs)
-	tk.Lock = lockEntry(locks(s), guard, a.lockFallback(s, cs), held, proxyErr)
+	held := a.proxyWanted(s) && sys.Ours || on && s.Tun && !a.tunLost(s, cs) || portsHold(s)
+	tk.Lock = containerLock(lockEntry(locks(s), guard, a.lockFallback(s, cs), held, proxyErr))
 	if s.AllowLan {
 		tk.LanAddr = lanAddr(s.MixedPort)
 	}
@@ -2816,7 +2817,7 @@ func (a *App) switchFor(n *switchNote, px map[string]mihomo.Proxy, provNodes map
 		return nil
 	}
 	note := *n // the fields are written once, before the note is published
-	if !on || cs.State != core.Running || switchExpired(&note, time.Now()) || a.switchStale(&note, px, s) {
+	if !judgedOn(on) || cs.State != core.Running || switchExpired(&note, time.Now()) || a.switchStale(&note, px, s) {
 		a.dropSwitch(n)
 		return nil
 	}
@@ -2862,7 +2863,7 @@ func (a *App) switchStale(n *switchNote, px map[string]mihomo.Proxy, s settings.
 }
 
 func (a *App) judge(on bool, s settings.Settings, cs core.Status, tk Takeover, snap Snapshot, sw *switchSay) (State, *Issue) {
-	if !on {
+	if !judgedOn(on) { // a container's ports are always on: app_container_status.go
 		return StateOff, nil
 	}
 	if cs.State == core.Failed {

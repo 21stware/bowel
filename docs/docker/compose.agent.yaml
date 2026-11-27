@@ -1,0 +1,50 @@
+# An agent, a devcontainer or a CI runner that goes out only through
+# bowel: it shares bowel's network, where TUN takes every connection,
+# programs that ignore proxy variables included. The exit lock on the route
+# groups it works with is the kill switch: their traffic leaves by a node
+# or not at all, also while the subscription has yet to come down. See
+# ../docker.md, "Egress for other containers".
+#
+#   docker compose -f compose.agent.yaml up -d
+#   docker compose -f compose.agent.yaml exec agent sh
+services:
+  bowel:
+    image: ghcr.io/21stware/bowel
+    container_name: bowel
+    restart: unless-stopped
+    # TUN on Docker's bridge network: the traffic of this container and of
+    # those that share its network, not the host's.
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    # Docker's resolver asks this server from inside the network, through
+    # TUN, where bowel answers: it then knows each connection's name, which
+    # the rules, and the lock with them, go by. Without it the host's
+    # resolver answers, and bowel sees addresses only.
+    dns:
+      - 1.1.1.1
+    volumes:
+      - bowel:/data
+    environment:
+      BOWEL_SUBSCRIPTION: https://example.com/your-subscription
+      BOWEL_TUN: "true"
+      # API calls (ai) and GitHub, npm, PyPI and Docker Hub (dev) only by a
+      # node. `bowel routes` lists the groups; default, direct and reject
+      # can't be locked.
+      BOWEL_LOCK: ai dev
+      # Names read from the traffic too, for programs that resolve them
+      # by themselves and reach bowel with an address only.
+      BOWEL_SETTINGS: '{"sniff": true}'
+      TZ: Asia/Shanghai
+
+  agent:
+    image: node:22-bookworm # your agent, devcontainer or runner
+    network_mode: service:bowel # bowel's network, and with it its TUN
+    depends_on:
+      bowel:
+        condition: service_healthy
+    command: sleep infinity
+
+volumes:
+  bowel:

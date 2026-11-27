@@ -7,7 +7,7 @@ Facts an agent needs before acting:
 - One program is the app, the command line and the daemon. `bowel` with no command opens the app; `bowel <command>` drives the running one; `bowel daemon` runs it without a window. Paths: `/Applications/bowel.app/Contents/MacOS/bowel` (macOS), `/opt/bowel/bowel` (Linux packages).
 - Every reading command takes `--json`. Exit codes: 0 done, 1 failed (bowel not running, a refused change), 2 a wrong command. `bowel <command> --help` has examples.
 - A daemon with a data folder of its own (`BOWEL_DATA_DIR`, as in the systemd unit) only answers commands that name the same folder.
-- Changes made by an agent are asked of the user first (a dialog in the app). A daemon cannot ask and refuses; only the user can allow them, with `bowel settings set mcpPolicy allow`. Reading never asks. Do not try to get round this.
+- Changes made by an agent are asked of the user first (a dialog in the app). A daemon cannot ask and refuses; only the user can allow them, with `bowel settings set mcpPolicy allow` at their own terminal, where it asks them to type `allow`. Without a terminal (`docker exec` without `-it`, `ssh` without `-t`, a script) it is refused. Reading never asks. Do not try to get round this: do not answer that question, and do not add `-t` to make it ask.
 - Never invent a subscription link or node; ask the user for theirs.
 
 ## Gateway mode: set it up now

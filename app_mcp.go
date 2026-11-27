@@ -1130,11 +1130,18 @@ func (a *App) mcpServer() *mcp.Server {
 				Run: func(ctx context.Context, s *mcp.Session, raw json.RawMessage) (any, error) {
 					var p struct {
 						Changes map[string]json.RawMessage `json:"changes"`
+						// Confirmed: the person at the terminal typed the
+						// confirmation that loosening the policy asks for
+						// (internal/cli's confirmPolicy). Only bowel's own
+						// command line sends it, and not in the schema: from
+						// an agent, which can't change the policy, it means
+						// nothing.
+						Confirmed bool `json:"confirmed"`
 					}
 					if err := mcp.Args(raw, &p); err != nil {
 						return nil, err
 					}
-					patch, err := a.settingsPatch(p.Changes, isLocal(s))
+					patch, err := a.settingsPatch(p.Changes, isLocal(s), p.Confirmed)
 					if err != nil {
 						return nil, err
 					}
@@ -1218,8 +1225,9 @@ func (a *App) ruleFor(kind, target string) (routes.UserRule, error) {
 
 // settingsPatch checks an agent's changes and gives them as JSON to decode
 // onto the settings.
-// The policy itself is the user's: local says the user is who asks.
-func (a *App) settingsPatch(changes map[string]json.RawMessage, local bool) ([]byte, error) {
+// The policy itself is the user's: local says the user is who asks, and
+// confirmed that they confirmed it at a terminal, which loosening it needs.
+func (a *App) settingsPatch(changes map[string]json.RawMessage, local, confirmed bool) ([]byte, error) {
 	if len(changes) == 0 {
 		return nil, errors.New("no changes given")
 	}
@@ -1228,6 +1236,9 @@ func (a *App) settingsPatch(changes map[string]json.RawMessage, local bool) ([]b
 	for k, v := range changes {
 		switch {
 		case k == "mcpPolicy" && local:
+			if err := policyChange(st.Policy(), v, confirmed); err != nil {
+				return nil, err
+			}
 		case slices.Contains(notEditable, k):
 			return nil, fmt.Errorf("%s can't be changed here (%s)", k, map[string]string{
 				"mcpPolicy": "only the user sets it, in Settings > MCP", "rules": "use add_rule and remove_rule",
@@ -1248,6 +1259,21 @@ func (a *App) settingsPatch(changes map[string]json.RawMessage, local bool) ([]b
 		return nil, fmt.Errorf("bad value: %w", err)
 	}
 	return b, nil
+}
+
+// policyChange lets the user's own command change the policy from from to
+// the value v: tightening it always, loosening it only when confirmed.
+// A command on cli.sock is the user's unless its environment names an
+// agent, and an agent that runs bowel through `docker exec` or `ssh`
+// arrives without its environment; what it can't do as well is type the
+// confirmation at a terminal of its own (app_cli.go).
+func policyChange(from string, v json.RawMessage, confirmed bool) error {
+	var to string
+	if json.Unmarshal(v, &to) != nil || !settings.PolicyLooser(from, to) || confirmed {
+		return nil // a value that is no policy is refused by Validate
+	}
+	return fmt.Errorf(i18n.T("只有用户能放宽 agent 的权限（mcpPolicy %s → %s），而且要在终端里确认：在用户自己的终端里执行 `bowel settings set mcpPolicy %s`（Docker 用 `docker exec -it`，SSH 用 `ssh -t`），或用 `bowel tui`，或在应用的 设置 > MCP 里修改。",
+		"Only the user can let agents do more (mcpPolicy %s → %s), and confirms it at a terminal: `bowel settings set mcpPolicy %s` in a terminal of their own (`docker exec -it` in Docker, `ssh -t` over SSH), `bowel tui`, or Settings > MCP in the app."), from, to, to)
 }
 
 // ipv6Report is the IPv6 setting and what it comes to on this network.

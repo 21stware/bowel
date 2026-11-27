@@ -12,6 +12,13 @@ package main
 // agent ran it (internal/cli sees the agent's environment), and then the
 // policy holds as on mcp.sock. That is a guard rail, not a wall: a program
 // of this user that wants round it can also write settings.json.
+//
+// The environment does not always come along: `docker exec` runs a command
+// with the container's, and `ssh` with the server's, so an agent that
+// reaches bowel that way reads as the user. The policy is what keeps that
+// from mattering most, so loosening it takes more than a command on
+// cli.sock: the person typing the confirmation at a terminal, which the
+// command says with update_settings' confirmed (policyChange).
 
 import (
 	"context"

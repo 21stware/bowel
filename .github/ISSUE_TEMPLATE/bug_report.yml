@@ -1,0 +1,56 @@
+name: Bug report / 问题反馈
+description: Something doesn't work as it should. / 某个功能不正常。
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Write in whichever language you like. / 用中文写就好。
+  - type: input
+    id: version
+    attributes:
+      label: bowel version / bowel 版本
+      description: Settings → About. / 设置 → 关于。
+      placeholder: "0.4.9"
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: System / 系统
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - Android
+    validations:
+      required: true
+  - type: input
+    id: system-version
+    attributes:
+      label: System version / 系统版本
+      description: On Linux, the desktop too. / Linux 请一并写上桌面环境。
+      placeholder: "macOS 26.1 · Windows 11 26H2 · Ubuntu 26.04 GNOME · Android 16"
+  - type: dropdown
+    id: takeover
+    attributes:
+      label: Takeover / 接管方式
+      multiple: true
+      options:
+        - System proxy / 系统代理
+        - TUN
+        - Gateway mode / 网关模式
+        - Android VPN
+        - Not on / 未开启
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened / 发生了什么
+      description: What you did, what you expected, and what happened instead. Screenshots help. / 你做了什么、预期是什么、实际发生了什么。截图很有帮助。
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Core log / 内核日志
+      description: The lines from around when it happened, from Log → Core log, or `bowel logs`. Take out node addresses and anything else private first. / 出问题前后的几行，在「日志」→「内核日志」，或者运行 `bowel logs`。请先删掉节点地址等隐私信息。
+      render: text
