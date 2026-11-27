@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -269,7 +270,8 @@ const enterKey = "⏎"
 
 // pickerHints and chooserHints are the keys of the two lists.
 func pickerHints() []hint {
-	return []hint{{"↑↓", i18n.T("选择", "Move")}, {enterKey, i18n.T("使用这个节点", "Use this node")}, {"a", i18n.T("自动", "Auto")}, {"t", i18n.T("测速", "Test")}, {"Esc", i18n.T("返回", "Back")}}
+	return []hint{{"↑↓", i18n.T("选择", "Move")}, {enterKey, i18n.T("使用这个节点", "Use this node")}, {"a", i18n.T("自动", "Auto")}, {"t", i18n.T("测速", "Test")},
+		{"o", i18n.T("备用顺序", "Backup order")}, {"Esc", i18n.T("返回", "Back")}}
 }
 
 func chooserHints() []hint {
@@ -281,7 +283,11 @@ func chooserHints() []hint {
 func (t *tui) pageHints(tab int, all bool) []hint {
 	switch tab {
 	case tabHome:
-		return []hint{{enterKey, i18n.T("切换开关 / 选节点", "Toggle / choose node")}, {"a", i18n.T("加订阅", "Add subscription")}, {"m", i18n.T("模式", "Mode")}}
+		own := []hint{{enterKey, i18n.T("切换开关 / 选节点", "Toggle / choose node")}, {"a", i18n.T("加订阅", "Add subscription")}, {"m", i18n.T("模式", "Mode")}}
+		if !all { // the help has them apart
+			own = append(own, t.groupHints(false)...)
+		}
+		return own
 	case tabConns:
 		own := []hint{{"/", i18n.T("过滤", "Filter")}}
 		if all || t.filter != "" {
@@ -377,7 +383,8 @@ func (t *tui) helpLines() []string {
 	for i, n := range tabNames {
 		secs = append(secs, section{n.String(), t.pageHints(i, true)})
 		if i == tabHome {
-			secs = append(secs, section{i18n.T("选节点", "Choosing a node"), pickerHints()[1:]})
+			g := t.groupHints(true) // on two lines, as wide as they are
+			secs = append(secs, section{i18n.T("路由组", "Route groups"), g[:3]}, section{"", g[3:]}, section{i18n.T("选节点", "Choosing a node"), pickerHints()[1:]})
 		}
 	}
 	width := 0
@@ -410,9 +417,21 @@ func (t *tui) pickerLines(h int) []string {
 		if prov == "" {
 			prov = n.Provider
 		}
-		rows = append(rows, []cell{mark, t2(n.Label), delayCell(n.DelayMs, n.Refused), t2(n.Type), t2(prov), {n.Where, gray}})
+		row := []cell{mark, t2(n.Label), delayCell(n.DelayMs, n.Refused), t2(n.Type), t2(prov), {n.Where, gray}}
+		if len(p.order) > 0 { // its place in the backup order
+			place := ""
+			if i := slices.Index(p.order, n.Name); i >= 0 {
+				place = fmt.Sprint(i + 1)
+			}
+			row = slices.Insert(row, 1, t2(place))
+		}
+		rows = append(rows, row)
 	}
-	lines, off := t.rows([]string{" ", i18n.T("节点", "Node"), i18n.T("延迟", "Delay"), i18n.T("类型", "Kind"), "Provider", i18n.T("位置", "Location")}, rows, p.sel, p.off, h-2)
+	heads := []string{" ", i18n.T("节点", "Node"), i18n.T("延迟", "Delay"), i18n.T("类型", "Kind"), "Provider", i18n.T("位置", "Location")}
+	if len(p.order) > 0 {
+		heads = slices.Insert(heads, 1, i18n.T("备用顺序", "Backup"))
+	}
+	lines, off := t.rows(heads, rows, p.sel, p.off, h-2)
 	p.off = off
 	return append([]string{title, ""}, lines...)
 }

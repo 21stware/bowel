@@ -15,7 +15,7 @@ bowel sorts traffic by purpose into route groups, and each group has its own nod
 | Block | Connections matching its rules are refused |
 | Other | Traffic no rule matched |
 
-Groups are matched in order, top to bottom, and only Other stays last. Drag a group's handle in the route group list to move it (on Android, the up and down arrows): with Block at the top, for instance, its rules win over equally specific rules in other groups. You can add groups of your own.
+Groups are matched in order, top to bottom, and only Other stays last. Drag a group's handle in the route group list to move it (on Android, the up and down arrows; [without the window](#without-the-window), `bowel route move`): with Block at the top, for instance, its rules win over equally specific rules in other groups. You can add groups of your own.
 
 Addresses on the LAN, Tailscale and company VPNs go direct whatever the groups say, in global mode too; [developer networks](../dev-network.md) says which and why.
 
@@ -55,7 +55,22 @@ A low delay says a node answers a small request quickly, not that it downloads f
 - Fastest can also choose by download speed: set By to Download speed, and every 6, 12 or 24 hours a round tests the five nodes in scope with the lowest delay (and the one in use), 20 MB at most each, and moves to the fastest download; the node in use stays if it came within a fifth of it. Downloads then reads Test round now: it runs the round at once and switches by its result, and the next round is counted from then. Rounds run with takeover off too, since apps pointed at bowel's port go by the groups all the same.
 - When three or more nodes come out within a fifth of each other, your own line is likely the limit.
 - The test file is Cloudflare's by default; change it under Settings › Testing › Download test file.
-- Desktop only for now: the phone and the command line have none.
+- The test you start yourself is desktop only for now: the phone and the command line have none. Choosing by download speed can be set from the command line too: `bowel route strategy <group> --by download --every 12`.
+
+## Without the window
+
+A bowel with no window, under `bowel daemon` or in Docker, is set up the same way from the command line, the full-screen `bowel tui` or an agent: groups are made, ordered and named, and given a strategy, a range, a way of choosing and test sites.
+
+```bash
+bowel route new Work --at 1                       # a group of your own, tried first
+bowel rules add corp.example Work                 # what it takes
+bowel route order Work "🇯🇵 Tokyo 02" "🇸🇬 Singapore 01"   # Fallback, first preferred
+bowel route scope Work --regions JP,SG            # Fastest's range, for when it's on Fastest
+bowel route sites Work https://intranet.corp.example   # its main test site
+bowel route show Work                             # all of it
+```
+
+Every command is in [the command line page](../cli.md#route-groups). While a Provider's own config routes the traffic, its groups are used and these commands refuse; `bowel routing bowel` goes back to bowel's own.
 
 ## Rules
 

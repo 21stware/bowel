@@ -8,6 +8,12 @@
 
 ## [Unreleased]
 
+- 不开窗口也能管理路由组了。用 `bowel daemon` 运行或在 Docker 里的 bowel，以前只能给路由选节点、锁定出口，新建路由组、调整顺序、节点策略、范围、按下载速度选和测速站点都只有窗口里能改。现在命令行有 `bowel route new`、`move`、`strategy`、`order`、`scope`、`direct`、`sites`、`rename`、`remove` 和 `show`（都支持 `--json`），`bowel routing` 查看或切换用 bowel 自己的路由还是某个 Provider 配置自带的；`bowel tui` 概览页在路由上按 `s` 选节点策略、`J`/`K` 下移上移、`e` 改测速站点、`R` 改名、`d` 删除、`n` 新建，选节点时按 `o` 把节点加入或移出备用顺序；agent 有同样的 MCP 工具（`list_route_groups`、`create_route_group`、`move_route_group`、`set_route_strategy`、`set_route_sites`、`rename_route_group`、`delete_route_group`、`set_routing_source`），和其他变更一样按「设置 › MCP」的策略询问
+  - 正在使用导入配置自带的路由时，这些变更都会拒绝，并说明怎么改回 bowel 自己的路由；bowel 的路由组在这期间原样保留。select 类型的组仍可以用 `bowel route use` 选成员
+  - MCP 工具里路由的参数不再是 bowel 启动时的 ID 列表：之后新建的路由组，`add_rule`、`select_node` 这些工具也认
+  - `bowel tui` 里路由换了位置后，原来那一行的「自动」「直连」等标记不会再留在换上来的路由上
+  - 在 Windows 11（26300）上用真的内核跑了测试：命令行把新建、排序、三种策略、范围、按下载速度选、测速站点、直连、改名、删除和写错时的提示都走了一遍，agent 的变更在拒绝、询问、允许三种策略下各试过，导入配置自带的路由时的拒绝和切回也试过；TUI 的按键对着假的 bowel 测过。没有在 Linux、macOS 和 Docker 里跑过，也没有在真的终端里操作过 TUI
+
 - Windows 上 TUN 不再注册计划任务，改成每次启动 TUN 的内核时弹出用户账户控制请求授权。原因是 Windows Defender：在一台默认设置的 Windows 11 Pro（26300，云保护、行为监控和防篡改都开着）上，0.4.8 第一次 `bowel tun on` 后 `bowel.exe` 被当成 `Behavior:Win32/Persistence.A!ml` 隔离，开始菜单和任务栏的快捷方式、开机启动项和卸载信息也一起被删掉。换了名字照 bowel 做法写的测试程序，只要注册一个以最高权限运行的计划任务，5 到 15 秒后就被拦下（只注册一个直接运行内核的任务也一样）；只把自己复制到 `%ProgramData%`、以管理员身份运行一次而不注册任务的，没有被拦。Defender 的日志里是注册任务时上报行为、接着按发起安装的程序的哈希查云端信誉、约 5 秒后拦截。bowel 还没有代码签名，Windows 版有了签名以后可以再改回计划任务
   - 什么时候会弹：开着 TUN 启动 bowel、普通内核在运行时打开 TUN、内核崩溃后重启、升级后第一次启动。内核已经以管理员身份运行时开关 TUN 只是重新加载配置，不会再弹；关着 TUN 启动 bowel 时用的是普通内核，也不弹。取消授权时 TUN 一栏会说明，关掉再打开 TUN 会再请求一次。授权窗口开着时内核没有在运行，经过 bowel 的网络要等你确认。首页和 TUN 一栏写明了 Windows 为什么每次都要授权
   - 授权窗口约 2 分钟内没有人回应，Windows 会自动取消，和拒绝一样。登录时隐藏窗口启动的 bowel 弹出的授权窗口以前会落到任务栏里，没人看见就被取消了；现在请求授权前 bowel 会把自己的窗口拿到前面、作为授权窗口的所属窗口并在任务栏闪烁，TUN 一栏写着正在等用户账户控制的确认、约 2 分钟不回应会被取消（`bowel status --json` 里是 `takeover.tun.asking`）

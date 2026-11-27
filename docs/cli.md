@@ -4,7 +4,7 @@ The same program is a command line for the running bowel. How to put it in your 
 
 ## Full screen
 
-`bowel tui` is the same on a whole terminal: pages for the overview, connections, logs, rules, Providers and settings, kept current. The overview has the switches (takeover, system proxy, TUN, gateway mode, allow LAN) and the routes: Enter or Space turns a switch, Enter on a route chooses its node (`t` tests the delays), `m` switches the mode and `a` adds a subscription. The settings page changes any setting by key. `/` filters connections and `?` lists the keys. A change asks y/n first. It works over SSH: `ssh server -t bowel tui`.
+`bowel tui` is the same on a whole terminal: pages for the overview, connections, logs, rules, Providers and settings, kept current. The overview has the switches (takeover, system proxy, TUN, gateway mode, allow LAN) and the routes: Enter or Space turns a switch, Enter on a route chooses its node (`t` tests the delays), `m` switches the mode and `a` adds a subscription; on a route, the keys of [route groups](#route-groups) set it up. The settings page changes any setting by key. `/` filters connections and `?` lists the keys. A change asks y/n first. It works over SSH: `ssh server -t bowel tui`.
 
 ## In a status bar
 
@@ -20,6 +20,31 @@ The same program is a command line for the running bowel. How to put it in your 
 ```
 
 `#custom-bowel.off`, `#custom-bowel.stopped` and the rest style it in `style.css`. For polybar, i3blocks and other bars that read plain text, `bowel bar --format text`; for one that runs a command on an interval, add `--once`. Under `bowel daemon` there is no window to open.
+
+## Route groups
+
+Everything the window's route group list does is here too, so a bowel under `bowel daemon` or in Docker can be set up without it. `bowel route show` lists the groups in the order they apply, each with its strategy and main test site; `bowel route show <group>` has one whole: its strategy, range, backup order, the node in use, test sites, services and your rules. A group is named by its ID or its name.
+
+```bash
+bowel route new Netflix --before media            # a group of your own: the fastest node, no rules yet
+bowel rules add netflix.com Netflix               # send traffic to it
+bowel route move Netflix --at 1                   # tried from the top; or --before / --after another group
+bowel route strategy Netflix fixed --node "🇯🇵 Tokyo 02"
+bowel route order Netflix "🇯🇵 Tokyo 02" "🇸🇬 Singapore 01"   # the backup order, first preferred
+bowel route strategy Netflix auto                 # back to the fastest; each strategy keeps its settings
+bowel route scope Netflix --regions JP,SG --providers a1b2c3 --except   # the fastest's range; all for every one
+bowel route strategy Netflix --by download --every 12   # choose by download speed, tested every 6, 12 or 24 hours
+bowel route sites Netflix https://www.netflix.com fast.com   # test sites, the main one first; --reset for the defaults
+bowel route direct Netflix on                     # out without a node; the strategy is kept for when it's off
+bowel route rename Netflix Video
+bowel route remove Video --to media               # its services and rules go to media (default unless given)
+```
+
+The range of the fastest is its regions (country codes), its Providers (only those, or with `--except` all but those) and `--nodes` picked by hand, all at once; a list takes commas, or a JSON list (`'["a, b","c"]'`) for names with commas in them. A new main test site is first tried through the node the group uses, and refused if it fails there. Other, Direct and Block always exist and keep their names, and Other stays last; Direct and Block never use a node, so they have no strategy or test sites.
+
+While a Provider's own config routes the traffic, the groups are that config's: these commands refuse, `bowel route use` still picks a member of one of its select groups, and `bowel routing bowel` goes back to bowel's own groups, which are kept meanwhile. `bowel routing <provider>` uses that config's routing, and `bowel routing` says which is in use.
+
+In `bowel tui`, on a route's row of the overview, `s` sets its strategy, `J` and `K` move it down and up, `e` edits its test sites, `R` renames and `d` deletes it, and `n` makes a new group; in its node list, `o` puts a node in the backup order or takes it out. Agents have the same as MCP tools (`list_route_groups`, `create_route_group`, `move_route_group`, `set_route_strategy`, `set_route_sites`, `rename_route_group`, `delete_route_group`, `set_routing_source`), under the same policy as their other changes.
 
 ## A port per route group
 
