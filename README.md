@@ -255,6 +255,10 @@ bowel was called Moho. The Go module is still `github.com/oboo/moho` and the bun
 - [Flutter](https://flutter.dev): the mobile apps' interface.
 - [OPPO Sans](resources/fonts/): the desktop apps' typeface. The mobile apps use the system's.
 
+## Contributors
+
+<a href="https://github.com/21stware/bowel/graphs/contributors"><img src="https://contrib.rocks/image?repo=21stware/bowel" alt="Contributors"></a>
+
 ## License
 
 bowel is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE), which allows noncommercial use only. For a commercial license, [open an issue](https://github.com/21stware/bowel/issues).
@@ -262,3 +266,12 @@ bowel is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE), whi
 Linux distributions, package repositories and app stores may build bowel from source and distribute it, whether or not they are a business, under the [packaging exception](PACKAGING-EXCEPTION.md). Its users still get bowel for noncommercial use only.
 
 The bundled mihomo core stays under GPL-3.0. The desktop apps carry its license among their resources (`Contents/Resources/licenses/mihomo/` on macOS), the Android app names it in Settings, and each release attaches the matching source. The flag images in `assets/flags/` and the fonts in `resources/fonts/` are third-party files and keep their own licenses.
+
+## Star history
+
+<a href="https://star-history.com/#21stware/bowel&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=21stware/bowel&type=Date&theme=dark">
+    <img src="https://api.star-history.com/svg?repos=21stware/bowel&type=Date" width="600" alt="Star history">
+  </picture>
+</a>
