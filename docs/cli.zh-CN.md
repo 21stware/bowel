@@ -4,7 +4,7 @@
 
 ## 全屏界面
 
-`bowel tui` 是同一套功能的全屏界面：概览、连接、日志、规则、Provider 和设置六个页面，实时刷新。概览页有一组开关（接管、系统代理、TUN、网关模式、允许局域网）和路由列表：在开关上按回车或空格切换，在路由上按回车选节点（`t` 测速），`m` 切换模式，`a` 添加订阅。设置页可以修改任意一项设置。`/` 过滤连接，`?` 查看全部按键。会改变网络的操作先问 y/n。通过 SSH 也能用：`ssh server -t bowel tui`。
+`bowel tui` 是同一套功能的全屏界面：概览、连接、日志、规则、Provider 和设置六个页面，实时刷新。概览页有一组开关（接管、系统代理、TUN、网关模式、允许局域网）和路由列表：在开关上按回车或空格切换，在路由上按回车选节点（`t` 测速），`m` 切换模式，`a` 添加订阅；在路由上还可以用[路由组](#路由组)的按键设置它。设置页可以修改任意一项设置。`/` 过滤连接，`?` 查看全部按键。会改变网络的操作先问 y/n。通过 SSH 也能用：`ssh server -t bowel tui`。
 
 ## 放进状态栏
 
@@ -20,6 +20,31 @@
 ```
 
 在 `style.css` 里用 `#custom-bowel.off`、`#custom-bowel.stopped` 等改样式。polybar、i3blocks 等读纯文字的状态栏用 `bowel bar --format text`；按间隔运行命令的再加 `--once`。用 `bowel daemon` 运行时没有窗口可开。
+
+## 路由组
+
+窗口里「路由组」列表能做的，这里都能做，所以用 `bowel daemon` 或在 Docker 里运行的 bowel 不开窗口也能配好。`bowel route show` 按生效顺序列出路由组，每个带上节点策略和主测速站点；`bowel route show <路由组>` 显示一个路由组的全部设置：节点策略、范围、备用顺序、正在用的节点、测速站点、服务和你的规则。路由组可以用 ID 或名字指定。
+
+```bash
+bowel route new Netflix --before media            # 新建自己的路由组：自动选最快的节点，还没有规则
+bowel rules add netflix.com Netflix               # 把流量送过来
+bowel route move Netflix --at 1                   # 从上到下匹配；也可以用 --before / --after 另一个路由组
+bowel route strategy Netflix fixed --node "🇯🇵 Tokyo 02"
+bowel route order Netflix "🇯🇵 Tokyo 02" "🇸🇬 Singapore 01"   # 顺序备用的列表，第一个优先
+bowel route strategy Netflix auto                 # 改回自动最快；每种策略的设置都会保留
+bowel route scope Netflix --regions JP,SG --providers a1b2c3 --except   # 自动最快的范围；all 为全部
+bowel route strategy Netflix --by download --every 12   # 按下载速度选，每 6、12 或 24 小时测一轮
+bowel route sites Netflix https://www.netflix.com fast.com   # 测速站点，第一个是主目标；--reset 恢复默认
+bowel route direct Netflix on                     # 不经过节点直接连接；节点策略保留，关掉后照旧
+bowel route rename Netflix Video
+bowel route remove Video --to media               # 它的服务和规则交给 media（不写时交给 default）
+```
+
+自动最快的范围是地区（国家或地区代码）、来源 Provider（只用所选，或加 `--except` 排除所选）和用 `--nodes` 手动挑的节点三者同时满足；列表用逗号分隔，名字里本身有逗号时写成 JSON 列表（`'["a, b","c"]'`）。新的主测速站点会先经这个路由组正在用的节点试一次，不通就不改。「其他流量」「直连」「拦截」一直都在、不能改名，「其他流量」固定在最后；「直连」和「拦截」从不走节点，没有节点策略和测速站点。
+
+正在使用某个 Provider 配置自带的路由时，路由组是那份配置的：这些命令会拒绝，`bowel route use` 仍可以给其中 select 类型的组选成员，`bowel routing bowel` 改回 bowel 自己的路由组（这期间它们一直保留着）。`bowel routing <Provider>` 改用那份配置的路由，`bowel routing` 查看正在用的是哪个。
+
+在 `bowel tui` 概览页的路由上，`s` 设置节点策略，`J`、`K` 下移和上移，`e` 修改测速站点，`R` 改名，`d` 删除，`n` 新建路由组；在它的节点列表里，`o` 把节点加入或移出备用顺序。agent 也有同样的 MCP 工具（`list_route_groups`、`create_route_group`、`move_route_group`、`set_route_strategy`、`set_route_sites`、`rename_route_group`、`delete_route_group`、`set_routing_source`），和它的其他变更走同一个策略。
 
 ## 每个路由组一个端口
 

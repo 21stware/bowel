@@ -8,6 +8,11 @@
 
 ## [Unreleased]
 
+- 不开窗口也能管理路由组了。用 `bowel daemon` 运行或在 Docker 里的 bowel，以前只能给路由选节点、锁定出口，新建路由组、调整顺序、节点策略、范围、按下载速度选和测速站点都只有窗口里能改。现在命令行有 `bowel route new`、`move`、`strategy`、`order`、`scope`、`direct`、`sites`、`rename`、`remove` 和 `show`（都支持 `--json`），`bowel routing` 查看或切换用 bowel 自己的路由还是某个 Provider 配置自带的；`bowel tui` 概览页在路由上按 `s` 选节点策略、`J`/`K` 下移上移、`e` 改测速站点、`R` 改名、`d` 删除、`n` 新建，选节点时按 `o` 把节点加入或移出备用顺序；agent 有同样的 MCP 工具（`list_route_groups`、`create_route_group`、`move_route_group`、`set_route_strategy`、`set_route_sites`、`rename_route_group`、`delete_route_group`、`set_routing_source`），和其他变更一样按「设置 › MCP」的策略询问
+  - 正在使用导入配置自带的路由时，这些变更都会拒绝，并说明怎么改回 bowel 自己的路由；bowel 的路由组在这期间原样保留。select 类型的组仍可以用 `bowel route use` 选成员
+  - MCP 工具里路由的参数不再是 bowel 启动时的 ID 列表：之后新建的路由组，`add_rule`、`select_node` 这些工具也认
+  - `bowel tui` 里路由换了位置后，原来那一行的「自动」「直连」等标记不会再留在换上来的路由上
+  - 在 Windows 11（26300）上用真的内核跑了测试：命令行把新建、排序、三种策略、范围、按下载速度选、测速站点、直连、改名、删除和写错时的提示都走了一遍，agent 的变更在拒绝、询问、允许三种策略下各试过，导入配置自带的路由时的拒绝和切回也试过；TUI 的按键对着假的 bowel 测过。没有在 Linux、macOS 和 Docker 里跑过，也没有在真的终端里操作过 TUI
 - agent 不能再经由 `docker exec` 或 `ssh` 放宽自己的权限了。bowel 靠环境变量（`CLAUDECODE`、`CODEX_THREAD_ID` 等）认出 agent 运行的命令，而 `docker exec` 和 `ssh` 不会把这些变量带过去，所以 agent 执行 `docker exec bowel bowel settings set mcpPolicy allow`（Docker 文档里就是这么写的）会被当成你，策略就成了「允许」。现在放宽策略（「询问」→「允许」、「拒绝」→「询问」）要你在终端里输入新策略的名字确认：`docker exec -it bowel bowel settings set mcpPolicy allow`，或者在 `bowel tui` 的设置页里；没有终端可以询问时（脚本、不带 `-it` 的 `docker exec`、不带 `-t` 的 `ssh`）会被拒绝。收紧策略不用确认，应用里的 设置 > MCP 也不变。
   - 只带 `-t` 不带 `-i` 时有终端但没人能输入，一分钟后取消。
   - 经由 `docker exec` 或 `ssh` 运行的其他命令仍会被当成你的、不会询问；要让 agent 的修改遵循策略，就让它用 MCP。

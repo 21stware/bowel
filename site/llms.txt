@@ -53,19 +53,37 @@ Do not stop bowel, turn the gateway off or go back to manual as a test while aut
 
 - [Gateway mode, in full](https://raw.githubusercontent.com/21stware/bowel/main/docs/gateway.md): how it works, the systemd unit for a Linux server, pointing devices, what survives a crash or a restart, troubleshooting by symptom, limits
 
+## Route groups: set them up without the window
+
+A daemon or a container has no window, and needs none: route groups are made, ordered and given a strategy and test sites from the command line (or the MCP tools of the same names: `list_route_groups`, `create_route_group`, `move_route_group`, `set_route_strategy`, `set_route_sites`, `rename_route_group`, `delete_route_group`, `set_routing_source`). Groups are tried from the top; the first with a matching rule takes a connection, and `default` is always last.
+
+```bash
+bowel route show --json                           # the groups in order: id, strategy, range, test sites, rules
+bowel route new Work --before ai --json           # .created is its id; it has no rules yet
+bowel rules add corp.example Work                 # now it takes traffic
+bowel route order Work '<node>' '<node>'          # the backup order, and use it; a node's name or label from `bowel nodes --json`
+bowel route strategy Work fixed --node '<node>'   # or: auto (the fastest), order (the list above); each keeps its settings
+bowel route scope Work --regions JP,US            # auto's range: --regions, --providers (--except), --nodes; all clears
+bowel route strategy Work --by download --every 12   # auto by download speed, every 6, 12 or 24 hours
+bowel route sites Work https://intranet.corp.example   # the main test site first; refused if it fails through the group's node
+bowel route move Work --at 1                      # or --before / --after <group>
+```
+
+`default`, `direct` and `reject` can't be renamed or deleted, and `direct` and `reject` have no strategy. When `bowel routes --json` has `imported`, a provider's own config routes the traffic: these commands refuse, and `bowel routing bowel` goes back to bowel's own groups. Ask the user before switching routing: it changes where everything goes.
+
 ## Using bowel
 
 The same pages are on the website, at https://bowel.dev/en/docs/ (Chinese: https://bowel.dev/docs/).
 
 - [Install and get started](https://raw.githubusercontent.com/21stware/bowel/main/docs/guide/install.md): installing on each system, adding a provider, turning on takeover, what each platform has
-- [Route groups and nodes](https://raw.githubusercontent.com/21stware/bowel/main/docs/guide/routes.md): the built-in groups, node strategies, test sites and why a node shows Denied, the download test, rules and routing by app
+- [Route groups and nodes](https://raw.githubusercontent.com/21stware/bowel/main/docs/guide/routes.md): the built-in groups, node strategies, test sites and why a node shows Denied, the download test, setting groups up without the window, rules and routing by app
 - [Takeover, TUN and the exit lock](https://raw.githubusercontent.com/21stware/bowel/main/docs/guide/takeover.md): system proxy or TUN, what TUN asks for on each system, what the exit lock holds
 - [Questions](https://raw.githubusercontent.com/21stware/bowel/main/docs/guide/faq.md): moving from another Clash client, protocols, data, the license
 
 ## Command line
 
 - [README: the command line](https://raw.githubusercontent.com/21stware/bowel/main/README.md): `status`, `on`/`off`, `mode`, `routes`, `route use`, `nodes`, `providers`, `rules`, `conns`, `logs`, `settings`, `tun`, `gateway`, `tui`, `bar`
-- [The command line, in full](https://raw.githubusercontent.com/21stware/bowel/main/docs/cli.md): `tui`, `bar` for status bars, a port per route group, `--json` and exit codes, `daemon` and `stop`, what agents may change
+- [The command line, in full](https://raw.githubusercontent.com/21stware/bowel/main/docs/cli.md): `tui`, `bar` for status bars, route groups (`route new`, `move`, `strategy`, `order`, `scope`, `sites`, `routing`), a port per route group, `--json` and exit codes, `daemon` and `stop`, what agents may change
 - [README（中文）](https://raw.githubusercontent.com/21stware/bowel/main/README.zh-CN.md): the same in Chinese, with installation for each system
 
 ## How it works

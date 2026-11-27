@@ -105,6 +105,7 @@ type picker struct {
 	nodes     []node
 	providers map[string]string
 	sel, off  int
+	order     []string // the route's backup order, first preferred (tui_groups.go)
 }
 
 // chooser is a short list to take one of: a setting's values, the modes.
@@ -236,9 +237,13 @@ func (t *tui) read(tool string, args, v any) bool {
 // poll reads what the page in front shows; everything, when all is set.
 func (t *tui) poll(all bool) {
 	t.ticks++
-	if !t.read("get_status", nil, &t.st) {
+	// Into a new one: decoding over the last would keep what a route that
+	// has moved into another's row leaves out (omitted as empty).
+	var st status
+	if !t.read("get_status", nil, &st) {
 		return
 	}
+	t.st = st
 	slow := all || t.ticks%5 == 0
 	if p := t.pick; p != nil && (slow || t.ticks%2 == 0) {
 		t.loadNodes(false)
@@ -721,6 +726,7 @@ func (t *tui) openPicker() {
 			t.pick.sel = i
 		}
 	}
+	t.loadOrder()
 }
 
 func (t *tui) handlePicker(k key) {
@@ -739,6 +745,8 @@ func (t *tui) handlePicker(k key) {
 		use("auto", i18n.T("自动", "Auto"))
 	case k.name == "rune" && k.r == 't':
 		t.act(i18n.T("正在测速…", "Testing…"), i18n.T("测速完成", "Tested"), func() error { return t.loadNodes(true) })
+	case k.name == "rune" && k.r == 'o' && p.sel < len(p.nodes):
+		t.toggleOrder(p.nodes[p.sel])
 	}
 }
 
@@ -761,6 +769,8 @@ func (t *tui) handlePage(r rune) {
 			t.flip(t.toggles()[0])
 		case 'a':
 			t.addProvider()
+		default:
+			t.groupKey(r)
 		}
 	case tabConns:
 		if r == '/' {
