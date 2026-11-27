@@ -38,6 +38,17 @@ bowel gateway manual                # back; the router's DHCP must be on again f
 
 A DHCP server in `.servers` has to be turned off in that router's admin page first. That is the user's to do: say which address it is, and stop. Afterwards `.takeover.gateway.auto.status` is `on`, or `error` with `.detail`. G needs a fixed address for this, set on G itself: while `.takeover.gateway.dhcp` is true `bowel gateway auto` refuses, and setting the address is the user's to do. On Linux it needs root.
 
+One device can be given a route of its own, which takes all of its traffic; only when the user asks for it:
+
+```bash
+bowel gateway device <ip|mac|name> media    # all its traffic to a route group (an id from bowel routes --json)
+bowel gateway device <ip|mac|name> direct   # never through a node; reject blocks it
+bowel gateway device <ip|mac|name> bypass   # left out of the gateway (automatic: the router at its next lease)
+bowel gateway device <ip|mac|name> rules    # back to the groups' rules, as every device
+```
+
+Block's rules and those of groups with the exit lock still hold for such a device; the route holds in rule mode only. Over MCP: `set_device_route`. Say what a device loses before `reject` or `bypass`; `.note` in the answer says what the change still waits for.
+
 Do not stop bowel, turn the gateway off or go back to manual as a test while automatic is on, or where the router's DHCP hands out G: the whole LAN goes offline. IPv4 only: a device with IPv6 can pass the gateway by.
 
 The gateway is reachable over MCP too, with no shell on G: `get_gateway` (the state, and `next`: each next step and whether it is the user's or yours), `check_dhcp`, `set_gateway` (on/off), `set_gateway_auto` (auto/manual), `list_devices`, and `provider_add` for step 2. The rules above are built in: automatic is refused while another DHCP server answers or G's address is leased, and an agent's off or manual is refused, with the reason, while it would take devices offline. Pass `force: true` only after the user heard the reason and agreed.

@@ -1196,6 +1196,7 @@ func (a *App) mcpServer() *mcp.Server {
 					return "Flushed.", nil
 				},
 			},
+			a.deviceRouteTool(), // app_mcp_devices.go
 		},
 	}
 	srv.Tools = append(srv.Tools, a.gatewayTools()...)  // app_mcp_gateway.go
