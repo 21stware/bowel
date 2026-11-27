@@ -44,9 +44,13 @@ func useDataDir(dir string) error {
 	return nil
 }
 
-// running says whether a bowel serves the data folder already.
+// running says whether a bowel serves the data folder already: this
+// version, or one before it where that one served (olderCLISocket).
 func running(data string) bool {
-	for _, p := range []string{cliSocket(data), mcpSocket(data)} {
+	for _, p := range []string{cliSocket(data), mcpSocket(data), olderCLISocket(data), olderMCPSocket(data)} {
+		if p == "" {
+			continue
+		}
 		if c, err := net.DialTimeout("unix", p, time.Second); err == nil {
 			c.Close()
 			return true
