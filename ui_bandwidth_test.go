@@ -44,7 +44,7 @@ func TestBandwidthInNodeList(t *testing.T) {
 		}
 		shot(t, tt, "bandwidth-column"+suffix)
 
-		u.home.bwPlan = bandwidthPlan{Nodes: []string{u.snap.Nodes[0].Name, u.snap.Nodes[1].Name, u.snap.Nodes[5].Name}, MaxBytes: 3 * speed.DownloadCap, URL: "https://speed.cloudflare.com/__down?bytes=50000000"}
+		u.home.bwPlan = bandwidthPlan{Nodes: []string{u.snap.Nodes[0].Name, u.snap.Nodes[1].Name, u.snap.Nodes[5].Name}, MaxBytes: 3 * speed.DownloadCap, Cap: speed.DownloadCap, URL: "https://speed.cloudflare.com/__down?bytes=50000000"}
 		u.home.bwOpen = true
 		tt.Frame()
 		tt.Advance(time.Second)
@@ -54,6 +54,78 @@ func TestBandwidthInNodeList(t *testing.T) {
 			}
 		}
 		shot(t, tt, "bandwidth-dialog"+suffix)
+	}
+}
+
+// 测下载 takes its nodes from the rows the list's filters let through: the
+// range of 自动最快, the region chosen in the others, and the search (issue
+// 267).
+func TestBandwidthOfTheRowsShown(t *testing.T) {
+	u := fixtureUI()
+	tt := ui.NewTester(u.view, 1060, 1000)
+	u.home.x, u.home.sub = "routes", "media"
+	tt.Frame()
+	tt.Advance(2 * time.Second)
+	var hk []string
+	for _, n := range u.snap.Nodes {
+		if n.Where.Place != nil && n.Where.Place.Country == "HK" {
+			hk = append(hk, n.Name)
+		}
+	}
+	slices.Sort(hk)
+	// planned opens the dialog, reads its plan and closes it again.
+	planned := func(why string) []string {
+		t.Helper()
+		tt.Frame()
+		tt.Advance(time.Second)
+		if err := tt.Click("测下载"); err != nil {
+			t.Fatalf("%s: %v", why, err)
+		}
+		tt.Advance(time.Second)
+		got := slices.Sorted(slices.Values(u.home.bwPlan.Nodes))
+		u.home.bwOpen = false
+		tt.Frame()
+		tt.Advance(time.Second)
+		return got
+	}
+
+	// 自动最快 with its range set to HK.
+	if err := tt.Click("HK 3"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if got := planned("range"); !slices.Equal(got, hk) {
+		t.Errorf("with the range HK the test takes %q, want %q", got, hk)
+	}
+
+	// 固定节点, the list filtered to HK: the range is 自动最快's alone.
+	if err := tt.Click("HK 3"); err != nil { // the range back to every region
+		t.Fatal(err)
+	}
+	if err := tt.Click("固定节点"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if got := planned("fixed, every region"); len(got) != len(u.snap.Nodes) {
+		t.Errorf("with no region chosen the test takes %d of %d nodes: %q", len(got), len(u.snap.Nodes), got)
+	}
+	if err := tt.Click("HK"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if got := planned("fixed, HK"); !slices.Equal(got, hk) {
+		t.Errorf("with HK chosen the test takes %q, want %q", got, hk)
+	}
+	u.home.bwOpen = true
+	tt.Frame()
+	tt.Advance(time.Second)
+	shot(t, tt, "bandwidth-region")
+	u.home.bwOpen = false
+
+	// And a search among them.
+	u.home.query = "iplc"
+	if got := planned("search"); len(got) != 1 || display(got[0]) != "香港 03 IPLC" {
+		t.Errorf("searched for iplc among HK, the test takes %q", got)
 	}
 }
 
@@ -94,6 +166,21 @@ func TestChooseByDownload(t *testing.T) {
 	if q := u.policy("media"); q.DownloadEvery != defaultDownloadEvery || !q.ByDownload() {
 		t.Fatalf("policy %+v", q)
 	}
+	// The download test is a round now, which chooses.
+	tt.Frame()
+	if !tt.HasText("现在测一轮") || tt.HasText("测下载") {
+		t.Errorf("the download button in a group that chooses by it: %q", tt.Texts())
+	}
+	u.home.bwPlan = bandwidthPlan{Nodes: []string{u.snap.Nodes[0].Name, u.snap.Nodes[5].Name}, MaxBytes: 2 * scheduledCap, Cap: scheduledCap, URL: "https://speed.cloudflare.com/__down?bytes=50000000", Round: true}
+	u.home.bwOpen = true
+	tt.Frame()
+	tt.Advance(time.Second)
+	if !slices.ContainsFunc(tt.Texts(), func(s string) bool { return strings.HasPrefix(s, "现在就测一轮") }) || !tt.HasText("最多会用掉约 40.0 MB 流量（每个节点最多 20.0 MB）。订阅按流量计费的话请留意；有的机场不允许测速。") {
+		t.Errorf("the round's dialog: %q", tt.Texts())
+	}
+	shot(t, tt, "bandwidth-round-dialog")
+	u.home.bwOpen = false
+	tt.Frame()
 	if err := tt.Click("每 6 小时"); err != nil {
 		t.Fatal(err)
 	}

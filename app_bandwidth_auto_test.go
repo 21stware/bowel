@@ -198,11 +198,64 @@ func TestPlanBandwidthInRange(t *testing.T) {
 	}
 	px[routes.Group(r)] = mihomo.Proxy{Now: name(0), All: members}
 	a.proxies = px
-	if got := a.planBandwidthOf(routes.Default, true).Nodes; !slices.Equal(got, []string{name(1), name(3)}) {
+	if got := a.planRound(routes.Default).Nodes; !slices.Equal(got, []string{name(1), name(3)}) {
 		t.Errorf("in range: %v", got)
 	}
-	if got := a.planBandwidth(routes.Default).Nodes; len(got) != 4 {
-		t.Errorf("by hand, every node: %v", got)
+	all := []string{name(0), name(1), name(2), name(3)}
+	if p := a.planBandwidth(routes.Default, all); len(p.Nodes) != 4 || p.Round {
+		t.Errorf("by hand, choosing by delay, every node listed: %+v", p)
+	}
+
+	// Choosing by download speed, the test by hand is a round run now: of
+	// the range alone, at a round's cap, and of the rows listed among it.
+	if _, err := st.Update(func(s *settings.Settings) {
+		s.Routing.ChangePolicy(routes.Default, func(q *routes.Policy) { q.Mode, q.DownloadEvery = routes.ModeAuto, 12 })
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p := a.planBandwidth(routes.Default, all)
+	if !p.Round || p.Cap != scheduledCap || !slices.Equal(p.Nodes, []string{name(1), name(3)}) {
+		t.Errorf("a round by hand: %+v", p)
+	}
+	if got := a.planBandwidth(routes.Default, []string{name(3)}).Nodes; !slices.Equal(got, []string{name(3)}) {
+		t.Errorf("a round of the rows searched for: %v", got)
+	}
+}
+
+// With takeover off, a round that is due still starts: apps pointed at the
+// core's port go by the groups all the same (issue 267).
+func TestDueDownloadsWithTakeoverOff(t *testing.T) {
+	st, err := settings.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps, err := provider.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Update(func(s *settings.Settings) {
+		s.Paused, s.SystemProxy, s.Tun = true, false, false
+		s.Routing.ChangePolicy(routes.Default, func(q *routes.Policy) { q.Mode, q.DownloadEvery = routes.ModeAuto, 12 })
+	}); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{settings: st, providers: ps}
+	a.runDueDownloads()
+	// The round ends at once (no node has answered a delay test, so there
+	// is nothing to download through), noted as tried.
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		a.mu.Lock()
+		busy, tried := a.downloading, a.downloadTried[routes.Default]
+		a.mu.Unlock()
+		if !busy {
+			if tried.IsZero() {
+				t.Error("no round with takeover off")
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the round never ended")
+		}
 	}
 }
 

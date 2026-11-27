@@ -16,7 +16,8 @@ import (
 
 // A download test takes the nodes that answered fastest on the route's main
 // target, a few of them, and the node in use whatever its delay; never a
-// node that failed or one the route cannot use.
+// node that failed or one the route cannot use. They are of the rows the
+// node list shows: one filtered to a region tests that region (issue 267).
 func TestPlanBandwidth(t *testing.T) {
 	st, err := settings.Open(t.TempDir())
 	if err != nil {
@@ -45,20 +46,35 @@ func TestPlanBandwidth(t *testing.T) {
 	px[routes.Group(r)] = mihomo.Proxy{Now: name(0), All: members}
 	a.proxies = px
 
-	plan := a.planBandwidth(routes.Default)
+	plan := a.planBandwidth(routes.Default, members)
 	want := []string{name(7), name(6), name(5), name(4), name(3), name(0)}
 	if !slices.Equal(plan.Nodes, want) {
 		t.Errorf("nodes %v, want %v", plan.Nodes, want)
 	}
-	if plan.MaxBytes != int64(len(want))*speed.DownloadCap {
-		t.Errorf("max bytes %d", plan.MaxBytes)
+	if plan.MaxBytes != int64(len(want))*speed.DownloadCap || plan.Cap != speed.DownloadCap {
+		t.Errorf("max bytes %d, cap %d", plan.MaxBytes, plan.Cap)
 	}
 	if plan.URL != settings.Defaults.DownloadURL {
 		t.Errorf("url %q", plan.URL)
 	}
+	if plan.Round {
+		t.Error("a group that chooses by delay got a round")
+	}
+
+	// A list filtered to a few rows: the fastest of those alone, and the
+	// node in use to compare with, though the filter leaves it out.
+	plan = a.planBandwidth(routes.Default, []string{name(1), name(2), "dead" + core.NodeSep + "p"})
+	if want := []string{name(2), name(1), name(0)}; !slices.Equal(plan.Nodes, want) {
+		t.Errorf("filtered: %v, want %v", plan.Nodes, want)
+	}
+	// Nothing listed that answered: the node in use alone would be compared
+	// with nothing, so the plan is empty and the dialog says to test delays.
+	if p := a.planBandwidth(routes.Default, []string{"dead" + core.NodeSep + "p"}); len(p.Nodes) != 0 {
+		t.Errorf("none listed answered: %v", p.Nodes)
+	}
 
 	// A route that has no nodes plans nothing.
-	if p := a.planBandwidth("no-such-route"); len(p.Nodes) != 0 {
+	if p := a.planBandwidth("no-such-route", members); len(p.Nodes) != 0 {
 		t.Errorf("unknown route: %v", p.Nodes)
 	}
 }
