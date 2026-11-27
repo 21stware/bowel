@@ -11,6 +11,8 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
+	mdparser "github.com/egoist/mygo/ui/markdown/parser"
 
 	"github.com/oboo/moho/internal/i18n"
 )
@@ -248,21 +250,32 @@ var changelogText string
 // changelogEntry is one version's section of CHANGELOG.md.
 type changelogEntry struct {
 	Version, Date string
-	Items         []string
+	// Notes are what the version changed: the Markdown under its heading,
+	// as a release's manifest carries it.
+	Notes string
 	// Next: the new version that was found, from its release's notes.
 	Next bool
 }
 
 var changelogHeading = regexp.MustCompile(`^## \[?v?(\d+\.\d+\.\d+[^\]\s]*)\]?(?:\s+-\s+(\S+))?`)
 
-// parseChangelog reads the versions, newest first as the file has them.
-// Sections that are not a version, as Unreleased, are no one's to read yet.
+// parseChangelog reads the versions, newest first as the file has them,
+// each with the Markdown of its section as mygo build takes a release's
+// notes from it. Sections that are not a version, as Unreleased, are no
+// one's to read yet.
 func parseChangelog(text string) []changelogEntry {
 	var all []changelogEntry
+	var notes []string
 	in := false
-	for line := range strings.Lines(text) {
-		line = strings.TrimSpace(line)
+	end := func() {
+		if in {
+			all[len(all)-1].Notes = strings.TrimSpace(strings.Join(notes, "\n"))
+		}
+		notes = nil
+	}
+	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		if strings.HasPrefix(line, "## ") {
+			end()
 			m := changelogHeading.FindStringSubmatch(line)
 			in = m != nil
 			if in {
@@ -270,10 +283,11 @@ func parseChangelog(text string) []changelogEntry {
 			}
 			continue
 		}
-		if item, ok := strings.CutPrefix(line, "- "); ok && in {
-			all[len(all)-1].Items = append(all[len(all)-1].Items, item)
+		if in {
+			notes = append(notes, line)
 		}
 	}
+	end()
 	return all
 }
 
@@ -288,29 +302,14 @@ func changelogSince(all []changelogEntry, from string) []changelogEntry {
 	return all
 }
 
-// notesItems are the items of a release's notes, the version's section of
-// CHANGELOG.md: its list items, and any other line of text but a heading.
-func notesItems(notes string) []string {
-	var items []string
-	for line := range strings.Lines(notes) {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		item, _ := strings.CutPrefix(line, "- ")
-		items = append(items, item)
-	}
-	return items
-}
-
 // nextEntry is the new version that was found, as an entry of the
 // changelog, when its release has notes.
 func (u *UI) nextEntry() (changelogEntry, bool) {
 	up := u.snap.Update
-	if up == nil || up.Notes == "" {
+	if up == nil || strings.TrimSpace(up.Notes) == "" {
 		return changelogEntry{}, false
 	}
-	e := changelogEntry{Version: up.Version, Items: notesItems(up.Notes), Next: true}
+	e := changelogEntry{Version: up.Version, Notes: strings.TrimSpace(up.Notes), Next: true}
 	if !up.Date.IsZero() {
 		e.Date = up.Date.Local().Format(time.DateOnly)
 	}
@@ -324,6 +323,8 @@ type changelogUI struct {
 	from string
 	// next: the list is the new version that was found, alone.
 	next bool
+	// md is how the notes show as Markdown, shared by every version's.
+	md markdown.Options
 }
 
 // openChangelog shows the changes since from, or all of them. On the main
@@ -423,13 +424,36 @@ func (u *UI) changelogEntry(c *ui.Context, p *pal, e changelogEntry) {
 			ui.Spacer(c)
 			ui.Text(c, e.Date).FontSize(12).FontFeatures("tnum").TextColor(p.mute)
 		})
-		for _, item := range e.Items {
-			ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
-				ui.Text(c, "•").FontSize(13).TextColor(p.mute)
-				ui.Text(c, item).FontSize(13).LineHeight(1.5).TextColor(p.ink2).Grow(1).Basis(0)
-			})
-		}
+		markdown.View(c, e.Notes, u.notesMarkdown(p))
 	})
+}
+
+// notesMarkdown is how the notes read: GitHub's Markdown, as the release
+// page shows them, in the window's colors, with room between the items so
+// that each long one stands apart, and #123 a link to its issue.
+func (u *UI) notesMarkdown(p *pal) *markdown.Options {
+	o := &u.clog.md
+	o.Extensions = mdparser.GFM | mdparser.ExtReferences
+	o.Theme = &markdown.Theme{
+		FontSize: 13, LineHeight: 1.5,
+		Text: p.ink2, Muted: p.mute, Link: p.accentLine, LinkWeight: 500, Strong: p.ink,
+		Code: p.ink2, CodeBackground: p.hair2,
+		BlockSpacing: .9, ItemSpacing: .7,
+		Headings: [6]markdown.HeadingStyle{2: {Size: 1, Weight: 650, Color: p.ink, Top: 1.1, Bottom: .3}},
+	}
+	o.Resolve = issueLink
+	return o
+}
+
+// issueLink is where a reference to one of bowel's issues or pull
+// requests goes, as #123: GitHub sends an issue's address on to the pull
+// request when it is one. Another repository's stays text.
+func issueLink(in mdparser.Inline) (string, bool) {
+	repo, n := in.Ref()
+	if in.Kind != mdparser.Reference || n <= 0 || repo != "" && !strings.EqualFold(repo, "21stware/bowel") {
+		return "", false
+	}
+	return fmt.Sprintf("https://github.com/21stware/bowel/issues/%d", n), true
 }
 
 func changelogTag(c *ui.Context, p *pal, label string, now bool) {

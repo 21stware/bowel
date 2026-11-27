@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -375,21 +376,15 @@ intro
 - one
 `
 
-func TestNotesItems(t *testing.T) {
-	got := notesItems("- one\n\n- two `x`\n### Fixed\n  - three\nplain line\n")
-	want := []string{"one", "two `x`", "three", "plain line"}
-	if !slices.Equal(got, want) {
-		t.Fatalf("%q", got)
-	}
-	if got := notesItems("  \n"); len(got) != 0 {
-		t.Fatalf("blank: %q", got)
-	}
-}
-
+// TestParseChangelog: each version keeps the Markdown of its section, as
+// mygo build gives a release's notes, from a checkout with CRLF too.
 func TestParseChangelog(t *testing.T) {
 	all := parseChangelog(testChangelog)
-	if len(all) != 3 || all[0].Version != "0.3.0" || all[0].Date != "2026-12-01" || len(all[1].Items) != 2 || all[2].Version != "0.1.0" || all[2].Date != "" {
+	if len(all) != 3 || all[0].Version != "0.3.0" || all[0].Date != "2026-12-01" || all[1].Notes != "- two a\n- two b" || all[2].Version != "0.1.0" || all[2].Date != "" {
 		t.Fatalf("%+v", all)
+	}
+	if crlf := parseChangelog(strings.ReplaceAll(testChangelog, "\n", "\r\n")); !slices.Equal(crlf, all) {
+		t.Errorf("with CRLF: %+v", crlf)
 	}
 	for _, c := range []struct {
 		from string
@@ -415,7 +410,7 @@ func TestChangelogHasThisVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, e := range parseChangelog(changelogText) {
-		if e.Version == cfg.Version && len(e.Items) > 0 {
+		if e.Version == cfg.Version && e.Notes != "" {
 			return
 		}
 	}
