@@ -2,6 +2,6 @@
 
 package tun
 
-// Launch is the app run as the launcher of Windows' second task. Nothing
-// runs it anywhere else.
-func Launch([]string) int { return 2 }
+// Launch is the app run as Windows' launcher of TUN's core. Nothing runs
+// it anywhere else.
+func Launch([]string) int { return launchBadArgs }

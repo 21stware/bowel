@@ -198,9 +198,8 @@ func TestTunEntry(t *testing.T) {
 		{"core down", true, true, true, "", core.Failed, "error", "内核没有运行"},
 		// The bundled core runs in its place: TUN is still not on, and
 		// says why its own did not start.
-		{"its core did not start", true, true, true, "计划任务没有把内核启动起来", core.Running, "error", "计划任务没有把内核启动起来"},
+		{"its core did not start", true, true, true, "内核刚启动就退出了（退出码 1）", core.Running, "error", "内核刚启动就退出了（退出码 1）"},
 		{"its core did not start, unwanted", false, true, true, "x", core.Running, "off", ""},
-		{"task deleted", true, true, false, tun.ErrGone.Error(), core.Running, "install", ""},
 	} {
 		e := tunEntry(tc.wanted, tc.on, tc.installed, tc.fault, tc.state)
 		if e.Wanted != tc.wanted || e.Status != tc.status || !strings.Contains(e.Detail, tc.detail) || (tc.detail == "") != (e.Detail == "") {
@@ -210,8 +209,8 @@ func TestTunEntry(t *testing.T) {
 }
 
 // Only a core that did not come up, and only the copy TUN runs on, is
-// left for the bundled one; a deleted task also makes the installation
-// one to make again, which making it clears.
+// left for the bundled one, and installing clears that; a prompt the user
+// dismissed at the start is such a start.
 func TestLeaveTunCore(t *testing.T) {
 	saved := osTun
 	defer func() { osTun = saved }()
@@ -237,8 +236,8 @@ func TestLeaveTunCore(t *testing.T) {
 	if !a.leaveTunCore(start) || a.core.Bin != "/bundle" || a.tunFault.Load() == nil || *a.tunFault.Load() != start.Error() {
 		t.Fatalf("bin %s, fault %v", a.core.Bin, a.tunFault.Load())
 	}
-	if a.tunGone.Load() || a.tunNeedsInstall() {
-		t.Error("a task that is there needs no new authorization")
+	if a.tunNeedsInstall() {
+		t.Error("an installation whose core did not start needs no new authorization")
 	}
 	if a.leaveTunCore(start) {
 		t.Error("left twice: the bundled core's own failure is final")
@@ -248,15 +247,15 @@ func TestLeaveTunCore(t *testing.T) {
 		t.Fatalf("retry: bin %s, fault %v", a.core.Bin, a.tunFault.Load())
 	}
 
-	// The mark says installed and the task is gone.
-	if !a.leaveTunCore(&core.StartError{Err: fmt.Errorf("spawn: %w", tun.ErrGone)}) || !a.tunGone.Load() || !a.tunNeedsInstall() {
-		t.Fatal("a deleted task still counts as installed")
+	// Windows' prompt, dismissed at a start.
+	if !a.leaveTunCore(&core.StartError{Err: fmt.Errorf("spawn: %w", tun.ErrCanceled)}) || a.core.Bin != "/bundle" || a.tunNeedsInstall() {
+		t.Fatal("a dismissed prompt did not leave for the bundled core, or asks for an installation")
 	}
 	if err := a.installTun(); err != nil {
 		t.Fatal(err)
 	}
-	if a.tunGone.Load() || a.tunFault.Load() != nil || a.tunNeedsInstall() || a.core.Bin != "/tun" {
-		t.Errorf("after installing: gone %v, fault %v, bin %s", a.tunGone.Load(), a.tunFault.Load(), a.core.Bin)
+	if a.tunFault.Load() != nil || a.tunNeedsInstall() || a.core.Bin != "/tun" {
+		t.Errorf("after installing: fault %v, bin %s", a.tunFault.Load(), a.core.Bin)
 	}
 }
 
@@ -349,9 +348,9 @@ func TestTunCoreFailureKeepsACore(t *testing.T) {
 	}
 }
 
-// Issue 117, Windows: an installation that stopped half way says where in
-// the logs and on the TUN entry, one that was made without its second
-// task says so in the logs, and a prompt the user dismissed says nothing.
+// Issue 117: an installation that stopped half way says where in the
+// logs, one that was made says nothing, and so does a prompt the user
+// dismissed.
 func TestTunInstallIsNoted(t *testing.T) {
 	saved := osTun
 	defer func() { osTun = saved }()
@@ -367,7 +366,6 @@ func TestTunInstallIsNoted(t *testing.T) {
 		}
 		return logs[len(logs)-1].Text
 	}
-	osTun.note = func(string) string { return "" }
 	osTun.install = func(string, string) error { return tun.ErrCanceled }
 	if err := a.installTun(); !errors.Is(err, tun.ErrCanceled) || last() != "" {
 		t.Errorf("dismissed: %v, logged %q", err, last())
@@ -376,10 +374,47 @@ func TestTunInstallIsNoted(t *testing.T) {
 	if err := a.installTun(); err == nil || last() != "bowel: tun: stopped at the task: ERROR: Unspecified error" {
 		t.Errorf("failed: %v, logged %q", err, last())
 	}
+	before := len(a.mon.Logs(0))
 	osTun.install = func(string, string) error { return nil }
-	osTun.note = func(dst string) string { return "no second task for " + dst }
-	if err := a.installTun(); err != nil || last() != "bowel: tun: no second task for /tun" {
-		t.Errorf("made without the second task: %v, logged %q", err, last())
+	if err := a.installTun(); err != nil || len(a.mon.Logs(0)) != before {
+		t.Errorf("made: %v, logged %q", err, last())
+	}
+}
+
+// The core the app starts with. Where the copy has its rights by itself
+// it runs once installed, and a stale one only while TUN needs it; where
+// each start of it asks (Windows), it runs only with TUN in effect, and is
+// never stale, its start bringing it up to date.
+func TestStartBin(t *testing.T) {
+	installed := func(string) bool { return true }
+	notInstalled := func(string) bool { return false }
+	stale := func(string, string) bool { return true }
+	fresh := func(string, string) bool { return false }
+	never := func(string, string) bool { t.Error("the version was asked"); return false }
+	on, off, paused := settings.Settings{Tun: true}, settings.Settings{SystemProxy: true}, settings.Settings{Tun: true, Paused: true}
+	for _, c := range []struct {
+		name      string
+		s         settings.Settings
+		tunBin    string
+		asks      bool
+		installed func(string) bool
+		stale     func(string, string) bool
+		run       string
+		isStale   bool
+	}{
+		{"root's own core", on, "/b", false, installed, never, "/b", false},
+		{"installed, TUN off", off, "/t", false, installed, fresh, "/t", false},
+		{"not installed", on, "/t", false, notInstalled, never, "/b", false},
+		{"stale, TUN on", on, "/t", false, installed, stale, "/t", true},
+		{"stale, TUN off", off, "/t", false, installed, stale, "/b", true},
+		{"Windows, TUN on", on, "/t", true, notInstalled, never, "/t", false},
+		{"Windows, TUN off", off, "/t", true, installed, never, "/b", false},
+		{"Windows, takeover paused", paused, "/t", true, installed, never, "/b", false},
+	} {
+		run, isStale := startBin(c.s, "/b", c.tunBin, c.asks, c.installed, c.stale)
+		if run != c.run || isStale != c.isStale {
+			t.Errorf("%s: %s, stale %v; want %s, %v", c.name, run, isStale, c.run, c.isStale)
+		}
 	}
 }
 
@@ -412,12 +447,10 @@ func TestTurningTunOnMovesToTheInstalledCore(t *testing.T) {
 		{name: "TUN is not wanted", s: settings.Settings{SystemProxy: true}, want: "/bundle/mihomo"},
 		{name: "takeover is paused", s: settings.Settings{Tun: true, Paused: true}, want: "/bundle/mihomo"},
 		{name: "not installed", s: on, prep: func() { installed = false }, want: "/bundle/mihomo"},
-		{name: "its task is gone", s: on, prep: func() { a.tunGone.Store(true) }, want: "/bundle/mihomo"},
 		{name: "its core was given up on", s: on, prep: func() { why := "no"; a.tunFault.Store(&why) }, want: "/bundle/mihomo"},
 		{name: "installed and wanted", s: on, want: "/tun/mihomo"},
 	} {
 		installed = true
-		a.tunGone.Store(false)
 		a.tunFault.Store(nil)
 		m.SetBin("/bundle/mihomo")
 		if tc.prep != nil {

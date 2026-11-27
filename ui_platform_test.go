@@ -1,6 +1,7 @@
 package main
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
@@ -16,11 +17,18 @@ func TestPlatformLines(t *testing.T) {
 	if s := tunInstallHintOn("darwin"); !strings.Contains(s, "macOS") {
 		t.Errorf("macOS: %q", s)
 	}
-	if s := tunInstallHintOn("windows"); !strings.Contains(s, "User Account Control") || strings.Contains(s, "macOS") {
-		t.Errorf("Windows: %q", s)
-	}
 	if s := tunInstallHintOn("linux"); strings.Contains(s, "macOS") || strings.Contains(s, "Windows") {
 		t.Errorf("Linux: %q", s)
+	}
+	// Windows asks at every start of TUN's core, and says why.
+	if tunAsks != (runtime.GOOS == "windows") {
+		t.Errorf("TUN asks each start on %s: %v", runtime.GOOS, tunAsks)
+	}
+	if s := tunAskNote(); !strings.Contains(s, "User Account Control") || !strings.Contains(s, "each time") || !strings.Contains(s, "code-signed") || !strings.Contains(s, "Defender") {
+		t.Errorf("why Windows asks: %q", s)
+	}
+	if s := tunAskWait(); !strings.Contains(s, "User Account Control") {
+		t.Errorf("waiting for the prompt: %q", s)
 	}
 	if s := firewallTipOn("darwin"); !strings.Contains(s, "System Settings") {
 		t.Errorf("macOS firewall: %q", s)

@@ -18,43 +18,48 @@ import (
 
 // On Windows a TUN adapter (Wintun's, which the core carries) can only be
 // made by an elevated process, and nothing like a setuid bit lets a
-// program be elevated without asking. So the one authorisation (a UAC
-// prompt) does two things, in one elevated cmd:
+// program be elevated without asking. Versions before this one asked once,
+// and registered a scheduled task that ran the core elevated whenever the
+// user started it. Defender took that for malware (see Spawn), so there is
+// nothing to install ahead: each start of the core is elevated through a
+// UAC prompt of its own, and makes on the way what it needs.
 //
-//   - it copies the core to a directory under %ProgramData% that only
+//   - A copy of the core, in a directory under %ProgramData% that only
 //     administrators and SYSTEM can write, where no program of the user's
-//     can replace it afterwards;
-//   - it registers a scheduled task of the user's that runs that copy,
-//     with the arguments the app runs its core with, at the highest run
-//     level. The user may start and end their own task without being
-//     asked again, which is what Spawn does. A second task runs the same
-//     in the session the user is logged on in, for the accounts the
-//     first cannot be started for, through a copy of the app's own
-//     program kept beside the core (see fallbackTaskXML).
-//
-// A mark beside the copy, written by the same elevated command, says what
-// the task was registered for: Installed reads it, with no call to the
-// Task Scheduler. The second task is not part of what the mark stands
-// for: where Windows refuses to register it, a file beside the mark says
-// so (see noFallbackPath) and the installation counts as made.
+//     can replace it: the prompt never elevates a file the user could
+//     have written. It is made, or brought up to date, by the same
+//     elevated command that starts it, which then deletes the tasks
+//     earlier versions registered.
+//   - Beside it, a copy of the app's own program, the launcher, which
+//     starts the core in a job that ends it with the launcher, and ends
+//     it when the app asks or is gone (see Launch).
 //
 // The elevated command is hidden and returns an exit code alone, so it
 // writes what each of its parts did to a log in the directory the copy
 // was staged in, which is where a failure's reason comes from.
 
+// AsksEachStart is whether the system asks for the authorization at each
+// start of the core TUN runs on, rather than once: there is nothing to
+// install before, and starting that core is what asks.
+const AsksEachStart = true
+
 // Path is where the copy of the core that TUN runs on is kept: a
 // directory of this user's under %ProgramData%, closed to all but
-// administrators by the installation.
+// administrators by the command that makes it.
 func Path(data, name string) string {
+	return filepath.Join(tunDir(), name)
+}
+
+func tunDir() string {
 	root := os.Getenv("ProgramData")
 	if root == "" {
 		root = `C:\ProgramData`
 	}
-	return filepath.Join(root, "bowel", "tun", userSID(), name)
+	return filepath.Join(root, "bowel", "tun", userSID())
 }
 
-// userSID is the user's security identifier, as S-1-5-21-…: what the
-// task runs as, and a name no other user's installation has.
+// userSID is the user's security identifier, as S-1-5-21-…: a name no
+// other user's directory has.
 func userSID() string {
 	u, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
@@ -63,32 +68,25 @@ func userSID() string {
 	return u.User.Sid.String()
 }
 
-// taskName is the scheduled task's, one per user.
+// taskName is the first scheduled task's name earlier versions
+// registered, which the elevated command deletes.
 func taskName() string { return taskNameOf(userSID()) }
 
-// Installed reports whether path is the copy an installation made for
-// the directory the core runs in now. Only an elevated process can have
-// written the mark that says so.
+// Installed reports whether path is where TUN's core runs from: then
+// starting it asks for the authorization and makes the copy as it goes,
+// so there is nothing to install first.
 func Installed(path string) bool {
-	if fi, err := os.Lstat(path); err != nil || !fi.Mode().IsRegular() {
-		return false
-	}
-	b, err := os.ReadFile(markPath(path))
-	return err == nil && CoreDir != "" && strings.TrimSpace(string(b)) == mark(path, CoreDir, userSID())
+	return CoreDir != "" && strings.EqualFold(filepath.Dir(path), tunDir())
 }
 
-// stageDir is where the copy and the task's definition wait for the
-// authorisation: the user cannot write beside dst.
+// stageDir is where the copies wait for the authorization: the user
+// cannot write beside dst.
 func stageDir(string) string { return filepath.Join(os.TempDir(), "bowel-tun") }
 
 func checkDir(string) error { return nil }
 
 func installStep(tmp, dst string) (Step, error) {
-	if CoreDir == "" {
-		return nil, errors.New("tun: CoreDir is not set")
-	}
-	sid := userSID()
-	// The app's own program, to be the second task's launcher.
+	// The app's own program, to be the launcher.
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, err
@@ -97,59 +95,23 @@ func installStep(tmp, dst string) (Step, error) {
 	if err != nil {
 		return nil, err
 	}
-	xml := filepath.Join(filepath.Dir(tmp), ".mihomo-task.xml")
-	xml2 := filepath.Join(filepath.Dir(tmp), ".mihomo-task-interactive.xml")
 	// The log starts empty and is the app's own file, which the elevated
 	// command adds to.
 	log := installLogPath()
-	for path, def := range map[string][]byte{
-		xml:  utf16File(taskXML(sid, dst, CoreDir)),
-		xml2: utf16File(fallbackTaskXML(sid, launcherPath(dst), dst, CoreDir)),
-		log:  nil,
-	} {
-		if err := os.WriteFile(path, def, 0o600); err != nil {
-			_ = os.Remove(ltmp)
-			return nil, err
-		}
+	if err := os.WriteFile(log, nil, 0o600); err != nil {
+		_ = os.Remove(ltmp)
+		return nil, err
 	}
-	return winInstallStep(tmp, ltmp, dst, xml, taskName(), xml2, fallbackName(taskName()), mark(dst, CoreDir, sid), log), nil
+	return winInstallStep(tmp, ltmp, dst, taskName(), log), nil
 }
 
 // installLogPath is where the elevated command's log is, and stays after
-// an installation that stopped, until the next one is tried.
+// a start that stopped, until the next one makes the copy.
 func installLogPath() string { return filepath.Join(stageDir(""), installLogName) }
-
-// Failure is why the last installation stopped half way, "" when it did
-// not or was not tried: the part of the elevated command that failed and
-// what Windows said there. It is for the TUN entry to show while
-// Installed is false.
-func Failure() string {
-	b, err := os.ReadFile(installLogPath())
-	if err != nil {
-		return ""
-	}
-	return failureNote(consoleText(b))
-}
-
-// FallbackNote is what to tell the user of the installation at dst when
-// its second task could not be registered, "" when it has both.
-func FallbackNote(dst string) string {
-	b, err := os.ReadFile(noFallbackPath(dst))
-	if err != nil {
-		return ""
-	}
-	return fallbackNote(consoleText(b))
-}
-
-// hasFallback is whether the installation registered its second task.
-func hasFallback(dst string) bool {
-	_, err := os.Lstat(noFallbackPath(dst))
-	return err != nil
-}
 
 // consoleText is what a console program wrote to a file, as text: in the
 // system's OEM code page, which is not UTF-8 where the system's language
-// is not English (schtasks answers in that language).
+// is not English.
 func consoleText(b []byte) string {
 	if len(b) == 0 || utf8.Valid(b) {
 		return string(b)
@@ -166,8 +128,9 @@ func consoleText(b []byte) string {
 	return string(utf16.Decode(u))
 }
 
-// Uninstall deletes the tasks and the copy's directory, which takes an
-// administrator. A missing dst is not an error.
+// Uninstall deletes the copy's directory, and the tasks an earlier
+// version may have left, which takes an administrator. A missing dst is
+// not an error.
 func Uninstall(dst string) error {
 	if _, err := os.Lstat(dst); errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -202,6 +165,37 @@ const (
 
 var procShellExecuteEx = windows.NewLazySystemDLL("shell32.dll").NewProc("ShellExecuteExW")
 
+// shellRunas runs file with params elevated, hidden, in dir ("" for the
+// caller's), after Windows' own prompt, and returns the process: a
+// handle that waits and reads the exit code, and may be refused more.
+// A prompt the user dismissed is windows.ERROR_CANCELLED.
+func shellRunas(file, params, dir string) (windows.Handle, error) {
+	verb, _ := windows.UTF16PtrFromString("runas")
+	f, err := windows.UTF16PtrFromString(file)
+	if err != nil {
+		return 0, err
+	}
+	p, err := windows.UTF16PtrFromString(params)
+	if err != nil {
+		return 0, err
+	}
+	var d *uint16
+	if dir != "" {
+		if d, err = windows.UTF16PtrFromString(dir); err != nil {
+			return 0, err
+		}
+	}
+	info := shellExecuteInfo{mask: seeNoCloseProcess | seeNoUI, verb: verb, file: f, parameters: p, directory: d, show: windows.SW_HIDE}
+	info.size = uint32(unsafe.Sizeof(info))
+	if r, _, err := procShellExecuteEx.Call(uintptr(unsafe.Pointer(&info))); r == 0 {
+		return 0, err
+	}
+	if info.process == 0 {
+		return 0, errors.New(i18n.T("授权失败：没有启动提权的进程", "Authorization failed: no elevated process was started"))
+	}
+	return info.process, nil
+}
+
 // runAdmin runs the steps in an elevated cmd.exe, hidden, and waits for
 // it. Windows' own prompt names the program, and cannot show prompt.
 func runAdmin(_ string, steps []Step) error {
@@ -216,19 +210,9 @@ func runAdmin(_ string, steps []Step) error {
 	if err != nil {
 		return err
 	}
-	verb, _ := windows.UTF16PtrFromString("runas")
-	file, err := windows.UTF16PtrFromString(filepath.Join(sys, "cmd.exe"))
-	if err != nil {
-		return err
-	}
 	// /s: what is between the outer quotes is the command, as written.
-	params, err := windows.UTF16PtrFromString(`/d /s /c "` + sh + `"`)
+	h, err := shellRunas(filepath.Join(sys, "cmd.exe"), `/d /s /c "`+sh+`"`, "")
 	if err != nil {
-		return err
-	}
-	info := shellExecuteInfo{mask: seeNoCloseProcess | seeNoUI, verb: verb, file: file, parameters: params, show: windows.SW_HIDE}
-	info.size = uint32(unsafe.Sizeof(info))
-	if r, _, err := procShellExecuteEx.Call(uintptr(unsafe.Pointer(&info))); r == 0 {
 		if errors.Is(err, windows.ERROR_CANCELLED) {
 			if log != "" {
 				_ = os.Remove(log) // nothing ran: there is nothing to say
@@ -237,19 +221,15 @@ func runAdmin(_ string, steps []Step) error {
 		}
 		return fmt.Errorf(i18n.T("授权失败：%s", "Authorization failed: %s"), err)
 	}
-	if info.process == 0 {
-		return errors.New(i18n.T("授权失败：没有启动提权的进程", "Authorization failed: no elevated process was started"))
-	}
-	defer windows.CloseHandle(info.process)
-	if _, err := windows.WaitForSingleObject(info.process, windows.INFINITE); err != nil {
+	defer windows.CloseHandle(h)
+	if _, err := windows.WaitForSingleObject(h, windows.INFINITE); err != nil {
 		return err
 	}
 	var code uint32
-	if err := windows.GetExitCodeProcess(info.process, &code); err != nil {
+	if err := windows.GetExitCodeProcess(h, &code); err != nil {
 		return err
 	}
 	if code != 0 {
-		// The log stays where it is, for Failure to read later.
 		var said []byte
 		if log != "" {
 			said, _ = os.ReadFile(log)

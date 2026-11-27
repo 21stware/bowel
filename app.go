@@ -62,12 +62,11 @@ type App struct {
 	loc       *locate.Locator
 	http      *http.Client
 	coreBin   string      // the bundled core
-	tunBin    string      // the setuid copy TUN runs
+	tunBin    string      // the copy TUN runs: setuid, or on Windows started elevated
 	tunStale  atomic.Bool // tunBin is another version than coreBin
 	// tunFault is why the core at tunBin did not start; while it is set
 	// the bundled core runs in its place, with TUN out of its config.
 	tunFault  atomic.Pointer[string]
-	tunGone   atomic.Bool // what tunBin's installation stands for was removed: it is to be made again
 	lockFell  atomic.Bool // the exit lock's fallback to the system proxy, as refresh last found it
 	tunUp     tunUpProbe  // whether the core's TUN device is up, as last asked (app_tun.go); under mu
 	probePort int
@@ -213,23 +212,22 @@ func newApp() (*App, error) {
 	if tun.RootCore() {
 		tunBin = bin // root's child has TUN's rights already: no copy
 	}
-	run := bin
-	stale := false
-	if tunBin != bin && tun.Installed(tunBin) {
-		// A root copy older than this version, or on macOS one signed under
-		// a name that cannot tell applications apart: while TUN needs it, it
-		// stays until the user authorizes a new one; otherwise the new core
-		// runs.
-		stale = tun.Stale(bin, tunBin)
-		if !stale || st.Get().Tun {
-			run = tunBin
-		}
-	}
+	run, stale := startBin(st.Get(), bin, tunBin, tun.AsksEachStart, tun.Installed, tun.Stale)
 	cm, err := core.New(run, tun.CoreDir)
 	if err != nil {
 		return nil, err
 	}
-	cm.Spawn = spawnTun
+	cm.Spawn = func(b string) (core.Process, error) { return spawnTun(b, bin) }
+	if tun.AsksEachStart {
+		// Windows makes the copy from the bundled core as it starts it, so
+		// until then the bundled one stands for it.
+		cm.Source = func(b string) string {
+			if b == tunBin {
+				return bin
+			}
+			return b
+		}
+	}
 	probe, err := core.FreePort()
 	if err != nil {
 		return nil, err
@@ -266,10 +264,11 @@ func newApp() (*App, error) {
 // kept, which the core's config names. mihomo reads nothing outside its
 // own directory unless a SAFE_PATHS variable allows it, and only a core
 // that is the app's child can be given one. On Windows the core TUN runs
-// on is started by a scheduled task, with no environment of the app's, so
-// there the files live inside the core's directory, and what an earlier
-// version kept beside it is moved in once. A move that fails (a file in
-// use) leaves the files where they were, for the next start to try again.
+// on is started elevated, through a UAC prompt, with the user's own
+// environment and none of the app's, so there the files live inside the
+// core's directory, and what an earlier version kept beside it is moved
+// in once. A move that fails (a file in use) leaves the files where they
+// were, for the next start to try again.
 func storeDir(data, name, goos string) string {
 	old := filepath.Join(data, name)
 	if goos != "windows" {
@@ -1182,7 +1181,7 @@ func (a *App) setTun(on bool) error {
 // another device than the settings now do, is one that does.
 func (a *App) tunNeedsInstall() bool {
 	a.tellTunDevice()
-	return !osTun.installed(a.tunBin) || a.tunStale.Load() || a.tunGone.Load() || osTun.needsRule(a.tunBin)
+	return !osTun.installed(a.tunBin) || a.tunStale.Load() || osTun.needsRule(a.tunBin)
 }
 
 // tellTunDevice gives the installation the device's name as the settings
@@ -1205,9 +1204,6 @@ func (a *App) leaveTunCore(err error) bool {
 	}
 	why := err.Error()
 	a.tunFault.Store(&why)
-	if errors.Is(err, tun.ErrGone) {
-		a.tunGone.Store(true)
-	}
 	log.Println("tun: its core did not start, running the bundled one:", why)
 	a.core.Stop()
 	a.core.SetBin(a.coreBin)
@@ -1239,7 +1235,9 @@ func (a *App) tunFailed() bool {
 	return tk.Status == "error"
 }
 
-// installTun puts this version's core in the root copy and runs on it.
+// installTun puts this version's core in the root copy and runs on it. On
+// Windows nothing is installed ahead: the copy's next start, elevated,
+// makes it (tun.Spawn), and that is the only prompt.
 func (a *App) installTun() error {
 	a.tellTunDevice()
 	err := osTun.install(a.coreBin, a.tunBin)
@@ -1254,7 +1252,6 @@ func (a *App) installTun() error {
 // tunInstalled moves the core to the root copy, just (re)installed.
 func (a *App) tunInstalled() {
 	a.tunStale.Store(false)
-	a.tunGone.Store(false)
 	a.tunFault.Store(nil)
 	a.core.Stop()
 	a.core.SetBin(a.tunBin)
@@ -2626,10 +2623,7 @@ func (a *App) snapshot() Snapshot {
 	if f := a.tunFault.Load(); f != nil {
 		fault = *f
 	}
-	tk.Tun = tunEntry(s.Tun, on, osTun.installed(a.tunBin) && !a.tunGone.Load(), fault, cs.State)
-	if tk.Tun.Status == "install" {
-		tk.Tun.Detail = osTun.failure() // an installation that stopped half way says where
-	}
+	tk.Tun = tunEntry(s.Tun, on, osTun.installed(a.tunBin), fault, cs.State)
 	if tk.Tun.Status == "on" {
 		// The setting is not the device: a core that could not bring it up
 		// goes on without it.

@@ -1,7 +1,10 @@
 package tun
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,116 +14,332 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/oboo/moho/internal/nowindow"
+	"github.com/oboo/moho/internal/i18n"
 )
 
-// Task is the core as the scheduled task runs it: elevated, not a child
-// of the app, and in no session of the user's.
+// Task is the core as a start of TUN runs it: elevated through a UAC
+// prompt, by the launcher beside it, not a child of the app.
 type Task struct {
-	name string // of the task that started it
 	exe  string // the core's file name, as the process list has it
+	root uint32 // the elevated process: the launcher, or cmd.exe around it
 	pid  int
+
+	proc windows.Handle // root's, as the prompt gave it
+	stop windows.Handle // the event that asks the launcher to end the core (see appRef)
+
+	mu     sync.Mutex
+	asked  bool // Stop was called
+	closed bool // proc and stop are closed: root has ended
 
 	once sync.Once
 	done chan struct{}
+	err  error
 }
 
-// Spawn starts the core through the installation's tasks when bin is
-// the copy the installation made, and returns nil for any other: that one
-// runs as a child. An instance a crash of the app left running is ended
-// first. The task tried first is the one that needs no session of the
-// user's, unless the other was what worked the last time; which one
-// worked is kept for the next start, since finding out that a task
-// started nothing takes the whole wait.
-func Spawn(bin string) (*Task, error) {
+// What Spawn depends on. Tests replace them.
+var (
+	elevate   = shellRunas
+	guarded   = protected
+	spawnWait = 30 * time.Second
+)
+
+// Spawn starts the core at bin, elevated, when bin is the copy TUN runs
+// on, and returns nil for any other: that one runs as a child. src is the
+// bundled core, which the copy is made from.
+//
+// Windows asks each time: a program that registers a scheduled task to
+// run elevated (versions before this one did, so that the user was asked
+// once) is what Defender's behaviour monitoring takes for malware when
+// the program is unsigned and rarely seen, as bowel is. So nothing is
+// registered, and the UAC prompt elevates one of two programs. The
+// launcher beside the copy, when the copy is current and closed to the
+// user (see current); otherwise cmd.exe, which first makes the copy as
+// the installation did (winInstallStep) and then runs the launcher
+// (winStartStep). Either way what is elevated is in the directory only
+// administrators write, or is the system's own.
+//
+// The prompt's answer is waited for, and then the core: until it appears
+// under the elevated process, or that process ends without it, which is a
+// failure, with the reason the command's log gives.
+func Spawn(bin, src string) (*Task, error) {
 	if !Installed(bin) {
 		return nil, nil
 	}
-	t := &Task{exe: filepath.Base(bin), done: make(chan struct{})}
-	first := taskName()
-	_ = schtasks("/End", "/TN", first)
-	_ = schtasks("/End", "/TN", fallbackName(first))
-	// A core just ended may take a moment to go, and while it is there
-	// the task starts no other. One that stays was not ended with its
-	// task, and only the installation, elevated, can end it.
-	for deadline := time.Now().Add(5 * time.Second); len(running(bin)) > 0; time.Sleep(100 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			return nil, orphaned{}
-		}
-	}
-	before := pids(t.exe) // other programs' cores of the same name
-	last, _ := os.ReadFile(rememberPath())
-	name, err := startTask(first, string(last), hasFallback(bin),
-		func(name string) error { return schtasks("/Run", "/TN", name) },
-		func(name string) error { return schtasks("/Query", "/TN", name) },
-		func() bool {
-			deadline := time.Now().Add(8 * time.Second)
-			for time.Now().Before(deadline) {
-				for pid := range pids(t.exe) {
-					if !before[pid] {
-						t.pid = pid
-						return true
-					}
-				}
-				time.Sleep(100 * time.Millisecond)
-			}
-			return false
-		})
+	stop, err := windows.CreateEvent(nil, 1, 0, nil)
 	if err != nil {
 		return nil, err
 	}
-	t.name = name
-	if name == first {
-		_ = os.Remove(rememberPath())
-	} else if strings.TrimSpace(string(last)) != rememberFallback {
-		_ = os.WriteFile(rememberPath(), []byte(rememberFallback+"\n"), 0o644)
+	app, err := thisApp(stop)
+	if err != nil {
+		windows.CloseHandle(stop)
+		return nil, err
+	}
+	file, params, log, err := startCommand(bin, src, launcherArgs(app, bin, CoreDir))
+	if err != nil {
+		windows.CloseHandle(stop)
+		return nil, err
+	}
+	proc, err := elevate(file, params, CoreDir)
+	if err != nil {
+		windows.CloseHandle(stop)
+		if log != "" {
+			clearStage()
+		}
+		if errors.Is(err, windows.ERROR_CANCELLED) {
+			return nil, startCanceled{}
+		}
+		return nil, fmt.Errorf(i18n.T("无法以管理员身份启动 TUN 的内核：%s", "Couldn't start TUN's core as administrator: %s"), err)
+	}
+	t := &Task{exe: filepath.Base(bin), proc: proc, stop: stop, done: make(chan struct{})}
+	if t.root, err = windows.GetProcessId(proc); err != nil || t.root == 0 {
+		// Without its id the core cannot be told apart: it is ended unseen.
+		if err == nil {
+			err = errors.New("no process id")
+		}
+		t.Stop()
+		go t.Wait()
+		return nil, fmt.Errorf(i18n.T("无法以管理员身份启动 TUN 的内核：%s", "Couldn't start TUN's core as administrator: %s"), err)
+	}
+	if err := t.await(log); err != nil {
+		return nil, err
 	}
 	return t, nil
 }
 
-// rememberPath is where which task worked is kept: in the data folder,
-// beside the directory the core runs in.
-func rememberPath() string { return filepath.Join(filepath.Dir(CoreDir), "tun-task") }
+// thisApp is the app's reference for the launcher, with stop as its event.
+func thisApp(stop windows.Handle) (appRef, error) {
+	var created, exited, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(windows.CurrentProcess(), &created, &exited, &kernel, &user); err != nil {
+		return appRef{}, err
+	}
+	return appRef{pid: windows.GetCurrentProcessId(), created: filetime(created), stop: uint64(stop)}, nil
+}
+
+// startCommand is what the prompt elevates to start the core at bin with
+// the launcher's args: the launcher itself, or cmd.exe with the copy to
+// make first, made from src; log is that command's, "" for the launcher.
+func startCommand(bin, src string, args []string) (file, params, log string, err error) {
+	launcher := launcherPath(bin)
+	if current(bin, src) {
+		return launcher, windows.ComposeCommandLine(args), "", nil
+	}
+	step, err := InstallStep(src, bin)
+	if err != nil {
+		return "", "", "", err
+	}
+	log = installLogPath()
+	sh, err := winScript([]Step{step, winStartStep(launcher, args, log)})
+	if err != nil {
+		clearStage()
+		return "", "", "", err
+	}
+	sys, err := windows.GetSystemDirectory()
+	if err != nil {
+		clearStage()
+		return "", "", "", err
+	}
+	// /s: what is between the outer quotes is the command, as written.
+	return filepath.Join(sys, "cmd.exe"), `/d /s /c "` + sh + `"`, log, nil
+}
+
+// clearStage deletes what a start that did not happen staged.
+func clearStage() {
+	if old, err := filepath.Glob(filepath.Join(stageDir(""), ".mihomo-*")); err == nil {
+		for _, p := range old {
+			_ = os.Remove(p)
+		}
+	}
+}
+
+// current is whether the launcher can be elevated as it is to start the
+// core at bin: an installation of this kind made the directory (its
+// mark), it is closed to the user (protected), no core from an earlier
+// version still runs from bin, and the core and the launcher are the
+// bundled core src and the app's own program, byte for byte. A refresh
+// costs nothing but a moment, the prompt being there anyway, so any doubt
+// is answered with one.
+func current(bin, src string) bool {
+	exe, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	b, err := os.ReadFile(markPath(bin))
+	return err == nil && strings.TrimSpace(string(b)) == markText && guarded(bin) &&
+		len(running(bin)) == 0 && sameFile(src, bin) && sameFile(exe, launcherPath(bin))
+}
+
+// The rights that would let a program change what an elevated start
+// runs: a file's contents, its place, who may change it; for the
+// directory, what is in it as well; for the two folders above it, what
+// takes its place (a user may make files and folders beside it, as
+// %ProgramData% lets everyone).
+var (
+	fileRights   = []uint32{windows.FILE_WRITE_DATA, windows.FILE_APPEND_DATA, windows.DELETE, windows.WRITE_DAC, windows.WRITE_OWNER}
+	dirRights    = []uint32{fileAddFile, fileAddSubdirectory, fileDeleteChild, windows.DELETE, windows.WRITE_DAC, windows.WRITE_OWNER}
+	parentRights = []uint32{fileDeleteChild, windows.DELETE, windows.WRITE_DAC, windows.WRITE_OWNER}
+)
+
+// A folder's rights, which share their bits with a file's.
+const (
+	fileAddFile         = 0x0002 // FILE_ADD_FILE
+	fileAddSubdirectory = 0x0004 // FILE_ADD_SUBDIRECTORY
+	fileDeleteChild     = 0x0040 // FILE_DELETE_CHILD
+)
+
+// protected is whether no program of the user's can change what an
+// elevated start of bin runs. It asks Windows for each right in turn
+// with this process's own token, which is not elevated: what that is
+// refused, every other program the user runs is refused as well, and
+// Windows weighs the owner, the groups, the denials and the integrity
+// level as it will for them. An answer other than a refusal (a file in
+// use, one that is missing) counts as a right granted.
+func protected(bin string) bool {
+	dir := winDir(bin)
+	for _, c := range []struct {
+		path   string
+		rights []uint32
+	}{
+		{bin, fileRights}, {launcherPath(bin), fileRights}, {dir, dirRights},
+		{winDir(dir), parentRights}, {winDir(winDir(dir)), parentRights},
+	} {
+		for _, r := range c.rights {
+			if mayOpen(c.path, r) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func mayOpen(path string, access uint32) bool {
+	p, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return true
+	}
+	const share = windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE
+	// The link or junction itself, not what it points at; and a folder can
+	// only be opened with backup semantics.
+	h, err := windows.CreateFile(p, access, share, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+	if err == nil {
+		windows.CloseHandle(h)
+		return true
+	}
+	return !errors.Is(err, windows.ERROR_ACCESS_DENIED)
+}
+
+// sameFile is whether a and b hold the same bytes.
+func sameFile(a, b string) bool {
+	fa, err := os.Open(a)
+	if err != nil {
+		return false
+	}
+	defer fa.Close()
+	fb, err := os.Open(b)
+	if err != nil {
+		return false
+	}
+	defer fb.Close()
+	sa, err1 := fa.Stat()
+	sb, err2 := fb.Stat()
+	if err1 != nil || err2 != nil || sa.Size() != sb.Size() {
+		return false
+	}
+	ba, bb := make([]byte, 1<<20), make([]byte, 1<<20)
+	for {
+		na, erra := io.ReadFull(fa, ba)
+		nb, errb := io.ReadFull(fb, bb)
+		if na != nb || !bytes.Equal(ba[:na], bb[:nb]) {
+			return false
+		}
+		if erra != nil || errb != nil {
+			return (erra == io.EOF || erra == io.ErrUnexpectedEOF) && (errb == io.EOF || errb == io.ErrUnexpectedEOF)
+		}
+	}
+}
+
+// await waits for the core under the elevated process, or for that process
+// to end. log is the command's, "" for the launcher alone.
+func (t *Task) await(log string) error {
+	deadline := time.Now().Add(spawnWait)
+	for {
+		if pid := coreOf(snapshot(), t.root, t.exe); pid != 0 {
+			t.pid = int(pid)
+			return nil
+		}
+		ev, err := windows.WaitForSingleObject(t.proc, 100)
+		if err != nil {
+			t.Stop()
+			go t.Wait()
+			return err
+		}
+		if ev == windows.WAIT_OBJECT_0 {
+			var code uint32
+			_ = windows.GetExitCodeProcess(t.proc, &code)
+			t.release()
+			var said []byte
+			if log != "" {
+				said, _ = os.ReadFile(log) // it stays, for whoever looks
+			}
+			return endedErr(code, consoleText(said))
+		}
+		if time.Now().After(deadline) {
+			// The event stays set until the process is gone: a launcher
+			// that starts after this ends at once.
+			t.Stop()
+			go t.Wait()
+			return fmt.Errorf(i18n.T("以管理员身份启动后 %d 秒内没有看到内核", "No core appeared within %d seconds of starting it as administrator"), int(spawnWait/time.Second))
+		}
+	}
+}
 
 func (t *Task) Pid() int { return t.pid }
 
-// Wait returns once the core's process is gone. An elevated process's
-// handle may be refused to the app, and then the process list is asked
-// twice a second.
+// Wait returns once the elevated process is gone, which the launcher is
+// only once the core is.
 func (t *Task) Wait() error {
 	t.once.Do(func() {
 		defer close(t.done)
-		if h, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(t.pid)); err == nil {
-			defer windows.CloseHandle(h)
-			if _, err := windows.WaitForSingleObject(h, windows.INFINITE); err == nil {
-				return
-			}
+		if _, err := windows.WaitForSingleObject(t.proc, windows.INFINITE); err != nil {
+			t.err = err
+			return // the handles stay: Stop may still need them
 		}
-		for pids(t.exe)[t.pid] {
-			time.Sleep(500 * time.Millisecond)
+		var code uint32
+		if windows.GetExitCodeProcess(t.proc, &code) == nil && code != 0 {
+			t.err = fmt.Errorf("exit status %d", code)
 		}
+		t.release()
 	})
 	<-t.done
-	return nil
+	return t.err
 }
 
-// Stop ends the task's running instance.
-func (t *Task) Stop() { _ = schtasks("/End", "/TN", t.name) }
+// Stop asks the launcher to end the core. Asked again, it also ends the
+// elevated process itself, where the prompt's handle allows it: the
+// launcher's job takes the core with it, and cmd.exe's end leaves the
+// launcher to the event.
+func (t *Task) Stop() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.closed {
+		return
+	}
+	if t.asked {
+		_ = windows.TerminateProcess(t.proc, 1)
+	}
+	t.asked = true
+	_ = windows.SetEvent(t.stop)
+}
 
-// schtasks runs the Task Scheduler's command, hidden.
-func schtasks(args ...string) error {
-	sys, err := windows.GetSystemDirectory()
-	if err != nil {
-		return err
+// release closes the handles, once the elevated process has ended: no
+// launcher reads the event after that.
+func (t *Task) release() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.closed {
+		windows.CloseHandle(t.proc)
+		windows.CloseHandle(t.stop)
+		t.closed = true
 	}
-	cmd := nowindow.Command(filepath.Join(sys, "schtasks.exe"), args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		if msg := strings.TrimSpace(string(out)); msg != "" {
-			return fmt.Errorf("%w: %s", err, msg)
-		}
-	}
-	return err
 }
 
 // running are the processes whose program is the installed core bin.
@@ -128,17 +347,18 @@ func schtasks(args ...string) error {
 // one whose path the system will not tell.
 func running(bin string) []int {
 	var out []int
-	for _, name := range []string{filepath.Base(bin), filepath.Base(bin) + ".old"} {
-		for pid := range pids(name) {
-			h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
-			if err != nil {
-				continue
-			}
-			if sameImage(imagePath(h), bin) {
-				out = append(out, pid)
-			}
-			windows.CloseHandle(h)
+	for _, p := range snapshot() {
+		if !strings.EqualFold(p.exe, filepath.Base(bin)) && !strings.EqualFold(p.exe, filepath.Base(bin)+".old") {
+			continue
 		}
+		h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, p.pid)
+		if err != nil {
+			continue
+		}
+		if sameImage(imagePath(h), bin) {
+			out = append(out, int(p.pid))
+		}
+		windows.CloseHandle(h)
 	}
 	return out
 }
@@ -154,20 +374,18 @@ func imagePath(h windows.Handle) string {
 	return windows.UTF16ToString(buf[:n])
 }
 
-// pids are the processes whose executable is named exe.
-func pids(exe string) map[int]bool {
-	out := map[int]bool{}
+// snapshot is every process, with its parent and its program's name.
+func snapshot() []coreProc {
 	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
-		return out
+		return nil
 	}
 	defer windows.CloseHandle(snap)
+	var out []coreProc
 	var e windows.ProcessEntry32
 	e.Size = uint32(unsafe.Sizeof(e))
 	for err = windows.Process32First(snap, &e); err == nil; err = windows.Process32Next(snap, &e) {
-		if strings.EqualFold(windows.UTF16ToString(e.ExeFile[:]), exe) {
-			out[int(e.ProcessID)] = true
-		}
+		out = append(out, coreProc{pid: e.ProcessID, parent: e.ParentProcessID, exe: windows.UTF16ToString(e.ExeFile[:])})
 	}
 	return out
 }

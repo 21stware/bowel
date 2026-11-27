@@ -29,10 +29,8 @@ var osTun = struct {
 	install   func(src, dst string) error
 	needsRule func(dst string) bool                           // Linux: the polkit rule for the core's resolvectl is missing or another device's
 	linkDNS   func(ctx context.Context) (pointed, known bool) // Linux: whether systemd-resolved has DNS servers for the TUN device
-	failure   func() string                                   // Windows: why the last installation stopped half way
-	note      func(dst string) string                         // Windows: what an installation that was made lacks
 	firewall  func() bool                                     // Linux: ufw or firewalld may drop what comes back on the TUN device
-}{tun.Installed, tun.InstallStep, tun.Admin, tun.Install, tun.NeedsRule, tun.LinkDNS, tun.Failure, tun.FallbackNote, gateway.TunFirewall}
+}{tun.Installed, tun.InstallStep, tun.Admin, tun.Install, tun.NeedsRule, tun.LinkDNS, gateway.TunFirewall}
 
 // gwProbe is what the last look at the gateway found.
 type gwProbe struct {
