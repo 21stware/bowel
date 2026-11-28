@@ -9,6 +9,7 @@ They are also on the website, at [bowel.dev/en/docs/](https://bowel.dev/en/docs/
 - [Install and get started](install.md): installing on each system, adding a provider, turning on takeover, and what each platform has
 - [Route groups and nodes](routes.md): the built-in groups, choosing a node by hand or by speed, test sites, the download test, rules
 - [Takeover, TUN and the exit lock](takeover.md): the system proxy and TUN, what TUN asks for on each system, locking a group's exit
+- [Tailscale and Headscale](headscale.md): using bowel alongside a tailnet on a computer, and Android's built-in Tailscale node on a self-hosted Headscale
 - [Questions](faq.md): moving from another Clash client, protocols, data, the license
 
 ## Reference
