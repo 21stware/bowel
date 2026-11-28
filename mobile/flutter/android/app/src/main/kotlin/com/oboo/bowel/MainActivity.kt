@@ -129,10 +129,18 @@ class MainActivity : FlutterActivity() {
         return mapOf(
             "tv" to (ui.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION || packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)),
             "camera" to packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY),
-            // Seen through the manifest's <queries>, as Android 11 hides other apps.
-            "files" to (documentPicker("*/*").resolveActivity(packageManager) != null),
-            "images" to (imagePicker().resolveActivity(packageManager) != null),
+            "files" to canPick(documentPicker("*/*")),
+            "images" to canPick(imagePicker()),
         )
+    }
+
+    // Whether an app that can really pick answers: seen through the
+    // manifest's <queries>, as Android 11 hides other apps, and not Android
+    // TV's stub, which answers and closes at once (Pickers).
+    private fun canPick(picker: Intent): Boolean {
+        @Suppress("DEPRECATION") // the flags overload is 33+
+        val found = packageManager.queryIntentActivities(picker, PackageManager.MATCH_DEFAULT_ONLY)
+        return Pickers.real(found.map { it.activityInfo.packageName })
     }
 
     private fun documentPicker(type: String) =
@@ -150,11 +158,16 @@ class MainActivity : FlutterActivity() {
             result.success(null)
             return
         }
+        // Said rather than opened: the stub would come straight back with nothing.
+        if (!canPick(picker)) {
+            result.error("nopicker", null, null)
+            return
+        }
         try {
             startActivityForResult(picker, REQUEST_PICK)
             pendingPick = result
         } catch (e: ActivityNotFoundException) {
-            result.error("pick", e.message, null)
+            result.error("nopicker", e.message, null)
         }
     }
 

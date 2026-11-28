@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show Clipboard, ClipboardData, MissingPluginException;
+import 'package:flutter/services.dart' show Clipboard, ClipboardData, MissingPluginException, PlatformException;
 import 'package:flutter/widgets.dart' show AppLifecycleListener, AppLifecycleState, BuildContext, Element, GlobalKey, NavigatorState, TextEditingController, Widget, WidgetsBinding;
 
 import 'core.dart';
@@ -703,7 +703,7 @@ class AppState extends ChangeNotifier {
 
   /// Adds what the QR code in a picture says.
   Future<void> addFromImage() async {
-    final path = await _pick(Shell.instance.pickImage);
+    final path = await _pick(Shell.instance.pickImage, image: true);
     if (path == null) return;
     final out = await ask('decodeQR', {'path': path});
     if (out is! Map) return;
@@ -724,11 +724,24 @@ class AppState extends ChangeNotifier {
     await addProvider(text);
   }
 
-  Future<String?> _pick(Future<String?> Function() pick) async {
+  /// A file, or with [image] a picture, the user picks; null, said, when
+  /// none came back. A device with nothing that picks (Android TV answers
+  /// with a stub that closes at once) says so and stops offering it.
+  Future<String?> _pick(Future<String?> Function() pick, {bool image = false}) async {
     try {
-      return await pick();
+      final path = await pick();
+      if (path == null) _toast(image ? tr('没有选择图片', 'No picture was chosen') : tr('没有选择文件', 'No file was chosen'));
+      return path;
     } on MissingPluginException {
       _toast(tr('这台设备暂时不能选择文件', 'This device can\'t choose files yet'));
+      return null;
+    } on PlatformException catch (e) {
+      if (e.code != 'nopicker') {
+        _toast(Core.message(e), ms: 4000);
+        return null;
+      }
+      set(() => image ? Shell.instance.images = false : Shell.instance.files = false);
+      _toast(image ? tr('这台设备没有可以选择图片的应用', 'No app on this device can choose pictures') : tr('这台设备没有可以选择文件的应用', 'No app on this device can choose files'), ms: 4000);
       return null;
     } catch (e) {
       _toast(Core.message(e), ms: 4000);

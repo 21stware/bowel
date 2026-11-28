@@ -96,4 +96,6 @@ dependencies {
     implementation(files("libs/bridge.aar"))
     // QR scanning without Google Play services, which many phones here lack.
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    // The plain Kotlin under src/test (Pickers), run with `gradle :app:testDebugUnitTest`.
+    testImplementation("junit:junit:4.13.2")
 }
