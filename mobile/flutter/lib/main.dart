@@ -20,6 +20,7 @@ import 'ui/skin.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  watchRemoteKeys();
   final app = AppState();
   Shell.instance.onTabSelected = (i) => app.selectTab(i, fromShell: true);
   await Shell.instance.start();
@@ -97,7 +98,8 @@ class _RootState extends State<_Root> {
                     nativeBar: Shell.instance.native,
                     homeIndicator: media.bottom,
                     form: windowFormOf(MediaQuery.sizeOf(context)),
-                    overscan: overscanOf(MediaQuery.sizeOf(context)),
+                    // the pages keep off the bars at the top and bottom, not the sides
+                    overscan: overscanOf(MediaQuery.sizeOf(context), EdgeInsets.only(top: native?.top ?? media.top, bottom: media.bottom)),
                   );
                   return Frame(
                     data: frame,
