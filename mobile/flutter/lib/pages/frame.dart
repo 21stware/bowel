@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import '../app/i18n.dart';
 import '../app/state.dart';
 import '../ui/atoms.dart';
+import '../ui/focus.dart';
 import '../ui/skin.dart';
 
 /// How much room the window has, which decides the board and the navigation.
@@ -11,11 +12,24 @@ import '../ui/skin.dart';
 /// is never a question of which device the app is on.
 enum WindowForm { phone, medium, wide }
 
-/// Under 600 tall, with the bars taken off, the grids can't hold their cards.
-WindowForm windowFormOf(Size s) => s.width < 600 || s.height < 600 ? WindowForm.phone : (s.width < 900 ? WindowForm.medium : WindowForm.wide);
+/// Under 520 tall, with the bars and margins taken off, the grids can't hold
+/// their cards: a phone on its side stays a phone. A TV's screen is 960x540
+/// as Flutter counts it, which they just hold.
+WindowForm windowFormOf(Size s) => s.width < 600 || s.height < 520 ? WindowForm.phone : (s.width < 900 ? WindowForm.medium : WindowForm.wide);
+
+/// A big window as wide and short as a TV's gets a margin all round, since a
+/// TV may draw its picture past the edges of the glass. A system bar along an
+/// edge is margin already: [bars] is what they keep, and this only adds what
+/// they leave short, or a 540-tall screen with bars has no room for the board.
+EdgeInsets overscanOf(Size s, [EdgeInsets bars = EdgeInsets.zero]) {
+  if (windowFormOf(s) == WindowForm.phone || s.width < s.height * 1.7) return EdgeInsets.zero;
+  final h = (s.width * .05).roundToDouble(), v = (s.height * .05).roundToDouble();
+  double over(double want, double kept) => want > kept ? want - kept : 0;
+  return EdgeInsets.fromLTRB(over(h, bars.left), over(v, bars.top), over(h, bars.right), over(v, bars.bottom));
+}
 
 class FrameData {
-  const FrameData({required this.top, required this.barInset, required this.nativeBar, required this.homeIndicator, required this.form});
+  const FrameData({required this.top, required this.barInset, required this.nativeBar, required this.homeIndicator, required this.form, this.overscan = EdgeInsets.zero});
 
   final double top;
 
@@ -23,6 +37,9 @@ class FrameData {
   final double barInset, homeIndicator;
   final bool nativeBar;
   final WindowForm form;
+
+  /// What a TV may not show: everything that reads or acts stays inside it.
+  final EdgeInsets overscan;
 
   /// Flutter draws the tabs along the top, as the desktop window has them.
   bool get drawnTopBar => !nativeBar && form != WindowForm.phone;
@@ -41,7 +58,7 @@ class Frame extends InheritedWidget {
   @override
   bool updateShouldNotify(Frame oldWidget) {
     final a = data, b = oldWidget.data;
-    return a.top != b.top || a.barInset != b.barInset || a.nativeBar != b.nativeBar || a.homeIndicator != b.homeIndicator || a.form != b.form;
+    return a.top != b.top || a.barInset != b.barInset || a.nativeBar != b.nativeBar || a.homeIndicator != b.homeIndicator || a.form != b.form || a.overscan != b.overscan;
   }
 }
 
@@ -124,7 +141,7 @@ class Toast extends StatelessWidget {
     return Positioned(
       left: 0,
       right: 0,
-      bottom: Frame.of(context).barReserve + 12,
+      bottom: Frame.of(context).barReserve + 12 + Frame.of(context).overscan.bottom,
       child: IgnorePointer(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -186,8 +203,11 @@ class UpdateNotice extends StatelessWidget {
 /// Android has no system tab bar to host, so Flutter draws Material 3's. It
 /// follows the skin. iOS uses the real one, from the native shell.
 class AndroidBar extends StatelessWidget {
-  const AndroidBar({super.key, required this.app});
+  const AndroidBar({super.key, required this.app, this.focus});
   final AppState app;
+
+  /// One node per tab, for a remote's Back to bring focus to.
+  final List<FocusNode>? focus;
 
   static List<(IconData, String)> get items => [
         (Icons.speed, tr('代理', 'Proxy')),
@@ -206,7 +226,7 @@ class AndroidBar extends StatelessWidget {
       child: Row(children: [
         for (final (i, it) in items.indexed)
           Expanded(
-            child: GestureDetector(
+            child: KeyTarget(onActivate: () => app.selectTab(i), radius: 16, focusNode: focus?[i], child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () => app.selectTab(i),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -225,7 +245,7 @@ class AndroidBar extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(it.$2, maxLines: 1, style: l.text(12, weight: app.tab == i ? 700 : 500, color: app.tab == i ? l.ink : l.ink2, lh: 16).copyWith(shadows: const [])),
               ]),
-            ),
+            )),
           ),
       ]),
     );
@@ -234,8 +254,11 @@ class AndroidBar extends StatelessWidget {
 
 /// The tabs on a big Android window: the desktop's segmented row, along the top.
 class TopTabs extends StatelessWidget {
-  const TopTabs({super.key, required this.app});
+  const TopTabs({super.key, required this.app, this.focus});
   final AppState app;
+
+  /// One node per tab, for a remote's Back to bring focus to.
+  final List<FocusNode>? focus;
 
   @override
   Widget build(BuildContext context) {
@@ -250,17 +273,32 @@ class TopTabs extends StatelessWidget {
             decoration: BoxDecoration(color: l.hair2, borderRadius: l.br(10)),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               for (final (i, it) in AndroidBar.items.indexed)
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => app.selectTab(i),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                    decoration: BoxDecoration(color: app.tab == i ? l.accent : const Color(0x00000000), borderRadius: l.br(7)),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Text(it.$2, maxLines: 1, style: l.text(13, weight: 600, color: app.tab == i ? l.onAccent : l.ink2, lh: 18).copyWith(shadows: const [])),
-                      if (i == 2) ...[const SizedBox(width: 6), Dot(l.warn)],
-                    ]),
+                // Focused, a tab inverts; the one shown keeps a mark then.
+                KeyTarget(
+                  onActivate: () => app.selectTab(i),
+                  radius: 7,
+                  focusNode: focus?[i],
+                  look: FocusLook.invert,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => app.selectTab(i),
+                    child: Builder(builder: (context) {
+                      final lit = focusLit(context), on = app.tab == i;
+                      final inv = invertedOf(l, fill: on ? l.accent : null);
+                      return AnimatedContainer(
+                        duration: lit || keyDriven ? focusMotion(context) : const Duration(milliseconds: 200),
+                        curve: focusCurve,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                        decoration: BoxDecoration(color: lit ? inv.fill : (on ? l.accent : const Color(0x00000000)), borderRadius: l.br(7)),
+                        child: Stack(clipBehavior: Clip.none, alignment: Alignment.center, children: [
+                          Row(mainAxisSize: MainAxisSize.min, children: [
+                            invertContent(lit ? inv.on : null, Text(it.$2, maxLines: 1, style: l.text(13, weight: 600, color: on ? l.onAccent : l.ink2, lh: 18).copyWith(shadows: const []))),
+                            if (i == 2) ...[const SizedBox(width: 6), Dot(l.warn)],
+                          ]),
+                          if (lit && on) Positioned(bottom: -4, child: selectedMark(l)),
+                        ]),
+                      );
+                    }),
                   ),
                 ),
             ]),

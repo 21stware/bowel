@@ -204,12 +204,32 @@ func (x *bridge) shareProvider(id string) shareData {
 	if err != nil {
 		return shareData{Error: err.Error()}
 	}
-	img, err := qr.Encode(text)
+	rows, err := qrRows(text)
 	if err != nil { // too long for a code; the text can still be copied
 		return shareData{Text: text}
 	}
+	return shareData{Text: text, Rows: rows}
+}
+
+// qrData is any text's QR code, as shareData has it: the address a phone
+// opens to send this device a link.
+func qrData(text string) shareData {
+	rows, err := qrRows(text)
+	if err != nil {
+		return shareData{Text: text, Error: err.Error()}
+	}
+	return shareData{Text: text, Rows: rows}
+}
+
+// qrRows is text's QR code as rows of 0 and 1, one character a module,
+// quiet zone included.
+func qrRows(text string) ([]string, error) {
+	img, err := qr.Encode(text)
+	if err != nil {
+		return nil, err
+	}
 	b := img.Bounds()
-	out := shareData{Text: text, Rows: make([]string, 0, b.Dy())}
+	rows := make([]string, 0, b.Dy())
 	row := make([]byte, b.Dx())
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		for x := b.Min.X; x < b.Max.X; x++ {
@@ -218,9 +238,9 @@ func (x *bridge) shareProvider(id string) shareData {
 				row[x-b.Min.X] = '1'
 			}
 		}
-		out.Rows = append(out.Rows, string(row))
+		rows = append(rows, string(row))
 	}
-	return out
+	return rows, nil
 }
 
 // decodedData is a picture's QR code, or why there is none.

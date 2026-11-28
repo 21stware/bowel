@@ -150,7 +150,7 @@ Veya platformunuz için dosyayı [Releases](https://github.com/21stware/bowel/re
 | macOS | `bowel-<version>-arm64.dmg` | macOS 12 veya üzeri, Apple silicon |
 | Windows | `bowel-setup-<version>-amd64.exe` veya `-arm64.exe` | x64 veya Arm64 |
 | Linux | `bowel_<version>_<arch>.deb`, `bowel-<version>-1.<rpm arch>.rpm` veya `bowel-<version>-linux-<arch>.tar.gz` | amd64 veya arm64 |
-| Android | `bowel-<version>-android-arm64.apk` | Android 8.0 veya üzeri, arm64 |
+| Android | `bowel-<version>-android-arm64.apk`, 32 bit TV kutuları için `-armv7.apk` | Android 8.0 veya üzeri, arm64 veya armv7 |
 
 - **macOS**: bowel'ı Applications klasörüne sürükleyin. Uygulama bir Developer ID ile imzalanmış ve Apple tarafından noter onayından geçirilmiştir.
 - **Windows**: Kurulum dosyasını çalıştırın. Kod imzalı değildir, bu nedenle Windows çalıştırmadan önce uyarı verebilir.

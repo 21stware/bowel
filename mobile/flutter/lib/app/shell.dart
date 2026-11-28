@@ -25,7 +25,36 @@ class Shell {
 
   void Function(int index)? onTabSelected;
 
+  /// What this device can do, which decides only the ways to add that are
+  /// offered: Android reports it at start, and elsewhere (iOS, tests) it is
+  /// a phone with a camera and pickers. The layout follows the window's
+  /// size, never this (frame.dart).
+  bool tv = false;
+  bool camera = true;
+
+  /// Whether something answers the document picker (a YAML file) and the
+  /// photo picker (a QR code's picture). A TV often has neither.
+  bool files = true, images = true;
+
+  /// Back to a phone's, for tests.
+  @visibleForTesting
+  void resetDevice() {
+    tv = false;
+    camera = files = images = true;
+  }
+
   Future<void> start() async {
+    if (!kIsWeb && Platform.isAndroid) {
+      try {
+        final m = await _channel.invokeMethod<Map>('device');
+        if (m != null) {
+          tv = m['tv'] == true;
+          camera = m['camera'] != false;
+          files = m['files'] != false;
+          images = m['images'] != false;
+        }
+      } catch (_) {} // an older host: a phone's
+    }
     if (!native) return;
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {

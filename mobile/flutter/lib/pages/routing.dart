@@ -9,6 +9,7 @@ import '../app/shell.dart';
 import '../app/shown.dart';
 import '../app/state.dart';
 import '../ui/atoms.dart';
+import '../ui/focus.dart';
 import '../ui/skin.dart';
 import 'frame.dart';
 import 'rows.dart';
@@ -1749,8 +1750,7 @@ class _SetSheetState extends State<_SetSheet> {
       ),
       const SizedBox(height: 10),
       Row(children: [
-        Btn(tr('选择文件', 'Choose file'), minH: 44, onTap: _busy ? null : _pickFile),
-        const SizedBox(width: 8),
+        if (Shell.instance.files) ...[Btn(tr('选择文件', 'Choose file'), minH: 44, onTap: _busy ? null : _pickFile), const SizedBox(width: 8)],
         Expanded(child: Opacity(opacity: _ready ? 1 : .4, child: Btn(tr('导入', 'Import'), kind: BtnKind.accent, expand: true, minH: 44, onTap: _ready ? _save : null))),
       ]),
     ]);
@@ -1835,7 +1835,8 @@ void pushPage(BuildContext context, Widget page) {
 PageRoute<void> routeOf(Widget page) => PageRouteBuilder<void>(
       transitionDuration: const Duration(milliseconds: 320),
       reverseTransitionDuration: const Duration(milliseconds: 260),
-      pageBuilder: (_, _, _) => page,
+      // a level for the D-pad, which goes back to the row it came from
+      pageBuilder: (_, _, _) => FocusLevel(restore: true, child: page),
       transitionsBuilder: (_, a, _, child) => SlideTransition(
         position: Tween(begin: const Offset(1, 0), end: Offset.zero).animate(CurvedAnimation(parent: a, curve: easeCard)),
         child: child,

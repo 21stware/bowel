@@ -36,8 +36,18 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        // mihomo and the bridge are only built for arm64 phones.
-        ndk { abiFilters += "arm64-v8a" }
+        // mihomo and the bridge are only built for ARM: 64-bit phones and the
+        // 32-bit userspace of many TV boxes. `flutter build apk --split-per-abi`
+        // chooses the ABIs itself, and AGP refuses abiFilters next to its splits;
+        // the release passes --target-platform android-arm,android-arm64 with it.
+        // Otherwise the Flutter plugin has already put its own ABIs, x86_64
+        // included, in the list: they are replaced.
+        if (project.findProperty("split-per-abi")?.toString() != "true") {
+            ndk {
+                abiFilters.clear()
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            }
+        }
     }
 
     packaging {
@@ -86,4 +96,6 @@ dependencies {
     implementation(files("libs/bridge.aar"))
     // QR scanning without Google Play services, which many phones here lack.
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    // The plain Kotlin under src/test (Pickers), run with `gradle :app:testDebugUnitTest`.
+    testImplementation("junit:junit:4.13.2")
 }

@@ -2,9 +2,11 @@ package com.oboo.bowel
 
 import android.Manifest
 import android.app.AlertDialog
+import android.app.UiModeManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.Uri
 import android.net.VpnService
 import android.os.Build
@@ -72,6 +74,7 @@ class MainActivity : FlutterActivity() {
             "listApps" -> offMain(result) { launcherApps() }
             "canSeeApp" -> offMain(result) { canSee(call.argument<String>("id").orEmpty()) }
             "appVersion" -> result.success(packageManager.getPackageInfo(packageName, 0).versionName.orEmpty())
+            "device" -> result.success(device())
             else -> result.notImplemented()
         }
     }
@@ -118,6 +121,28 @@ class MainActivity : FlutterActivity() {
             .show()
     }
 
+    // What this device can do, for which ways to add the app offers: a TV
+    // has no clipboard to speak of, often no camera, and often nothing that
+    // answers the pickers. The layout still follows the window's size.
+    private fun device(): Map<String, Boolean> {
+        val ui = getSystemService(UI_MODE_SERVICE) as UiModeManager
+        return mapOf(
+            "tv" to (ui.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION || packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)),
+            "camera" to packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY),
+            "files" to canPick(documentPicker("*/*")),
+            "images" to canPick(imagePicker()),
+        )
+    }
+
+    // Whether an app that can really pick answers: seen through the
+    // manifest's <queries>, as Android 11 hides other apps, and not Android
+    // TV's stub, which answers and closes at once (Pickers).
+    private fun canPick(picker: Intent): Boolean {
+        @Suppress("DEPRECATION") // the flags overload is 33+
+        val found = packageManager.queryIntentActivities(picker, PackageManager.MATCH_DEFAULT_ONLY)
+        return Pickers.real(found.map { it.activityInfo.packageName })
+    }
+
     private fun documentPicker(type: String) =
         Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(type)
 
@@ -133,11 +158,16 @@ class MainActivity : FlutterActivity() {
             result.success(null)
             return
         }
+        // Said rather than opened: the stub would come straight back with nothing.
+        if (!canPick(picker)) {
+            result.error("nopicker", null, null)
+            return
+        }
         try {
             startActivityForResult(picker, REQUEST_PICK)
             pendingPick = result
         } catch (e: ActivityNotFoundException) {
-            result.error("pick", e.message, null)
+            result.error("nopicker", e.message, null)
         }
     }
 
@@ -186,9 +216,11 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    // The apps on the phone's launcher and on the TV's: many TV apps (YouTube,
+    // Netflix) have only a leanback launcher entry.
     private fun launcherApps(): List<Map<String, String>> {
-        val launchable = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        return packageManager.queryIntentActivities(launchable, 0)
+        return listOf(Intent.CATEGORY_LAUNCHER, Intent.CATEGORY_LEANBACK_LAUNCHER)
+            .flatMap { packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(it), 0) }
             .map { it.activityInfo.applicationInfo }
             .filter { it.packageName != packageName }
             .distinctBy { it.packageName }
@@ -197,7 +229,8 @@ class MainActivity : FlutterActivity() {
     }
 
     // Whether this app can see package id. From Android 11 it sees only
-    // what the manifest's <queries> name (the apps with a launcher icon) and
+    // what the manifest's <queries> name (the apps with a launcher icon, on a
+    // phone's launcher or a TV's) and
     // what Android shows to every app, and ConnectionOwners names a
     // connection's app by the same rule: a rule for one it can't see never
     // matches.
