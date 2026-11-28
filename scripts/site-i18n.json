@@ -518,5 +518,21 @@
   "docs/": {
     "zh-Hant": "docs/",
     "ja": "en/docs/"
+  },
+  "赞助商": {
+    "zh-Hant": "贊助商",
+    "ja": "スポンサー"
+  },
+  "赞助 bowel": {
+    "zh-Hant": "贊助 bowel",
+    "ja": "bowel のスポンサーになる"
+  },
+  "bowel 的用户大多是开发者。赞助商的 logo 和介绍会放在这里和 GitHub 的 README 里，也可以给 bowel 用户一个专属优惠码。": {
+    "zh-Hant": "bowel 的使用者大多是開發者。贊助商的 logo 和介紹會放在這裡和 GitHub 的 README 裡，也可以給 bowel 使用者一個專屬優惠碼。",
+    "ja": "bowel のユーザーの多くは開発者です。スポンサーのロゴと紹介はこのページと GitHub の README に載り、bowel ユーザー向けの専用クーポンコードも用意できます。"
+  },
+  "在 Telegram 上联系 @marchovis": {
+    "zh-Hant": "在 Telegram 上聯絡 @marchovis",
+    "ja": "Telegram で @marchovis に連絡する"
   }
 }

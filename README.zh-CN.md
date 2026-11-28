@@ -248,6 +248,12 @@ Flutter App 的翻译表和皮肤由桌面端的 Go 代码生成，过期时 `go
 
 bowel 原名 Moho。Go 模块仍是 `github.com/oboo/moho`，Bundle ID 仍是 `dev.moho.app`（保留 macOS 已授予的摄像头和录屏权限）。首次启动时，`~/Library/Application Support/Moho` 里的数据会迁移到 `…/bowel`。
 
+## 赞助商
+
+bowel 正在寻找赞助商。赞助商的 logo 和介绍会放在这里和 [bowel.dev](https://bowel.dev/#sponsors) 上，也可以附上给 bowel 用户的专属优惠码。
+
+想出现在这里？在 Telegram 上联系 [@marchovis](https://t.me/marchovis)。
+
 ## 致谢
 
 - [mihomo](https://github.com/MetaCubeX/mihomo)：代理内核，GPL-3.0。已发布的版本把它作为独立进程运行，不链接它的代码。iOS 必须链接它，因此 iOS 版暂未发布。
