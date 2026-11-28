@@ -273,7 +273,7 @@ class TopTabs extends StatelessWidget {
             decoration: BoxDecoration(color: l.hair2, borderRadius: l.br(10)),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               for (final (i, it) in AndroidBar.items.indexed)
-                KeyTarget(onActivate: () => app.selectTab(i), radius: 7, focusNode: focus?[i], child: GestureDetector(
+                KeyTarget(onActivate: () => app.selectTab(i), radius: 7, focusNode: focus?[i], fill: app.tab == i ? l.accent : null, child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () => app.selectTab(i),
                   child: AnimatedContainer(

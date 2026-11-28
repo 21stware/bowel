@@ -73,10 +73,19 @@ bool _fromRemote(KeyMessage message) {
 /// Focuses [node] the way a D-pad move does, scrolling it into view.
 void focusTo(FocusNode node) => FocusTraversalPolicy.defaultTraversalRequestFocusCallback(node);
 
-/// The ring a focused target wears: the theme color where it stands out on
-/// the paper, the ink where it doesn't (a lime on white).
-BoxDecoration focusRing(Look l, double radius) {
-  final c = contrast(l.accent, l.paper) >= 3 ? l.accent : l.ink;
+/// The ring a focused target wears, inside its edge, so on its [fill] where
+/// it has one and on the paper where it hasn't: the theme color where it
+/// stands out there, else whichever of the ink, the paper and the color
+/// drawn on the theme color stands out most (a lime ring on a lime button
+/// would be no ring at all).
+BoxDecoration focusRing(Look l, double radius, {Color? fill}) {
+  final under = fill == null ? l.paper : Color.alphaBlend(fill, l.paper);
+  var c = l.accent;
+  if (contrast(c, under) < 3) {
+    for (final o in [l.ink, l.onAccent, l.paper]) {
+      if (contrast(o, under) > contrast(c, under)) c = o;
+    }
+  }
   return BoxDecoration(
     borderRadius: l.br(radius),
     border: Border.all(color: c, width: 2.5, strokeAlign: BorderSide.strokeAlignInside),
@@ -86,13 +95,16 @@ BoxDecoration focusRing(Look l, double radius) {
 /// Something OK presses. A finger still goes through the [child]'s own
 /// gesture detector; this only adds the focus, the ring and the key.
 class KeyTarget extends StatefulWidget {
-  const KeyTarget({super.key, required this.onActivate, required this.child, this.radius = 10, this.focusNode});
+  const KeyTarget({super.key, required this.onActivate, required this.child, this.radius = 10, this.focusNode, this.fill});
 
   /// Null leaves it out of the focus order, as a disabled button is.
   final VoidCallback? onActivate;
   final Widget child;
   final double radius;
   final FocusNode? focusNode;
+
+  /// What the target is filled with, which its ring must stand out on.
+  final Color? fill;
 
   @override
   State<KeyTarget> createState() => _KeyTargetState();
@@ -118,7 +130,7 @@ class _KeyTargetState extends State<KeyTarget> {
           },
         ),
       },
-      child: _lit ? DecoratedBox(position: DecorationPosition.foreground, decoration: focusRing(Skin.of(context), widget.radius), child: widget.child) : widget.child,
+      child: _lit ? DecoratedBox(position: DecorationPosition.foreground, decoration: focusRing(Skin.of(context), widget.radius, fill: widget.fill), child: widget.child) : widget.child,
     );
   }
 }
