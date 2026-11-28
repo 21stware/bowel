@@ -1,3 +1,5 @@
+import 'package:flutter/gestures.dart' show GestureBinding, PointerDeviceKind, PointerDownEvent;
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import 'skin.dart';
@@ -11,6 +13,62 @@ import 'skin.dart';
 /// Keys, not a finger, are driving: Flutter's own switch, flipped by the
 /// last key or touch.
 bool get keyDriven => FocusManager.instance.highlightMode == FocusHighlightMode.traditional;
+
+/// The keys a remote moves and presses with. None of them types.
+final _remoteKeys = {
+  LogicalKeyboardKey.arrowUp,
+  LogicalKeyboardKey.arrowDown,
+  LogicalKeyboardKey.arrowLeft,
+  LogicalKeyboardKey.arrowRight,
+  LogicalKeyboardKey.select,
+  LogicalKeyboardKey.enter,
+  LogicalKeyboardKey.numpadEnter,
+  LogicalKeyboardKey.gameButtonA,
+  LogicalKeyboardKey.goBack,
+  LogicalKeyboardKey.tab,
+};
+
+bool _watching = false;
+
+/// Puts keys in charge on a remote's key, and a finger back on a touch.
+///
+/// Flutter leaves touch mode on a key unless Android says it came from its
+/// virtual keyboard (device -1), which it takes for the soft keyboard. But
+/// `adb shell input keyevent`, and the remotes some TV boxes wire in the
+/// same way, send their D-pad as that device: focus then moves, but in touch
+/// mode, so no ring shows and no level takes focus. A D-pad key is no soft
+/// keyboard's typing, unless Android flags it so (a soft keyboard's cursor
+/// keys, or a key that asks to keep touch mode).
+void watchRemoteKeys() {
+  if (_watching) return;
+  _watching = true;
+  // In front of FocusManager's own handler, by the same deprecated way it is
+  // set: only Android's raw message says whether a soft keyboard sent the key.
+  // ignore: deprecated_member_use
+  final keys = ServicesBinding.instance.keyEventManager;
+  // ignore: deprecated_member_use
+  final inner = keys.keyMessageHandler;
+  // ignore: deprecated_member_use
+  keys.keyMessageHandler = (message) {
+    if (_fromRemote(message)) FocusManager.instance.highlightStrategy = FocusHighlightStrategy.alwaysTraditional;
+    return inner?.call(message) ?? false;
+  };
+  GestureBinding.instance.pointerRouter.addGlobalRoute((event) {
+    final touch = event.kind == PointerDeviceKind.touch || event.kind == PointerDeviceKind.stylus || event.kind == PointerDeviceKind.invertedStylus;
+    if (event is PointerDownEvent && touch && FocusManager.instance.highlightStrategy == FocusHighlightStrategy.alwaysTraditional) {
+      FocusManager.instance.highlightStrategy = FocusHighlightStrategy.automatic;
+    }
+  });
+}
+
+// ignore: deprecated_member_use
+bool _fromRemote(KeyMessage message) {
+  // ignore: deprecated_member_use
+  final raw = message.rawEvent?.data;
+  // ignore: deprecated_member_use
+  if (raw is RawKeyEventDataAndroid && raw.flags & 0x6 != 0) return false; // FLAG_SOFT_KEYBOARD, FLAG_KEEP_TOUCH_MODE
+  return message.events.any((e) => e is KeyDownEvent && _remoteKeys.contains(e.logicalKey));
+}
 
 /// Focuses [node] the way a D-pad move does, scrolling it into view.
 void focusTo(FocusNode node) => FocusTraversalPolicy.defaultTraversalRequestFocusCallback(node);

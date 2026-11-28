@@ -18,10 +18,15 @@ enum WindowForm { phone, medium, wide }
 WindowForm windowFormOf(Size s) => s.width < 600 || s.height < 520 ? WindowForm.phone : (s.width < 900 ? WindowForm.medium : WindowForm.wide);
 
 /// A big window as wide and short as a TV's gets a margin all round, since a
-/// TV may draw its picture past the edges of the glass.
-EdgeInsets overscanOf(Size s) => windowFormOf(s) != WindowForm.phone && s.width >= s.height * 1.7
-    ? EdgeInsets.symmetric(horizontal: (s.width * .05).roundToDouble(), vertical: (s.height * .05).roundToDouble())
-    : EdgeInsets.zero;
+/// TV may draw its picture past the edges of the glass. A system bar along an
+/// edge is margin already: [bars] is what they keep, and this only adds what
+/// they leave short, or a 540-tall screen with bars has no room for the board.
+EdgeInsets overscanOf(Size s, [EdgeInsets bars = EdgeInsets.zero]) {
+  if (windowFormOf(s) == WindowForm.phone || s.width < s.height * 1.7) return EdgeInsets.zero;
+  final h = (s.width * .05).roundToDouble(), v = (s.height * .05).roundToDouble();
+  double over(double want, double kept) => want > kept ? want - kept : 0;
+  return EdgeInsets.fromLTRB(over(h, bars.left), over(v, bars.top), over(h, bars.right), over(v, bars.bottom));
+}
 
 class FrameData {
   const FrameData({required this.top, required this.barInset, required this.nativeBar, required this.homeIndicator, required this.form, this.overscan = EdgeInsets.zero});

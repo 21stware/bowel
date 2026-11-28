@@ -52,9 +52,10 @@ Future<void> _back(WidgetTester tester) async {
   await _settle(tester);
 }
 
-Future<(AppState, List<MethodCall>)> _open(WidgetTester tester, Size size) async {
+Future<(AppState, List<MethodCall>)> _open(WidgetTester tester, Size size, {FakeViewPadding? bars}) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
+  if (bars != null) tester.view.padding = bars;
   addTearDown(tester.view.reset);
   final calls = <MethodCall>[];
   tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
@@ -98,6 +99,20 @@ void main() {
       app.collapse();
       await _settle(tester);
     }
+  });
+
+  // A phone's system image made TV-shaped, as the emulator is: its status bar
+  // and gesture strip are margin enough, and the speed card's lines all show.
+  testWidgets('a 960x540 screen with system bars still holds every card', (tester) async {
+    await _open(tester, const Size(960, 540), bars: const FakeViewPadding(top: 29.5, bottom: 29));
+    final board = tester.getRect(find.byType(IndexedStack));
+    expect(board.top, 29.5 + 50); // the bar, then the tabs: no margin on top of the bar
+    expect(board.bottom, 540 - 29);
+    expect(board.left, 48);
+    final speed = tester.getRect(find.byWidgetPredicate((w) => w is FocusMark && w.id == 'cell:speed'));
+    expect(speed.bottom, lessThanOrEqualTo(board.bottom + .01));
+    expect(tester.getRect(find.textContaining('今日').first).bottom, lessThanOrEqualTo(speed.bottom));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('the D-pad goes card to card, OK opens one, Back closes it onto the card, then the tabs, then out', (tester) async {
