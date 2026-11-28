@@ -1,6 +1,7 @@
 package com.oboo.bowel
 
 import android.Manifest
+import android.app.ActivityManager
 import android.app.AlertDialog
 import android.app.UiModeManager
 import android.content.ActivityNotFoundException
@@ -10,6 +11,7 @@ import android.content.res.Configuration
 import android.net.Uri
 import android.net.VpnService
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
@@ -45,6 +47,21 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        hideFromRecents(Core.prefs(this).getString(PREF_HIDE_FROM_RECENTS, null) == "1")
+    }
+
+    // Some phones (MIUI, ColorOS and the like) force-stop an app, VPN and
+    // all, when its card is cleared from Recents. Hiding the card keeps
+    // "clear all" from reaching it; stock Android only closes the page there
+    // and leaves the VPN. The flag belongs to the task, so every new task
+    // takes it again from the preference.
+    private fun hideFromRecents(on: Boolean) {
+        val am = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+        am.appTasks.forEach { it.setExcludeFromRecents(on) }
+    }
+
     override fun onDestroy() {
         // Only this activity's own channel goes. Back on the first page
         // finishes the activity while the VPN keeps the process, and when the
@@ -62,7 +79,10 @@ class MainActivity : FlutterActivity() {
         when (call.method) {
             "getPrefs" -> result.success(prefs.all.mapValues { it.value.toString() })
             "setPref" -> {
-                prefs.edit().putString(call.argument<String>("key"), call.argument<String>("value")).apply()
+                val key = call.argument<String>("key")
+                val value = call.argument<String>("value")
+                prefs.edit().putString(key, value).apply()
+                if (key == PREF_HIDE_FROM_RECENTS) hideFromRecents(value == "1")
                 result.success(null)
             }
             "scanQR" -> scanQR(result)
@@ -327,5 +347,6 @@ class MainActivity : FlutterActivity() {
         const val REQUEST_SCAN = 3
         const val REQUEST_CAMERA = 4
         const val REQUEST_PICK = 5
+        const val PREF_HIDE_FROM_RECENTS = "hideFromRecents"
     }
 }

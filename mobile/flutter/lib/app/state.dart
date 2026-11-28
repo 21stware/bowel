@@ -83,6 +83,10 @@ class AppState extends ChangeNotifier {
   bool vpnOnDemand = false;
   String vpnExcluded = '';
 
+  /// Android: the app's card is kept out of Recents, so a phone that
+  /// force-stops what "clear all" clears leaves the VPN running.
+  bool hideFromRecents = false;
+
   // activity
   bool showLog = false, paused = false;
   String filter = 'all', routeFilter = '', netFilter = '', sortBy = 'time', logFilter = 'all';
@@ -154,6 +158,7 @@ class AppState extends ChangeNotifier {
     accent = prefs['accent'] ?? accent;
     twisted = prefs['borders'] == 'twisted';
     vpnOnDemand = prefs['vpnOnDemand'] == '1';
+    hideFromRecents = prefs['hideFromRecents'] == '1';
     vpnExcluded = prefs['vpnExcluded'] ?? '';
     updateDismissed = prefs['updateDismissed'] ?? '';
     appVersion = await Shell.instance.appVersion();
@@ -478,6 +483,12 @@ class AppState extends ChangeNotifier {
   void setOnDemand(bool want) {
     Shell.instance.setPref('vpnOnDemand', want ? '1' : '0');
     set(() => vpnOnDemand = want);
+  }
+
+  /// The activity hides its card as soon as the preference is set.
+  void setHideFromRecents(bool want) {
+    Shell.instance.setPref('hideFromRecents', want ? '1' : '0');
+    set(() => hideFromRecents = want);
   }
 
   /// The packages 不走 bowel 的 App keeps out of the VPN, as saved: the running VPN
