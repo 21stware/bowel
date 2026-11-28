@@ -13,9 +13,9 @@ import (
 )
 
 func main() {
-	// Windows' second TUN task runs a copy of this program, elevated, to
-	// start the core (tun.Launch): before anything else, so that nothing
-	// of the app runs with those rights.
+	// On Windows a copy of this program, elevated, starts TUN's core and
+	// ends it with the app (tun.Launch): before anything else, so that
+	// nothing of the app runs with those rights.
 	if len(os.Args) > 1 && os.Args[1] == tun.LauncherArg {
 		os.Exit(tun.Launch(os.Args[2:]))
 	}

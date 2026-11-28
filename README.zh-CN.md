@@ -13,7 +13,8 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
   <a href="https://bowel.dev/">官网</a> ·
   <a href="https://bowel.dev/docs/">文档</a> ·
   <a href="https://t.me/+BI3KVgBn7SE3YjVh">Telegram 群</a> ·
-  <a href="README.md">English</a>
+  <a href="README.md">English</a> ·
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 <p align="center">
@@ -106,7 +107,7 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 <a href="https://github.com
 - **下载源**：实测 npm、pip、Go 和 Cargo 的官方源与各个镜像，点一下换源；当前的源连不上时，一键换到最快的那个，或让它重新走节点。
 - **内网直连**：局域网、Tailscale 和公司 VPN 的地址自动直连，全局模式下也一样。
 - **出口锁定**：在首页路由组的页面上锁定一个路由组（比如 AI 服务），它的流量就只走节点，节点都走不了时直接断开，不会改走直连；全局和直连模式下、关闭接管后也一样。退出 bowel 后不再拦截。也可以用 `bowel route lock ai`。开不开 TUN 时各管得住什么、Android 上怎么用，见[接管、TUN 与出口锁定](https://bowel.dev/docs/takeover/#出口锁定)。
-- **MCP**：内置 MCP 服务器，供 Claude Code 等 Agent 读取状态、排查网络问题，改设置前默认先问你。下面是 macOS 的命令，Windows 和 Linux 上请换成 bowel 程序所在的路径。
+- **MCP**：内置 MCP 服务器，供 Claude Code 等 Agent 读取状态、排查网络问题，改设置前默认先问你；只有你能让 Agent 不经询问就修改：在 设置 > MCP 里，或在你自己的终端里执行 `bowel settings set mcpPolicy allow` 并输入 `allow` 确认。下面是 macOS 的命令，Windows 和 Linux 上请换成 bowel 程序所在的路径。
   ```bash
   claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp
   ```
@@ -132,7 +133,7 @@ Debian、Ubuntu 和 Fedora。这条命令会添加一个已签名的软件源，
 curl -fsSL https://21stware.github.io/packages/install.sh | sh
 ```
 
-没有屏幕的服务器、NAS 或软路由，用 Docker（amd64、arm64、armv7）。之后用 `docker exec -it bowel bowel tui` 管理；TUN、网关模式、compose 文件和给 agent 用的 MCP 见 [docs/docker.zh-CN.md](docs/docker.zh-CN.md)：
+没有屏幕的服务器、NAS 或软路由，用 Docker（amd64、arm64、armv7）：镜像是 `ghcr.io/21stware/bowel`，Docker Hub 上叫 `oboochin/bowel`，NAS 界面里搜得到。之后用 `docker exec -it bowel bowel tui` 管理；TUN、网关模式、compose 文件、群晖和 Unraid，以及给 agent 用的 MCP 见 [docs/docker.zh-CN.md](docs/docker.zh-CN.md)：
 
 ```bash
 docker run -d --name bowel --restart unless-stopped -p 7899:7899 -v bowel:/data \
@@ -146,7 +147,7 @@ docker run -d --name bowel --restart unless-stopped -p 7899:7899 -v bowel:/data 
 | macOS | `bowel-<版本>-arm64.dmg` | macOS 12 或更新版本，Apple 芯片 |
 | Windows | `bowel-setup-<版本>-amd64.exe` 或 `-arm64.exe` | x64 或 Arm64 |
 | Linux | `bowel_<版本>_<架构>.deb`、`bowel-<版本>-1.<rpm 架构>.rpm` 或 `bowel-<版本>-linux-<架构>.tar.gz` | amd64 或 arm64 |
-| Android | `bowel-<版本>-android-arm64.apk` | Android 8.0 或更新版本，arm64 |
+| Android | `bowel-<版本>-android-arm64.apk`，32 位电视盒子用 `-armv7.apk` | Android 8.0 或更新版本，arm64 或 armv7 |
 
 - **macOS**：把 bowel 拖进「应用程序」。安装包用 Developer ID 签名，并经过 Apple 公证。
 - **Windows**：运行安装程序。安装包没有代码签名，运行前 Windows 可能会弹出提示。
@@ -254,6 +255,10 @@ bowel 原名 Moho。Go 模块仍是 `github.com/oboo/moho`，Bundle ID 仍是 `d
 - [Flutter](https://flutter.dev)：移动端界面框架。
 - [OPPO Sans](resources/fonts/)：桌面版的界面字体。手机版用系统字体。
 
+## 贡献者
+
+<a href="https://github.com/21stware/bowel/graphs/contributors"><img src="https://contrib.rocks/image?repo=21stware/bowel" alt="贡献者"></a>
+
 ## 许可证
 
 bowel 采用 [PolyForm Noncommercial License 1.0.0](LICENSE) 授权，仅限非商业用途。如需商业授权，请[提交 issue](https://github.com/21stware/bowel/issues)。
@@ -261,3 +266,12 @@ bowel 采用 [PolyForm Noncommercial License 1.0.0](LICENSE) 授权，仅限非�
 Linux 发行版、软件仓库和应用商店可以依照[打包豁免](PACKAGING-EXCEPTION.md)从源码编译并分发 bowel，分发方是否为商业机构都可以。最终用户拿到的 bowel 仍仅限非商业用途。豁免以英文原文为准。
 
 随应用打包的 mihomo 内核仍适用 GPL-3.0。桌面版的资源目录里附有它的许可证（macOS 上是 `Contents/Resources/licenses/mihomo/`），Android 版在设置中注明，每个 Release 都附带对应版本的源码。`assets/flags/` 中的旗帜图片和 `resources/fonts/` 中的字体属于第三方文件，仍适用各自的许可证。
+
+## Star 趋势
+
+<a href="https://star-history.com/#21stware/bowel&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=21stware/bowel&type=Date&theme=dark">
+    <img src="https://api.star-history.com/svg?repos=21stware/bowel&type=Date" width="600" alt="Star 趋势">
+  </picture>
+</a>

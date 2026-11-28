@@ -175,6 +175,41 @@ nslookup example.com G      # answers 198.18.x.x: bowel's resolver is reached
 
 and, once the device points at G, any page that shows the visitor's address shows the node's, not the home's.
 
+## A route for one device
+
+Every device follows the same route groups, unless it is given a route of its own: then **all** of its traffic goes one way, whatever the groups' rules would do with it. A TV to 流媒体, so that every app on it leaves by the streaming node; a camera or a smart plug to 直连, so that it never uses a node; a guest's tablet to 拦截, so that it gets nothing through G; or a device left out of the gateway altogether.
+
+In the app: **日志 → 设备**, open the device, and choose under *路由*. From a terminal:
+
+```bash
+bowel gateway devices                         # the Route column says what each has
+bowel gateway device 192.168.1.50 media       # all of the TV's traffic to 流媒体 (a group's id or name)
+bowel gateway device 192.168.1.60 direct      # the camera never uses a node
+bowel gateway device tablet reject            # by its name, as the list shows it: blocked
+bowel gateway device 192.168.1.70 bypass      # left out of the gateway
+bowel gateway device 192.168.1.50 rules       # back to the rules every device follows
+```
+
+A device is named by its address, its hardware address or its name as `bowel gateway devices` shows them. An address on the LAN that no device has used yet is taken too, for a device that is still to be pointed at G. The device's open connections are closed, so that what it opens next goes the new way.
+
+**Where it comes in the order.** Route groups match top to bottom ([routes.md](guide/routes.md)). A device's route comes before every group, so that it takes everything, but for two kinds of rules that hold for every device:
+
+- **拦截 (Block)**: what is blocked stays blocked on the TV too.
+- **Groups with the exit lock**: their traffic leaves by their node or not at all, from a device as from G. A camera sent direct still sends a locked AI group's sites through that group's node.
+
+The [developer networks](dev-network.md) (LAN, Tailscale, VPN) come first as always. A device sent to 拦截 has nothing before it: it gets nothing through G at all, though G's DNS still answers it. Like every rule, a device's route holds in rule mode, not in global or direct mode, and not while a provider's own routing is in use (its groups are not bowel's).
+
+**Left out of the gateway** (`bypass`) is for automatic: at its next renewal, at most 10 minutes later (at once if its Wi-Fi reconnects), bowel's DHCP gives the device the real router R as its router and DNS, so its traffic no longer reaches G. It keeps its address, which bowel goes on handing out. A device pointed at G by hand cannot be turned away by bowel: its traffic is sent direct, and to take it out altogether set its router and DNS back to R.
+
+**How a device is known.** The core sees a device by its address only, so that is what a route goes by. bowel keeps the address the device's:
+
+- In automatic, bowel keeps the address for the device's hardware address: it gets that address at every lease, and no other device does.
+- When the device turns up at another address anyway (the router's DHCP gave it a new one, or it was set by hand), its route follows its hardware address there, from bowel's leases or the ARP table.
+- When its address is seen with another device and the device itself is not seen, the route waits for it (`"away": true` in `bowel gateway devices --json`) rather than take that other device.
+- A device whose hardware address is not known yet (`"mac": ""`) is known by its address alone; bowel learns the hardware address once the device has used the gateway.
+
+The routes are kept in `settings.json` as `gatewayDevices`, and stay on this computer: an exported configuration does not carry them.
+
 ## What bowel keeps, and puts back
 
 `scripts/gateway-e2e.sh` runs this for real: it builds bowel, puts a gateway, a device and a node in three containers, and checks every line below (Linux, as root; macOS is not covered by the script):
@@ -214,8 +249,9 @@ The value forwarding had before is kept in `gateway-before.json` in the data fol
 ## Limits
 
 - **IPv4 only.** bowel forwards and answers for IPv4. A device that also has IPv6 from the router can reach IPv6 sites past the gateway. If that matters, turn IPv6 off on the device, or on the router's LAN side.
-- **No rules by device.** Every device follows the same routes. The devices are listed (日志 → 设备 in the app, `bowel gateway devices`) with what each carries and when it came and went, but one device cannot be given a route of its own, or be left out of automatic.
-- **A device is known by its address.** One pointed by hand shows without a name; one that got its address from bowel shows the name it gave.
+- **A device's route is all or nothing.** A device can be given [a route of its own](#a-route-for-one-device), which takes all of its traffic, or follow the groups as every device does; it cannot have rules of its own beside the groups'. Its route holds in rule mode only, and not under a provider's own routing.
+- **A device is known by its address.** That is all the core sees of it, and a route goes by it. One pointed by hand shows without a name; one that got its address from bowel shows the name it gave. Its route follows its hardware address to a new address only once the device has used the gateway or renewed a lease there; until then it waits.
+- **Left out means direct for a device pointed by hand.** bowel can only take a device out of the gateway in automatic, by its DHCP answer.
 - **Not on Windows**, and not on musl systems (OpenWrt, Alpine).
 - Connections show the app as unknown for other devices: bowel can only name programs of the computer it runs on.
 
@@ -231,7 +267,7 @@ Forwarding goes back to what it was, port 53 closes, TUN stays as you had it. Th
 
 Everything above is reachable from the command line; every reading command takes `--json`. Exit codes: 0 done, 1 failed (for example bowel is not running), 2 the command was wrong.
 
-**Permission.** bowel tells an agent's commands from the user's by the agent's environment, and by default asks the user before a change. With the app open, a dialog appears: tell the user to expect it. A daemon has no window and refuses instead; the user (not you) can run `bowel settings set mcpPolicy allow`. Reading never asks.
+**Permission.** bowel tells an agent's commands from the user's by the agent's environment, and by default asks the user before a change. With the app open, a dialog appears: tell the user to expect it. A daemon has no window and refuses instead; the user (not you) can allow agents' changes at their own terminal, where `bowel settings set mcpPolicy allow` asks them to type `allow`. Run without a terminal, as through your `docker exec` or `ssh`, it is refused: don't answer that question, and don't add `-t` to make it ask. Reading never asks.
 
 **Steps.**
 
@@ -242,6 +278,7 @@ Everything above is reachable from the command line; every reading command takes
 5. Tell the user what to set on the device: router = G, DNS = G only. You cannot do this step from G.
 6. Verify from G: `bowel gateway devices --json` lists the device (`"via": "manual"`, `"online": true`) once it has used the gateway.
 7. Only if the user wants every device covered, and `.dhcp` is false (with a leased address `bowel gateway auto` refuses: a fixed address on G is the user's to set, so say so and stop): `bowel gateway check --json`. A non-empty `.servers` names the DHCP server to turn off; that is the user's to do in the router's admin page, and you say so and stop. With `.servers` empty, `bowel gateway auto`; then `.takeover.gateway.auto.status` is `on`. `error` comes with `.detail`.
+8. Only if the user asks for one device to go another way: `bowel gateway device <device> <route> --json`, the device by its `.ip`, `.mac` or `.name` from `bowel gateway devices --json`, the route a group's id from `bowel routes --json` (`direct` sends it direct, `reject` blocks everything it does), `bypass` (left out of the gateway), or `rules` (back to the groups). The answer's `.device` has `.route` or `.bypass`, and `.note` says what still stands between the change and the device (for example the renewal a device left out waits for). Before `reject` or `bypass`, say what the device will lose. Over MCP the same is `set_device_route` (`device`, `route`), following the same permission.
 
 **To undo:** `bowel gateway off`, then the devices back to automatic.
 

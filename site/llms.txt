@@ -7,7 +7,7 @@ Facts an agent needs before acting:
 - One program is the app, the command line and the daemon. `bowel` with no command opens the app; `bowel <command>` drives the running one; `bowel daemon` runs it without a window. Paths: `/Applications/bowel.app/Contents/MacOS/bowel` (macOS), `/opt/bowel/bowel` (Linux packages).
 - Every reading command takes `--json`. Exit codes: 0 done, 1 failed (bowel not running, a refused change), 2 a wrong command. `bowel <command> --help` has examples.
 - A daemon with a data folder of its own (`BOWEL_DATA_DIR`, as in the systemd unit) only answers commands that name the same folder.
-- Changes made by an agent are asked of the user first (a dialog in the app). A daemon cannot ask and refuses; only the user can allow them, with `bowel settings set mcpPolicy allow`. Reading never asks. Do not try to get round this.
+- Changes made by an agent are asked of the user first (a dialog in the app). A daemon cannot ask and refuses; only the user can allow them, with `bowel settings set mcpPolicy allow` at their own terminal, where it asks them to type `allow`. Without a terminal (`docker exec` without `-it`, `ssh` without `-t`, a script) it is refused. Reading never asks. Do not try to get round this: do not answer that question, and do not add `-t` to make it ask.
 - Never invent a subscription link or node; ask the user for theirs.
 
 ## Gateway mode: set it up now
@@ -37,6 +37,17 @@ bowel gateway manual                # back; the router's DHCP must be on again f
 ```
 
 A DHCP server in `.servers` has to be turned off in that router's admin page first. That is the user's to do: say which address it is, and stop. Afterwards `.takeover.gateway.auto.status` is `on`, or `error` with `.detail`. G needs a fixed address for this, set on G itself: while `.takeover.gateway.dhcp` is true `bowel gateway auto` refuses, and setting the address is the user's to do. On Linux it needs root.
+
+One device can be given a route of its own, which takes all of its traffic; only when the user asks for it:
+
+```bash
+bowel gateway device <ip|mac|name> media    # all its traffic to a route group (an id from bowel routes --json)
+bowel gateway device <ip|mac|name> direct   # never through a node; reject blocks it
+bowel gateway device <ip|mac|name> bypass   # left out of the gateway (automatic: the router at its next lease)
+bowel gateway device <ip|mac|name> rules    # back to the groups' rules, as every device
+```
+
+Block's rules and those of groups with the exit lock still hold for such a device; the route holds in rule mode only. Over MCP: `set_device_route`. Say what a device loses before `reject` or `bypass`; `.note` in the answer says what the change still waits for.
 
 Do not stop bowel, turn the gateway off or go back to manual as a test while automatic is on, or where the router's DHCP hands out G: the whole LAN goes offline. IPv4 only: a device with IPv6 can pass the gateway by.
 

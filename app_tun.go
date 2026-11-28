@@ -13,51 +13,112 @@ import (
 	"github.com/oboo/moho/internal/tun"
 )
 
-// spawnTun starts the core the way TUN's installation needs where that is
-// not as a child of the app: on Windows, through the scheduled task that
-// runs the protected copy elevated. For any other core, and on the other
-// systems always, it starts nothing and the manager does.
-func spawnTun(bin string) (core.Process, error) {
-	t, err := tun.Spawn(bin)
+// spawnTun starts the core the way TUN needs where that is not as a child
+// of the app: on Windows, elevated through a UAC prompt, from the
+// protected copy that the same prompt makes from src, the bundled core,
+// when it is missing or another version's. For any other core, and on
+// the other systems always, it starts nothing and the manager does.
+func spawnTun(bin, src string) (core.Process, error) {
+	t, err := tun.Spawn(bin, src)
 	if t == nil {
 		return nil, err
 	}
 	return t, err
 }
 
-// noteTunInstall puts how TUN's installation went among the logs, where
-// there is something to say: why it failed (on Windows, the part of the
-// elevated command that stopped and what Windows said), or what an
-// installation that was made is without. A prompt the user dismissed is
-// not a failure.
-func (a *App) noteTunInstall(err error) {
-	text := ""
-	switch {
-	case err == nil:
-		text = osTun.note(a.tunBin)
-	case !errors.Is(err, tun.ErrCanceled):
-		text = err.Error()
+// attachTun is spawnTun's other half: a core already running, which the
+// last run of the app left (a restart for an update, or a crash), as
+// tun.Attach has it when it runs elevated from the copy TUN runs on, which
+// the app may not end as a process. nil for any other, which the manager
+// waits for and ends as a process.
+func attachTun(bin string, pid int) core.Process {
+	if t := tun.Attach(bin, pid); t != nil {
+		return t
 	}
-	if text == "" {
+	return nil
+}
+
+// tunPrompt is told that Windows is about to show the UAC prompt for an
+// elevated start of TUN's core (tun.OnPrompt), and returns the window the
+// prompt is to belong to. A prompt asked for with no window of the app's
+// in front goes to the taskbar: at a start with the window hidden (at
+// login) nobody saw it, and Windows cancelled it after about two minutes.
+// So the window comes forward to own it, flashes where it cannot take the
+// front, and says what it waits for (Entry.Asking) until it is answered.
+func (a *App) tunPrompt() (owner uintptr, answered func()) {
+	a.tunAsking.Store(true)
+	a.emit()
+	a.mu.Lock()
+	win := a.win
+	a.mu.Unlock()
+	if win != nil && !a.isQuitting() {
+		a.showWindow()
+		win.FlashFrame(true)
+		owner = win.NativeHandle()
+	}
+	return owner, func() {
+		if owner != 0 {
+			win.FlashFrame(false)
+		}
+		a.tunAsking.Store(false)
+		a.emit()
+	}
+}
+
+// startBin is the core the app starts with, and whether the copy TUN runs
+// on, tunBin, is another version than the bundled core bin. Where the copy
+// has its rights by itself, it runs once it is installed, unless it is
+// stale and TUN is off: a root copy older than this version, or on macOS
+// one signed under a name that cannot tell applications apart, stays
+// while TUN needs it, until the user authorizes a new one. Where each
+// start of the copy asks for the authorization (asks: Windows), it runs
+// only when TUN is in effect, since with TUN off that prompt would be for
+// nothing; turning TUN on moves to it (useTunCore), and that start
+// brings the copy up to date, so it is never stale.
+func startBin(s settings.Settings, bin, tunBin string, asks bool, installed func(string) bool, isStale func(bundled, installed string) bool) (run string, stale bool) {
+	switch {
+	case tunBin == bin:
+		return bin, false
+	case asks:
+		if s.Tun && !s.Paused {
+			return tunBin, false
+		}
+		return bin, false
+	case !installed(tunBin):
+		return bin, false
+	}
+	stale = isStale(bin, tunBin)
+	if !stale || s.Tun {
+		return tunBin, stale
+	}
+	return bin, stale
+}
+
+// noteTunInstall puts why TUN's installation failed among the logs (on
+// Windows, the part of the elevated command that stopped and what Windows
+// said). A prompt the user dismissed is not a failure.
+func (a *App) noteTunInstall(err error) {
+	if err == nil || errors.Is(err, tun.ErrCanceled) {
 		return
 	}
-	log.Println("tun: installation:", text)
-	a.mon.Note("bowel: tun: " + text)
+	log.Println("tun: installation:", err)
+	a.mon.Note("bowel: tun: " + err.Error())
 }
 
 // tunWanted is whether the config the core runs has TUN in it: wanted,
 // taken over, installed, and not given up on.
 func (a *App) tunWanted(s settings.Settings) bool {
-	return s.Tun && a.takeoverOn(s) && osTun.installed(a.tunBin) && !a.tunGone.Load() && a.tunFault.Load() == nil
+	return s.Tun && a.takeoverOn(s) && osTun.installed(a.tunBin) && a.tunFault.Load() == nil
 }
 
 // useTunCore makes the next config run on the copy TUN's installation
 // made when TUN is in it and the core is another: the bundled one, which
 // has no right to make the device. That is the core of an app that
 // started before the installation was there or was valid (issue 117: a
-// mark that became valid while the app ran), and on Windows it is not the
-// one the task starts. A core that is running is stopped, and applying
-// the config starts the right one.
+// mark that became valid while the app ran), and on Windows that of an
+// app that started with TUN off, which is where the UAC prompt of the
+// elevated start comes from. A core that is running is stopped, and
+// applying the config starts the right one.
 func (a *App) useTunCore(s settings.Settings) {
 	if a.tunBin == "" || a.tunBin == a.coreBin || !a.tunWanted(s) || a.core.BinPath() == a.tunBin {
 		return
@@ -259,7 +320,7 @@ func (a *App) probeTunDNS() {
 	cs := a.core.Status()
 	now := time.Now()
 	wanted := a.takeoverOn(s) && s.Tun && cs.State == core.Running && a.tunFault.Load() == nil &&
-		osTun.installed(a.tunBin) && !a.tunGone.Load()
+		osTun.installed(a.tunBin)
 	a.mu.Lock()
 	if !wanted {
 		a.tunDNS = tunDNSProbe{}

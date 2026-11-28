@@ -49,6 +49,10 @@ type Env struct {
 	// Password asks for a password at the terminal, unechoed; nil is the
 	// terminal's own, where there is one.
 	Password func(prompt string) (string, error)
+	// Ask asks a question at the terminal and returns the line typed, or
+	// ErrNoTerminal when there is no terminal to ask at; nil is the
+	// terminal's own (askLine).
+	Ask func(prompt string) (string, error)
 	// Context ends the commands that go on (logs -f, conns --watch); Poll
 	// is how often they ask. Both have defaults; tests set them.
 	Context context.Context

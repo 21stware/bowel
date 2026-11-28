@@ -148,6 +148,9 @@ type Entry struct {
 	// (TUN needs its one-time authorisation), error (Detail says why).
 	Status string `json:"status"`
 	Detail string `json:"detail,omitempty"`
+	// Asking is TUN's alone, on Windows: the UAC prompt of a start of its
+	// core waits for an answer.
+	Asking bool `json:"asking,omitempty"`
 }
 
 type Takeover struct {
@@ -237,6 +240,17 @@ type DeviceView struct {
 	Up     int64         `json:"up"`
 	Seen   time.Time     `json:"seen,omitzero"`
 	Events []DeviceEvent `json:"events"`
+	// Route is the route group all its traffic goes to, a route of its own
+	// (app_gateway_devices.go), and RouteName that group's name; "" when it
+	// follows the rules as every device does. Bypass: it is left out of the
+	// gateway. Away: its route waits for it, its address being another
+	// device's now.
+	Route     string `json:"route,omitempty"`
+	RouteName string `json:"routeName,omitempty"`
+	Bypass    bool   `json:"bypass,omitempty"`
+	Away      bool   `json:"away,omitempty"`
+	// Note is what to know of its route now: what it still waits for.
+	Note string `json:"note,omitempty"`
 }
 
 // DeviceEvent is a device coming or going, newest first in a list.

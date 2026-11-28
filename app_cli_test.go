@@ -18,9 +18,20 @@ import (
 )
 
 // cliApp is mcpApp serving the command line on its socket. run runs a
-// command against it as a person would, or as the agent named.
+// command against it as a person would, or as the agent named, with no
+// terminal to ask at (as in a script, `docker exec` without -t, or `ssh`).
 func cliApp(t *testing.T) (a *App, asks *int, run func(agent string, args ...string) (int, string, string)) {
 	t.Helper()
+	return cliAppAsking(t, nil)
+}
+
+// cliAppAsking is cliApp with a terminal: ask answers what the command
+// asks there. nil is no terminal.
+func cliAppAsking(t *testing.T, ask func(prompt string) (string, error)) (a *App, asks *int, run func(agent string, args ...string) (int, string, string)) {
+	t.Helper()
+	if ask == nil {
+		ask = func(string) (string, error) { return "", cli.ErrNoTerminal }
+	}
 	a, asks, _ = mcpApp(t)
 	l, err := mcp.Listen(cliSocket(a.dataDir))
 	if err != nil {
@@ -32,7 +43,7 @@ func cliApp(t *testing.T) (a *App, asks *int, run func(agent string, args ...str
 	run = func(agent string, args ...string) (int, string, string) {
 		var out, errOut bytes.Buffer
 		code := cli.Run(cli.Env{
-			Args: args, Stdout: &out, Stderr: &errOut, Socket: cliSocket(a.dataDir), Version: "test",
+			Args: args, Stdout: &out, Stderr: &errOut, Socket: cliSocket(a.dataDir), Version: "test", Ask: ask,
 			Getenv: func(k string) string {
 				if k == "BOWEL_AGENT" {
 					return agent
@@ -81,7 +92,8 @@ func TestCLIRoundTrip(t *testing.T) {
 	}
 
 	// What the core has no part in: where an address would go, the
-	// interface's language, and the policy, since it is the user who asks.
+	// interface's language, and the policy made stricter, since it is the
+	// user who asks (making it looser needs a terminal: TestCLIPolicy).
 	_, out, _ = run("", "rules", "test", "api.openai.com", "--json")
 	var ex struct {
 		Route string
@@ -100,6 +112,7 @@ func TestCLIRoundTrip(t *testing.T) {
 	if code, _, errOut = run("", "settings", "set", "language", "xx"); code != cli.ExitFail || !strings.Contains(errOut, "Choices") {
 		t.Errorf("a bad value: %d %q", code, errOut)
 	}
+	setPolicy(t, a, "allow")
 	if code, _, errOut = run("", "settings", "set", "mcpPolicy", "ask"); code != 0 || a.settings.Get().Policy() != "ask" {
 		t.Errorf("the policy: %d %q", code, errOut)
 	}
@@ -110,6 +123,97 @@ func TestCLIRoundTrip(t *testing.T) {
 	}
 	if *asks != 0 || len(agentChanges()) != 0 {
 		t.Errorf("the user's commands asked %d times and left %d agent changes", *asks, len(agentChanges()))
+	}
+}
+
+// TestCLIPolicy: the user's own command makes the policy stricter at once,
+// and looser only once the person at the terminal types the policy's name.
+// Being on cli.sock says no more than that the environment named no agent,
+// and an agent's environment stays behind on `docker exec` and `ssh`.
+func TestCLIPolicy(t *testing.T) {
+	var prompts []string
+	answer := ""
+	a, asks, run := cliAppAsking(t, func(p string) (string, error) {
+		prompts = append(prompts, p)
+		if answer == "no terminal" {
+			return "", cli.ErrNoTerminal
+		}
+		return answer, nil
+	})
+	if _, err := a.settings.Update(func(s *settings.Settings) { s.Language = "en" }); err != nil {
+		t.Fatal(err)
+	}
+	i18n.Set("en")
+	policy := func() string { return a.settings.Get().Policy() }
+
+	// No terminal, as for `docker exec bowel bowel …` or `ssh host bowel …`
+	// run by an agent: refused, saying who can and where.
+	answer = "no terminal"
+	for _, c := range [][2]string{{"ask", "allow"}, {"deny", "allow"}, {"deny", "ask"}} {
+		setPolicy(t, a, c[0])
+		code, _, errOut := run("", "settings", "set", "mcpPolicy", c[1])
+		if code != cli.ExitFail || policy() != c[0] || !strings.Contains(errOut, "Only the user can let agents do more (mcpPolicy "+c[0]+" → "+c[1]+")") || !strings.Contains(errOut, "docker exec -it") {
+			t.Errorf("%s → %s with no terminal: %d, policy %s, %q", c[0], c[1], code, policy(), errOut)
+		}
+	}
+	// Stricter, or as it is: nothing to ask, terminal or not.
+	setPolicy(t, a, "allow")
+	n := len(prompts)
+	for _, to := range []string{"ask", "deny", "deny", `"deny"`} {
+		if code, _, errOut := run("", "settings", "set", "mcpPolicy", to); code != 0 || policy() != strings.Trim(to, `"`) {
+			t.Errorf("→ %s: %d, policy %s, %q", to, code, policy(), errOut)
+		}
+	}
+	if len(prompts) != n {
+		t.Errorf("making the policy stricter asked: %q", prompts[n:])
+	}
+
+	// At a terminal: anything but the policy's name, an empty line too,
+	// cancels; the name lets it through.
+	for _, ans := range []string{"y", "", "yes allow"} {
+		answer = ans
+		if code, _, errOut := run("", "settings", "set", "mcpPolicy", "allow"); code != cli.ExitFail || policy() != "deny" || !strings.Contains(errOut, "Cancelled: mcpPolicy stays deny") {
+			t.Errorf("answered %q: %d, policy %s, %q", ans, code, policy(), errOut)
+		}
+	}
+	p := prompts[len(prompts)-1]
+	for _, want := range []string{"deny → allow", "without asking you", "Only you can allow this", "if an agent ran this command, press Enter", "Type allow to confirm"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("the question lacks %q:\n%s", want, p)
+		}
+	}
+	answer = " Allow\n"
+	if code, out, errOut := run("", "settings", "set", "mcpPolicy", "allow"); code != 0 || policy() != "allow" || !strings.Contains(out, "mcpPolicy: deny → allow") {
+		t.Errorf("confirmed: %d, policy %s, %q %q", code, policy(), out, errOut)
+	}
+
+	// An agent's command, known by its environment, is not asked: the
+	// policy isn't its to change, typed confirmation or not.
+	setPolicy(t, a, "ask")
+	n = len(prompts)
+	if code, _, _ := run("Robot", "settings", "set", "mcpPolicy", "allow"); code != cli.ExitFail || policy() != "ask" || len(prompts) != n {
+		t.Errorf("an agent's command: %d, policy %s, %d questions", code, policy(), len(prompts)-n)
+	}
+
+	// The running bowel holds to it, whoever the client: the user's own
+	// session needs confirmed to loosen it, and an agent's can't with it.
+	user := &mcp.Session{}
+	user.Set("local", true)
+	loosen := map[string]any{"changes": map[string]any{"mcpPolicy": "allow"}}
+	if _, err := callTool(t, a.cliServer(), user, "update_settings", loosen); err == nil || policy() != "ask" || !strings.Contains(err.Error(), "Only the user can let agents do more") {
+		t.Errorf("loosened unconfirmed: %v, policy %s", err, policy())
+	}
+	loosen["confirmed"] = true
+	for name, srv := range map[string]*mcp.Server{"mcp.sock": a.mcpServer(), "cli.sock": a.cliServer()} {
+		if _, err := callTool(t, srv, &mcp.Session{}, "update_settings", loosen); err == nil || policy() != "ask" {
+			t.Errorf("an agent's session on %s loosened it: %v", name, err)
+		}
+	}
+	if _, err := callTool(t, a.cliServer(), user, "update_settings", loosen); err != nil || policy() != "allow" {
+		t.Errorf("confirmed: %v, policy %s", err, policy())
+	}
+	if *asks != 0 {
+		t.Errorf("the policy's changes asked the app %d times", *asks)
 	}
 }
 

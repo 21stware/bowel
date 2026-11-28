@@ -185,6 +185,38 @@ func TestHealthText(t *testing.T) {
 	}
 }
 
+// TestContainerExecPolicy: `docker exec` runs the command with the
+// container's environment, not the agent's, so the agent's call reads as
+// the user's. It still can't let agents do more: with no -t there is no
+// terminal, with -t and no -i nobody answers (askLine's wait ends with no
+// answer), and only the person on `docker exec -it` types the policy in.
+func TestContainerExecPolicy(t *testing.T) {
+	t.Setenv(containerEnv, "1")
+	var answer func() (string, error)
+	a, _, run := cliAppAsking(t, func(string) (string, error) { return answer() })
+	if _, err := a.settings.Update(func(s *settings.Settings) { s.Language = "en" }); err != nil {
+		t.Fatal(err)
+	}
+	i18n.Set("en")
+	for name, ans := range map[string]func() (string, error){
+		"docker exec":    func() (string, error) { return "", cli.ErrNoTerminal },
+		"docker exec -t": func() (string, error) { return "", nil },
+	} {
+		answer = ans
+		if code, _, errOut := run("", "settings", "set", "mcpPolicy", "allow"); code != cli.ExitFail || a.settings.Get().Policy() != "ask" {
+			t.Errorf("%s let agents do more: %d %q", name, code, errOut)
+		}
+	}
+	// Tightening it needs no terminal: an agent may well do that.
+	if code, _, errOut := run("", "settings", "set", "mcpPolicy", "deny"); code != 0 || a.settings.Get().Policy() != "deny" {
+		t.Errorf("docker exec could not tighten it: %d %q", code, errOut)
+	}
+	answer = func() (string, error) { return "allow\n", nil }
+	if code, _, errOut := run("", "settings", "set", "mcpPolicy", "allow"); code != 0 || a.settings.Get().Policy() != "allow" {
+		t.Errorf("docker exec -it, allow typed: %d %q", code, errOut)
+	}
+}
+
 // TestHealthCommand: `bowel health` exits 1 while the core isn't running,
 // and 1 when no bowel answers.
 func TestHealthCommand(t *testing.T) {

@@ -16,15 +16,21 @@ import (
 	"github.com/oboo/moho/internal/i18n"
 )
 
-// ExtraPort is a mixed port on 127.0.0.1 whose traffic all leaves by one
-// route group, whatever the rules and the mode say: two programs given
-// different ports reach the same site by different exits. Route is the
-// route's id, so that renaming the group keeps the port; under a provider's
-// own routing (Input.Imported), which has no route ids, it is the name of
-// one of that config's groups.
+// ExtraPort is a mixed port whose traffic all leaves by one route group,
+// whatever the rules and the mode say: two programs given different ports
+// reach the same site by different exits. Route is the route's id, so that
+// renaming the group keeps the port; under a provider's own routing
+// (Input.Imported), which has no route ids, it is the name of one of that
+// config's groups.
+//
+// A port is on 127.0.0.1 unless Lan opens it as the mixed port is opened
+// while Input.AllowLan is on: on every address of the machine, to the
+// networks of LanAllowedIPs, behind Authentication. With AllowLan off, Lan
+// changes nothing: that switch is the one that opens the machine.
 type ExtraPort struct {
 	Port  int    `json:"port"`
 	Route string `json:"route"`
+	Lan   bool   `json:"lan,omitempty"`
 }
 
 // Options are the core's options the 设置 window edits, as Clash clients
@@ -39,8 +45,7 @@ type Options struct {
 	// skip it, so it only asks the LAN.
 	Authentication []string `json:"authentication"`
 	LanAllowedIPs  []string `json:"lanAllowedIps"`
-	// ExtraPorts are mixed ports of this machine alone, each for one route
-	// group; see ExtraPort.
+	// ExtraPorts are mixed ports, each for one route group; see ExtraPort.
 	ExtraPorts []ExtraPort `json:"extraPorts"`
 
 	// Core.

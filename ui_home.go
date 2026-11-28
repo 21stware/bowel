@@ -1383,7 +1383,10 @@ func heroSize(c *ui.Context, s string, room float32, flag bool) float32 {
 func (u *UI) entryChoices(c *ui.Context, p *pal) {
 	u.choice(c, p, "sys", i18n.T("系统代理", "System proxy"), i18n.T("浏览器和大多数应用 · 推荐", "Browsers and most apps · Recommended"))
 	install := i18n.T("所有应用 · 首次需要授权", "All apps · Needs authorization the first time")
-	if u.snap.Takeover.Tun.Status != "install" {
+	switch {
+	case tunAsks:
+		install = i18n.T("所有应用 · Windows 每次启动内核时都会请求授权", "All apps · Windows asks for authorization each time the core starts")
+	case u.snap.Takeover.Tun.Status != "install":
 		install = i18n.T("所有应用，包括不认系统代理的", "All apps, including those that ignore the system proxy")
 	}
 	u.choice(c, p, "tun", "TUN", install)
@@ -1406,7 +1409,10 @@ func (u *UI) choice(c *ui.Context, p *pal, id, word, desc string) {
 		shimmer(disp(ui.Text(c, word), p).FontSize(22).FontWeight(700).TextColor(p.ink).Opacity(flyAlpha()).Transition(fly(entryMatch{id})), busy, p)
 		if busy {
 			msg := i18n.T("正在接管…", "Taking over…")
-			if id == "tun" && u.snap.Takeover.Tun.Status == "install" {
+			switch {
+			case id == "tun" && u.snap.Takeover.Tun.Asking:
+				msg = tunAskWait()
+			case id == "tun" && u.snap.Takeover.Tun.Status == "install":
 				msg = i18n.T("正在安装，请在系统弹窗中确认…", "Installing; confirm in the system dialog…")
 			}
 			ui.Text(c, msg).FontSize(12).TextColor(p.mute)
@@ -2294,6 +2300,8 @@ func (u *UI) entryWord(c *ui.Context, p *pal, id, word string, e Entry) {
 			shimmer(dispIn(ui.Text(c, word), p, col).FontSize(20).FontWeight(600).TextColor(col).NoWrap().Shrink(0).Grow(1).Opacity(flyAlpha()).Transition(fly(entryMatch{id})), busy, p)
 			dot, text, tcol := p.faint, i18n.T("未使用", "Not in use"), p.mute
 			switch {
+			case id == "tun" && e.Asking:
+				dot, text, tcol = p.warn, tunAskWait(), p.warn
 			case busy:
 				text = i18n.T("正在应用…", "Applying…")
 			case e.Status == "hijacked":
@@ -2368,6 +2376,8 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 		section(c, p, "TUN", i18n.T("所有应用，包括不认系统代理的，比如 EA App", "All apps, including those that ignore the system proxy, such as EA App"), func() {
 			status := i18n.T("未使用", "Not in use")
 			switch {
+			case t.Tun.Asking:
+				status = tunAskWait()
 			case u.pending("entry:tun") && t.Tun.Status == "install":
 				status = i18n.T("正在安装，请在系统弹窗中确认…", "Installing; confirm in the system dialog…")
 			case u.pending("entry:tun"):
@@ -2385,7 +2395,11 @@ func (u *UI) takeoverExpanded(c *ui.Context, p *pal) {
 			case t.Tun.Status == "error":
 				status = t.Tun.Detail
 			}
-			kv(c, p, [][2]string{{i18n.T("状态", "Status"), status}, {i18n.T("协议栈", "Stack"), tunStackText(u.snap.Settings.TunStack)}, {"DNS", tunDNSText(u.snap.Settings)}})
+			rows := [][2]string{{i18n.T("状态", "Status"), status}, {i18n.T("协议栈", "Stack"), tunStackText(u.snap.Settings.TunStack)}, {"DNS", tunDNSText(u.snap.Settings)}}
+			if tunAsks {
+				rows = append(rows, [2]string{i18n.T("授权", "Authorization"), tunAskNote()})
+			}
+			kv(c, p, rows)
 		}, func() {
 			on := t.On && t.Tun.Wanted
 			if toggle(c.Key("tun"), p, &on).Disabled(u.pending("entry:tun")).Changed() {

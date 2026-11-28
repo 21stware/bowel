@@ -13,7 +13,8 @@ bowel is a <a href="https://github.com/MetaCubeX/mihomo">mihomo</a> (Clash Meta)
   <a href="https://bowel.dev/en/">Website</a> ·
   <a href="https://bowel.dev/en/docs/">Docs</a> ·
   <a href="https://t.me/+BI3KVgBn7SE3YjVh">Telegram</a> ·
-  <a href="README.zh-CN.md">简体中文</a>
+  <a href="README.zh-CN.md">简体中文</a> ·
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 <p align="center">
@@ -106,7 +107,7 @@ Sixteen skins that change the look of the whole interface.
 - **Download sources**: Measures the official source and each mirror for npm, pip, Go and Cargo, and switches in one click. When the current source stops answering, one click moves you to the fastest one that does, or sends it through a node again.
 - **Private networks**: Addresses on your LAN, Tailscale and company VPN go direct automatically, in global mode too.
 - **Exit lock**: Lock a route group, such as AI, from its page on the board: its traffic then only goes through a node, and is cut rather than sent direct when no node can carry it, in global and direct mode and with takeover off too. Once bowel quits, nothing is refused. `bowel route lock ai` does the same. What it holds with and without TUN, and on Android: [Takeover, TUN and the exit lock](https://bowel.dev/en/docs/takeover/#exit-lock).
-- **MCP**: Built-in MCP server for Claude Code and other agents to read status and troubleshoot connections. It asks you before changing settings by default. The command below is for macOS; on Windows and Linux, use the path of the bowel program.
+- **MCP**: Built-in MCP server for Claude Code and other agents to read status and troubleshoot connections. It asks you before changing settings by default, and only you can let agents change them without asking: in Settings > MCP, or with `bowel settings set mcpPolicy allow` at your own terminal, where you type `allow` to confirm. The command below is for macOS; on Windows and Linux, use the path of the bowel program.
   ```bash
   claude mcp add --scope user bowel -- /Applications/bowel.app/Contents/MacOS/bowel mcp
   ```
@@ -132,7 +133,7 @@ Debian, Ubuntu and Fedora. This adds a signed package repository, so `apt` or `d
 curl -fsSL https://21stware.github.io/packages/install.sh | sh
 ```
 
-A server, NAS or router with no screen, in Docker (amd64, arm64, armv7). Then `docker exec -it bowel bowel tui`; TUN, gateway mode, compose files and MCP for agents are in [docs/docker.md](docs/docker.md):
+A server, NAS or router with no screen, in Docker (amd64, arm64, armv7): the image is `ghcr.io/21stware/bowel`, and `oboochin/bowel` on Docker Hub, where NAS interfaces search. Then `docker exec -it bowel bowel tui`; TUN, gateway mode, compose files, Synology and Unraid, and MCP for agents are in [docs/docker.md](docs/docker.md):
 
 ```bash
 docker run -d --name bowel --restart unless-stopped -p 7899:7899 -v bowel:/data \
@@ -146,7 +147,7 @@ Or download the file for your platform from [Releases](https://github.com/21stwa
 | macOS | `bowel-<version>-arm64.dmg` | macOS 12 or later, Apple silicon |
 | Windows | `bowel-setup-<version>-amd64.exe` or `-arm64.exe` | x64 or Arm64 |
 | Linux | `bowel_<version>_<arch>.deb`, `bowel-<version>-1.<rpm arch>.rpm` or `bowel-<version>-linux-<arch>.tar.gz` | amd64 or arm64 |
-| Android | `bowel-<version>-android-arm64.apk` | Android 8.0 or later, arm64 |
+| Android | `bowel-<version>-android-arm64.apk`, or `-armv7.apk` for 32-bit TV boxes | Android 8.0 or later, arm64 or armv7 |
 
 - **macOS**: Drag bowel into Applications. The app is signed with a Developer ID and notarized by Apple.
 - **Windows**: Run the installer. It isn't code-signed, so Windows may warn you before it runs.
@@ -254,6 +255,10 @@ bowel was called Moho. The Go module is still `github.com/oboo/moho` and the bun
 - [Flutter](https://flutter.dev): the mobile apps' interface.
 - [OPPO Sans](resources/fonts/): the desktop apps' typeface. The mobile apps use the system's.
 
+## Contributors
+
+<a href="https://github.com/21stware/bowel/graphs/contributors"><img src="https://contrib.rocks/image?repo=21stware/bowel" alt="Contributors"></a>
+
 ## License
 
 bowel is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE), which allows noncommercial use only. For a commercial license, [open an issue](https://github.com/21stware/bowel/issues).
@@ -261,3 +266,12 @@ bowel is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE), whi
 Linux distributions, package repositories and app stores may build bowel from source and distribute it, whether or not they are a business, under the [packaging exception](PACKAGING-EXCEPTION.md). Its users still get bowel for noncommercial use only.
 
 The bundled mihomo core stays under GPL-3.0. The desktop apps carry its license among their resources (`Contents/Resources/licenses/mihomo/` on macOS), the Android app names it in Settings, and each release attaches the matching source. The flag images in `assets/flags/` and the fonts in `resources/fonts/` are third-party files and keep their own licenses.
+
+## Star history
+
+<a href="https://star-history.com/#21stware/bowel&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=21stware/bowel&type=Date&theme=dark">
+    <img src="https://api.star-history.com/svg?repos=21stware/bowel&type=Date" width="600" alt="Star history">
+  </picture>
+</a>

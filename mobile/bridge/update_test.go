@@ -57,6 +57,18 @@ func TestCheckUpdate(t *testing.T) {
 		}
 	}
 
+	// A 32-bit TV box gets the file that installs there.
+	was := apkArch
+	apkArch = androidArch("arm")
+	up, err = x.checkUpdate(ctx, "0.4.4")
+	apkArch = was
+	if want := srv.URL + "/download/v0.4.5/bowel-0.4.5-android-armv7.apk"; err != nil || up == nil || up.URL != want {
+		t.Errorf("on armv7 = %+v %v, want %s", up, err, want)
+	}
+	if got := androidArch("arm64"); got != "arm64" {
+		t.Errorf("androidArch(arm64) = %s", got)
+	}
+
 	// A release whose Android build is not there: its page has what there is.
 	srv = releases(t, "v0.4.6", false)
 	up, err = x.checkUpdate(ctx, "0.4.4")

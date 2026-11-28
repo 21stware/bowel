@@ -1,9 +1,11 @@
 #!/bin/bash
-# Builds what the Android app ships besides Dart and Kotlin:
-#   jniLibs/arm64-v8a/libmihomo.so    mihomo itself, as its own executable,
-#                                     with the owner module to tell apps apart
-#   jniLibs/arm64-v8a/liblauncher.so  hands it the TUN descriptor
-#   libs/bridge.aar                   mobile/bridge, which does not link mihomo
+# Builds what the Android app ships besides Dart and Kotlin, for 64-bit ARM
+# phones (arm64-v8a) and the 32-bit ARM userspace many TV boxes run, even on
+# 64-bit chips (armeabi-v7a):
+#   jniLibs/<abi>/libmihomo.so    mihomo itself, as its own executable,
+#                                 with the owner module to tell apps apart
+#   jniLibs/<abi>/liblauncher.so  hands it the TUN descriptor
+#   libs/bridge.aar               mobile/bridge, which does not link mihomo
 #
 # ./build.sh          everything
 # ./build.sh core     only the two executables
@@ -20,12 +22,10 @@ props="$here/../flutter/android/local.properties"
 export ANDROID_HOME ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
 
 app="$here/../flutter/android/app"
-jni="$app/src/main/jniLibs/arm64-v8a"
-mkdir -p "$jni" "$app/libs"
+mkdir -p "$app/libs"
 
 host="$(uname -s | tr '[:upper:]' '[:lower:]')-x86_64"
-cc="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$host/bin/aarch64-linux-android24-clang"
-build_env=(GOOS=android GOARCH=arm64 CGO_ENABLED=1 CC="$cc")
+clang="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$host/bin"
 
 GOMODCACHE="$(go env GOMODCACHE)"
 src="$GOMODCACHE/github.com/metacubex/mihomo@$MIHOMO_VERSION"
@@ -66,14 +66,25 @@ cp "$here/owner/_mihomo/owner_android.go" "$patched/"
 	-require=github.com/oboo/moho/mobile/android/owner@v0.0.0 \
 	-replace=github.com/oboo/moho/mobile/android/owner="$here/owner")
 
-echo "building mihomo $MIHOMO_VERSION"
-(cd "$patched" && env "${build_env[@]}" go build -trimpath -buildmode=pie -tags with_gvisor \
-	-ldflags "-s -w -X github.com/metacubex/mihomo/constant.Version=$MIHOMO_VERSION" \
-	-o "$jni/libmihomo.so" .)
+# build_for abi compiler goenv... builds both executables into jniLibs/<abi>.
+build_for() {
+	local abi="$1" cc="$clang/$2"
+	shift 2
+	local build_env=(GOOS=android CGO_ENABLED=1 CC="$cc" "$@")
+	local jni="$app/src/main/jniLibs/$abi"
+	mkdir -p "$jni"
 
-echo "building launcher"
-(cd "$here/launcher" && env "${build_env[@]}" go build -trimpath -buildmode=pie \
-	-ldflags "-s -w" -o "$jni/liblauncher.so" .)
+	echo "building mihomo $MIHOMO_VERSION for $abi"
+	(cd "$patched" && env "${build_env[@]}" go build -trimpath -buildmode=pie -tags with_gvisor \
+		-ldflags "-s -w -X github.com/metacubex/mihomo/constant.Version=$MIHOMO_VERSION" \
+		-o "$jni/libmihomo.so" .)
+
+	echo "building launcher for $abi"
+	(cd "$here/launcher" && env "${build_env[@]}" go build -trimpath -buildmode=pie \
+		-ldflags "-s -w" -o "$jni/liblauncher.so" .)
+}
+build_for arm64-v8a aarch64-linux-android24-clang GOARCH=arm64
+build_for armeabi-v7a armv7a-linux-androideabi24-clang GOARCH=arm GOARM=7
 
 [ "${1:-all}" = core ] && exit 0
 
@@ -83,5 +94,5 @@ echo "building bridge.aar"
 root="$(go env GOROOT)"
 export PATH="$root/bin:$HOME/go/bin:$PATH" GOTOOLCHAIN=local
 cd "$here/../bridge"
-gomobile bind -target=android/arm64 -androidapi 24 -trimpath -ldflags="-s -w" \
+gomobile bind -target=android/arm64,android/arm -androidapi 24 -trimpath -ldflags="-s -w" \
 	-o "$app/libs/bridge.aar" .

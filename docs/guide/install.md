@@ -27,7 +27,7 @@ Or download the file for your platform from [Releases](https://github.com/21stwa
 | macOS | `bowel-<version>-arm64.dmg` | macOS 12 or later, Apple silicon |
 | Windows | `bowel-setup-<version>-amd64.exe` or `-arm64.exe` | x64 or Arm64 |
 | Linux | `bowel_<version>_<arch>.deb`, `bowel-<version>-1.<rpm arch>.rpm` or `bowel-<version>-linux-<arch>.tar.gz` | amd64 or arm64 |
-| Android | `bowel-<version>-android-arm64.apk` | Android 8.0 or later, arm64 |
+| Android | `bowel-<version>-android-arm64.apk`, or `-armv7.apk` for 32-bit TV boxes | Android 8.0 or later, arm64 or armv7 |
 
 - **macOS**: Drag bowel into Applications. The app is signed with a Developer ID and notarized by Apple.
 - **Windows**: Run the installer. It isn't code-signed, so Windows may warn you before it runs.

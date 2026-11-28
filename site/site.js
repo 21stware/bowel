@@ -83,7 +83,7 @@
   // File names carry the version, so the links start at the release page
   // and move to the files once GitHub says what the latest release holds.
   var assets = {
-    "dmg": /-arm64\.dmg$/, "apk": /-android-arm64\.apk$/,
+    "dmg": /-arm64\.dmg$/, "apk": /-android-arm64\.apk$/, "apk-armv7": /-android-armv7\.apk$/,
     "exe-amd64": /^bowel-setup-.*-amd64\.exe$/, "exe-arm64": /^bowel-setup-.*-arm64\.exe$/,
     "deb-amd64": /_amd64\.deb$/, "deb-arm64": /_arm64\.deb$/,
     "rpm-amd64": /\.x86_64\.rpm$/, "rpm-arm64": /\.aarch64\.rpm$/,
