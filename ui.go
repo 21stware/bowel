@@ -313,10 +313,10 @@ func (p *pal) routeColor(id string) ui.Color {
 // customRouteColors mark the groups the user made, in turn.
 var customRouteColors = []ui.Color{ui.Hex("#d9722b"), ui.Hex("#3f9d4e"), ui.Hex("#b0902a"), ui.Hex("#c44fc0"), ui.Hex("#4f7f9d"), ui.Hex("#a0694a")}
 
-// sans is the face of all text, headlines included: OPPO Sans, bundled
-// (registerFonts), with the system's for what it lacks or when it did not
-// load.
-const sans = "OPPO Sans 4.0, PingFang SC, system-ui"
+// sans is the face of all text, headlines included: Raise Sans, bundled on
+// Windows and Linux (registerFonts), PingFang on a Mac, and the system's for
+// what they lack or when it did not load.
+const sans = "Raise Sans, PingFang SC, system-ui"
 
 // motion is the one curve of the interface (the prototype's cubic-bezier(.32,.86,.22,1)).
 var motion = ui.Animation{Duration: 520 * time.Millisecond, Ease: ui.CubicBezier(.32, .86, .22, 1)}

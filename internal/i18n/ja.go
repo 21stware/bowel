@@ -596,7 +596,7 @@ var jaTable = map[string]string{
 	"代理内核":       "プロキシコア",
 	"mihomo · GPL-3.0 · 不提供任何担保 · 许可证随应用附带，源码见 github.com/21stware/bowel/releases": "mihomo · GPL-3.0 · 無保証 · ライセンスはアプリに同梱、ソースは github.com/21stware/bowel/releases",
 	"界面字体": "インターフェイスフォント",
-	"OPPO Sans 4.0 · © OPPO 广东移动通信有限公司，依 OPPO Sans 字体许可使用": "OPPO Sans 4.0 · © Guangdong OPPO Mobile Telecommunications Corp., Ltd. · OPPO Sans フォントライセンスに基づき使用",
+	"Raise Sans · 由 Figtree 与思源黑体合成 · SIL OFL 1.1 · 许可证随应用附带": "Raise Sans · Figtree と Noto Sans SC から合成 · SIL OFL 1.1 · ライセンスはアプリに同梱",
 	"网络归属数据": "ネットワーク情報のデータ",
 	"本产品包含 MaxMind 制作的 GeoLite2 数据，来自 https://www.maxmind.com。": "本製品には MaxMind が作成した GeoLite2 データが含まれています。https://www.maxmind.com から入手できます。",
 	"bowel 生成、mihomo 正在用的配置文件":                                  "bowel が生成し、mihomo が使用中の設定ファイル",

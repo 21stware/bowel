@@ -259,7 +259,7 @@ bowel 正在寻找赞助商。赞助商的 logo 和介绍会放在这里和 [bow
 - [mihomo](https://github.com/MetaCubeX/mihomo)：代理内核，GPL-3.0。已发布的版本把它作为独立进程运行，不链接它的代码。iOS 必须链接它，因此 iOS 版暂未发布。
 - [MyGo](https://github.com/egoist/mygo)：原生 Go UI 框架。
 - [Flutter](https://flutter.dev)：移动端界面框架。
-- [OPPO Sans](resources/fonts/)：桌面版的界面字体。手机版用系统字体。
+- [Raise Sans](resources/windows/fonts/)：Windows 和 Linux 版的界面字体，由 [Figtree](https://github.com/erikdkennedy/figtree) 与[思源黑体](https://github.com/notofonts/noto-cjk)合成，SIL OFL 1.1。macOS 版和手机版用系统字体。
 
 ## 贡献者
 

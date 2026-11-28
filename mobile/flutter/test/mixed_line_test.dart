@@ -9,13 +9,13 @@ import 'package:flutter_test/flutter_test.dart';
 /// The system's faces split a line between two fonts, the sans-serif's Latin
 /// and another's Chinese, each with its own height and depth. The cards are
 /// measured in line heights, so a line that mixes them must still be one line
-/// height tall. IBM Plex Mono and OPPO Sans, which the desktop bundles, stand
+/// height tall. IBM Plex Mono and Raise Sans, which the desktop bundles, stand
 /// in for a phone's pair: their heights and depths differ as Roboto's and
 /// Noto Sans CJK's do.
 void main() {
   setUpAll(() async {
-    for (final (family, file) in [('latin', 'IBMPlexMono-Regular.ttf'), ('cjk', 'OPPOSans4.0.ttf')]) {
-      final bytes = await File('../../resources/fonts/$file').readAsBytes();
+    for (final (family, file) in [('latin', 'fonts/IBMPlexMono-Regular.ttf'), ('cjk', 'windows/fonts/RaiseSans.ttf')]) {
+      final bytes = await File('../../resources/$file').readAsBytes();
       await (FontLoader(family)..addFont(Future.value(ByteData.sublistView(bytes)))).load();
     }
   });

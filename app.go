@@ -320,12 +320,14 @@ func bundledCore() string {
 	return filepath.Join(dir, runtime.GOOS+"-"+runtime.GOARCH, "bin", name)
 }
 
-// bundledFonts are the faces shipped in resources/fonts, each unmodified
-// beside its license, as the licenses require: the interface face (ui.go's
-// sans) under its own name, and the skins' (skins.go) under one family
-// each, since their files name themselves by weight ("Jost* Semi").
+// bundledFonts are the faces shipped in resources/fonts, each beside its
+// license, as the licenses require, under one family each, since the skins'
+// (skins.go) files name themselves by weight ("Jost* Semi"). The interface
+// face (ui.go's sans), Raise Sans, ships with Windows and Linux alone, in
+// resources/windows and resources/linux: a Mac has PingFang, whose Chinese
+// is of the same design, and the app is 4 MB smaller without it.
 var bundledFonts = []struct{ file, family, license string }{
-	{"OPPOSans4.0.ttf", "", "OPPO Sans License.txt"},
+	{"RaiseSans.ttf", "Raise Sans", "Raise Sans License.txt"},
 	{"Jost-500-Medium.ttf", "Jost", "Jost License.txt"},
 	{"Jost-600-Semi.ttf", "Jost", "Jost License.txt"},
 	{"Jost-700-Bold.ttf", "Jost", "Jost License.txt"},
@@ -335,11 +337,17 @@ var bundledFonts = []struct{ file, family, license string }{
 	{"IBMPlexMono-Bold.ttf", "IBM Plex Mono", "IBM Plex Mono License.txt"},
 }
 
-// registerFonts adds the bundled faces.
+// registerFonts adds the bundled faces this platform has: a built app finds
+// them all in fonts, where its platform's directory is merged, and a run
+// from the source the platform's own in resources/<GOOS>/fonts.
 func registerFonts() {
 	res, _ := mygo.App.Path(mygo.PathResources)
 	for _, f := range bundledFonts {
-		b, err := os.ReadFile(filepath.Join(res, "fonts", f.file))
+		p := fontPath(res, f.file)
+		if p == "" {
+			continue // Raise Sans on a Mac
+		}
+		b, err := os.ReadFile(p)
 		if err == nil {
 			err = ui.RegisterFont(b, f.family)
 		}
@@ -347,6 +355,17 @@ func registerFonts() {
 			log.Println("font:", err)
 		}
 	}
+}
+
+// fontPath is where the bundled font file is among the resources res, or ""
+// when this platform has none.
+func fontPath(res, file string) string {
+	for _, p := range []string{filepath.Join(res, "fonts", file), filepath.Join(res, runtime.GOOS, "fonts", file)} {
+		if exists(p) {
+			return p
+		}
+	}
+	return ""
 }
 
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }

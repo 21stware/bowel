@@ -140,13 +140,13 @@ func dartColor(c ui.Color) string {
 
 // dartFace is the family the app sets a face of the desktop's in, as Dart:
 // its first that iOS has, or null for the system's own. The app bundles no
-// font, so the desktop's interface face, OPPO Sans, is the system's there;
+// font, so the desktop's interface face, Raise Sans, is the system's there;
 // SF Mono is the Mac's own, so a monospace starts at Menlo.
 func dartFace(face string) string {
 	for f := range strings.SplitSeq(face, ",") {
 		switch f = strings.TrimSpace(f); f {
 		case "SF Mono":
-		case "OPPO Sans 4.0":
+		case "Raise Sans":
 			return "null"
 		default:
 			return dartgen.Quote(f)

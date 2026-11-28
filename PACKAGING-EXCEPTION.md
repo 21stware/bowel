@@ -22,7 +22,7 @@ This covers, among others, Flathub, the Snap Store, the Arch Linux repositories 
 
 - **Use.** People who install a package get bowel under the PolyForm Noncommercial License 1.0.0, and only for noncommercial purposes. This exception gives them no right to use bowel commercially. For a commercial license, [open an issue](https://github.com/21stware/bowel/issues).
 - **Other changes and new works.** Changes beyond packaging, and works based on bowel, fall under the PolyForm Noncommercial License 1.0.0 alone.
-- **Third-party parts.** The bundled mihomo core is under GPL-3.0, and a package that includes it has to meet that license, for example by offering the matching source. The flag images in `assets/flags/` and the fonts in `resources/fonts/` keep their own licenses.
+- **Third-party parts.** The bundled mihomo core is under GPL-3.0, and a package that includes it has to meet that license, for example by offering the matching source. The flag images in `assets/flags/` and the fonts in `resources/fonts/`, `resources/windows/fonts/` and `resources/linux/fonts/` keep their own licenses.
 
 ## Versions
 
