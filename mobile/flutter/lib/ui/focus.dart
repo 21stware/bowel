@@ -73,12 +73,14 @@ bool _fromRemote(KeyMessage message) {
 /// Focuses [node] the way a D-pad move does, scrolling it into view.
 void focusTo(FocusNode node) => FocusTraversalPolicy.defaultTraversalRequestFocusCallback(node);
 
-/// The ring a focused target wears, inside its edge, so on its [fill] where
+/// The ring a focused target wears, drawn inside it, so on its [fill] where
 /// it has one and on the paper where it hasn't: the theme color where it
 /// stands out there, else whichever of the ink, the paper and the color
 /// drawn on the theme color stands out most (a lime ring on a lime button
-/// would be no ring at all).
-BoxDecoration focusRing(Look l, double radius, {Color? fill}) {
+/// would be no ring at all). On a fill that stands apart from the paper the
+/// ring keeps in from the edge, with a band of the fill outside it: a ring
+/// at the edge in the paper's color would only look like a smaller button.
+({Color color, double inset}) focusRing(Look l, {Color? fill}) {
   final under = fill == null ? l.paper : Color.alphaBlend(fill, l.paper);
   var c = l.accent;
   if (contrast(c, under) < 3) {
@@ -86,10 +88,31 @@ BoxDecoration focusRing(Look l, double radius, {Color? fill}) {
       if (contrast(o, under) > contrast(c, under)) c = o;
     }
   }
-  return BoxDecoration(
-    borderRadius: l.br(radius),
-    border: Border.all(color: c, width: 2.5, strokeAlign: BorderSide.strokeAlignInside),
-  );
+  return (color: c, inset: contrast(under, l.paper) >= 1.4 ? 3.5 : 0);
+}
+
+const _ringWidth = 2.5;
+
+class _RingPainter extends CustomPainter {
+  _RingPainter(this.color, this.inset, this.radius);
+  final Color color;
+  final double inset;
+  final BorderRadius radius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final ring = radius.toRRect(Offset.zero & size).deflate(inset + _ringWidth / 2);
+    canvas.drawRRect(
+      ring,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = _ringWidth
+        ..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_RingPainter old) => old.color != color || old.inset != inset || old.radius != radius;
 }
 
 /// Something OK presses. A finger still goes through the [child]'s own
@@ -113,6 +136,14 @@ class KeyTarget extends StatefulWidget {
 class _KeyTargetState extends State<KeyTarget> {
   bool _lit = false;
 
+  /// The same tree lit or not, so what's inside keeps its state.
+  Widget _ringed(BuildContext context) {
+    if (!_lit) return CustomPaint(child: widget.child);
+    final l = Skin.of(context);
+    final ring = focusRing(l, fill: widget.fill);
+    return CustomPaint(foregroundPainter: _RingPainter(ring.color, ring.inset, l.br(widget.radius)), child: widget.child);
+  }
+
   @override
   Widget build(BuildContext context) {
     final on = widget.onActivate;
@@ -130,7 +161,7 @@ class _KeyTargetState extends State<KeyTarget> {
           },
         ),
       },
-      child: _lit ? DecoratedBox(position: DecorationPosition.foreground, decoration: focusRing(Skin.of(context), widget.radius, fill: widget.fill), child: widget.child) : widget.child,
+      child: _ringed(context),
     );
   }
 }

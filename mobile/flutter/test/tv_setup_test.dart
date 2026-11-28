@@ -66,8 +66,11 @@ void main() {
           final l = Look.of(id, dark, custom: custom);
           for (final (name, fill) in [('paper', null), ('accent', l.accent), ('quiet', l.paper2), ('chip', l.ink), ('seg', l.segOn)]) {
             final under = fill == null ? l.paper : Color.alphaBlend(fill, l.paper);
-            final ring = focusRing(l, 10, fill: fill).border!.top.color;
+            final ring = focusRing(l, fill: fill).color;
             expect(contrast(ring, under), greaterThanOrEqualTo(3), reason: '$id dark=$dark accent=$custom on $name');
+            // kept in from a lime button's edge, so it reads as a ring there
+            if (name == 'accent' && contrast(under, l.paper) >= 1.4) expect(focusRing(l, fill: fill).inset, greaterThan(0));
+            if (name == 'paper') expect(focusRing(l, fill: fill).inset, 0);
           }
         }
       }
