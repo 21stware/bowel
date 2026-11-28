@@ -1056,6 +1056,9 @@ class AppState extends ChangeNotifier {
         refused: {...(n['refused'] as List? ?? const []).cast<String>()},
         lat: _placed(where) ? (where['lat'] as num?)?.toDouble() : null,
         lon: _placed(where) ? (where['lon'] as num?)?.toDouble() : null,
+        ip: n['ip'] as String? ?? '',
+        asn: n['asn'] as int? ?? 0,
+        org: n['org'] as String? ?? '',
       ));
     }
     nodes = out;

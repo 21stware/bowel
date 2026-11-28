@@ -3,9 +3,16 @@ import 'i18n.dart';
 // shots use; once the core is attached, AppState replaces them with real ones.
 
 class Node {
-  const Node(this.name, this.flag, this.city, this.source, this.proto, this.provider, this.delay, this.history, {this.providerId = '', this.lat, this.lon, this.routes, this.refused = const {}});
+  const Node(this.name, this.flag, this.city, this.source, this.proto, this.provider, this.delay, this.history, {this.providerId = '', this.lat, this.lon, this.routes, this.refused = const {}, this.ip = '', this.asn = 0, this.org = ''});
 
   final String name, flag, city, source, proto, provider;
+
+  /// The measured exit IP and the network it belongs to ('' and 0 until known).
+  final String ip, org;
+  final int asn;
+
+  /// The exit IP and its network, e.g. "203.0.113.7 · AS13335 Cloudflare, Inc."; '' until measured.
+  String get net => ip.isEmpty ? '' : (asn == 0 ? ip : '$ip · AS$asn${org.isEmpty ? '' : ' $org'}');
 
   /// Which Provider this is from. Two Providers can share a name.
   final String providerId;

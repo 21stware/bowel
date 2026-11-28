@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/oboo/moho/internal/asn"
 	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/geo"
 	"github.com/oboo/moho/internal/geodata"
@@ -141,6 +142,12 @@ func Start(dir string, sink Sink) error {
 	store.Vet = nb.vetUpdate
 	nb.loc = locate.New(filepath.Join(dir, "locations.json"))
 	nb.loc.Login = nb.probeLogin
+	nets := asn.New(filepath.Join(dir, "ASN.mmdb"), nil)
+	nets.OnLoad = nb.push
+	nb.loc.Network = func(ip string) (uint32, string, bool) {
+		n, ok := nets.Lookup(ip)
+		return n.Number, n.Org, ok
+	}
 	if err := nb.openRuleSets(); err != nil {
 		return err
 	}

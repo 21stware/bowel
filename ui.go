@@ -550,7 +550,9 @@ func (u *UI) notice(c *ui.Context, p *pal) {
 				}
 				if id, ok := strings.CutPrefix(is.Action, "fix:"); ok {
 					ui.ButtonBase(c.Key("all-auto")).Shrink(0).Padding(5, 6).Margin(-5, -6).OnClick(func() {
-						u.changePolicy(id, func(q *routes.Policy) { q.Mode, q.Regions, q.Providers, q.ExceptProviders, q.Nodes = routes.ModeAuto, nil, nil, false, nil })
+						u.changePolicy(id, func(q *routes.Policy) {
+							q.Mode, q.Regions, q.Providers, q.ExceptProviders, q.Nodes = routes.ModeAuto, nil, nil, false, nil
+						})
 					}).Children(func() {
 						ui.Text(c, i18n.T("改用全部节点自动", "Use all nodes")).FontSize(12.5).FontWeight(600).Underline().TextColor(p.ink).NoWrap()
 					})
@@ -1043,6 +1045,22 @@ func placeName(n NodeView) string {
 		return i18n.T("定位中", "Locating")
 	}
 	return i18n.T("位置未知", "Unknown location")
+}
+
+// exitNet is a measured exit's IP and the network it belongs to, e.g.
+// "203.0.113.7 · AS13335 Cloudflare, Inc."; "" until there is an IP.
+func exitNet(l Located) string {
+	if l.IP == "" {
+		return ""
+	}
+	s := l.IP
+	if l.ASN != 0 {
+		s += fmt.Sprintf(" · AS%d", l.ASN)
+		if l.Org != "" {
+			s += " " + l.Org
+		}
+	}
+	return s
 }
 
 // locTag is the small label saying how a place is known.

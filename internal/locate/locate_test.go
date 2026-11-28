@@ -1,6 +1,7 @@
 package locate
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -101,5 +102,37 @@ func TestRecordKeepsTheDevicesPlace(t *testing.T) {
 	}
 	if _, err := l.record("x", "nothing useful"); err == nil {
 		t.Fatal("a trace with no ip or loc was accepted")
+	}
+}
+
+func TestNetworkIsAddedButNotKept(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "locate.json")
+	l := New(path)
+	l.Network = func(ip string) (uint32, string, bool) {
+		if ip != "203.0.113.7" {
+			return 0, "", false
+		}
+		return 13335, "Cloudflare, Inc.", true
+	}
+	r, err := l.record("node-a", sampleTrace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.ASN != 13335 || r.Org != "Cloudflare, Inc." {
+		t.Fatalf("record: %+v", r)
+	}
+	if g := l.Guess("node-a", "x"); g.ASN != 13335 || g.Org != "Cloudflare, Inc." {
+		t.Fatalf("Guess: %+v", g)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(b, []byte("Cloudflare")) || bytes.Contains(b, []byte("13335")) {
+		t.Fatalf("the cache file keeps the network: %s", b)
+	}
+	// Without the hook nothing is added.
+	if g := New(path).Guess("node-a", "x"); g.ASN != 0 || g.Org != "" || g.IP != "203.0.113.7" {
+		t.Fatalf("no hook: %+v", g)
 	}
 }

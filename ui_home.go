@@ -1281,6 +1281,10 @@ func (u *UI) heroNormal(c *ui.Context, p *pal) {
 							ui.Span{Text: u.providerName(ex.Provider), Size: 13.5, Weight: 600, Color: p.ink}).
 							MaxLines(1).Ellipsis("…").Shrink(1).MinWidth(0).Tooltip(u.providerName(ex.Provider))
 					})
+					if net := exitNet(ex.Where); net != "" && !tight {
+						ui.Text(c, i18n.T("出口 IP ", "Exit IP ")+net).FontSize(12.5).FontFeatures("tnum").TextColor(p.mute).
+							MaxLines(1).Ellipsis("…").Tooltip(net)
+					}
 					note := fmt.Sprintf(i18n.T("没命中规则的流量从这里出去，约占 %d%%。", "Traffic no rule matches leaves through here, about %d%%."), int(u.route("default").Share*100+.5))
 					if s.Mode == "global" {
 						note = i18n.T("全局模式下，所有流量都从这里出去。", "In global mode, all traffic leaves through here.")

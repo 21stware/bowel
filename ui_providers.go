@@ -845,7 +845,10 @@ func (u *UI) provNodes(c *ui.Context, p *pal, pv ProviderView, nodes []NodeView)
 					}
 				},
 				func() {
-					ui.Text(c, placeName(n)).FontSize(12).TextColor(p.ink2).MaxLines(1).Shrink(1)
+					place := ui.Text(c, placeName(n)).FontSize(12).TextColor(p.ink2).MaxLines(1).Shrink(1)
+					if net := exitNet(n.Where); net != "" {
+						place.Tooltip(net)
+					}
 					locTag(c, p, n.Where.Source)
 				},
 				func() { ui.Text(c, n.Type).FontSize(12).TextColor(p.mute).MaxLines(1) },

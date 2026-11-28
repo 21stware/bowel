@@ -326,6 +326,10 @@ type Located struct {
 	Place  *Place `json:"place,omitempty"`
 	Source string `json:"source"`
 	IP     string `json:"ip,omitempty"`
+	// ASN and Org are the network the measured IP belongs to, e.g. 13335
+	// and "Cloudflare, Inc."; 0 and "" while that isn't known.
+	ASN uint32 `json:"asn,omitempty"`
+	Org string `json:"org,omitempty"`
 }
 
 type NodeView struct {

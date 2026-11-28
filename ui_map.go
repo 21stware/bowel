@@ -683,7 +683,10 @@ func (u *UI) mapCell(c *ui.Context, p *pal, v string, box ui.Rect) {
 							ui.Text(c, a.node.Display).FontSize(14).FontWeight(600).TextColor(p.ink).SingleLine().Shrink(1).MinWidth(0)
 						}).MinWidth(0)
 						ui.Row(c).Gap(6).AlignItems(ui.Center).MinWidth(0).Children(func() {
-							ui.Text(c, u.route(rid).Name+" · "+placeName(a.node)).FontSize(11.5).TextColor(p.mute).SingleLine().Shrink(1).MinWidth(0)
+							place := ui.Text(c, u.route(rid).Name+" · "+placeName(a.node)).FontSize(11.5).TextColor(p.mute).SingleLine().Shrink(1).MinWidth(0)
+							if net := exitNet(a.node.Where); net != "" {
+								place.Tooltip(net)
+							}
 							locTag(c, p, a.node.Where.Source)
 						})
 					})
