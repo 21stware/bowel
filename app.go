@@ -29,6 +29,7 @@ import (
 	"github.com/egoist/mygo/netproxy"
 	"github.com/egoist/mygo/ui"
 
+	"github.com/oboo/moho/internal/asn"
 	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/devnet"
 	"github.com/oboo/moho/internal/gateway"
@@ -260,6 +261,12 @@ func newApp() (*App, error) {
 	a.mon.Mine = gateway.LocalAddrs
 	a.mon.Every = a.pollEvery
 	a.devs.path = filepath.Join(data, "gateway-devices.json")
+	nets := asn.New(filepath.Join(data, "ASN.mmdb"), a.http)
+	nets.OnLoad = a.emit
+	a.loc.Network = func(ip string) (uint32, string, bool) {
+		n, ok := nets.Lookup(ip)
+		return n.Number, n.Org, ok
+	}
 	a.revive = &reviver{state: func() core.State { return cm.Status().State }, quitting: a.isQuitting, apply: a.applyConfig, sleep: time.Sleep}
 	cm.OnStatus = func(s core.Status) { a.onCoreStatus(s) }
 	cm.OnListenError = func() { a.emit() }
@@ -3013,7 +3020,7 @@ func maskSource(p provider.Provider) string {
 }
 
 func located(r locate.Result) Located {
-	l := Located{Source: r.Source, IP: r.IP}
+	l := Located{Source: r.Source, IP: r.IP, ASN: r.ASN, Org: r.Org}
 	if r.Place != nil {
 		l.Place = &Place{Country: r.Place.Country, City: geo.Display(r.Place.City), Flag: r.Place.Flag, Lat: r.Place.Lat, Lon: r.Place.Lon}
 	}

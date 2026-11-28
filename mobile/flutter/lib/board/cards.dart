@@ -832,6 +832,7 @@ class _PickRow extends StatelessWidget {
                   SourceTag(n.source),
                   Flexible(child: Line1(' · ${n.proto} · ${n.provider}', sub)),
                 ]),
+              if (!switching && n.net.isNotEmpty) Line1(n.net, l.text(11.5, color: l.mute, lh: 16)),
             ]),
           ),
           SizedBox(

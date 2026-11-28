@@ -186,6 +186,7 @@ func (x *bridge) located(n nodeData) nodeData {
 		p := r.Place
 		n.Where = placeData{Country: p.Country, City: p.City, Flag: p.Flag, Lat: p.Lat, Lon: p.Lon}
 		n.Source = "实测"
+		n.IP, n.ASN, n.Org = r.IP, r.ASN, r.Org
 	}
 	return n
 }

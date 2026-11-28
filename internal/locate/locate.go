@@ -48,7 +48,12 @@ type Result struct {
 	Place  *geo.Place `json:"place,omitempty"`
 	Source string     `json:"source"` // "probe", "name", "unknown"
 	IP     string     `json:"ip,omitempty"`
-	At     time.Time  `json:"at"`
+	// ASN and Org are the network IP belongs to (13335, "Cloudflare, Inc."),
+	// when Network knows it. They are looked up as a result is read, not
+	// kept in the cache file.
+	ASN uint32    `json:"-"`
+	Org string    `json:"-"`
+	At  time.Time `json:"at"`
 }
 
 // Locator caches probes by node and keeps them in a JSON file.
@@ -63,6 +68,10 @@ type Locator struct {
 	named map[string]namedPlace
 	// Login, when set, gives the probe listener's user and password.
 	Login func() *url.Userinfo
+	// Network, when set, gives an exit IP's autonomous system and its
+	// organization without waiting on the network; ok is false when that
+	// isn't known.
+	Network func(ip string) (asn uint32, org string, ok bool)
 }
 
 type namedPlace struct {
@@ -93,7 +102,7 @@ func (l *Locator) Guess(node, display string) Result {
 	r, ok := l.cache[node]
 	l.mu.Unlock()
 	if ok && r.Place != nil && now.Sub(r.At) <= maxAge {
-		return r
+		return l.network(r)
 	}
 	l.mu.Lock()
 	n, seen := l.named[display]
@@ -187,7 +196,18 @@ func (l *Locator) record(node, body string) (Result, error) {
 	l.cache[node] = r
 	err := l.saveLocked()
 	l.mu.Unlock()
-	return r, err
+	return l.network(r), err
+}
+
+// network adds what Network knows about r's IP.
+func (l *Locator) network(r Result) Result {
+	if l.Network == nil || r.IP == "" {
+		return r
+	}
+	if n, org, ok := l.Network(r.IP); ok {
+		r.ASN, r.Org = n, org
+	}
+	return r
 }
 
 // fetchTrace requests the trace through the probe listener, on a connection

@@ -84,6 +84,11 @@ type nodeData struct {
 	Delay    int       `json:"delay"`
 	Where    placeData `json:"where"`
 	Source   string    `json:"source"` // 实测, 按名称, 未知
+	// IP, ASN and Org are the measured exit and the network it belongs to;
+	// empty until the node is measured (and its network known).
+	IP  string `json:"ip,omitempty"`
+	ASN uint32 `json:"asn,omitempty"`
+	Org string `json:"org,omitempty"`
 	// ProviderName is the Provider's name as a node row shows it.
 	ProviderName string `json:"providerName"`
 	// H is the node's latest delays, one bar each, oldest first.
