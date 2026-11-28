@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -334,5 +335,52 @@ func TestCoreTestProvider(t *testing.T) {
 	}
 	if err := a.testProvider(context.Background(), "nope"); err == nil {
 		t.Errorf("a provider without nodes was tested")
+	}
+}
+
+// A config whose nodes all come from its own subscriptions, in use: its
+// row lists those nodes, and its 测速 tests them. They carry no source's
+// marker, as the core has them under the config's names.
+func TestCoreTestProviderOfImportedSubscriptions(t *testing.T) {
+	a, _, h := speedApp(t, nil)
+	ctx := context.Background()
+	sub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "proxies:\n  - {name: R1, type: direct}\n  - {name: R2, type: direct}\n")
+	}))
+	t.Cleanup(sub.Close)
+	conf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `proxies: []
+proxy-providers:
+  airport: {type: http, url: `+sub.URL+`/nodes, interval: 3600}
+proxy-groups:
+  - {name: G, type: select, use: [airport]}
+rules:
+  - MATCH,G
+`)
+	}))
+	t.Cleanup(conf.Close)
+	v, err := a.addProvider(ctx, conf.URL+"/full")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.setImportedRouting(v.ID); err != nil {
+		t.Fatal(err)
+	}
+	var listed int
+	for end := time.Now().Add(20 * time.Second); listed != 2 && time.Now().Before(end); time.Sleep(200 * time.Millisecond) {
+		a.refresh()
+		a.mu.Lock()
+		listed = len(a.provNodes[v.ID])
+		a.mu.Unlock()
+	}
+	if listed != 2 {
+		t.Fatalf("the config's row lists %d nodes, want R1 and R2", listed)
+	}
+	before := h.settle(t)
+	if err := a.testProvider(ctx, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := h.since(before); got["/t/default"] != 2 {
+		t.Errorf("requests: %v, want 2 on /t/default", got)
 	}
 }

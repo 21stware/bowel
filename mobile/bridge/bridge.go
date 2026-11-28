@@ -968,12 +968,18 @@ func (x *bridge) testRoute(ctx context.Context, routeID string) error {
 	return nil
 }
 
-// testProvider runs a provider's own check, once however many ask.
+// testProvider runs a provider's own check, once however many ask. The
+// row of a config in use lists its own node providers' nodes too, which
+// have no p- provider of bowel's: theirs are run with it.
 func (x *bridge) testProvider(ctx context.Context, id string) error {
 	if _, err := x.core(); err != nil {
 		return err
 	}
-	x.sweeps.Now(ctx, []string{"p-" + id})
+	names := []string{"p-" + id}
+	if im := x.importedNow(); im != nil && x.set.Get().ImportedRouting == id {
+		names = append(names, im.ProviderNames()...)
+	}
+	x.sweeps.Now(ctx, names)
 	x.readTests()
 	return nil
 }
