@@ -22,6 +22,10 @@ Delay is how fast a node answers a small request. Use Downloads in Choose exit t
 
 They don't read the system proxy. Turn on TUN, or on macOS and Linux set them up under Developer tools: [System proxy or TUN](takeover.md#system-proxy-or-tun).
 
+## Windows Store apps lose the network with the system proxy on
+
+Store, Mail, Xbox and other UWP apps run in a sandbox that Windows keeps from connecting to the computer itself, which is where the system proxy points. Under Settings › Inbound › System proxy, Let UWP apps use the proxy adds them all to Windows' loopback exemptions; Windows may ask for an administrator. Undo there takes away only the ones bowel added. TUN doesn't have this problem: [System proxy or TUN](takeover.md#system-proxy-or-tun).
+
 ## Does bowel collect any data?
 
 No. It has no telemetry, no analytics and no account. Subscription links, nodes and settings stay in bowel's data folder on your device, and nothing about them or your traffic is sent to the project. Updates are checked against this repository's releases.

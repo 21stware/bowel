@@ -25,6 +25,7 @@ import (
 	"github.com/oboo/moho/internal/devnet"
 	"github.com/oboo/moho/internal/i18n"
 	"github.com/oboo/moho/internal/settings"
+	"github.com/oboo/moho/internal/uwploop"
 )
 
 type settingsUI struct {
@@ -47,6 +48,10 @@ type settingsUI struct {
 	// litRun counts the jumps, so that each plays its flash anew.
 	lit    *optLight
 	litRun uint64
+	// uwp is how many of Windows' packaged apps may reach the proxy, nil
+	// until read; uwpReading while it is (ui_uwp.go).
+	uwp        *uwploop.Status
+	uwpReading bool
 	// busy lists the actions running, by their button's key.
 	busy map[string]bool
 	// opened counts the times a test's UI, which has no app and so no
@@ -822,6 +827,7 @@ func (u *UI) inboundSection(c *ui.Context, p *pal, s settings.Settings) {
 			u.setOpt(func(s *settings.Settings) { s.Bypass = v })
 		})
 	})
+	u.uwpRow(c, p)
 }
 
 // ipv6Note says what the IPv6 setting does, and what Auto is doing now.
