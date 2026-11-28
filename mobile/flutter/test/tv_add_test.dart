@@ -1,4 +1,5 @@
 import 'package:bowel/app/i18n.dart';
+import 'package:bowel/app/sample.dart';
 import 'package:bowel/app/shell.dart';
 import 'package:bowel/app/state.dart';
 import 'package:bowel/main.dart';
@@ -210,6 +211,70 @@ void main() {
       expect(find.byType(ReceivePanel), findsOneWidget);
       app.closeSheet();
       await _settle(t);
+    });
+  });
+
+  group('an empty Provider list', () {
+    late List<ProviderInfo> had;
+    setUp(() => had = providers);
+    tearDown(() => providers = had);
+
+    Future<AppState> shown(WidgetTester t, {required bool tv, int tab = 2}) async {
+      if (tv) _device(tv: _tv.tv, camera: _tv.camera, files: _tv.files, images: _tv.images);
+      const size = Size(960, 540);
+      t.view.physicalSize = size;
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      providers = const [];
+      final app = AppState()..tab = tab;
+      await t.pumpWidget(_providers(app, size));
+      await _settle(t);
+      return app;
+    }
+
+    for (final lang in ['zh', 'en', 'ja', 'zh-Hant']) {
+      testWidgets('$lang: a TV shows the address for a phone on the page, not behind a button', (t) async {
+        language = lang;
+        await shown(t, tv: true);
+        expect(t.takeException(), isNull);
+        final panel = find.byType(ReceivePanel);
+        expect(panel, findsOneWidget);
+        expect(t.widget<ReceivePanel>(panel).inline, isTrue);
+        expect(find.descendant(of: find.byType(SheetHost), matching: panel), findsNothing);
+        expect(_has(tr('从手机添加第一个 Provider', 'Add your first Provider from a phone')), isTrue);
+        expect(_has(tr('从手机发送链接', 'Send a link from a phone')), isFalse, reason: 'the bar has no second way to the same thing');
+        expect(_has(tr('关闭', 'Close')), isFalse);
+      });
+    }
+
+    testWidgets('only while the Provider tab is in front, as the tabs stay built', (t) async {
+      final app = await shown(t, tv: true, tab: 0);
+      expect(find.byType(ReceivePanel), findsNothing);
+      expect(_has(_phone), isTrue);
+      app.set(() => app.tab = 2);
+      await _settle(t);
+      expect(find.byType(ReceivePanel), findsOneWidget);
+      app.set(() => app.tab = 3);
+      await _settle(t);
+      expect(find.byType(ReceivePanel), findsNothing);
+    });
+
+    testWidgets('a phone keeps its list as it was', (t) async {
+      await shown(t, tv: false);
+      expect(find.byType(ReceivePanel), findsNothing);
+    });
+
+    testWidgets('a TV with a Provider has the button, not the panel', (t) async {
+      _device(tv: _tv.tv, camera: _tv.camera, files: _tv.files, images: _tv.images);
+      const size = Size(960, 540);
+      t.view.physicalSize = size;
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(_providers(AppState()..tab = 2, size));
+      await _settle(t);
+      expect(providers, isNotEmpty);
+      expect(find.byType(ReceivePanel), findsNothing);
+      expect(_has(_phone), isTrue);
     });
   });
 

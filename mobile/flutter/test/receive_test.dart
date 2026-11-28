@@ -327,6 +327,59 @@ void main() {
       }
     }
 
+    // On a page, as a TV's empty Provider list has it.
+    for (final lang in ['zh', 'en', 'ja', 'zh-Hant']) {
+      for (final size in const [Size(360, 640), Size(960, 540)]) {
+        testWidgets('$lang: on a page, fits ${size.width.toInt()}x${size.height.toInt()} serving and timed out', (t) async {
+          language = lang;
+          t.view.physicalSize = size;
+          t.view.devicePixelRatio = 1;
+          addTearDown(t.view.reset);
+          final app = AppState();
+          const timeout = Duration(seconds: 2);
+          await t.pumpWidget(Localizations(
+            locale: const Locale('en'),
+            delegates: const [DefaultMaterialLocalizations.delegate, DefaultWidgetsLocalizations.delegate],
+            child: MediaQuery(
+              data: MediaQueryData(size: size),
+              child: Skin(
+                look: Look.of('paper', false),
+                child: ListView(padding: const EdgeInsets.all(16), children: [
+                  ReceivePanel(app: app, inline: true, address: () async => InternetAddress.loopbackIPv4, qr: (_) async => rows, timeout: timeout),
+                ]),
+              ),
+            ),
+          ));
+          final s = t.state<ReceivePanelState>(find.byType(ReceivePanel));
+          await io(t, () async {
+            while (s.receiver?.url == null) {
+              await Future<void>.delayed(const Duration(milliseconds: 5));
+            }
+          });
+          await t.pump();
+          expect(t.takeException(), isNull);
+          final first = s.receiver!.url;
+          expect(find.text('$first'), findsOneWidget);
+          expect(find.text(tr('关闭', 'Close')), findsNothing, reason: 'a page has nothing to close');
+          expect(find.text(tr('重新开始', 'Start again')), findsNothing);
+
+          await t.pump(timeout + const Duration(seconds: 1));
+          await t.pump();
+          expect(t.takeException(), isNull);
+          expect(s.receiver!.listening, isFalse);
+          await t.tap(find.text(tr('重新开始', 'Start again')));
+          await io(t, () async {
+            while (s.receiver?.url == null || s.receiver!.url == first) {
+              await Future<void>.delayed(const Duration(milliseconds: 5));
+            }
+          });
+          await t.pump();
+          expect(s.receiver!.listening, isTrue);
+          await t.pumpWidget(const SizedBox());
+        });
+      }
+    }
+
     testWidgets('closing the sheet stops the receiver', (t) async {
       final app = AppState()..setup = 1;
       await t.pumpWidget(host(app, const Size(360, 640)));

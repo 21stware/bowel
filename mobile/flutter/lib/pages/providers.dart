@@ -57,6 +57,11 @@ class _ProvidersPageState extends State<ProvidersPage> {
     });
   }
 
+  /// A TV with no Provider yet shows its address for a phone on the page,
+  /// only while the page is in front: the tabs stay built, and the address
+  /// times out.
+  bool _phoneFirst(AppState app) => Shell.instance.tv && providers.isEmpty && app.tab == 2;
+
   Widget _dock(Look l, AppState app) {
     final i = app.openProvider;
     final p = i == null ? null : providers[i];
@@ -85,7 +90,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
     final dev = Shell.instance;
     return Row(children: [
       Expanded(child: SearchField(key: const ValueKey('add'), controller: app.providerField, hint: tr('粘贴订阅链接或节点链接', 'Paste a subscription or node link'), label: tr('添加 Provider', 'Add Provider'), icon: false, onSubmitted: app.addProvider)),
-      if (dev.tv) ...[const SizedBox(width: 8), Btn(tr('从手机发送链接', 'Send a link from a phone'), kind: BtnKind.outline, minH: 44, padH: 13, fontSize: 13.5, onTap: () => receiveSheet(app))],
+      if (dev.tv && !_phoneFirst(app)) ...[const SizedBox(width: 8), Btn(tr('从手机发送链接', 'Send a link from a phone'), kind: BtnKind.outline, minH: 44, padH: 13, fontSize: 13.5, onTap: () => receiveSheet(app))],
       if (dev.camera) ...[const SizedBox(width: 8), square('scan', tr('扫描二维码', 'Scan QR code'), app.scanLink)],
       const SizedBox(width: 8),
       square('more', tr('更多添加方式', 'More ways to add'), () => pickSheet<String>(app, tr('添加或更新', 'Add or update'), [
@@ -123,6 +128,9 @@ class _ProvidersPageState extends State<ProvidersPage> {
         controller: _scroll,
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         slivers: [
+          // A TV with none yet: its address for a phone is there from the
+          // start, no button away. It stops with the page or the first link.
+          if (_phoneFirst(app)) SliverPadding(padding: const EdgeInsets.fromLTRB(16, 4, 16, 0), sliver: SliverToBoxAdapter(child: ReceivePanel(app: app, inline: true))),
           for (final (i, p) in providers.indexed)
             _ProviderTile(
               key: ValueKey(p.id.isEmpty ? p.name : p.id),

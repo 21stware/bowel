@@ -27,9 +27,13 @@ Future<List<String>?> bridgeQR(String text) async {
 }
 
 class ReceivePanel extends StatefulWidget {
-  const ReceivePanel({super.key, required this.app, this.address = lanAddress, this.qr = bridgeQR, this.timeout = const Duration(minutes: 5)});
+  const ReceivePanel({super.key, required this.app, this.address = lanAddress, this.qr = bridgeQR, this.timeout = const Duration(minutes: 5), this.inline = false});
 
   final AppState app;
+
+  /// On a page instead of in a sheet: a TV's empty Provider list shows it
+  /// from the start. Nothing to close then, and it grows with what it holds.
+  final bool inline;
 
   /// Where to listen; [lanAddress] but in tests.
   final Future<InternetAddress?> Function() address;
@@ -186,6 +190,26 @@ class ReceivePanelState extends State<ReceivePanel> {
       const SizedBox(height: 6),
       Text(status, key: const ValueKey('receive-status'), style: l.text(13, color: bad ? l.signalT : l.ink2, lh: 18)),
     ]);
+    if (widget.inline) {
+      final restart = Btn(tr('重新开始', 'Start again'), kind: BtnKind.accent, minH: 44, padH: 20, onTap: _start);
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: l.paper2, borderRadius: l.br(14)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text(tr('从手机添加第一个 Provider', 'Add your first Provider from a phone'), style: l.text(17, weight: 700, lh: 23)),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, c) => c.maxWidth >= 440
+                ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    code,
+                    const SizedBox(width: 18),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [words, if (again) ...[const SizedBox(height: 12), restart]])),
+                  ])
+                : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [Center(child: code), const SizedBox(height: 12), words, if (again) ...[const SizedBox(height: 12), restart]]),
+          ),
+        ]),
+      );
+    }
     final acts = Row(children: [
       Expanded(child: Btn(tr('关闭', 'Close'), expand: true, minH: 44, onTap: widget.app.closeSheet)),
       if (again) ...[
