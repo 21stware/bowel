@@ -68,7 +68,7 @@ void main() {
       await tester.pumpWidget(_host(
         l,
         Column(mainAxisSize: MainAxisSize.min, children: [
-          Btn('继续', kind: BtnKind.accent, expand: true, onTap: () {}),
+          Btn('继续', kind: BtnKind.accent, onTap: () {}),
           Tap(onTap: () {}, child: const SizedBox(height: 48, child: Text('一行'))),
           Chip(text: '全部', on: true, onTap: () {}),
           Seg<int>(options: const [(0, '今天'), (1, '7 天')], value: 0, onChanged: (_) {}),

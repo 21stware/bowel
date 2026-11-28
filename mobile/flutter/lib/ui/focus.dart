@@ -83,6 +83,9 @@ const focusCurve = Curves.easeOut;
 /// shadow show too.
 const _revealMargin = 16.0;
 
+/// The most a focused target grows past each side.
+const _maxGrow = 12.0;
+
 final _levelPolicy = ReadingOrderTraversalPolicy(requestFocusCallback: focusTo);
 
 /// Focuses [node] the way a D-pad move does, scrolling it into view with
@@ -154,12 +157,18 @@ class KeyTarget extends StatefulWidget {
 class _KeyTargetState extends State<KeyTarget> {
   bool _lit = false;
 
+  /// How wide the target was when the focus came, which caps its growth.
+  double _width = 0;
+
   @override
   Widget build(BuildContext context) {
     final on = widget.onActivate;
     final l = Skin.of(context);
     final motion = focusMotion(context);
-    final grow = widget.scale ?? (widget.look == FocusLook.lift ? 1.035 : 1.07);
+    final base = widget.scale ?? (widget.look == FocusLook.lift ? 1.035 : 1.07);
+    // A wide row or button grows no more than this past each side, so its
+    // text doesn't swing about: it has its lift or its inversion to show.
+    final grow = _width > 0 ? math.min(base, 1 + 2 * _maxGrow / _width) : base;
     // The same tree lit or not, so what's inside keeps its state.
     Widget child = widget.child;
     if (widget.look == FocusLook.lift && widget.surface) {
@@ -185,7 +194,11 @@ class _KeyTargetState extends State<KeyTarget> {
       focusNode: widget.focusNode,
       onShowFocusHighlight: (v) {
         if (v == _lit) return;
-        setState(() => _lit = v);
+        final w = context.size?.width ?? 0;
+        setState(() {
+          _lit = v;
+          if (w > 0) _width = w;
+        });
         widget.onLit?.call(v);
       },
       actions: {
