@@ -248,6 +248,12 @@ The Flutter app's translation table and skins are written from the desktop's Go,
 
 bowel was called Moho. The Go module is still `github.com/oboo/moho` and the bundle identifier `dev.moho.app`, which keeps macOS's camera and screen-recording permissions. On first launch the data in `~/Library/Application Support/Moho` moves to `…/bowel`.
 
+## Sponsors
+
+bowel is looking for sponsors. A sponsor's logo and a line about it go here and on [bowel.dev](https://bowel.dev/en/#sponsors), with a promo code for bowel users if it offers one.
+
+Want to appear here? Contact [@marchovis](https://t.me/marchovis) on Telegram.
+
 ## Credits
 
 - [mihomo](https://github.com/MetaCubeX/mihomo): the proxy core, GPL-3.0. The released apps run it as a separate program and do not link it. iOS has to link it, which is why the iOS app isn't released.

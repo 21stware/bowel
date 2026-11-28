@@ -243,6 +243,12 @@ html:lang(ja) .slogan { word-break: keep-all; }
 /* Skins */
 .skins { margin-top: 150px; text-align: center; }
 .skins .sub { color: var(--ink2); max-width: 600px; margin: 18px auto 0; font-size: 17px; }
+
+/* Sponsors: the ask for now, a logo grid once there are sponsors. */
+.sponsors { margin-top: 150px; text-align: center; }
+.sponsors h2 { font-size: clamp(32px, 3.6vw, 46px); line-height: 1.12; font-weight: 800; }
+.sponsors .sub { color: var(--ink2); max-width: 600px; margin: 18px auto 0; font-size: 17px; }
+.sponsor-ask { margin: 30px 0 0; }
 .skin-tabs { display: inline-flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 36px; padding: 5px; border-radius: 14px; background: var(--hair2); }
 .skin-tabs button {
   display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
