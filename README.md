@@ -259,7 +259,7 @@ Want to appear here? Contact [@marchovis](https://t.me/marchovis) on Telegram.
 - [mihomo](https://github.com/MetaCubeX/mihomo): the proxy core, GPL-3.0. The released apps run it as a separate program and do not link it. iOS has to link it, which is why the iOS app isn't released.
 - [MyGo](https://github.com/egoist/mygo): the native Go UI toolkit.
 - [Flutter](https://flutter.dev): the mobile apps' interface.
-- [OPPO Sans](resources/fonts/): the desktop apps' typeface. The mobile apps use the system's.
+- [Raise Sans](resources/windows/fonts/): the typeface of the Windows and Linux apps, made from [Figtree](https://github.com/erikdkennedy/figtree) and [Noto Sans SC](https://github.com/notofonts/noto-cjk), SIL OFL 1.1. The macOS and mobile apps use the system's fonts.
 
 ## Contributors
 

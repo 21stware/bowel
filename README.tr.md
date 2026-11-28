@@ -256,7 +256,7 @@ bowel eskiden Moho olarak adlandırılıyordu. Go modülü hâlâ `github.com/ob
 - [mihomo](https://github.com/MetaCubeX/mihomo): vekil sunucu çekirdeği, GPL-3.0. Yayınlanan uygulamalar onu ayrı bir program olarak çalıştırır ve bağlamaz (linklemez). iOS bağlamak zorundadır, bu yüzden iOS uygulaması yayınlanmamaktadır.
 - [MyGo](https://github.com/egoist/mygo): yerel Go arayüz araç takımı.
 - [Flutter](https://flutter.dev): mobil uygulamaların arayüzü.
-- [OPPO Sans](resources/fonts/): masaüstü uygulamalarının yazı tipi. Mobil uygulamalar sistem yazı tipini kullanır.
+- [Raise Sans](resources/windows/fonts/): Windows ve Linux uygulamalarının yazı tipi; [Figtree](https://github.com/erikdkennedy/figtree) ve [Noto Sans SC](https://github.com/notofonts/noto-cjk) yazı tiplerinden oluşturulmuştur, SIL OFL 1.1. macOS ve mobil uygulamalar sistem yazı tiplerini kullanır.
 
 ## Katkıda bulunanlar
 

@@ -8,6 +8,12 @@
 
 ## [Unreleased]
 
+- 桌面版的安装包小了一大截：不再带 OPPO Sans（一个 22.7 MB 的文件，按许可不能裁剪）。
+  - Windows 和 Linux 换成 Raise Sans：由 Figtree 与思源黑体合成，只留拉丁、标点、假名和 GB2312 的 6,763 个汉字，4.2 MB，字重照旧连续可调。行高和以前一样，界面的排布不变；不在其中的字落到系统字体
+  - macOS 不再带字体，用系统的苹方，和 Raise Sans 的中文是同一套字形。Mac 上的字行比以前略高
+  - 按压缩后算，每个安装包小约 13–16 MB。Raise Sans 按 SIL OFL 1.1 授权，许可证随应用附带；「设置 → 关于」里的署名跟着换了，Mac 上不再显示这一行
+  - 在 Windows 上跑了测试、核对了画出来的界面，没有在 Mac 和 Linux 上实测
+
 - Windows 上导入配置、撤销导入、重新读取本地文件的 Provider 和更新规则集不会再偶尔失败、报「Access is denied」了。内核读某个 Provider 或规则集的文件的那一刻，Windows 不让别的程序替换或删除这个文件，bowel 以前直接报错；导入失败后换回原来的 Provider 和规则集也会撞上同一个问题，删不掉的旧文件会留下。现在 bowel 等内核读完再换，最多等 2 秒。Linux 和 macOS 上本来就没有这个问题，做法不变
   - 在 Windows 11（26300）上测过：测试占着 Provider 和规则集的文件不放，替换和删除都等到松开以后完成，一直不放的，等过时限后照常报错；不等的话报的就是之前完整测试里偶尔出现的那个错
 - Docker 镜像里，agent 经由 `docker exec` 运行的修改类命令也遵循 agent 的策略了。容器里所有命令都经由 `docker exec`，bowel 靠环境变量分不清是谁运行的，以前一律当成你的：agent 执行 `docker exec bowel bowel mode global`、`tun on` 这类命令不会被询问，直接生效。现在容器里只有背后是你的终端（`docker exec -it`）的命令才算你的；没有终端的算 agent 的，读取照常，修改按策略来，默认的「询问」下会被拒绝，并说明原因和你该怎么做。

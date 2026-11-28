@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>bowel 移动端设计</title>
 <style>
-@font-face { font-family: "OPPO Sans 4.0"; src: url("../resources/fonts/OPPOSans4.0.ttf"); font-weight: 100 900; }
+@font-face { font-family: "Raise Sans"; src: url("../resources/windows/fonts/RaiseSans.ttf"); font-weight: 100 900; }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-body { background: #e7e4dc; color: #1c1b19; font: 14px/1.5 "OPPO Sans 4.0", "PingFang SC", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+body { background: #e7e4dc; color: #1c1b19; font: 14px/1.5 "Raise Sans", "PingFang SC", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
 button, input, textarea { font: inherit; color: inherit; }
 button { background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
 
@@ -368,7 +368,7 @@ const LAND = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 const FLAGS = {"hk": "<path fill=\"#d80027\" d=\"M0 0h512v512H0z\"></path><path fill=\"#eee\" d=\"M282.4 193.7c-5.8 24.2-16.1 19.6-21.2 40.7a55.7 55.7 0 0 1 26-108.3c-10.1 42.2.4 46-4.8 67.6zM205 211.6c21.2 13 13.6 21.4 32.1 32.8a55.7 55.7 0 0 1-94.9-58.2c37 22.7 43.8 13.8 62.8 25.4zm-7 79.3c19-16.2 24.7-6.4 41.2-20.4a55.7 55.7 0 0 1-84.7 72.2c33-28.2 26.6-37.4 43.6-51.8zm73.4 31c-9.6-23 1.5-25.3-6.8-45.3a55.7 55.7 0 0 1 42.6 102.8c-16.6-40-27.3-36.9-35.8-57.4zm52.2-60c-24.9 2-23.7-9.3-45.3-7.6a55.7 55.7 0 0 1 111-8.7c-43.3 3.4-43.6 14.5-65.7 16.3z\"></path>", "jp": "<path fill=\"#eee\" d=\"M0 0h512v512H0z\"></path><circle cx=\"256\" cy=\"256\" r=\"111.3\" fill=\"#d80027\"></circle>", "sg": "<path fill=\"#d80027\" d=\"M0 0h512v256l-256 32L0 256Z\"></path><path fill=\"#eee\" d=\"M200 56a78 78 0 1 0 17 154 78 78 0 0 1 0-152q-8-2-17-2m56 5-5 17h-18l14 11-5 17 14-11 15 11-6-17 15-11h-18zm-43 34-6 17h-18l15 10-6 17 15-10 14 10-5-17 14-10h-18zm86 0-5 17h-18l14 10-5 17 14-10 15 10-6-17 15-10h-18zm-70 50-5 17h-18l14 10-5 17 14-10 15 10-6-17 15-10h-18zm54 0-6 17h-18l15 10-6 17 15-10 14 10-5-17 14-10h-18ZM0 256v256h512V256Z\"></path>", "us": "<path fill=\"#eee\" d=\"M256 0h256v64l-32 32 32 32v64l-32 32 32 32v64l-32 32 32 32v64l-256 32L0 448v-64l32-32-32-32v-64z\"></path><path fill=\"#d80027\" d=\"M224 64h288v64H224Zm0 128h288v64H256ZM0 320h512v64H0Zm0 128h512v64H0Z\"></path><path fill=\"#0052b4\" d=\"M0 0h256v256H0Z\"></path><path fill=\"#eee\" d=\"m187 243 57-41h-70l57 41-22-67zm-81 0 57-41H93l57 41-22-67zm-81 0 57-41H12l57 41-22-67zm162-81 57-41h-70l57 41-22-67zm-81 0 57-41H93l57 41-22-67zm-81 0 57-41H12l57 41-22-67Zm162-82 57-41h-70l57 41-22-67Zm-81 0 57-41H93l57 41-22-67zm-81 0 57-41H12l57 41-22-67Z\"></path>"};
 
 // ---- skins, from skins.go and ui.go ----
-const PAPER_FONT = '"OPPO Sans 4.0","PingFang SC",system-ui,sans-serif';
+const PAPER_FONT = '"Raise Sans","PingFang SC",system-ui,sans-serif';
 const SKINS = {
   paper: { name: '纸墨', accentL: '#7A9E00', accentD: '#DDFB4C',
     l: { paper:'#f6f4ef',paper2:'#efece5',card:'#fbfaf7',sheet:'#fdfcf9',ink:'#151413',ink2:'#3b3936',mute:'#8b877e',faint:'#c2bdb2',hair:'rgba(21,20,19,.11)',hair2:'rgba(21,20,19,.06)',hover:'rgba(21,20,19,.035)',signal:'#e2462b',good:'#2c9a5a',warn:'#cf8a12',r:['#2f5bea','#7a4de0','#e0457b','#0e9db1','#9a968c'] },
@@ -383,14 +383,14 @@ const SKINS = {
     font: '"SF Mono",Menlo,"PingFang SC",monospace', disp: '"SF Mono",Menlo,"PingFang SC",monospace', round: 0, glow: 'rgba(70,240,138,.55)' },
   neon: { name: '霓虹', accentD: '#FF3FA4',
     d: { paper:'#0d0a1f',paper2:'#1c163f',card:'#171233',sheet:'#1c163f',ink:'#f6f2ff',ink2:'#cbc2f2',mute:'#857cb6',faint:'#3b3468',hair:'rgba(190,160,255,.18)',hair2:'rgba(190,160,255,.09)',hover:'rgba(190,160,255,.06)',signal:'#ff3b6b',good:'#2bffc6',warn:'#ffd23f',r:['#3bd8ff','#b46bff','#ff3fa4','#2bffc6','#6c6699'] },
-    font: PAPER_FONT, disp: 'Futura,"OPPO Sans 4.0","PingFang SC"', round: 1.3, glow: 'rgba(255,63,164,.6)' },
+    font: PAPER_FONT, disp: 'Futura,"Raise Sans","PingFang SC"', round: 1.3, glow: 'rgba(255,63,164,.6)' },
   blueprint: { name: '蓝图', accentD: '#FFD166',
     d: { paper:'#0e3363',paper2:'#15457f',card:'#123e76',sheet:'#15457f',ink:'#f0f7ff',ink2:'#c7def6',mute:'#86abd4',faint:'#3f6ca3',hair:'rgba(220,236,255,.26)',hair2:'rgba(220,236,255,.11)',hover:'rgba(220,236,255,.06)',signal:'#ff7a59',good:'#7dffb3',warn:'#ffd166',r:['#ffffff','#ffd166','#ff8fa3','#7de3ff','#86abd4'] },
-    font: PAPER_FONT, disp: '"DIN Alternate","OPPO Sans 4.0","PingFang SC"', round: .25 },
+    font: PAPER_FONT, disp: '"DIN Alternate","Raise Sans","PingFang SC"', round: .25 },
   sakura: { name: '樱', accentL: '#E45A8A', accentD: '#E45A8A',
     l: { paper:'#fbf2f0',paper2:'#f6e7e4',card:'#fff9f7',sheet:'#fffbfa',ink:'#2e1c23',ink2:'#5c4049',mute:'#a1838c',faint:'#dcc2c8',hair:'rgba(120,50,70,.13)',hair2:'rgba(120,50,70,.065)',hover:'rgba(120,50,70,.035)',signal:'#de4358',good:'#3a9a6c',warn:'#d18a24',r:['#6c7fd8','#a468d6','#e45a8a','#35a6a1','#b49aa1'] },
     d: { paper:'#1e1419',paper2:'#302029',card:'#2a1c23',sheet:'#302029',ink:'#f8e9ee',ink2:'#dcc3cc',mute:'#a08590',faint:'#56404a',hair:'rgba(255,200,220,.14)',hair2:'rgba(255,200,220,.07)',hover:'rgba(255,200,220,.045)',signal:'#ff6b7f',good:'#5fd39a',warn:'#f2b04a',r:['#8e9cff','#c792ff','#ff7fae','#4fd1c9','#8a7480'] },
-    font: PAPER_FONT, disp: '"Arial Rounded MT Bold","OPPO Sans 4.0","PingFang SC"', round: 1.6 },
+    font: PAPER_FONT, disp: '"Arial Rounded MT Bold","Raise Sans","PingFang SC"', round: 1.6 },
 };
 const RID = ['default','ai','media','dev','direct'];
 

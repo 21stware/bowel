@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -28,12 +29,28 @@ func TestBundledFonts(t *testing.T) {
 		t.Errorf("IBM Plex Mono is not registered as a monospace: %v", got)
 	}
 	for _, f := range bundledFonts {
-		if _, err := os.Stat(filepath.Join("resources", "fonts", f.file)); err != nil {
-			t.Error(err)
+		dirs := []string{filepath.Join("resources", "fonts")}
+		if f.file == "RaiseSans.ttf" {
+			// Windows and Linux alone: a Mac draws with PingFang.
+			dirs = []string{filepath.Join("resources", "windows", "fonts"), filepath.Join("resources", "linux", "fonts")}
+			if _, err := os.Stat(filepath.Join("resources", "darwin", "fonts", f.file)); err == nil {
+				t.Errorf("%s ships with the Mac app", f.file)
+			}
+			if _, ok := got["Raise Sans"]; ok != (runtime.GOOS != "darwin") {
+				t.Errorf("Raise Sans registered on %s: %v", runtime.GOOS, ok)
+			}
 		}
-		if _, err := os.Stat(filepath.Join("resources", "fonts", f.license)); err != nil {
-			t.Errorf("%s: %v", f.file, err)
+		for _, dir := range dirs {
+			if _, err := os.Stat(filepath.Join(dir, f.file)); err != nil {
+				t.Error(err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, f.license)); err != nil {
+				t.Errorf("%s: %v", f.file, err)
+			}
 		}
+	}
+	if !strings.HasPrefix(sans, "Raise Sans, PingFang SC,") {
+		t.Errorf("sans %q", sans)
 	}
 	for _, face := range []string{faceMono, facePlex} {
 		if !strings.Contains(face, "IBM Plex Mono") || !strings.HasSuffix(face, "monospace") {

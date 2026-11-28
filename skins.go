@@ -58,12 +58,12 @@ func (k *skin) fixed() string {
 // whichever its system calls monospace.
 const (
 	faceMono    = "SF Mono, Menlo, IBM Plex Mono, PingFang SC, monospace"
-	facePlex    = "IBM Plex Mono, OPPO Sans 4.0, PingFang SC, monospace"
-	faceJost    = "Jost, OPPO Sans 4.0, PingFang SC, system-ui"
+	facePlex    = "IBM Plex Mono, Raise Sans, PingFang SC, monospace"
+	faceJost    = "Jost, Raise Sans, PingFang SC, system-ui"
 	faceSerif   = "Georgia, Songti SC, serif"
-	faceDIN     = "DIN Alternate, OPPO Sans 4.0, PingFang SC"
-	faceFutura  = "Futura, OPPO Sans 4.0, PingFang SC"
-	faceRounded = "Arial Rounded MT Bold, OPPO Sans 4.0, PingFang SC"
+	faceDIN     = "DIN Alternate, Raise Sans, PingFang SC"
+	faceFutura  = "Futura, Raise Sans, PingFang SC"
+	faceRounded = "Arial Rounded MT Bold, Raise Sans, PingFang SC"
 )
 
 var (

@@ -597,7 +597,7 @@ var hantTable = map[string]string{
 	"代理内核":       "代理核心",
 	"mihomo · GPL-3.0 · 不提供任何担保 · 许可证随应用附带，源码见 github.com/21stware/bowel/releases": "mihomo · GPL-3.0 · 不提供任何擔保 · 授權條款隨應用程式附帶，原始碼見 github.com/21stware/bowel/releases",
 	"界面字体": "介面字體",
-	"OPPO Sans 4.0 · © OPPO 广东移动通信有限公司，依 OPPO Sans 字体许可使用": "OPPO Sans 4.0 · © OPPO 廣東移動通信有限公司，依 OPPO Sans 字體授權使用",
+	"Raise Sans · 由 Figtree 与思源黑体合成 · SIL OFL 1.1 · 许可证随应用附带": "Raise Sans · 由 Figtree 與思源黑體合成 · SIL OFL 1.1 · 授權條款隨應用程式附帶",
 	"网络归属数据": "網路歸屬資料",
 	"本产品包含 MaxMind 制作的 GeoLite2 数据，来自 https://www.maxmind.com。": "本產品包含 MaxMind 製作的 GeoLite2 資料，取自 https://www.maxmind.com。",
 	"bowel 生成、mihomo 正在用的配置文件":                                  "bowel 產生、mihomo 正在用的設定檔",
