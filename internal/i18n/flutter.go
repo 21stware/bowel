@@ -349,6 +349,12 @@ var jaFlutter = map[string]string{
 	"从手机发送一个订阅链接或节点链接，或者在这里输入。": "スマホからサブスクリプションかノードのリンクを送るか、ここに入力してください。",
 	"粘贴一个订阅链接或节点链接，或者从手机发送。":    "サブスクリプションかノードのリンクを貼り付けるか、スマホから送ってください。",
 	"在 App 内随时关闭": "アプリ内でいつでもオフにできます",
+
+	// A pick that came back with nothing, or a device with nothing that picks.
+	"没有选择文件":          "ファイルが選ばれませんでした",
+	"没有选择图片":          "画像が選ばれませんでした",
+	"这台设备没有可以选择文件的应用": "このデバイスにはファイルを選べるアプリがありません",
+	"这台设备没有可以选择图片的应用": "このデバイスには画像を選べるアプリがありません",
 }
 
 var hantFlutter = map[string]string{
@@ -691,6 +697,12 @@ var hantFlutter = map[string]string{
 	"从手机发送一个订阅链接或节点链接，或者在这里输入。": "從手機傳送一個訂閱連結或節點連結，或者在這裡輸入。",
 	"粘贴一个订阅链接或节点链接，或者从手机发送。":    "貼上一個訂閱連結或節點連結，或者從手機傳送。",
 	"在 App 内随时关闭": "在 App 內隨時關閉",
+
+	// A pick that came back with nothing, or a device with nothing that picks.
+	"没有选择文件":          "沒有選擇檔案",
+	"没有选择图片":          "沒有選擇圖片",
+	"这台设备没有可以选择文件的应用": "這台裝置沒有可以選擇檔案的 App",
+	"这台设备没有可以选择图片的应用": "這台裝置沒有可以選擇圖片的 App",
 }
 
 // The desktop's words for these are wrong on the phone: there 关闭 is a

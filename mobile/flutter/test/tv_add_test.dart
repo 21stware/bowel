@@ -212,4 +212,51 @@ void main() {
       await _settle(t);
     });
   });
+
+  group('picking', () {
+    /// The shell answers pickFile and pickImage with [answer].
+    void shell(Future<Object?> Function() answer) {
+      final m = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      m.setMockMethodCallHandler(const MethodChannel('bowel/shell'), (call) => call.method.startsWith('pick') ? answer() : Future.value());
+      addTearDown(() => m.setMockMethodCallHandler(const MethodChannel('bowel/shell'), null));
+    }
+
+    testWidgets('nothing that picks (a TV\'s stub): said, and no longer offered', (t) async {
+      shell(() => throw PlatformException(code: 'nopicker'));
+      final app = AppState()..setup = 0;
+      await app.addFile();
+      expect(app.toast, 'No app on this device can choose files');
+      expect(Shell.instance.files, isFalse);
+      expect(Shell.instance.images, isTrue);
+      await app.addFromImage();
+      expect(app.toast, 'No app on this device can choose pictures');
+      expect(Shell.instance.images, isFalse);
+      await t.pump(const Duration(seconds: 5));
+    });
+
+    testWidgets('a picker that comes back with nothing says so', (t) async {
+      shell(() async => null);
+      final app = AppState()..setup = 0;
+      await app.addFile();
+      expect(app.toast, 'No file was chosen');
+      await app.addFromImage();
+      expect(app.toast, 'No picture was chosen');
+      expect(await app.pickFile(), isNull);
+      expect(Shell.instance.files && Shell.instance.images, isTrue); // still offered: the user may just have cancelled
+      await t.pump(const Duration(seconds: 5));
+    });
+
+    testWidgets('once found out, the ways go from the Provider tab', (t) async {
+      shell(() => throw PlatformException(code: 'nopicker'));
+      final app = AppState();
+      await t.pumpWidget(_providers(app, const Size(360, 760)));
+      await _settle(t);
+      await t.tap(find.bySemanticsLabel('More ways to add'));
+      await _settle(t);
+      await t.tap(find.text(_yaml));
+      await _settle(t);
+      expect(await _more(t, app), [_phone, _photos, _paste, _all]);
+      await t.pump(const Duration(seconds: 5));
+    });
+  });
 }
