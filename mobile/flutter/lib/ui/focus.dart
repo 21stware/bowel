@@ -364,13 +364,13 @@ class FocusLevelState extends State<FocusLevel> {
   }
 
   @override
-  void didUpdateWidget(FocusLevel old) {
-    super.didUpdateWidget(old);
-    if (widget.active && !old.active) {
+  void didUpdateWidget(FocusLevel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) {
       _enter();
-    } else if (!widget.active && old.active) {
+    } else if (!widget.active && oldWidget.active) {
       _leave();
-    } else if (widget.active && widget.entry != old.entry) {
+    } else if (widget.active && widget.entry != oldWidget.entry) {
       _last = null;
       _enter(force: true);
     }
