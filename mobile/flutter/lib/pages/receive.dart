@@ -9,11 +9,17 @@ import '../app/receive.dart';
 import '../app/state.dart';
 import '../ui/atoms.dart';
 import '../ui/skin.dart';
+import 'phone_settings.dart';
 
 /// Opens the sheet that takes a link from a phone: its browser opens the
 /// address this device shows and sends a link, added as a pasted one is.
 /// The receiver runs only while the sheet is up.
 void receiveSheet(AppState app) => app.showSheet((_) => ReceivePanel(app: app));
+
+/// Opens the sheet whose address a phone's browser opens to set this device
+/// up: providers, rules, Tailscale and the rest that takes typing
+/// ([PhoneSettings]). It serves while the sheet is up and is used.
+void phoneSettingsSheet(AppState app) => app.showSheet((_) => ReceivePanel(app: app, settings: true, timeout: const Duration(minutes: 10)));
 
 /// A QR code's rows of 0 and 1 from the bridge, null where it can't make one.
 Future<List<String>?> bridgeQR(String text) async {
@@ -27,13 +33,16 @@ Future<List<String>?> bridgeQR(String text) async {
 }
 
 class ReceivePanel extends StatefulWidget {
-  const ReceivePanel({super.key, required this.app, this.address = lanAddress, this.qr = bridgeQR, this.timeout = const Duration(minutes: 5), this.inline = false});
+  const ReceivePanel({super.key, required this.app, this.address = lanAddress, this.qr = bridgeQR, this.timeout = const Duration(minutes: 5), this.inline = false, this.settings = false});
 
   final AppState app;
 
   /// On a page instead of in a sheet: a TV's empty Provider list shows it
   /// from the start. Nothing to close then, and it grows with what it holds.
   final bool inline;
+
+  /// Serves [PhoneSettings] instead of the one link field.
+  final bool settings;
 
   /// Where to listen; [lanAddress] but in tests.
   final Future<InternetAddress?> Function() address;
@@ -50,7 +59,6 @@ class ReceivePanelState extends State<ReceivePanel> {
   bool _starting = true;
   bool _noNetwork = false;
   String? _failed;
-  DateTime _until = DateTime.now();
   Timer? _tick;
   late final AppLifecycleListener _life;
 
@@ -82,7 +90,9 @@ class ReceivePanelState extends State<ReceivePanel> {
       });
       return;
     }
-    final r = LinkReceiver(onLink: widget.app.receiveLink, timeout: widget.timeout);
+    final r = widget.settings
+        ? LinkReceiver(panel: PhoneSettings(widget.app), timeout: widget.timeout, maxBody: 256 * 1024)
+        : LinkReceiver(onLink: widget.app.receiveLink, timeout: widget.timeout);
     try {
       final url = await r.start(addr);
       if (!mounted) {
@@ -90,7 +100,6 @@ class ReceivePanelState extends State<ReceivePanel> {
         return;
       }
       _r = r..addListener(_changed);
-      _until = DateTime.now().add(widget.timeout);
       _tick = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() {});
       });
@@ -158,9 +167,15 @@ class ReceivePanelState extends State<ReceivePanel> {
       status = _failed!;
       bad = true;
     } else if (r != null && r.adding) {
-      status = tr('正在添加', 'Adding');
+      status = widget.settings ? tr('正在保存', 'Saving') : tr('正在添加', 'Adding');
+    } else if (live && widget.settings) {
+      final left = (r.stopsAt ?? DateTime.now()).difference(DateTime.now());
+      final s = left.isNegative ? 0 : left.inSeconds;
+      final wait = tr('{0} 内没有操作就停止', 'Stops after {0} unused', ['${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}']);
+      status = r.lastMessage != null ? '${r.lastMessage}\n$wait' : wait;
+      bad = r.lastError != null;
     } else if (live) {
-      final left = _until.difference(DateTime.now());
+      final left = (r.stopsAt ?? DateTime.now()).difference(DateTime.now());
       final s = left.isNegative ? 0 : left.inSeconds;
       final wait = tr('等待发送，{0} 后停止', 'Waiting. Stops in {0}', ['${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}']);
       status = r.lastError != null ? '${tr('没有添加：{0}', 'Not added: {0}', [r.lastError])}\n$wait' : wait;
@@ -183,7 +198,11 @@ class ReceivePanelState extends State<ReceivePanel> {
       child: live && _rows != null ? CustomPaint(painter: QRPainter(_rows!)) : null,
     );
     final words = Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text(tr('用手机扫描二维码，或在浏览器里打开这个地址，粘贴链接后发送。手机要和这台设备在同一个网络。', 'Scan the code with a phone, or open this address in its browser, then paste the link and send it. The phone must be on the same network as this device.'),
+      Text(
+          widget.settings
+              ? tr('用手机扫描二维码，或在浏览器里打开这个地址，就能在手机上添加 Provider、规则和规则集，改 Tailscale、内核选项等要打字的设置。手机要和这台设备在同一个网络。',
+                  'Scan the code with a phone, or open this address in its browser, to add Providers, rules and rule sets there, and change Tailscale, core options and the other settings that take typing. The phone must be on the same network as this device.')
+              : tr('用手机扫描二维码，或在浏览器里打开这个地址，粘贴链接后发送。手机要和这台设备在同一个网络。', 'Scan the code with a phone, or open this address in its browser, then paste the link and send it. The phone must be on the same network as this device.'),
           style: l.text(13, color: l.mute, lh: 18)),
       const SizedBox(height: 10),
       if (live && url != null) Text('$url', key: const ValueKey('receive-url'), style: l.text(16, weight: 600, lh: 22)),
@@ -219,7 +238,7 @@ class ReceivePanelState extends State<ReceivePanel> {
     ]);
 
     return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text(tr('从手机发送链接', 'Send a link from a phone'), style: l.text(15, weight: 700, lh: 21)),
+      Text(widget.settings ? tr('在手机上设置', 'Set up from a phone') : tr('从手机发送链接', 'Send a link from a phone'), style: l.text(15, weight: 700, lh: 21)),
       const SizedBox(height: 10),
       Flexible(
         child: SingleChildScrollView(

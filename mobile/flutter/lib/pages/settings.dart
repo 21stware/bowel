@@ -11,6 +11,7 @@ import '../ui/skin.dart';
 import '../ui/skin_data.dart';
 import 'frame.dart';
 import 'options.dart';
+import 'receive.dart';
 import 'routing.dart';
 import 'rows.dart';
 import 'sheet.dart';
@@ -183,6 +184,11 @@ class _SettingsHomeState extends State<_SettingsHome> {
             title: tr('设置', 'Settings'),
             marginTop: 0,
             list: (bottom) => ListView(padding: EdgeInsets.only(bottom: bottom), clipBehavior: Clip.none, children: [
+              // A TV's remote is slow to type with: a phone's browser does that.
+              if (Shell.instance.tv)
+                section(l, tr('手机', 'Phone'), top: 8, [
+                  navRow(l, tr('在手机上设置', 'Set up from a phone'), '', sub: tr('用手机浏览器添加 Provider、规则，改 Tailscale 和内核选项', "Add Providers and rules, and change Tailscale and core options, in a phone's browser"), onTap: () => phoneSettingsSheet(app)),
+                ]),
               section(l, tr('接管', 'Connection'), top: 8, [
                 toggleRow(l, 'VPN', app.on, app.toggleTake, sub: app.on ? tr('生效中', 'Active') : tr('已关闭', 'Off')),
                 if (android) ...[

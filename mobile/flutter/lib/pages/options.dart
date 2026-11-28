@@ -14,69 +14,80 @@ import 'rows.dart';
 import 'sheet.dart';
 
 /// One setting of the core, by its key in the settings file.
-class _F {
-  const _F.flag(this.key, this.title, {this.sub}) : kind = 'bool', choices = const [], unit = '';
-  const _F.num(this.key, this.title, this.unit, {this.sub}) : kind = 'int', choices = const [];
-  const _F.pick(this.key, this.title, this.choices) : sub = null, kind = 'pick', unit = '';
-  const _F.text(this.key, this.title) : sub = null, kind = 'text', choices = const [], unit = '';
-  const _F.lines(this.key, this.title, {this.sub}) : kind = 'list', choices = const [], unit = '';
+class CoreField {
+  const CoreField.flag(this.key, this.title, {this.sub}) : kind = 'bool', choices = const [], unit = '';
+  const CoreField.num(this.key, this.title, this.unit, {this.sub}) : kind = 'int', choices = const [];
+  const CoreField.pick(this.key, this.title, this.choices) : sub = null, kind = 'pick', unit = '';
+  const CoreField.text(this.key, this.title) : sub = null, kind = 'text', choices = const [], unit = '';
+  const CoreField.lines(this.key, this.title, {this.sub}) : kind = 'list', choices = const [], unit = '';
 
   final String key, title, kind, unit;
   final String? sub;
   final List<(String, String)> choices;
 }
 
-List<_F> get _basic => [
-  _F.pick('logLevel', tr('日志级别', 'Log level'), [('debug', 'debug'), ('info', 'info'), ('warning', 'warning'), ('error', 'error'), ('silent', 'silent')]),
-  _F.text('testUrl', tr('默认测速地址', 'Default test URL')),
-  _F.flag('ipv6', 'IPv6'),
-  _F.flag('unifiedDelay', tr('统一延迟', 'Unified delay'), sub: tr('只算节点到目标的时间，不算握手', 'Count only node-to-target time, not the handshake')),
-  _F.flag('tcpConcurrent', tr('TCP 并发', 'TCP concurrency'), sub: tr('同时连接域名的多个地址，用最快的', 'Connect to a domain\'s addresses at once and use the fastest')),
-  _F.flag('disableKeepAlive', tr('关闭 TCP Keep-Alive', 'Disable TCP Keep-Alive')),
-  _F.num('keepAliveInterval', tr('Keep-Alive 间隔', 'Keep-Alive interval'), tr('秒', 's')),
-  _F.pick('fingerprint', tr('TLS 指纹', 'TLS fingerprint'), [('', tr('不使用', 'None')), ('chrome', 'Chrome'), ('firefox', 'Firefox'), ('safari', 'Safari'), ('ios', 'iOS'), ('android', 'Android'), ('edge', 'Edge'), ('random', tr('随机', 'Random'))]),
+List<CoreField> get _basic => [
+  CoreField.pick('logLevel', tr('日志级别', 'Log level'), [('debug', 'debug'), ('info', 'info'), ('warning', 'warning'), ('error', 'error'), ('silent', 'silent')]),
+  CoreField.text('testUrl', tr('默认测速地址', 'Default test URL')),
+  CoreField.flag('ipv6', 'IPv6'),
+  CoreField.flag('unifiedDelay', tr('统一延迟', 'Unified delay'), sub: tr('只算节点到目标的时间，不算握手', 'Count only node-to-target time, not the handshake')),
+  CoreField.flag('tcpConcurrent', tr('TCP 并发', 'TCP concurrency'), sub: tr('同时连接域名的多个地址，用最快的', 'Connect to a domain\'s addresses at once and use the fastest')),
+  CoreField.flag('disableKeepAlive', tr('关闭 TCP Keep-Alive', 'Disable TCP Keep-Alive')),
+  CoreField.num('keepAliveInterval', tr('Keep-Alive 间隔', 'Keep-Alive interval'), tr('秒', 's')),
+  CoreField.pick('fingerprint', tr('TLS 指纹', 'TLS fingerprint'), [('', tr('不使用', 'None')), ('chrome', 'Chrome'), ('firefox', 'Firefox'), ('safari', 'Safari'), ('ios', 'iOS'), ('android', 'Android'), ('edge', 'Edge'), ('random', tr('随机', 'Random'))]),
 ];
 
-List<_F> get _auto => [
-  _F.num('urlTestInterval', tr('测速间隔', 'Test interval'), tr('秒', 's'), sub: tr('自动选择节点多久测一次', 'How often automatic selection tests nodes')),
-  _F.num('urlTestTolerance', tr('切换容差', 'Switch tolerance'), 'ms', sub: tr('另一个节点要快这么多才切换', 'Another node must be this much faster to switch')),
-  _F.num('healthInterval', tr('Provider 检查间隔', 'Provider check interval'), tr('秒', 's')),
+List<CoreField> get _auto => [
+  CoreField.num('urlTestInterval', tr('测速间隔', 'Test interval'), tr('秒', 's'), sub: tr('自动选择节点多久测一次', 'How often automatic selection tests nodes')),
+  CoreField.num('urlTestTolerance', tr('切换容差', 'Switch tolerance'), 'ms', sub: tr('另一个节点要快这么多才切换', 'Another node must be this much faster to switch')),
+  CoreField.num('healthInterval', tr('Provider 检查间隔', 'Provider check interval'), tr('秒', 's')),
 ];
 
-List<_F> get _dns => [
-  _F.pick('dnsMode', tr('DNS 模式', 'DNS mode'), [('fake-ip', 'Fake IP'), ('redir-host', 'Redir Host')]),
-  _F.lines('nameservers', tr('DNS 服务器', 'DNS servers')),
-  _F.lines('defaultNameservers', tr('解析 DNS 服务器的 DNS', 'DNS for resolving DNS servers')),
-  _F.lines('fallback', tr('备用 DNS', 'Fallback DNS')),
-  _F.lines('proxyNameservers', tr('解析节点地址的 DNS', 'DNS for node addresses')),
-  _F.lines('nameserverPolicy', tr('按域名指定 DNS', 'DNS by domain'), sub: tr('每行一条：域名=服务器', 'One per line: domain=server')),
-  _F.text('fakeIpRange', tr('Fake IP 地址段', 'Fake IP range')),
-  _F.lines('fakeIpFilter', tr('Fake IP 例外', 'Fake IP exceptions')),
-  _F.lines('hosts', 'Hosts', sub: tr('每行一条：域名=IP', 'One per line: domain=IP')),
-  _F.flag('respectRules', tr('DNS 请求也按规则走', 'Route DNS requests by rules')),
-  _F.flag('useHosts', tr('使用 Hosts', 'Use Hosts')),
-  _F.flag('useSystemHosts', tr('使用系统 Hosts', 'Use system Hosts')),
-  _F.flag('preferH3', tr('优先 DoH/3', 'Prefer DoH/3')),
+List<CoreField> get _dns => [
+  CoreField.pick('dnsMode', tr('DNS 模式', 'DNS mode'), [('fake-ip', 'Fake IP'), ('redir-host', 'Redir Host')]),
+  CoreField.lines('nameservers', tr('DNS 服务器', 'DNS servers')),
+  CoreField.lines('defaultNameservers', tr('解析 DNS 服务器的 DNS', 'DNS for resolving DNS servers')),
+  CoreField.lines('fallback', tr('备用 DNS', 'Fallback DNS')),
+  CoreField.lines('proxyNameservers', tr('解析节点地址的 DNS', 'DNS for node addresses')),
+  CoreField.lines('nameserverPolicy', tr('按域名指定 DNS', 'DNS by domain'), sub: tr('每行一条：域名=服务器', 'One per line: domain=server')),
+  CoreField.text('fakeIpRange', tr('Fake IP 地址段', 'Fake IP range')),
+  CoreField.lines('fakeIpFilter', tr('Fake IP 例外', 'Fake IP exceptions')),
+  CoreField.lines('hosts', 'Hosts', sub: tr('每行一条：域名=IP', 'One per line: domain=IP')),
+  CoreField.flag('respectRules', tr('DNS 请求也按规则走', 'Route DNS requests by rules')),
+  CoreField.flag('useHosts', tr('使用 Hosts', 'Use Hosts')),
+  CoreField.flag('useSystemHosts', tr('使用系统 Hosts', 'Use system Hosts')),
+  CoreField.flag('preferH3', tr('优先 DoH/3', 'Prefer DoH/3')),
 ];
 
-List<_F> get _sniff => [
-  _F.flag('sniff', tr('域名嗅探', 'Domain sniffing'), sub: tr('从流量本身读出域名', 'Read the domain from the traffic itself')),
-  _F.lines('sniffHttp', tr('HTTP 端口', 'HTTP ports')),
-  _F.lines('sniffTls', tr('TLS 端口', 'TLS ports')),
-  _F.lines('sniffQuic', tr('QUIC 端口', 'QUIC ports')),
-  _F.flag('sniffOverride', tr('用嗅探结果覆盖目标', 'Override the target with the sniffed domain')),
-  _F.flag('sniffForceDnsMapping', tr('嗅探 DNS 映射的连接', 'Sniff DNS-mapped connections')),
-  _F.flag('sniffParsePureIp', tr('嗅探纯 IP 连接', 'Sniff IP-only connections')),
-  _F.lines('sniffSkip', tr('跳过这些域名', 'Skip these domains')),
+List<CoreField> get _sniff => [
+  CoreField.flag('sniff', tr('域名嗅探', 'Domain sniffing'), sub: tr('从流量本身读出域名', 'Read the domain from the traffic itself')),
+  CoreField.lines('sniffHttp', tr('HTTP 端口', 'HTTP ports')),
+  CoreField.lines('sniffTls', tr('TLS 端口', 'TLS ports')),
+  CoreField.lines('sniffQuic', tr('QUIC 端口', 'QUIC ports')),
+  CoreField.flag('sniffOverride', tr('用嗅探结果覆盖目标', 'Override the target with the sniffed domain')),
+  CoreField.flag('sniffForceDnsMapping', tr('嗅探 DNS 映射的连接', 'Sniff DNS-mapped connections')),
+  CoreField.flag('sniffParsePureIp', tr('嗅探纯 IP 连接', 'Sniff IP-only connections')),
+  CoreField.lines('sniffSkip', tr('跳过这些域名', 'Skip these domains')),
 ];
 
-List<_F> get _geo => [
-  _F.flag('geoAutoUpdate', tr('自动更新', 'Auto update')),
-  _F.num('geoUpdateInterval', tr('更新间隔', 'Update interval'), tr('小时', 'h')),
-  _F.text('geoipUrl', tr('GeoIP 地址', 'GeoIP URL')),
-  _F.text('geositeUrl', tr('GeoSite 地址', 'GeoSite URL')),
-  _F.text('mmdbUrl', tr('MMDB 地址', 'MMDB URL')),
+List<CoreField> get _geo => [
+  CoreField.flag('geoAutoUpdate', tr('自动更新', 'Auto update')),
+  CoreField.num('geoUpdateInterval', tr('更新间隔', 'Update interval'), tr('小时', 'h')),
+  CoreField.text('geoipUrl', tr('GeoIP 地址', 'GeoIP URL')),
+  CoreField.text('geositeUrl', tr('GeoSite 地址', 'GeoSite URL')),
+  CoreField.text('mmdbUrl', tr('MMDB 地址', 'MMDB URL')),
 ];
+
+/// The core's settings as 内核选项 shows them, section by section, for the
+/// phone's settings page to show the same. [geo] when the core can update
+/// its Geo data, which only then has its section.
+List<(String, List<CoreField>)> coreFieldSections({required bool geo}) => [
+      (tr('基本', 'Basic'), _basic),
+      (tr('自动选择', 'Auto select'), _auto),
+      ('DNS', _dns),
+      (tr('域名嗅探', 'Domain sniffing'), _sniff),
+      if (geo) (tr('Geo 数据', 'Geo data'), Platform.isIOS ? _geo.where((f) => f.key == 'geoipUrl' || f.key == 'geositeUrl').toList() : _geo),
+    ];
 
 class OptionsPage extends StatefulWidget {
   const OptionsPage({super.key, required this.app});
@@ -108,7 +119,7 @@ class _OptionsPageState extends State<OptionsPage> {
     await _load(); // what was saved, even when the core said no
   }
 
-  Widget _field(Look l, _F f) {
+  Widget _field(Look l, CoreField f) {
     final s = _s!;
     final v = s[f.key];
     switch (f.kind) {
