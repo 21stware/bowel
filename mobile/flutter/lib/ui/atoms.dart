@@ -105,7 +105,7 @@ class FlagDot extends StatelessWidget {
 /// Dims under the finger. Everything tappable goes through this, and so it
 /// is also what a remote's D-pad lands on and OK presses.
 class Tap extends StatefulWidget {
-  const Tap({super.key, required this.onTap, required this.child, this.pressedColor, this.label, this.radius = 10, this.focusNode, this.fill});
+  const Tap({super.key, required this.onTap, required this.child, this.pressedColor, this.label, this.radius = 10, this.focusNode, this.look = FocusLook.lift, this.bleed = 0});
 
   final VoidCallback? onTap;
   final Widget child;
@@ -114,12 +114,17 @@ class Tap extends StatefulWidget {
   /// When set, the press tints this widget's background instead of dimming it.
   final Color? pressedColor;
 
-  /// The corners of the focus ring, to match the child's.
+  /// The corners of the surface a focused row lifts, to match the child's.
   final double radius;
   final FocusNode? focusNode;
 
-  /// The child's fill, which the focus ring must stand out on.
-  final Color? fill;
+  /// A row lifts when focused; a button that inverts reads [focusLit] in
+  /// its child and draws that itself.
+  final FocusLook look;
+
+  /// For a row whose text runs to its edges: how far its lifted surface
+  /// reaches past them.
+  final double bleed;
 
   @override
   State<Tap> createState() => _TapState();
@@ -159,7 +164,8 @@ class _TapState extends State<Tap> {
         onActivate: widget.onTap == null ? null : _key,
         radius: widget.radius,
         focusNode: widget.focusNode,
-        fill: widget.fill,
+        look: widget.look,
+        bleed: widget.bleed,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapDown: widget.onTap == null ? null : (_) => _set(true),
@@ -247,6 +253,7 @@ class Toggle extends StatelessWidget {
       child: KeyTarget(
         onActivate: onTap,
         radius: 17,
+        scale: 1.07,
         child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap, child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 44), child: Center(widthFactor: 1, child: body))),
       ),
     );
@@ -274,20 +281,25 @@ class Seg<T> extends StatelessWidget {
             if (i > 0) const SizedBox(width: 2),
             Tap(
               radius: 8,
-              fill: o.$1 == value ? l.segOn : null,
+              look: FocusLook.invert,
               onTap: () => onChanged(o.$1),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                constraints: BoxConstraints(minHeight: minH),
-                padding: EdgeInsets.symmetric(horizontal: padH),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: o.$1 == value ? l.segOn : const Color(0x00000000),
-                  borderRadius: l.br(8),
-                  boxShadow: o.$1 == value ? const [BoxShadow(color: Color(0x1A000000), offset: Offset(0, 1), blurRadius: 2)] : const [],
-                ),
-                child: Text(o.$2, maxLines: 1, style: l.text(fontSize, weight: o.$1 == value ? 600 : 500, color: o.$1 == value ? l.ink : l.ink2, lh: 20)),
-              ),
+              child: Builder(builder: (context) {
+                final lit = focusLit(context), on = o.$1 == value;
+                final inv = invertedOf(l, fill: on ? l.segOn : null);
+                return AnimatedContainer(
+                  duration: lit || keyDriven ? focusMotion(context) : const Duration(milliseconds: 160),
+                  curve: focusCurve,
+                  constraints: BoxConstraints(minHeight: minH),
+                  padding: EdgeInsets.symmetric(horizontal: padH),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: lit ? inv.fill : (on ? l.segOn : const Color(0x00000000)),
+                    borderRadius: l.br(8),
+                    boxShadow: on && !lit ? const [BoxShadow(color: Color(0x1A000000), offset: Offset(0, 1), blurRadius: 2)] : const [],
+                  ),
+                  child: _withMark(l, lit && on, invertContent(lit ? inv.on : null, Text(o.$2, maxLines: 1, style: l.text(fontSize, weight: on ? 600 : 500, color: on ? l.ink : l.ink2, lh: 20)))),
+                );
+              }),
             ),
           ],
         ],
@@ -314,17 +326,30 @@ class Chip extends StatelessWidget {
     return Tap(
       onTap: onTap,
       radius: 18,
-      fill: on ? l.ink : null,
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 36),
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(color: on ? l.ink : const Color(0x00000000), borderRadius: l.br(18)),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          if (leading != null) ...[leading!, const SizedBox(width: 5)],
-          Text(text, maxLines: 1, style: l.text(13.5, weight: on ? 600 : 400, color: c, lh: 20).copyWith(decoration: struck ? TextDecoration.lineThrough : null)),
-          if (count != null) ...[const SizedBox(width: 5), Opacity(opacity: .6, child: Text('$count', style: l.text(11.5, color: c, lh: 16)))],
-        ]),
-      ),
+      look: FocusLook.invert,
+      child: Builder(builder: (context) {
+        final lit = focusLit(context);
+        final inv = invertedOf(l, fill: on ? l.ink : null);
+        return AnimatedContainer(
+          duration: keyDriven ? focusMotion(context) : Duration.zero,
+          curve: focusCurve,
+          constraints: const BoxConstraints(minHeight: 36),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(color: lit ? inv.fill : (on ? l.ink : const Color(0x00000000)), borderRadius: l.br(18)),
+          child: _withMark(
+            l,
+            lit && on,
+            invertContent(
+              lit ? inv.on : null,
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                if (leading != null) ...[leading!, const SizedBox(width: 5)],
+                Text(text, maxLines: 1, style: l.text(13.5, weight: on ? 600 : 400, color: c, lh: 20).copyWith(decoration: struck ? TextDecoration.lineThrough : null)),
+                if (count != null) ...[const SizedBox(width: 5), Opacity(opacity: .6, child: Text('$count', style: l.text(11.5, color: c, lh: 16)))],
+              ]),
+            ),
+          ),
+        );
+      }),
     );
   }
 }
@@ -357,26 +382,35 @@ class Btn extends StatelessWidget {
     return Tap(
       onTap: onTap,
       radius: 20,
-      fill: bg,
-      child: Container(
-        width: expand ? double.infinity : null,
-        constraints: BoxConstraints(minHeight: minH),
-        padding: EdgeInsets.symmetric(horizontal: padH),
-        alignment: expand ? Alignment.center : null,
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: l.br(20),
-          border: kind == BtnKind.outline ? Border.all(color: l.ink, width: 1.5) : null,
-          boxShadow: kind == BtnKind.accent ? l.lit : const [],
-        ),
-        child: DefaultTextStyle.merge(
-          style: TextStyle(color: fg),
-          child: Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
-            if (leading != null) ...[leading!, const SizedBox(width: 5)],
-            child ?? Text(text, maxLines: 1, softWrap: false, style: l.text(fontSize, weight: 600, color: fg, lh: fontSize * 1.4)),
-          ]),
-        ),
-      ),
+      look: FocusLook.invert,
+      child: Builder(builder: (context) {
+        final lit = focusLit(context);
+        final inv = invertedOf(l, fill: bg);
+        return AnimatedContainer(
+          duration: keyDriven ? focusMotion(context) : Duration.zero,
+          curve: focusCurve,
+          width: expand ? double.infinity : null,
+          constraints: BoxConstraints(minHeight: minH),
+          padding: EdgeInsets.symmetric(horizontal: padH),
+          alignment: expand ? Alignment.center : null,
+          decoration: BoxDecoration(
+            color: lit ? inv.fill : bg,
+            borderRadius: l.br(20),
+            border: kind == BtnKind.outline ? Border.all(color: l.ink, width: 1.5) : null,
+            boxShadow: kind == BtnKind.accent && !lit ? l.lit : const [],
+          ),
+          child: DefaultTextStyle.merge(
+            style: TextStyle(color: fg),
+            child: invertContent(
+              lit ? inv.on : null,
+              Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
+                if (leading != null) ...[leading!, const SizedBox(width: 5)],
+                child ?? Text(text, maxLines: 1, softWrap: false, style: l.text(fontSize, weight: 600, color: fg, lh: fontSize * 1.4)),
+              ]),
+            ),
+          ),
+        );
+      }),
     );
   }
 }
@@ -399,10 +433,32 @@ class IconBox extends StatelessWidget {
       onTap: onTap,
       label: label,
       radius: 12,
-      fill: on ? l.accent : l.paper2,
-      child: Container(width: 44, height: 44, alignment: Alignment.center, decoration: BoxDecoration(color: on ? l.accent : l.paper2, borderRadius: l.br(12)), child: g),
+      look: FocusLook.invert,
+      child: Builder(builder: (context) {
+        final lit = focusLit(context);
+        final inv = invertedOf(l, fill: on ? l.accent : l.paper2);
+        return AnimatedContainer(
+          duration: keyDriven ? focusMotion(context) : Duration.zero,
+          curve: focusCurve,
+          width: 44,
+          height: 44,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(color: lit ? inv.fill : (on ? l.accent : l.paper2), borderRadius: l.br(12)),
+          child: _withMark(l, lit && on, invertContent(lit ? inv.on : null, g)),
+        );
+      }),
     );
   }
+}
+
+/// [child] with the mark of a selected choice that has the focus under it,
+/// in the room the child has, so nothing moves.
+Widget _withMark(Look l, bool mark, Widget child) {
+  if (!mark) return child;
+  return Stack(clipBehavior: Clip.none, alignment: Alignment.center, children: [
+    child,
+    Positioned(bottom: 3, child: selectedMark(l)),
+  ]);
 }
 
 class SourceTag extends StatelessWidget {
@@ -610,7 +666,7 @@ class _AccordionState extends State<Accordion> with SingleTickerProviderStateMix
   }
 }
 
-class SearchField extends StatelessWidget {
+class SearchField extends StatefulWidget {
   const SearchField({super.key, required this.hint, this.onChanged, this.controller, this.icon = true, this.minH = 44, this.label, this.keyboardType, this.autofocus = false, this.onSubmitted});
 
   final String hint;
@@ -624,16 +680,36 @@ class SearchField extends StatelessWidget {
   final bool autofocus;
 
   @override
+  State<SearchField> createState() => _SearchFieldState();
+}
+
+class _SearchFieldState extends State<SearchField> {
+  bool _lit = false;
+
+  @override
   Widget build(BuildContext context) {
     final l = Skin.of(context);
-    return Container(
-      constraints: BoxConstraints(minHeight: minH),
+    // The box holds the glass as well as the field: it lifts itself.
+    return AnimatedContainer(
+      duration: focusMotion(context),
+      curve: focusCurve,
+      constraints: BoxConstraints(minHeight: widget.minH),
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(color: l.paper2, borderRadius: l.br(11)),
+      decoration: BoxDecoration(color: _lit ? liftedSurface(l) : l.paper2, borderRadius: l.br(11), boxShadow: _lit ? liftShadow(l) : const []),
       child: Row(children: [
-        if (icon) ...[Ic('search', color: l.ink2), const SizedBox(width: 8)],
+        if (widget.icon) ...[Ic('search', color: _lit ? l.ink : l.ink2), const SizedBox(width: 8)],
         Expanded(
-          child: BareField(hint: hint, controller: controller, onChanged: onChanged, onSubmitted: onSubmitted, label: label, keyboardType: keyboardType, autofocus: autofocus),
+          child: BareField(
+            hint: widget.hint,
+            controller: widget.controller,
+            onChanged: widget.onChanged,
+            onSubmitted: widget.onSubmitted,
+            label: widget.label,
+            keyboardType: widget.keyboardType,
+            autofocus: widget.autofocus,
+            liftBox: false,
+            onLit: (v) => setState(() => _lit = v),
+          ),
         ),
       ]),
     );
@@ -642,7 +718,7 @@ class SearchField extends StatelessWidget {
 
 /// A borderless text input in the skin's type.
 class BareField extends StatefulWidget {
-  const BareField({super.key, required this.hint, this.controller, this.onChanged, this.label, this.maxLines = 1, this.keyboardType, this.autofocus = false, this.onSubmitted});
+  const BareField({super.key, required this.hint, this.controller, this.onChanged, this.label, this.maxLines = 1, this.keyboardType, this.autofocus = false, this.onSubmitted, this.liftBox = true, this.onLit});
 
   final String hint;
   final TextEditingController? controller;
@@ -652,6 +728,11 @@ class BareField extends StatefulWidget {
   final int? maxLines;
   final TextInputType? keyboardType;
   final bool autofocus;
+
+  /// Focused, lifts the filled box the field sits in. Off where that box
+  /// holds more than the field and lifts itself, from [onLit].
+  final bool liftBox;
+  final ValueChanged<bool>? onLit;
 
   @override
   State<BareField> createState() => _BareFieldState();
@@ -695,14 +776,33 @@ class _BareFieldState extends State<BareField> {
     return Semantics(
       textField: true,
       label: widget.label ?? widget.hint,
+      // Focused, the box the field sits in lifts, as a card does, and the
+      // hint comes up to the ink; the field doesn't grow, its box isn't it.
       child: KeyTarget(
         onActivate: _focus.requestFocus,
         radius: 8,
-        child: GestureDetector(
+        scale: 1,
+        surface: false,
+        onLit: widget.onLit,
+        child: Builder(builder: (context) {
+          final lit = focusLit(context);
+          return TweenAnimationBuilder<double>(
+            tween: Tween(end: lit && widget.liftBox ? 1 : 0),
+            duration: focusMotion(context),
+            curve: focusCurve,
+            builder: (context, t, child) => LiftBox(t: t, color: liftedSurface(l), shadow: liftShadow(l), child: child),
+            child: _field(l, style, lit),
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _field(Look l, TextStyle style, bool lit) => GestureDetector(
           behavior: HitTestBehavior.translucent,
           onTap: _focus.requestFocus,
           child: Stack(alignment: widget.maxLines == 1 ? Alignment.centerLeft : Alignment.topLeft, children: [
-            if (_c.text.isEmpty) IgnorePointer(child: Line1(widget.hint, style.copyWith(color: l.mute, shadows: const []))),
+            if (_c.text.isEmpty) IgnorePointer(child: Line1(widget.hint, style.copyWith(color: lit ? l.ink : l.mute, shadows: const []))),
             // A TextField for the system's paste menu; links are never typed.
             // Suggestions stay on except for secrets: on Android, turning them
             // off marks the field as a visible password, and some keyboards
@@ -722,8 +822,5 @@ class _BareFieldState extends State<BareField> {
               keyboardAppearance: l.isDark ? Brightness.dark : Brightness.light,
             ),
           ]),
-        ),
-      ),
-    );
-  }
+        );
 }

@@ -1,15 +1,13 @@
 import 'package:bowel/app/state.dart';
 import 'package:bowel/main.dart';
 import 'package:bowel/ui/focus.dart';
-import 'package:bowel/ui/skin.dart';
-import 'package:bowel/ui/skin_data.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'real_font.dart';
 
-// The first run on a TV: both steps fit 540 tall, the ring shows on the lime
+// The first run on a TV: both steps fit 540 tall, the focus shows on the lime
 // buttons, and Back goes from step 2 to step 1 before it leaves.
 
 Future<void> _settle(WidgetTester tester) async {
@@ -58,24 +56,6 @@ void _onScreen(WidgetTester tester, String text, Size size) {
 void main() {
   setUpAll(loadSystemFont);
   setUp(() => FocusManager.instance.highlightStrategy = FocusHighlightStrategy.automatic);
-
-  test('the ring stands out on what it is drawn on, in every skin and theme color', () {
-    for (final id in skinDefs.keys) {
-      for (final dark in [false, true]) {
-        for (final (custom, _, _) in [('', null, null), ...accentPresets]) {
-          final l = Look.of(id, dark, custom: custom);
-          for (final (name, fill) in [('paper', null), ('accent', l.accent), ('quiet', l.paper2), ('chip', l.ink), ('seg', l.segOn)]) {
-            final under = fill == null ? l.paper : Color.alphaBlend(fill, l.paper);
-            final ring = focusRing(l, fill: fill).color;
-            expect(contrast(ring, under), greaterThanOrEqualTo(3), reason: '$id dark=$dark accent=$custom on $name');
-            // kept in from a lime button's edge, so it reads as a ring there
-            if (name == 'accent' && contrast(under, l.paper) >= 1.4) expect(focusRing(l, fill: fill).inset, greaterThan(0));
-            if (name == 'paper') expect(focusRing(l, fill: fill).inset, 0);
-          }
-        }
-      }
-    }
-  });
 
   for (final appearance in ['light', 'dark']) {
     testWidgets('$appearance: on a TV both steps fit, the D-pad reaches every button, and Back goes step to step', (tester) async {

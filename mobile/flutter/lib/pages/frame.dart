@@ -273,19 +273,34 @@ class TopTabs extends StatelessWidget {
             decoration: BoxDecoration(color: l.hair2, borderRadius: l.br(10)),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               for (final (i, it) in AndroidBar.items.indexed)
-                KeyTarget(onActivate: () => app.selectTab(i), radius: 7, focusNode: focus?[i], fill: app.tab == i ? l.accent : null, child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => app.selectTab(i),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                    decoration: BoxDecoration(color: app.tab == i ? l.accent : const Color(0x00000000), borderRadius: l.br(7)),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Text(it.$2, maxLines: 1, style: l.text(13, weight: 600, color: app.tab == i ? l.onAccent : l.ink2, lh: 18).copyWith(shadows: const [])),
-                      if (i == 2) ...[const SizedBox(width: 6), Dot(l.warn)],
-                    ]),
+                // Focused, a tab inverts; the one shown keeps a mark then.
+                KeyTarget(
+                  onActivate: () => app.selectTab(i),
+                  radius: 7,
+                  focusNode: focus?[i],
+                  look: FocusLook.invert,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => app.selectTab(i),
+                    child: Builder(builder: (context) {
+                      final lit = focusLit(context), on = app.tab == i;
+                      final inv = invertedOf(l, fill: on ? l.accent : null);
+                      return AnimatedContainer(
+                        duration: lit || keyDriven ? focusMotion(context) : const Duration(milliseconds: 200),
+                        curve: focusCurve,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                        decoration: BoxDecoration(color: lit ? inv.fill : (on ? l.accent : const Color(0x00000000)), borderRadius: l.br(7)),
+                        child: Stack(clipBehavior: Clip.none, alignment: Alignment.center, children: [
+                          Row(mainAxisSize: MainAxisSize.min, children: [
+                            invertContent(lit ? inv.on : null, Text(it.$2, maxLines: 1, style: l.text(13, weight: 600, color: on ? l.onAccent : l.ink2, lh: 18).copyWith(shadows: const []))),
+                            if (i == 2) ...[const SizedBox(width: 6), Dot(l.warn)],
+                          ]),
+                          if (lit && on) Positioned(bottom: -4, child: selectedMark(l)),
+                        ]),
+                      );
+                    }),
                   ),
-                )),
+                ),
             ]),
           ),
         ]),

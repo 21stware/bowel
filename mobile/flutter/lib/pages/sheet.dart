@@ -1,3 +1,4 @@
+import 'package:flutter/rendering.dart' show OverflowBoxFit;
 import 'package:flutter/widgets.dart';
 
 import '../app/i18n.dart';
@@ -135,10 +136,18 @@ class _PickListState<T> extends State<_PickList<T>> {
     return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(widget.title, style: l.text(15, weight: 700, lh: 21)),
       const SizedBox(height: 6),
+      // The list reaches 12 into the sheet's padding on each side, and its
+      // rows keep 12 in from that: where they always were, with room past
+      // their edges for a remote's focus to lift them into.
       Flexible(
-        child: ListView(shrinkWrap: true, padding: EdgeInsets.zero, keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, children: [
+        child: LayoutBuilder(builder: (context, c) => OverflowBox(
+          fit: OverflowBoxFit.deferToChild,
+          minWidth: c.maxWidth + 24,
+          maxWidth: c.maxWidth + 24,
+          child: ListView(shrinkWrap: true, padding: const EdgeInsets.symmetric(horizontal: 12), keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, children: [
           for (final o in shown)
             FocusMark(o.value == widget.value ? 'picked' : '', child: Tap(
+              bleed: 12,
               onTap: () {
                 widget.app.closeSheet();
                 widget.onPick(o.value);
@@ -159,7 +168,8 @@ class _PickListState<T> extends State<_PickList<T>> {
                 ]),
               ),
             )),
-        ]),
+          ]),
+        )),
       ),
       if (widget.search) ...[const SizedBox(height: 8), SearchField(hint: tr('搜索', 'Search'), onChanged: (v) => setState(() => _q = v))],
     ]);
