@@ -17,6 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/oboo/moho/internal/i18n"
+	"github.com/oboo/moho/internal/robustio"
 	"github.com/oboo/moho/internal/routes"
 )
 
@@ -142,7 +143,7 @@ func (s *Store) Replace(meta map[string]Meta, files map[string][]byte) error {
 		if err := os.WriteFile(tmp, b, 0o600); err != nil {
 			return err
 		}
-		if err := os.Rename(tmp, s.Path(id)); err != nil {
+		if err := robustio.Rename(tmp, s.Path(id)); err != nil {
 			return err
 		}
 		next[id] = m
@@ -151,7 +152,7 @@ func (s *Store) Replace(meta map[string]Meta, files map[string][]byte) error {
 	for _, e := range entries {
 		if id, ok := strings.CutSuffix(e.Name(), ".yaml"); ok {
 			if _, keep := next[id]; !keep {
-				_ = os.Remove(filepath.Join(s.dir, e.Name()))
+				_ = robustio.Remove(filepath.Join(s.dir, e.Name()))
 			}
 		}
 	}
@@ -288,7 +289,7 @@ func (s *Store) Save(id string, c *Checked) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp.Name(), s.Path(id)); err != nil {
+	if err := robustio.Rename(tmp.Name(), s.Path(id)); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -312,7 +313,7 @@ func (s *Store) Restore(id string, meta Meta, file []byte) error {
 		return err
 	}
 	defer os.Remove(tmp)
-	if err := os.Rename(tmp, s.Path(id)); err != nil {
+	if err := robustio.Rename(tmp, s.Path(id)); err != nil {
 		return err
 	}
 	s.meta[id] = meta
@@ -349,7 +350,7 @@ func (s *Store) Delete(id string) {
 	defer s.mu.Unlock()
 	delete(s.meta, id)
 	delete(s.matchers, id)
-	_ = os.Remove(s.Path(id))
+	_ = robustio.Remove(s.Path(id))
 	_ = s.saveLocked()
 }
 
@@ -362,7 +363,7 @@ func (s *Store) Keep(ids map[string]bool) {
 	for _, e := range entries {
 		id, ok := strings.CutSuffix(e.Name(), ".yaml")
 		if ok && !ids[id] {
-			_ = os.Remove(filepath.Join(s.dir, e.Name()))
+			_ = robustio.Remove(filepath.Join(s.dir, e.Name()))
 		}
 	}
 	for id := range s.meta {

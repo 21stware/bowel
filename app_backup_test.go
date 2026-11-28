@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -164,7 +165,9 @@ func TestConfigExportImport(t *testing.T) {
 	if !a.canUndoImport() || !a.snapshot().CanUndoImport {
 		t.Fatal("nothing to undo after an import")
 	}
-	if fi, err := os.Stat(a.undoImportPath()); err != nil || fi.Mode().Perm()&0o077 != 0 {
+	// Windows has no mode bits: Go reports any file that isn't read-only
+	// as 0666, so only Unix can show the file is the owner's alone.
+	if fi, err := os.Stat(a.undoImportPath()); err != nil || fi.Mode().Perm()&0o077 != 0 && runtime.GOOS != "windows" {
 		t.Errorf("what the import replaced: %v %v", fi, err)
 	}
 

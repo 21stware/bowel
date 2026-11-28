@@ -8,6 +8,8 @@
 
 ## [Unreleased]
 
+- Windows 上导入配置、撤销导入、重新读取本地文件的 Provider 和更新规则集不会再偶尔失败、报「Access is denied」了。内核读某个 Provider 或规则集的文件的那一刻，Windows 不让别的程序替换或删除这个文件，bowel 以前直接报错；导入失败后换回原来的 Provider 和规则集也会撞上同一个问题，删不掉的旧文件会留下。现在 bowel 等内核读完再换，最多等 2 秒。Linux 和 macOS 上本来就没有这个问题，做法不变
+  - 在 Windows 11（26300）上测过：测试占着 Provider 和规则集的文件不放，替换和删除都等到松开以后完成，一直不放的，等过时限后照常报错；不等的话报的就是之前完整测试里偶尔出现的那个错
 - Docker 镜像里，agent 经由 `docker exec` 运行的修改类命令也遵循 agent 的策略了。容器里所有命令都经由 `docker exec`，bowel 靠环境变量分不清是谁运行的，以前一律当成你的：agent 执行 `docker exec bowel bowel mode global`、`tun on` 这类命令不会被询问，直接生效。现在容器里只有背后是你的终端（`docker exec -it`）的命令才算你的；没有终端的算 agent 的，读取照常，修改按策略来，默认的「询问」下会被拒绝，并说明原因和你该怎么做。
   - agent 再加 `-t` 也不行：从没有终端的 shell 里带 `-t`，容器里拿到的终端是 0×0，bowel 认得出来。你从自己的终端里带 `-it`（或 `-t`）时终端有大小，照常算你的；`bowel tui` 也一样。
   - 文档里的 `docker exec bowel bowel tun on`、`gateway on`、`route use` 都改成了带 `-it`。主机上的脚本要经 `docker exec` 修改，需要把策略设为「允许」。

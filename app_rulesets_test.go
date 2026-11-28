@@ -64,6 +64,11 @@ func hitOf(t *testing.T, a *App) (rule, payload string) {
 
 // TestRuleSetInTheCore: imported, a set decides connections in the real
 // core; updated, the new rules count with no reload; off and gone, it stops.
+//
+// The set goes in AI 服务, not 直连: the core's hosts give hitHost
+// 127.0.0.1 before any rule is tried, and in 直连 its own GEOIP,private
+// comes before the group's sets (routes.Lines), so it would take the
+// connection first.
 func TestRuleSetInTheCore(t *testing.T) {
 	a, _ := routingApp(t, withHitHost)
 	body := "DOMAIN-SUFFIX,only.example\nIP-CIDR,10.99.0.0/16,no-resolve\nUSER-AGENT,skipme*\n"
@@ -78,7 +83,7 @@ func TestRuleSetInTheCore(t *testing.T) {
 	if len(c.Set.Rules) != 2 || c.Set.Skipped != 1 || c.Set.Behavior != ruleset.Classical {
 		t.Fatalf("%+v", c.Set)
 	}
-	id, err := a.importRuleSet(c, "direct")
+	id, err := a.importRuleSet(c, "ai")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,14 +91,14 @@ func TestRuleSetInTheCore(t *testing.T) {
 		t.Fatal("a set that doesn't hold the address caught it")
 	}
 	sv, ok := routes.FindSource(a.routes(), src)
-	if !ok || sv.ID != id || sv.Name != "my-list" || sv.Group != "direct" {
+	if !ok || sv.ID != id || sv.Name != "my-list" || sv.Group != "ai" {
 		t.Fatalf("%+v %v", sv, ok)
 	}
 	v := a.snapshot().RuleSets[id]
 	if v.Count != 2 || v.Skipped != 1 || len(v.Preview) != 2 || v.UpdatedAt.IsZero() {
 		t.Errorf("view: %+v", v)
 	}
-	if _, err := a.importRuleSet(c, "ai"); err == nil {
+	if _, err := a.importRuleSet(c, "direct"); err == nil {
 		t.Error("the same source imported twice")
 	}
 
@@ -111,7 +116,7 @@ func TestRuleSetInTheCore(t *testing.T) {
 	if rule, payload := hitOf(t, a); rule != "RuleSet" || payload != want {
 		t.Errorf("after the update: %s %s", rule, payload)
 	}
-	if got, mine := routeAndMine(a, "www."+hitHost); got != "direct" || mine {
+	if got, mine := routeAndMine(a, "www."+hitHost); got != "ai" || mine {
 		t.Errorf("explain: %s %v", got, mine)
 	}
 
