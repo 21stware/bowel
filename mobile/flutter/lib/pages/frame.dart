@@ -13,17 +13,30 @@ import '../ui/skin.dart';
 enum WindowForm { phone, medium, wide }
 
 /// Under 520 tall, with the bars and margins taken off, the grids can't hold
-/// their cards: a phone on its side stays a phone. A TV's screen is 960x540
-/// as Flutter counts it, which they just hold.
+/// their cards: a phone on its side stays a phone.
 WindowForm windowFormOf(Size s) => s.width < 600 || s.height < 520 ? WindowForm.phone : (s.width < 900 ? WindowForm.medium : WindowForm.wide);
 
-/// A big window as wide and short as a TV's gets a margin all round, since a
-/// TV may draw its picture past the edges of the glass. A system bar along an
+/// A big window as wide and short as a TV's.
+bool _tvShaped(Size s) => windowFormOf(s) != WindowForm.phone && s.width >= s.height * 1.7;
+
+/// The height a TV-shaped window is drawn at. A TV's screen is 960x540 as
+/// Flutter counts it, which only just holds the grid at a phone's sizes; drawn
+/// 720 tall it has the room of a desktop window, and the board is the
+/// desktop's, at the desktop's sizes.
+const tvCanvasHeight = 720.0;
+
+/// How much smaller than Flutter counts it a window is drawn: under 1 for a
+/// TV-shaped one shorter than [tvCanvasHeight], 1 for anything else.
+double canvasScaleOf(Size s) => _tvShaped(s) && s.height < tvCanvasHeight ? s.height / tvCanvasHeight : 1;
+
+/// A TV-shaped window keeps a thin margin all round, since a TV may draw its
+/// picture a little past the edges of the glass; most draw all of it now, so
+/// it is less than the 5% the old guidance asked. A system bar along an
 /// edge is margin already: [bars] is what they keep, and this only adds what
-/// they leave short, or a 540-tall screen with bars has no room for the board.
+/// they leave short.
 EdgeInsets overscanOf(Size s, [EdgeInsets bars = EdgeInsets.zero]) {
-  if (windowFormOf(s) == WindowForm.phone || s.width < s.height * 1.7) return EdgeInsets.zero;
-  final h = (s.width * .05).roundToDouble(), v = (s.height * .05).roundToDouble();
+  if (!_tvShaped(s)) return EdgeInsets.zero;
+  final h = (s.width * .025).roundToDouble(), v = (s.height * .03).roundToDouble();
   double over(double want, double kept) => want > kept ? want - kept : 0;
   return EdgeInsets.fromLTRB(over(h, bars.left), over(v, bars.top), over(h, bars.right), over(v, bars.bottom));
 }
@@ -89,7 +102,8 @@ class ListPage extends StatelessWidget {
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         pageTitle(l, title),
         SizedBox(height: marginTop),
-        Expanded(child: list(10)),
+        // a focused row stands out past the list's sides
+        Expanded(child: ClipRect(clipper: const SideRoomClip(), child: list(10))),
         if (dock != null)
           Container(
             padding: EdgeInsets.fromLTRB(16, 8, 16, kb > 0 ? kb + 8 : 8),
@@ -104,7 +118,7 @@ class ListPage extends StatelessWidget {
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         pageTitle(l, title),
         SizedBox(height: marginTop),
-        Expanded(child: list(dock == null ? clearance + 10 : clearance + dockH + 10)),
+        Expanded(child: ClipRect(clipper: const SideRoomClip(), child: list(dock == null ? clearance + 10 : clearance + dockH + 10))),
       ]),
       if (dock != null) ...[
         Positioned(

@@ -83,15 +83,18 @@ void main() {
   setUpAll(loadSystemFont);
   setUp(() => FocusManager.instance.highlightStrategy = FocusHighlightStrategy.automatic);
 
-  testWidgets('a 1080p TV gets the wide board inside a margin, and every card fits', (tester) async {
+  // Drawn at 1280x720 and scaled by .75 to the screen: what the test reads is
+  // the screen's, the canvas's margins of 32 and 22 times .75.
+  testWidgets('a 1080p TV gets the wide board at a desktop window\'s size inside a thin margin, and every card fits', (tester) async {
     final (app, _) = await _open(tester, const Size(960, 540));
     expect(find.byType(TopTabs), findsOneWidget);
     expect(find.byType(AndroidBar), findsNothing);
+    expect(MediaQuery.sizeOf(tester.element(find.byType(TopTabs))), const Size(1280, 720));
     // the board keeps off the TV's edges
     final board = tester.getRect(find.byType(IndexedStack));
-    expect(board.left, 48);
-    expect(board.right, 960 - 48);
-    expect(board.bottom, 540 - 27);
+    expect(board.left, 24);
+    expect(board.right, 960 - 24);
+    expect(board.bottom, 540 - 16.5);
     for (final id in ['hero', 'map', 'mode', 'routes', 'speed', 'apps']) {
       app.open(id);
       await _settle(tester);
@@ -106,9 +109,9 @@ void main() {
   testWidgets('a 960x540 screen with system bars still holds every card', (tester) async {
     await _open(tester, const Size(960, 540), bars: const FakeViewPadding(top: 29.5, bottom: 29));
     final board = tester.getRect(find.byType(IndexedStack));
-    expect(board.top, 29.5 + 50); // the bar, then the tabs: no margin on top of the bar
-    expect(board.bottom, 540 - 29);
-    expect(board.left, 48);
+    expect(board.top, closeTo(29.5 + 50 * .75, .01)); // the bar, then the tabs: no margin on top of the bar
+    expect(board.bottom, closeTo(540 - 29, .01));
+    expect(board.left, 24);
     final speed = tester.getRect(find.byWidgetPredicate((w) => w is FocusMark && w.id == 'cell:speed'));
     expect(speed.bottom, lessThanOrEqualTo(board.bottom + .01));
     expect(tester.getRect(find.textContaining('今日').first).bottom, lessThanOrEqualTo(speed.bottom));

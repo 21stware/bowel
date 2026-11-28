@@ -42,7 +42,42 @@ class BowelApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'bowel',
       theme: ThemeData(fontFamily: systemFamily, splashFactory: NoSplash.splashFactory, highlightColor: Colors.transparent),
+      builder: (context, child) => _Canvas(child: child!),
       home: AnimatedBuilder(animation: app, builder: (context, _) => _Root(app: app, ready: ready)),
+    );
+  }
+}
+
+/// Draws a TV-shaped window at a desktop window's size, scaled down to the
+/// screen ([canvasScaleOf]); anything else as it is. Over the navigator, so
+/// sheets and dialogs scale with the pages.
+class _Canvas extends StatelessWidget {
+  const _Canvas({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    final k = canvasScaleOf(mq.size);
+    if (k == 1) return child;
+    final size = mq.size / k;
+    return FittedBox(
+      fit: BoxFit.fill,
+      alignment: Alignment.topLeft,
+      child: SizedBox.fromSize(
+        size: size,
+        child: MediaQuery(
+          data: mq.copyWith(
+            size: size,
+            devicePixelRatio: mq.devicePixelRatio * k,
+            padding: mq.padding / k,
+            viewPadding: mq.viewPadding / k,
+            viewInsets: mq.viewInsets / k,
+            systemGestureInsets: mq.systemGestureInsets / k,
+          ),
+          child: child,
+        ),
+      ),
     );
   }
 }
@@ -241,6 +276,8 @@ class _TabsState extends State<_Tabs> {
                 ),
               Expanded(
                 child: IndexedStack(
+                  // a focused row stands out past the page's sides, into the margin
+                  clipBehavior: Clip.none,
                   index: app.tab,
                   children: [
                     page(

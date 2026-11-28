@@ -6,6 +6,7 @@ import '../app/i18n.dart';
 import '../app/shell.dart';
 import '../app/state.dart';
 import '../ui/atoms.dart';
+import '../ui/focus.dart';
 import '../ui/skin.dart';
 import '../ui/skin_data.dart';
 import 'frame.dart';
@@ -49,9 +50,15 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Navigator(
-      key: widget.app.settingsNav,
-      onGenerateRoute: (_) => routeOf(_SettingsHome(app: widget.app)),
+    // A focused row stands out past the page's sides; a page sliding in
+    // shows no further out than that.
+    return ClipRect(
+      clipper: const SideRoomClip(),
+      child: Navigator(
+        key: widget.app.settingsNav,
+        clipBehavior: Clip.none,
+        onGenerateRoute: (_) => routeOf(_SettingsHome(app: widget.app)),
+      ),
     );
   }
 }
@@ -175,7 +182,7 @@ class _SettingsHomeState extends State<_SettingsHome> {
           child: ListPage(
             title: tr('设置', 'Settings'),
             marginTop: 0,
-            list: (bottom) => ListView(padding: EdgeInsets.only(bottom: bottom), children: [
+            list: (bottom) => ListView(padding: EdgeInsets.only(bottom: bottom), clipBehavior: Clip.none, children: [
               section(l, tr('接管', 'Connection'), top: 8, [
                 toggleRow(l, 'VPN', app.on, app.toggleTake, sub: app.on ? tr('生效中', 'Active') : tr('已关闭', 'Off')),
                 if (android) ...[

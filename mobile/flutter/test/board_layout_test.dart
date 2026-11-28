@@ -20,29 +20,39 @@ void main() {
   });
 
   test('only a TV-shaped window keeps off the edges', () {
-    expect(overscanOf(const Size(960, 540)), const EdgeInsets.symmetric(horizontal: 48, vertical: 27));
-    expect(overscanOf(const Size(1280, 720)), const EdgeInsets.symmetric(horizontal: 64, vertical: 36));
+    expect(overscanOf(const Size(960, 540)), const EdgeInsets.symmetric(horizontal: 24, vertical: 16));
+    expect(overscanOf(const Size(1280, 720)), const EdgeInsets.symmetric(horizontal: 32, vertical: 22));
     expect(overscanOf(const Size(844, 390)), EdgeInsets.zero); // a phone on its side
     expect(overscanOf(const Size(1194, 834)), EdgeInsets.zero); // a tablet
   });
 
-  // A TV's 960x540, less the margins and the tabs along the top.
-  test('a TV board holds every card, opened or not', () {
-    const size = Size(864, 436);
-    for (final x in [null, ..._ids]) {
-      final cells = boardLayout(WindowForm.wide, x, size.height, size.width);
-      final bottom = cells.values.map((r) => r.bottom).reduce((p, n) => p > n ? p : n);
-      expect(bottom, closeTo(size.height, .01), reason: '$x');
-      if (x == null) {
-        expect(cells['hero']!.height, greaterThanOrEqualTo(146 - 1e-9));
-        expect(cells['routes']!.height, greaterThanOrEqualTo(166 - 1e-9));
-        expect(cells['speed']!.height, greaterThanOrEqualTo(104 - 1e-9));
-      } else {
-        // room for the opened card's switch
-        expect(cells[x]!.height, greaterThanOrEqualTo(300), reason: x);
-      }
-    }
+  test('only a TV-shaped window shorter than 720 is drawn at 720 and scaled down', () {
+    expect(canvasScaleOf(const Size(960, 540)), .75);
+    expect(canvasScaleOf(const Size(1280, 720)), 1);
+    expect(canvasScaleOf(const Size(1920, 1080)), 1);
+    expect(canvasScaleOf(const Size(844, 390)), 1); // a phone on its side
+    expect(canvasScaleOf(const Size(1194, 834)), 1); // a tablet
   });
+
+  // A TV's 960x540 drawn at 1280x720 (the board a desktop window has room
+  // for), and the 960x540 itself, less the margins and the tabs along the top.
+  for (final size in [const Size(1216, 626), const Size(912, 458)]) {
+    test('a TV board of $size holds every card, opened or not', () {
+      for (final x in [null, ..._ids]) {
+        final cells = boardLayout(WindowForm.wide, x, size.height, size.width);
+        final bottom = cells.values.map((r) => r.bottom).reduce((p, n) => p > n ? p : n);
+        expect(bottom, closeTo(size.height, .01), reason: '$x');
+        if (x == null) {
+          expect(cells['hero']!.height, greaterThanOrEqualTo(146 - 1e-9));
+          expect(cells['routes']!.height, greaterThanOrEqualTo(166 - 1e-9));
+          expect(cells['speed']!.height, greaterThanOrEqualTo(104 - 1e-9));
+        } else {
+          // room for the opened card's switch
+          expect(cells[x]!.height, greaterThanOrEqualTo(300), reason: x);
+        }
+      }
+    });
+  }
 
   for (final (form, size) in [
     (WindowForm.medium, const Size(790, 490)), // a 600pt-tall window, less its bars

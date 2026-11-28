@@ -118,7 +118,7 @@ class _ActivityPageState extends State<ActivityPage> {
   }
 
   Widget _logs(Look l, AppState app, double bottom) {
-    return ListView(padding: EdgeInsets.only(bottom: bottom), keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, children: [
+    return ListView(padding: EdgeInsets.only(bottom: bottom), clipBehavior: Clip.none, keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, children: [
       for (final (t, level, x) in _shownLogs(app))
         hairBottom(
           l,
@@ -136,7 +136,7 @@ class _ActivityPageState extends State<ActivityPage> {
   }
 
   Widget _conns(Look l, AppState app, List<(int, Conn)> rows, double bottom) {
-    return ListView(padding: EdgeInsets.only(bottom: bottom), keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, children: [
+    return ListView(padding: EdgeInsets.only(bottom: bottom), clipBehavior: Clip.none, keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, children: [
       for (final (i, c) in rows) _ConnRow(key: ValueKey(i), app: app, index: i, c: c),
       Padding(padding: const EdgeInsets.all(12), child: Text(tr('{0} 条连接', stats.active == 1 ? '{0} connection' : '{0} connections', [stats.active]), textAlign: TextAlign.center, style: l.text(12.5, color: l.mute, lh: 18))),
     ]);

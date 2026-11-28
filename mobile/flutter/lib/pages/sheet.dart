@@ -140,11 +140,11 @@ class _PickListState<T> extends State<_PickList<T>> {
       // rows keep 12 in from that: where they always were, with room past
       // their edges for a remote's focus to lift them into.
       Flexible(
-        child: LayoutBuilder(builder: (context, c) => OverflowBox(
+        child: ClipRect(clipper: const SideRoomClip(), child: LayoutBuilder(builder: (context, c) => OverflowBox(
           fit: OverflowBoxFit.deferToChild,
           minWidth: c.maxWidth + 24,
           maxWidth: c.maxWidth + 24,
-          child: ListView(shrinkWrap: true, padding: const EdgeInsets.symmetric(horizontal: 12), keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, children: [
+          child: ListView(shrinkWrap: true, padding: const EdgeInsets.symmetric(horizontal: 12), clipBehavior: Clip.none, keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, children: [
           for (final o in shown)
             FocusMark(o.value == widget.value ? 'picked' : '', child: Tap(
               bleed: 12,
@@ -169,7 +169,7 @@ class _PickListState<T> extends State<_PickList<T>> {
               ),
             )),
           ]),
-        )),
+        ))),
       ),
       if (widget.search) ...[const SizedBox(height: 8), SearchField(hint: tr('搜索', 'Search'), onChanged: (v) => setState(() => _q = v))],
     ]);
