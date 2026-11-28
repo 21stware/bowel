@@ -122,6 +122,18 @@ class _Lit extends InheritedWidget {
   bool updateShouldNotify(_Lit old) => old.lit != lit;
 }
 
+/// The node to hand a [KeyTarget] that something else focuses by hand: a
+/// card, a tab. On each rebuild Flutter's [Focus] writes the node's
+/// skipTraversal back into it as read through its ancestors, so a target
+/// rebuilt while its page is hidden (a card's speed ticking under another
+/// tab) would be passed over by the D-pad for good. This one never skips.
+class KeyNode extends FocusNode {
+  KeyNode({super.debugLabel});
+
+  @override
+  set skipTraversal(bool value) => super.skipTraversal = false;
+}
+
 /// Something OK presses. A finger still goes through the [child]'s own
 /// gesture detector; this only adds the focus, its look and the key.
 class KeyTarget extends StatefulWidget {

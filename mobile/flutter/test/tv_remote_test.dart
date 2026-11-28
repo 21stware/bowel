@@ -233,6 +233,35 @@ void main() {
     expect(_mark(), 'cell:hero');
   });
 
+  testWidgets('a tab shows its page as the remote reaches it, and Down goes into it, the board after a round trip too', (tester) async {
+    final (app, _) = await _open(tester, const Size(960, 540));
+    await _press(tester, LogicalKeyboardKey.arrowDown);
+    expect(_now.debugLabel, 'tab 0');
+
+    // no OK: the page changes with the focus
+    await _press(tester, LogicalKeyboardKey.arrowRight);
+    expect(_now.debugLabel, 'tab 1');
+    expect(app.tab, 1);
+    await _press(tester, LogicalKeyboardKey.arrowDown);
+    expect(_now.debugLabel, isNot(startsWith('tab')));
+    expect(app.tab, 1);
+
+    await _back(tester);
+    expect(_now.debugLabel, 'tab 1');
+    await _press(tester, LogicalKeyboardKey.arrowRight, times: 2);
+    expect(app.tab, 3);
+    // the board rebuilds while it is hidden, as its speed does every second
+    app.set(() {});
+    await _settle(tester);
+    await _press(tester, LogicalKeyboardKey.arrowLeft, times: 3);
+    expect(_now.debugLabel, 'tab 0');
+    expect(app.tab, 0);
+    await _press(tester, LogicalKeyboardKey.arrowDown);
+    expect(_mark(), 'cell:hero');
+    await _press(tester, LogicalKeyboardKey.arrowRight);
+    expect(_mark(), 'cell:map');
+  });
+
   testWidgets('a 设置 page goes back to the row it was opened from, and the list scrolls to the focus', (tester) async {
     final (app, calls) = await _open(tester, const Size(960, 540));
     await _press(tester, LogicalKeyboardKey.arrowDown);

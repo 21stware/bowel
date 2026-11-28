@@ -152,7 +152,7 @@ class _Tabs extends StatefulWidget {
 
 class _TabsState extends State<_Tabs> {
   /// The tabs in the bar Flutter draws, where Back brings a remote's focus.
-  final _tabFocus = List.generate(4, (i) => FocusNode(debugLabel: 'tab $i'));
+  final _tabFocus = List.generate(4, (i) => KeyNode(debugLabel: 'tab $i'));
 
   /// Each tab's page level, for Down from the tabs to land on its first target.
   final _pageLevel = List.generate(4, (_) => GlobalKey<FocusLevelState>());
