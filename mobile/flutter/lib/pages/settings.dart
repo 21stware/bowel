@@ -194,6 +194,7 @@ class _SettingsHomeState extends State<_SettingsHome> {
                 if (android) ...[
                   navRow(l, tr('不走 bowel 的 App', 'Apps that skip bowel'), out == 0 ? tr('无', 'None') : tr('{0} 个', '{0}', [out]), sub: tr('排除列表：这些 App 直接联网，不经过 VPN', 'Exclusion list: these apps connect directly, outside the VPN'), onTap: () => pushPage(context, AppsPage(app: app))),
                   navRow(l, tr('始终开启 VPN', 'Always-on VPN'), tr('系统设置', 'System Settings'), sub: tr('系统级，开机即接管', 'System-wide, on from startup'), onTap: Shell.instance.openVPNSettings),
+                  toggleRow(l, tr('从最近任务中隐藏', 'Hide from Recents'), app.hideFromRecents, () => app.setHideFromRecents(!app.hideFromRecents), sub: tr('有些系统清理最近任务时会连 VPN 一起关掉；隐藏后要从桌面或通知回到 bowel', 'Some phones stop the VPN when Recents is cleared. Once hidden, return to bowel from the home screen or the notification.')),
                   navRow(l, 'Tailscale', '', sub: tr('不用官方 App 访问 tailnet', 'Reach your tailnet without the Tailscale app'), onTap: () => pushPage(context, TailnetPage(app: app))),
                 ] else
                   toggleRow(l, tr('断线后自动接管', 'Reconnect automatically'), app.vpnOnDemand, () => app.setOnDemand(!app.vpnOnDemand), sub: tr('网络恢复或切换后自动重连，下次开启 VPN 时生效', 'Reconnects when the network returns or changes. Applies the next time VPN turns on.')),
