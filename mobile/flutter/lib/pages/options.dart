@@ -201,6 +201,8 @@ class AboutPage extends StatelessWidget {
         Text(tr('bowel 按 PolyForm Noncommercial 1.0.0 授权，可用于非商业用途。', 'bowel is licensed under PolyForm Noncommercial 1.0.0 for noncommercial use.'), style: p),
         const SizedBox(height: 8),
         Text(tr('内核 mihomo 按 GNU GPL 3.0 授权，源代码见 github.com/MetaCubeX/mihomo。', 'The mihomo core is licensed under GNU GPL 3.0. Source: github.com/MetaCubeX/mihomo.'), style: p),
+        const SizedBox(height: 8),
+        Text(tr('本产品包含 MaxMind 制作的 GeoLite2 数据，来自 https://www.maxmind.com。', 'This product includes GeoLite2 data created by MaxMind, available from https://www.maxmind.com.'), style: p),
       ]),
     ]);
   }
