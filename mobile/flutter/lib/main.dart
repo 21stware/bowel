@@ -104,7 +104,7 @@ class _RootState extends State<_Root> {
                   return Frame(
                     data: frame,
                     child: Stack(fit: StackFit.expand, children: [
-                      app.setup != 0 ? Padding(padding: frame.overscan, child: FocusLevel(take: false, child: SetupPage(app: app))) : _Tabs(app: app),
+                      app.setup != 0 ? _setup(app, frame) : _Tabs(app: app),
                       const IgnorePointer(child: Deco()),
                     ]),
                   );
@@ -116,6 +116,30 @@ class _RootState extends State<_Root> {
       ),
     );
   }
+}
+
+/// The first run, its two steps. Back on step 2 goes up to step 1, the link
+/// added there cleared rather than added a second time; Back on step 1
+/// leaves. A sheet over the page closes first. Each step is a level: the
+/// D-pad starts on its first button, and back on step 1 on 继续.
+Widget _setup(AppState app, FrameData frame) {
+  final stepBack = app.setup == 2 && app.sheet == null;
+  return PopScope(
+    canPop: app.setup != 2,
+    onPopInvokedWithResult: (didPop, _) {
+      if (didPop || !stepBack) return;
+      app.setupField.clear();
+      app.set(() {
+        app.setup = 1;
+        app.setupLink = '';
+        app.setupError = null;
+      });
+    },
+    child: Padding(
+      padding: frame.overscan,
+      child: FocusLevel(take: false, entry: app.setup, initial: 'next', child: SetupPage(app: app)),
+    ),
+  );
 }
 
 class _Tabs extends StatefulWidget {

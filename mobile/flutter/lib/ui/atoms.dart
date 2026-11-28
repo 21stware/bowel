@@ -105,7 +105,7 @@ class FlagDot extends StatelessWidget {
 /// Dims under the finger. Everything tappable goes through this, and so it
 /// is also what a remote's D-pad lands on and OK presses.
 class Tap extends StatefulWidget {
-  const Tap({super.key, required this.onTap, required this.child, this.pressedColor, this.label, this.radius = 10, this.focusNode});
+  const Tap({super.key, required this.onTap, required this.child, this.pressedColor, this.label, this.radius = 10, this.focusNode, this.fill});
 
   final VoidCallback? onTap;
   final Widget child;
@@ -117,6 +117,9 @@ class Tap extends StatefulWidget {
   /// The corners of the focus ring, to match the child's.
   final double radius;
   final FocusNode? focusNode;
+
+  /// The child's fill, which the focus ring must stand out on.
+  final Color? fill;
 
   @override
   State<Tap> createState() => _TapState();
@@ -156,6 +159,7 @@ class _TapState extends State<Tap> {
         onActivate: widget.onTap == null ? null : _key,
         radius: widget.radius,
         focusNode: widget.focusNode,
+        fill: widget.fill,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapDown: widget.onTap == null ? null : (_) => _set(true),
@@ -270,6 +274,7 @@ class Seg<T> extends StatelessWidget {
             if (i > 0) const SizedBox(width: 2),
             Tap(
               radius: 8,
+              fill: o.$1 == value ? l.segOn : null,
               onTap: () => onChanged(o.$1),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 160),
@@ -309,6 +314,7 @@ class Chip extends StatelessWidget {
     return Tap(
       onTap: onTap,
       radius: 18,
+      fill: on ? l.ink : null,
       child: Container(
         constraints: const BoxConstraints(minHeight: 36),
         padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -351,6 +357,7 @@ class Btn extends StatelessWidget {
     return Tap(
       onTap: onTap,
       radius: 20,
+      fill: bg,
       child: Container(
         width: expand ? double.infinity : null,
         constraints: BoxConstraints(minHeight: minH),
@@ -392,6 +399,7 @@ class IconBox extends StatelessWidget {
       onTap: onTap,
       label: label,
       radius: 12,
+      fill: on ? l.accent : l.paper2,
       child: Container(width: 44, height: 44, alignment: Alignment.center, decoration: BoxDecoration(color: on ? l.accent : l.paper2, borderRadius: l.br(12)), child: g),
     );
   }
