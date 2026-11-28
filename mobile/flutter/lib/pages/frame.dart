@@ -226,7 +226,9 @@ class AndroidBar extends StatelessWidget {
       child: Row(children: [
         for (final (i, it) in items.indexed)
           Expanded(
-            child: KeyTarget(onActivate: () => app.selectTab(i), radius: 16, focusNode: focus?[i], child: GestureDetector(
+            child: KeyTarget(onActivate: () => app.selectTab(i), onLit: (lit) {
+              if (lit && app.tab != i) app.selectTab(i);
+            }, radius: 16, focusNode: focus?[i], child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () => app.selectTab(i),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -273,9 +275,13 @@ class TopTabs extends StatelessWidget {
             decoration: BoxDecoration(color: l.hair2, borderRadius: l.br(10)),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               for (final (i, it) in AndroidBar.items.indexed)
-                // Focused, a tab inverts; the one shown keeps a mark then.
+                // Focused, a tab inverts; the one shown keeps a mark then. A
+                // remote shows a tab's page as it gets there, no OK needed.
                 KeyTarget(
                   onActivate: () => app.selectTab(i),
+                  onLit: (lit) {
+                    if (lit && app.tab != i) app.selectTab(i);
+                  },
                   radius: 7,
                   focusNode: focus?[i],
                   look: FocusLook.invert,

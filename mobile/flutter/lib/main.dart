@@ -1,7 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show SystemNavigator;
+import 'package:flutter/services.dart' show KeyDownEvent, LogicalKeyboardKey, SystemNavigator;
 
 import 'app/sample.dart';
 import 'app/shell.dart';
@@ -154,6 +154,16 @@ class _TabsState extends State<_Tabs> {
   /// The tabs in the bar Flutter draws, where Back brings a remote's focus.
   final _tabFocus = List.generate(4, (i) => FocusNode(debugLabel: 'tab $i'));
 
+  /// Each tab's page level, for Down from the tabs to land on its first target.
+  final _pageLevel = List.generate(4, (_) => GlobalKey<FocusLevelState>());
+
+  /// Down from a tab goes into the page it shows, at its first target, not
+  /// to whatever happens to sit below the tab.
+  KeyEventResult _barKey(FocusNode _, KeyEvent e) {
+    if (e is! KeyDownEvent || e.logicalKey != LogicalKeyboardKey.arrowDown) return KeyEventResult.ignored;
+    return _pageLevel[widget.app.tab].currentState?.focusFirst() ?? false ? KeyEventResult.handled : KeyEventResult.ignored;
+  }
+
   @override
   void dispose() {
     for (final n in _tabFocus) {
@@ -203,7 +213,7 @@ class _TabsState extends State<_Tabs> {
     // while a sheet is over it.
     Widget page(int i, Widget child) => TickerMode(
           enabled: app.tab == i,
-          child: FocusLevel(active: app.tab == i, covered: app.sheet != null, take: false, child: child),
+          child: FocusLevel(key: _pageLevel[i], active: app.tab == i, covered: app.sheet != null, take: false, child: child),
         );
     // The tabs are there to go to from a page, not from a card or a sheet.
     final barShut = app.sheet != null || (app.tab == 0 && app.x != null);
@@ -225,7 +235,10 @@ class _TabsState extends State<_Tabs> {
               bottom: (frame.drawnTopBar && kb == 0 ? frame.homeIndicator : 0) + (kb == 0 ? safe.bottom : 0),
             ),
             child: Column(children: [
-              if (frame.drawnTopBar) ExcludeFocus(excluding: barShut, child: TopTabs(app: app, focus: _tabFocus)),
+              if (frame.drawnTopBar) ExcludeFocus(
+                  excluding: barShut,
+                  child: Focus(canRequestFocus: false, skipTraversal: true, onKeyEvent: _barKey, child: TopTabs(app: app, focus: _tabFocus)),
+                ),
               Expanded(
                 child: IndexedStack(
                   index: app.tab,

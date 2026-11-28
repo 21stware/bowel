@@ -338,10 +338,10 @@ class FocusLevel extends StatefulWidget {
   final Object? entry;
 
   @override
-  State<FocusLevel> createState() => _FocusLevelState();
+  State<FocusLevel> createState() => FocusLevelState();
 }
 
-class _FocusLevelState extends State<FocusLevel> {
+class FocusLevelState extends State<FocusLevel> {
   final _node = FocusNode(debugLabel: 'level', skipTraversal: true, canRequestFocus: false);
   FocusNode? _from, _last;
 
@@ -436,6 +436,16 @@ class _FocusLevelState extends State<FocusLevel> {
     final all = _targets;
     if (all.isEmpty) return null;
     return _marked() ?? ReadingOrderTraversalPolicy().sortDescendants(all, _node).first;
+  }
+
+  /// Focuses the level's marked target, else its first: where Down from the
+  /// tabs lands on a page. False when the level is shut or has none.
+  bool focusFirst() {
+    if (!mounted || !widget.active || widget.covered) return false;
+    final all = _targets;
+    if (all.isEmpty) return false;
+    focusTo(_marked() ?? ReadingOrderTraversalPolicy().sortDescendants(all, _node).first);
+    return true;
   }
 
   @override
