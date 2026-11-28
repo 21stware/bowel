@@ -77,7 +77,7 @@ class SubPage extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(child: dockChild ?? Row(mainAxisAlignment: MainAxisAlignment.end, children: actions)),
         ]),
-        list: (bottom) => ListView(scrollCacheExtent: eager ? const ScrollCacheExtent.pixels(100000) : null, padding: EdgeInsets.only(bottom: bottom), keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, children: children),
+        list: (bottom) => ListView(scrollCacheExtent: eager ? const ScrollCacheExtent.pixels(100000) : null, padding: EdgeInsets.only(bottom: bottom), clipBehavior: Clip.none, keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, children: children),
       ),
     );
   }

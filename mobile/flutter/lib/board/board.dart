@@ -212,11 +212,17 @@ class _BoardState extends State<Board> {
             // A focused card grows past its edges: the board keeps it in a
             // little way beyond its own, and draws it over its neighbours.
             child: ClipRect(
-              clipper: const _Outset(16),
+              clipper: const _Outset(focusSideRoom),
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
-                  for (final id in [...boxes.keys.where((k) => k != _lit), ?boxes.keys.where((k) => k == _lit).firstOrNull])
+                  // the opened card over the squeezed ones, as a focused row
+                  // in it grows past its sides; a focused card over them all
+                  for (final id in [
+                    ...boxes.keys.where((k) => k != _lit && k != app.x),
+                    if (app.x != _lit) ?boxes.keys.where((k) => k == app.x).firstOrNull,
+                    ?boxes.keys.where((k) => k == _lit).firstOrNull,
+                  ])
                     AnimatedPositioned.fromRect(
                       key: ValueKey(id),
                       rect: boxes[id]!,
@@ -402,11 +408,14 @@ class _CellState extends State<_Cell> with TickerProviderStateMixin {
         duration: keyDriven ? focusMotion(context) : const Duration(milliseconds: 200),
         curve: focusCurve,
         decoration: BoxDecoration(color: bg, borderRadius: lit ? l.br(12) : BorderRadius.zero),
-        clipBehavior: Clip.antiAlias,
+        // An opened card's rows stand out past its sides when focused.
+        clipBehavior: expanded && widget.id != 'map' ? Clip.none : Clip.antiAlias,
         child: ClipRect(
+          clipper: expanded && widget.id != 'map' ? const SideRoomClip() : null,
           child: CellMark(
             child: Stack(
               fit: StackFit.expand,
+              clipBehavior: expanded && widget.id != 'map' ? Clip.none : Clip.hardEdge,
               children: [
                 if (widget.id == 'map') Positioned.fill(child: ExitMap(state: widget.app, expanded: expanded)),
                 if (_leaving != null) _view(_leaving!, _leavingSize, look),

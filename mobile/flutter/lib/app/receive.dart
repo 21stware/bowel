@@ -11,6 +11,21 @@ import 'i18n.dart';
 /// Why a [LinkReceiver] is no longer listening.
 enum ReceiveEnd { added, closed, timeout, locked, failed }
 
+/// What a [LinkReceiver] serves in place of its one link field: a page of
+/// forms, each posted back to it, for what is slow to type on this device.
+abstract class ReceiverPanel {
+  /// The page's heading.
+  String get title;
+
+  /// The forms, as HTML, with the part [open] names (a form's `at`) open:
+  /// the one a form was just sent from. Everything in it that came from
+  /// elsewhere (names, values) is escaped by the panel.
+  Future<String> body({String? open});
+
+  /// Does what a posted form asks: what to say, and whether it went wrong.
+  Future<({String message, bool bad})> submit(Map<String, String> form);
+}
+
 /// A small web server on the local network that takes one subscription or
 /// node link from another device's browser: a phone scans the address this
 /// device shows, pastes a link and sends it, and [onLink] adds it.
@@ -21,12 +36,16 @@ enum ReceiveEnd { added, closed, timeout, locked, failed }
 /// takes only link text, a few KB at most, and stops after a link is added,
 /// on [stop], after [timeout], and after [maxMisses] requests for any other
 /// path, so the token can't be guessed by trying.
+///
+/// With a [panel] it serves that instead, for as long as it is used: it
+/// stops [timeout] after the last request, not after the first thing done.
 class LinkReceiver extends ChangeNotifier {
-  LinkReceiver({required this.onLink, this.timeout = const Duration(minutes: 5), this.maxBody = 16 * 1024, this.maxMisses = 20});
+  LinkReceiver({this.onLink, this.panel, this.timeout = const Duration(minutes: 5), this.maxBody = 16 * 1024, this.maxMisses = 20}) : assert((onLink == null) != (panel == null));
 
   /// Adds a link the way a pasted one is added: null when it was added,
   /// otherwise why not, which the sending page shows.
-  final Future<String?> Function(String link) onLink;
+  final Future<String?> Function(String link)? onLink;
+  final ReceiverPanel? panel;
   final Duration timeout;
 
   /// The most a request's body may hold, in bytes.
@@ -54,8 +73,28 @@ class LinkReceiver extends ChangeNotifier {
   bool get adding => _adding;
   ReceiveEnd? get end => _end;
 
-  /// The last link that came in and wasn't added, and why.
+  /// The last link that came in and wasn't added, and why; with a [panel],
+  /// what the last form done said, when it went wrong.
   String? lastError;
+
+  /// With a [panel], what the last form done said, gone wrong or not.
+  String? lastMessage;
+
+  /// When it stops if nothing more comes.
+  DateTime? get stopsAt => _stopsAt;
+  DateTime? _stopsAt;
+
+  /// What the page says next, once: what the last form done said.
+  ({String message, bool bad})? _flash;
+
+  /// The part of the page the last form came from, to show open again.
+  String? _at;
+
+  void _arm() {
+    _timer?.cancel();
+    _timer = Timer(timeout, _expire);
+    _stopsAt = DateTime.now().add(timeout);
+  }
 
   static const _alphabet = 'abcdefghjkmnpqrstuvwxyz23456789';
 
@@ -73,7 +112,7 @@ class LinkReceiver extends ChangeNotifier {
     _server = server;
     final host = address.type == InternetAddressType.IPv6 ? '[${address.address}]' : address.address;
     _url = Uri.parse('http://$host:${server.port}/$token');
-    _timer = Timer(timeout, _expire);
+    _arm();
     server.listen((req) => _handle(req).catchError((Object _) {}), onError: (Object _) {});
     _changed();
     return _url!;
@@ -114,6 +153,21 @@ class LinkReceiver extends ChangeNotifier {
       if (guess && ++_misses >= maxMisses) await stop(ReceiveEnd.locked);
       return;
     }
+    final p = panel;
+    if (p != null) {
+      // used: it stays a while longer
+      if (_server != null && !_adding) _arm();
+      switch (req.method) {
+        case 'GET' || 'HEAD':
+          final flash = _flash;
+          _flash = null;
+          return _answer(res, 200, _page(title: p.title, message: flash?.message, bad: flash?.bad ?? false, form: false, body: await p.body(open: _at)));
+        case 'POST':
+          return _postForm(req, p);
+      }
+      res.headers.set(HttpHeaders.allowHeader, 'GET, POST');
+      return _answer(res, 405, _page(title: p.title, message: tr('这里只收表单', 'This only takes its own forms'), bad: true, form: false));
+    }
     switch (req.method) {
       case 'GET' || 'HEAD':
         return _answer(res, 200, _page());
@@ -124,13 +178,63 @@ class LinkReceiver extends ChangeNotifier {
     return _answer(res, 405, _page(message: tr('这里只收订阅链接或节点链接', 'This only takes a subscription or node link'), bad: true));
   }
 
-  Future<void> _post(HttpRequest req) async {
+  /// Takes a posted form, does it, and sends the browser back to the page,
+  /// which says how it went: a reload then asks for the page, not the form
+  /// again.
+  Future<void> _postForm(HttpRequest req, ReceiverPanel p) async {
     final res = req.response;
-    final tooLong = _page(message: tr('内容太长，这里只收订阅链接或节点链接', 'Too long: this only takes a subscription or node link'), bad: true);
-    if (req.contentLength > maxBody) return _answer(res, 413, tooLong);
-    final mime = req.headers.contentType?.mimeType;
-    if (mime != 'application/x-www-form-urlencoded' && mime != 'text/plain') {
-      return _answer(res, 415, _page(message: tr('这里只收订阅链接或节点链接', 'This only takes a subscription or node link'), bad: true));
+    final refused = _page(title: p.title, message: tr('这里只收表单', 'This only takes its own forms'), bad: true, form: false);
+    if (req.headers.contentType?.mimeType != 'application/x-www-form-urlencoded') return _answer(res, 415, refused);
+    final bytes = await _read(req, _page(title: p.title, message: tr('内容太长', 'Too long'), bad: true, form: false));
+    if (bytes == null) return;
+    final Map<String, String> form;
+    try {
+      form = Uri.splitQueryString(utf8.decode(bytes), encoding: utf8);
+    } on FormatException {
+      return _answer(res, 400, refused);
+    }
+    if (_adding || _server == null) {
+      _at = form['at'];
+      _flash = (message: tr('上一项还没做完，请稍等再试', 'Still doing the last one. Wait a moment and try again.'), bad: true);
+      return _back(res, form['at']);
+    }
+    _adding = true;
+    _changed();
+    ({String message, bool bad}) out;
+    try {
+      out = await p.submit(form);
+    } catch (e) {
+      out = (message: '$e', bad: true);
+    }
+    _adding = false;
+    _flash = out;
+    _at = form['at'];
+    lastMessage = out.message;
+    lastError = out.bad ? out.message : null;
+    _changed();
+    await _back(res, form['at']);
+    if (_expired) {
+      await stop(ReceiveEnd.timeout);
+    } else if (_server != null) {
+      _arm();
+    }
+  }
+
+  /// To the page, at the section [at] when it names one.
+  Future<void> _back(HttpResponse res, String? at) async {
+    final anchor = at != null && RegExp(r'^[a-z]{1,16}$').hasMatch(at) ? '#$at' : '';
+    res.statusCode = HttpStatus.seeOther;
+    res.headers.set(HttpHeaders.locationHeader, '/$token$anchor');
+    await res.close();
+  }
+
+  /// A request's body, at most [maxBody] bytes; null when it was longer,
+  /// once [tooLong] has gone out.
+  Future<Uint8List?> _read(HttpRequest req, String tooLong) async {
+    final res = req.response;
+    if (req.contentLength > maxBody) {
+      await _answer(res, 413, tooLong);
+      return null;
     }
     // A body that never said its length is read up to the limit, then held
     // while the refusal goes out: cancelling first would drop the answer.
@@ -153,11 +257,23 @@ class LinkReceiver extends ChangeNotifier {
       res.persistentConnection = false;
       await _answer(res, 413, tooLong);
       await sub.cancel();
-      return;
+      return null;
     }
+    return body.takeBytes();
+  }
+
+  Future<void> _post(HttpRequest req) async {
+    final res = req.response;
+    final tooLong = _page(message: tr('内容太长，这里只收订阅链接或节点链接', 'Too long: this only takes a subscription or node link'), bad: true);
+    final mime = req.headers.contentType?.mimeType;
+    if (req.contentLength <= maxBody && mime != 'application/x-www-form-urlencoded' && mime != 'text/plain') {
+      return _answer(res, 415, _page(message: tr('这里只收订阅链接或节点链接', 'This only takes a subscription or node link'), bad: true));
+    }
+    final bytes = await _read(req, tooLong);
+    if (bytes == null) return;
     final String raw;
     try {
-      final text = utf8.decode(body.takeBytes());
+      final text = utf8.decode(bytes);
       raw = mime == 'text/plain' ? text : Uri.splitQueryString(text, encoding: utf8)['link'] ?? '';
     } on FormatException {
       return _answer(res, 400, _page(message: tr('这里只收订阅链接或节点链接', 'This only takes a subscription or node link'), bad: true));
@@ -174,7 +290,7 @@ class LinkReceiver extends ChangeNotifier {
     _changed();
     String? err;
     try {
-      err = await onLink(link);
+      err = await onLink!(link);
     } catch (e) {
       err = '$e';
     }
@@ -197,10 +313,11 @@ class LinkReceiver extends ChangeNotifier {
     await res.close();
   }
 
-  /// The sending page: a form with one field, no scripts, nothing fetched.
-  String _page({String? message, bool bad = false, bool form = true, String link = ''}) {
+  /// The sending page: a form with one field, or a [panel]'s forms in
+  /// [body]. No scripts, nothing fetched.
+  String _page({String? title, String? message, bool bad = false, bool form = true, String link = '', String body = ''}) {
     const e = HtmlEscape();
-    final note = message == null ? '' : '<p class="${bad ? 'bad' : 'ok'}">${e.convert(message)}</p>';
+    final note = message == null ? '' : '<p class="note ${bad ? 'bad' : 'ok'}" role="status">${e.convert(message)}</p>';
     final fields = !form
         ? ''
         : '<form method="post"><label for="l">${e.convert(tr('订阅链接或节点链接', 'Subscription or node link'))}</label>'
@@ -211,11 +328,19 @@ class LinkReceiver extends ChangeNotifier {
         'body{font:16px/1.45 system-ui,sans-serif;margin:0;padding:24px 16px;background:#f6f4ef;color:#1d1c1a}'
         'main{max-width:480px;margin:0 auto}h1{font-size:22px;margin:0 0 6px}'
         'label{display:block;margin:16px 0 6px;color:#5d5a55}'
-        'textarea{box-sizing:border-box;width:100%;font:15px/1.4 ui-monospace,monospace;padding:10px;border:1px solid #ccc8bf;border-radius:10px;background:#fff;color:inherit}'
+        'textarea,input,select{box-sizing:border-box;width:100%;font:15px/1.4 ui-monospace,monospace;padding:10px;border:1px solid #ccc8bf;border-radius:10px;background:#fff;color:inherit}'
+        'select,input[type=text],input[type=password],input[type=number]{font-family:inherit;min-height:44px}'
         'button{margin-top:12px;width:100%;padding:13px;font:inherit;font-weight:600;border:0;border-radius:10px;background:#1d1c1a;color:#fff}'
         '.ok{color:#22703a}.bad{color:#b3261e}'
-        '@media(prefers-color-scheme:dark){body{background:#161513;color:#eceae4}textarea{background:#22211e;border-color:#3a3833}button{background:#eceae4;color:#161513}.ok{color:#7fd197}.bad{color:#ff8a80}label{color:#aaa69d}}'
-        '</style></head><body><main><h1>${e.convert(tr('发送到 bowel', 'Send to bowel'))}</h1>$note$fields</main></body></html>';
+        'details{border-top:1px solid #dcd8cf;padding:4px 0 14px}details:last-of-type{border-bottom:1px solid #dcd8cf}'
+        'summary{cursor:pointer;padding:12px 0;font-weight:600;font-size:18px}'
+        'h2{font-size:15px;margin:18px 0 0;color:#5d5a55}p.sub,small{display:block;color:#7a766e;font-size:13px;margin:4px 0 0}'
+        'label.check{display:flex;gap:10px;align-items:center;color:inherit}label.check input{width:22px;height:22px;flex:none}'
+        '.row{display:flex;gap:8px;align-items:flex-end}.row>*{flex:1}.row button{flex:none;width:auto;padding:12px 16px}'
+        '.note{white-space:pre-line;position:sticky;top:0;padding:10px 12px;border-radius:10px;background:#ebe7de;margin:8px 0}'
+        'ul.list{margin:6px 0 0;padding-left:20px;font-size:14px}'
+        '@media(prefers-color-scheme:dark){body{background:#161513;color:#eceae4}textarea,input,select{background:#22211e;border-color:#3a3833}button{background:#eceae4;color:#161513}.ok{color:#7fd197}.bad{color:#ff8a80}label,h2{color:#aaa69d}label.check{color:inherit}details{border-color:#3a3833}.note{background:#26241f}p.sub,small{color:#8d897f}}'
+        '</style></head><body><main><h1>${e.convert(title ?? tr('发送到 bowel', 'Send to bowel'))}</h1>$note$fields$body</main></body></html>';
   }
 
   bool _disposed = false;
@@ -237,7 +362,6 @@ final _linkWord = RegExp(r'^[a-z][a-z0-9+.\-]{0,15}://\S+$', caseSensitive: fals
 
 /// The links in what was sent, one a line, or null unless it is all links:
 /// a subscription's address or node links, nothing else.
-@visibleForTesting
 String? cleanLink(String raw) {
   final words = raw.trim().split(RegExp(r'\s+'));
   if (words.first.isEmpty || words.length > 500) return null;

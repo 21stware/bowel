@@ -173,7 +173,8 @@ class _DetailState extends State<_Detail> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [widget.kicker, Unroll(child: widget.title)]),
         ),
       ),
-      Expanded(child: widget.body),
+      // a focused row in the list stands out past the card's sides
+      Expanded(child: ClipRect(clipper: const SideRoomClip(), child: widget.body)),
       ?widget.above,
       _Foot(s: widget.s, children: widget.footer),
       ?widget.below,
@@ -401,7 +402,7 @@ class _SpeedCard extends StatelessWidget {
       flyId: 'speed',
       kicker: _detKicker(l, 'speed', tr('流量', 'Traffic')),
       title: _flyText('spd', spdValue, _h3(l)),
-      body: ListView(padding: EdgeInsets.zero, children: [
+      body: ListView(padding: EdgeInsets.zero, clipBehavior: Clip.none, children: [
         const Unroll(child: Padding(padding: EdgeInsets.fromLTRB(16, 2, 16, 12), child: TrafficStack(40, 72))),
         for (final (i, r) in s.routes.indexed)
           Unroll(
@@ -508,7 +509,7 @@ class _AppsCard extends StatelessWidget {
       flyId: 'apps',
       kicker: _detKicker(l, 'apps', name),
       title: Text(tr('{0} 条连接', stats.active == 1 ? '{0} connection' : '{0} connections', [stats.active]), style: _h3(l)),
-      body: ListView(padding: EdgeInsets.zero, children: [
+      body: ListView(padding: EdgeInsets.zero, clipBehavior: Clip.none, children: [
         for (final (i, t) in topApps.indexed)
           Unroll(
             step: (i * 2).clamp(0, 8),
@@ -598,7 +599,7 @@ class _RoutesCard extends StatelessWidget {
       flyId: 'routes',
       kicker: _detKicker(l, 'routes', tr('路由', 'Route')),
       title: Text(tr('每类流量走哪里', 'Where each kind of traffic goes'), style: _h3(l)),
-      body: ListView(padding: EdgeInsets.zero, children: [
+      body: ListView(padding: EdgeInsets.zero, clipBehavior: Clip.none, children: [
         for (final (i, r) in s.routes.indexed)
           Unroll(step: (i * 2).clamp(0, 8), child: _routeDetail(l, r)),
       ]),
@@ -772,6 +773,7 @@ class _PickerList extends StatelessWidget {
       ..sort(byLatencyOn(route.id));
     if (list.isEmpty) return Center(child: Text(tr('没有匹配的节点', 'No matching nodes'), style: l.text(14, color: l.mute, lh: 20)));
     return ListView.builder(
+      clipBehavior: Clip.none,
       padding: EdgeInsets.zero,
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       itemCount: list.length + 1,
@@ -887,7 +889,7 @@ class _ModeCard extends StatelessWidget {
       flyId: 'mode',
       kicker: _detKicker(l, 'mode', tr('模式', 'Mode')),
       title: Text(tr('模式与规则', 'Mode and rules'), style: _h3(l)),
-      body: ListView(padding: EdgeInsets.zero, children: [
+      body: ListView(padding: EdgeInsets.zero, clipBehavior: Clip.none, children: [
         for (final (i, x) in modes.indexed)
           FocusMark(x.$1 == s.mode ? 'picked' : 'mode:${x.$1}', child: Unroll(
             step: (i + 1) * 2,

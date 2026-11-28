@@ -86,6 +86,22 @@ const _revealMargin = 16.0;
 /// The most a focused target grows past each side.
 const _maxGrow = 12.0;
 
+/// How far past its sides a box lets a focused row's growth and shadow show.
+const focusSideRoom = 24.0;
+
+/// Clips to the box at its top and bottom but [focusSideRoom] past its
+/// sides: a list in it still ends where it ends, while a row that fills it
+/// edge to edge stands out past it when focused, rather than being cut off.
+class SideRoomClip extends CustomClipper<Rect> {
+  const SideRoomClip();
+
+  @override
+  Rect getClip(Size size) => Rect.fromLTRB(-focusSideRoom, 0, size.width + focusSideRoom, size.height);
+
+  @override
+  bool shouldReclip(SideRoomClip old) => false;
+}
+
 final _levelPolicy = ReadingOrderTraversalPolicy(requestFocusCallback: focusTo);
 
 /// Focuses [node] the way a D-pad move does, scrolling it into view with

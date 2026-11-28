@@ -125,6 +125,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
       dock: _dock(l, app),
       dockH: 66,
       list: (bottom) => CustomScrollView(
+        clipBehavior: Clip.none,
         controller: _scroll,
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         slivers: [
