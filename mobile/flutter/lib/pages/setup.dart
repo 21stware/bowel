@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/widgets.dart';
 
 import '../app/i18n.dart';
+import '../app/shell.dart';
 import '../app/state.dart';
 import '../ui/atoms.dart';
 import '../ui/focus.dart';
@@ -27,6 +28,7 @@ class SetupPage extends StatelessWidget {
     final gap = short ? 4.0 : 8.0, gapWide = short ? 10.0 : 22.0;
     final bottom = math.max(math.max(short ? 14.0 : 30.0, f.barInset + 12), kb + 12);
     final android = Platform.isAndroid;
+    final dev = Shell.instance;
     final h = l.text(34, weight: 700, display: true, lh: 41);
     final p = l.text(15, color: l.ink2, lh: 22);
 
@@ -40,7 +42,13 @@ class SetupPage extends StatelessWidget {
         SizedBox(height: gap),
         Text(tr('添加节点', 'Add nodes'), style: h),
         SizedBox(height: gap),
-        Text(tr('粘贴一个订阅链接、节点链接，或者扫描二维码。', 'Paste a subscription or node link, or scan a QR code.'), style: p),
+        Text(
+            dev.tv
+                ? tr('从手机发送一个订阅链接或节点链接，或者在这里输入。', 'Send a subscription or node link from a phone, or type it here.')
+                : dev.camera
+                    ? tr('粘贴一个订阅链接、节点链接，或者扫描二维码。', 'Paste a subscription or node link, or scan a QR code.')
+                    : tr('粘贴一个订阅链接或节点链接，或者从手机发送。', 'Paste a subscription or node link, or send one from a phone.'),
+            style: p),
         SizedBox(height: gapWide),
         Container(
           constraints: BoxConstraints(minHeight: short ? 96 : 128),
@@ -50,11 +58,20 @@ class SetupPage extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         LayoutBuilder(builder: (context, c) {
-          final two = [half(tr('扫描二维码', 'Scan QR code'), 'scan', app.scanLink), const SizedBox(width: 8), half(tr('选择文件', 'Choose file'), 'file', app.addFile)];
-          final phone = Btn(tr('从手机发送链接', 'Send a link from a phone'), expand: true, onTap: () => receiveSheet(app));
-          // One row where it's wide, as on a TV, whose screen is short.
-          if (c.maxWidth >= 600) return Row(children: [...two, const SizedBox(width: 8), Expanded(child: phone)]);
-          return Column(children: [Row(children: two), const SizedBox(height: 8), phone]);
+          // Only what this device can do: a TV has no camera to scan with
+          // and often no file picker, so sending from a phone comes first
+          // there, wide enough that Down from the field lands on it.
+          final others = [
+            if (dev.camera) half(tr('扫描二维码', 'Scan QR code'), 'scan', app.scanLink),
+            if (dev.files) half(tr('选择文件', 'Choose file'), 'file', app.addFile),
+          ];
+          final phone = Btn(tr('从手机发送链接', 'Send a link from a phone'), kind: dev.tv ? BtnKind.outline : BtnKind.quiet, expand: true, onTap: () => receiveSheet(app));
+          final spaced = [for (final o in others) ...[const SizedBox(width: 8), o]];
+          if (others.isEmpty) return phone;
+          if (dev.tv) return Row(children: [Expanded(flex: 3, child: phone), ...spaced]);
+          // One row where it's wide, as on a tablet.
+          if (c.maxWidth >= 600) return Row(children: [...spaced.skip(1), const SizedBox(width: 8), Expanded(child: phone)]);
+          return Column(children: [Row(children: [...spaced.skip(1)]), const SizedBox(height: 8), phone]);
         }),
         if (app.setupError != null) ...[
           const SizedBox(height: 10),
@@ -85,7 +102,14 @@ class SetupPage extends StatelessWidget {
         SizedBox(height: gapWide),
         point(tr('系统会询问一次', 'The system asks once'), android ? tr('确认 bowel 可以建立 VPN 连接', 'Confirm that bowel can set up a VPN connection') : tr('允许 bowel 添加 VPN 配置，需要面容或密码', 'Allow bowel to add a VPN configuration, with Face ID or your passcode')),
         point(tr('流量只经过你添加的节点', 'Traffic only goes through nodes you add'), tr('bowel 没有自己的服务器', 'bowel has no servers of its own')),
-        point(tr('随时可以关闭', 'Turn it off any time'), android ? tr('App 内、快捷设置磁贴或常驻通知', 'In the app, the Quick Settings tile or the notification') : tr('App 内或系统设置的 VPN 页面', 'In the app or on the VPN page in Settings')),
+        // A TV has no Quick Settings tile, and hides the notification.
+        point(
+            tr('随时可以关闭', 'Turn it off any time'),
+            dev.tv
+                ? tr('在 App 内随时关闭', 'In the app, whenever you like')
+                : android
+                    ? tr('App 内、快捷设置磁贴或常驻通知', 'In the app, the Quick Settings tile or the notification')
+                    : tr('App 内或系统设置的 VPN 页面', 'In the app or on the VPN page in Settings')),
         const Spacer(),
         big(tr('允许并接管', 'Allow and turn on'), BtnKind.accent, () => app.finishSetup(take: true)),
         const SizedBox(height: 4),

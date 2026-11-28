@@ -91,6 +91,14 @@
             <action android:name="android.intent.action.MAIN"/>
             <category android:name="android.intent.category.LAUNCHER"/>
         </intent>
+        <!-- Whether a file or photo picker is there to offer: a TV often has none. -->
+        <intent>
+            <action android:name="android.intent.action.OPEN_DOCUMENT"/>
+            <data android:mimeType="*/*"/>
+        </intent>
+        <intent>
+            <action android:name="android.provider.action.PICK_IMAGES"/>
+        </intent>
         <!-- And the apps only a TV's launcher shows. -->
         <intent>
             <action android:name="android.intent.action.MAIN"/>

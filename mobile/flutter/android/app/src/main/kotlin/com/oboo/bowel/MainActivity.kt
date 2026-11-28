@@ -2,9 +2,11 @@ package com.oboo.bowel
 
 import android.Manifest
 import android.app.AlertDialog
+import android.app.UiModeManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.Uri
 import android.net.VpnService
 import android.os.Build
@@ -72,6 +74,7 @@ class MainActivity : FlutterActivity() {
             "listApps" -> offMain(result) { launcherApps() }
             "canSeeApp" -> offMain(result) { canSee(call.argument<String>("id").orEmpty()) }
             "appVersion" -> result.success(packageManager.getPackageInfo(packageName, 0).versionName.orEmpty())
+            "device" -> result.success(device())
             else -> result.notImplemented()
         }
     }
@@ -116,6 +119,20 @@ class MainActivity : FlutterActivity() {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    // What this device can do, for which ways to add the app offers: a TV
+    // has no clipboard to speak of, often no camera, and often nothing that
+    // answers the pickers. The layout still follows the window's size.
+    private fun device(): Map<String, Boolean> {
+        val ui = getSystemService(UI_MODE_SERVICE) as UiModeManager
+        return mapOf(
+            "tv" to (ui.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION || packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)),
+            "camera" to packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY),
+            // Seen through the manifest's <queries>, as Android 11 hides other apps.
+            "files" to (documentPicker("*/*").resolveActivity(packageManager) != null),
+            "images" to (imagePicker().resolveActivity(packageManager) != null),
+        )
     }
 
     private fun documentPicker(type: String) =
