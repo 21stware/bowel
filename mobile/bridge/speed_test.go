@@ -16,6 +16,7 @@ import (
 	"github.com/oboo/moho/internal/core"
 	"github.com/oboo/moho/internal/mihomo"
 	"github.com/oboo/moho/internal/routes"
+	"github.com/oboo/moho/internal/settings"
 	"github.com/oboo/moho/internal/speed"
 )
 
@@ -503,5 +504,52 @@ func TestSwitchNoteReadsTheRoutesTarget(t *testing.T) {
 	}
 	if n := moved(mihomo.Proxy{History: []mihomo.History{bad}, Extra: map[string]mihomo.URLTests{url: {History: []mihomo.History{bad}}}}); n == nil || n.route != r.ID {
 		t.Errorf("no note for a node that failed the route's target: %+v", n)
+	}
+}
+
+// The 测速 of a config in use runs its own node providers' checks too: its
+// row lists their nodes.
+func TestTestProviderRunsAnImportedConfigsOwnChecks(t *testing.T) {
+	x, f := speedBridge(t)
+	x.store.Vet = x.vetUpdate
+	ctx := context.Background()
+	_, base := serve(t, `proxies: []
+proxy-providers:
+  airport:
+    type: http
+    url: https://sub.example/nodes
+    interval: 3600
+proxy-groups:
+  - name: Auto
+    type: url-test
+    use: [airport]
+rules:
+  - MATCH,Auto
+`)
+	if err := x.addProvider(ctx, base+"/remote"); err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	for _, pv := range x.view().Providers {
+		if pv.Kind == "subscription" && pv.Routing != nil && pv.Routing.Remote == 1 {
+			id = pv.ID
+		}
+	}
+	if id == "" {
+		t.Fatal("the config was not added")
+	}
+	if _, err := x.set.Update(func(s *settings.Settings) { s.ImportedRouting = id }); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.sweeps = nil
+	f.mu.Unlock()
+	if err := x.testProvider(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !slices.Contains(f.sweeps, "airport") {
+		t.Errorf("sweeps %v, want the config's own airport", f.sweeps)
 	}
 }

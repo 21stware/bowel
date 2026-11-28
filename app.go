@@ -1664,19 +1664,15 @@ func (a *App) testRoute(ctx context.Context, routeID string) error {
 
 // testProvider tests, now, what a provider's row shows: each of its nodes
 // on the default route's main target, a few at a time, and their pings.
+// The row of a config in use lists its own subscriptions' nodes too, which
+// carry no marker of the source.
 func (a *App) testProvider(ctx context.Context, id string) error {
 	if _, err := a.core.Client(); err != nil {
 		return err
 	}
 	a.mu.Lock()
-	px := a.proxies
+	nodes := slices.Clone(a.provNodes[id])
 	a.mu.Unlock()
-	var nodes []string
-	for name := range px {
-		if providerOf(name) == id {
-			nodes = append(nodes, name)
-		}
-	}
 	if len(nodes) == 0 {
 		return errors.New(i18n.T("这个来源没有可测的节点", "This source has no nodes to test"))
 	}
@@ -1690,8 +1686,14 @@ func (a *App) testProvider(ctx context.Context, id string) error {
 	for i, n := range nodes {
 		list[i] = speed.Target{Node: n, URL: url}
 	}
+	var pinged []string // a ping needs the server, which only bowel's sources say
+	for _, n := range nodes {
+		if providerOf(n) != "" {
+			pinged = append(pinged, n)
+		}
+	}
 	var wg sync.WaitGroup
-	wg.Go(func() { a.pinger.Now(ctx, nodes) })
+	wg.Go(func() { a.pinger.Now(ctx, pinged) })
 	a.tests.Now(ctx, list)
 	wg.Wait()
 	a.readTests()
