@@ -166,6 +166,14 @@ class _BoardState extends State<Board> {
   Size _size = Size.zero;
   WindowForm _form = WindowForm.phone;
 
+  /// The card a remote's focus is on, drawn last so it grows over the others.
+  String? _lit;
+
+  void _setLit(String id, bool lit) {
+    final next = lit ? id : (_lit == id ? null : _lit);
+    if (next != _lit && mounted) setState(() => _lit = next);
+  }
+
   void _morph(VoidCallback change, {Map<String, String>? alias}) {
     final host = _host.currentState;
     if (host == null) {
@@ -201,19 +209,24 @@ class _BoardState extends State<Board> {
           key: _host,
           child: ColoredBox(
             color: app.twisted ? l.paper : l.hair,
-            child: Stack(
-              clipBehavior: Clip.hardEdge,
-              children: [
-                for (final id in boxes.keys)
-                  AnimatedPositioned.fromRect(
-                    key: ValueKey(id),
-                    rect: boxes[id]!,
-                    duration: const Duration(milliseconds: 560),
-                    curve: easeCard,
-                    child: _Cell(id: id, app: app, box: boxes[id]!, normalBox: normal[id]!, kind: app.x == null ? 'normal' : (app.x == id ? 'expanded' : 'compact')),
-                  ),
-                if (app.twisted) Positioned.fill(child: _Walls(boxes: boxes, color: Color.alphaBlend(l.hair, l.paper))),
-              ],
+            // A focused card grows past its edges: the board keeps it in a
+            // little way beyond its own, and draws it over its neighbours.
+            child: ClipRect(
+              clipper: const _Outset(16),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  for (final id in [...boxes.keys.where((k) => k != _lit), ?boxes.keys.where((k) => k == _lit).firstOrNull])
+                    AnimatedPositioned.fromRect(
+                      key: ValueKey(id),
+                      rect: boxes[id]!,
+                      duration: const Duration(milliseconds: 560),
+                      curve: easeCard,
+                      child: _Cell(id: id, app: app, box: boxes[id]!, normalBox: normal[id]!, kind: app.x == null ? 'normal' : (app.x == id ? 'expanded' : 'compact'), onLit: (v) => _setLit(id, v)),
+                    ),
+                  if (app.twisted) Positioned.fill(child: _Walls(boxes: boxes, color: Color.alphaBlend(l.hair, l.paper))),
+                ],
+              ),
             ),
           ),
         );
@@ -222,8 +235,21 @@ class _BoardState extends State<Board> {
   }
 }
 
+class _Outset extends CustomClipper<Rect> {
+  const _Outset(this.by);
+  final double by;
+
+  @override
+  Rect getClip(Size size) => (Offset.zero & size).inflate(by);
+
+  @override
+  bool shouldReclip(_Outset old) => old.by != by;
+}
+
 class _Cell extends StatefulWidget {
-  const _Cell({required this.id, required this.app, required this.box, required this.normalBox, required this.kind});
+  const _Cell({required this.id, required this.app, required this.box, required this.normalBox, required this.kind, this.onLit});
+
+  final ValueChanged<bool>? onLit;
 
   final String id, kind;
   final AppState app;
@@ -239,6 +265,9 @@ class _CellState extends State<_Cell> with TickerProviderStateMixin {
   String? _leaving;
   Size _leavingSize = Size.zero;
   bool _down = false;
+
+  /// A remote's focus is on this card.
+  bool _lit = false;
   Timer? _up;
   final _focus = FocusNode(debugLabel: 'cell');
 
@@ -357,7 +386,10 @@ class _CellState extends State<_Cell> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     final l = Skin.of(context);
     final expanded = widget.kind == 'expanded';
-    final bg = expanded ? l.sheet : (_down ? Color.lerp(l.paper, l.ink, .07)! : l.paper);
+    // A remote's focus lifts the card: lighter, rounded as a card, growing
+    // a little over its neighbours.
+    final lit = _lit && !expanded;
+    final bg = expanded ? l.sheet : (lit ? liftedSurface(l) : (_down ? Color.lerp(l.paper, l.ink, .07)! : l.paper));
     final onTap = _onTap;
     final look = l;
     final cell = GestureDetector(
@@ -367,8 +399,10 @@ class _CellState extends State<_Cell> with TickerProviderStateMixin {
       onTapCancel: () => _setDown(false),
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        color: bg,
+        duration: keyDriven ? focusMotion(context) : const Duration(milliseconds: 200),
+        curve: focusCurve,
+        decoration: BoxDecoration(color: bg, borderRadius: lit ? l.br(12) : BorderRadius.zero),
+        clipBehavior: Clip.antiAlias,
         child: ClipRect(
           child: CellMark(
             child: Stack(
@@ -386,7 +420,19 @@ class _CellState extends State<_Cell> with TickerProviderStateMixin {
     // Beside an opened card the others are squeezed, not a level of their own.
     return ExcludeFocus(
       excluding: widget.kind == 'compact',
-      child: FocusMark('cell:${widget.id}', child: KeyTarget(onActivate: expanded ? null : _key, radius: 0, focusNode: _focus, child: cell)),
+      child: FocusMark(
+        'cell:${widget.id}',
+        child: KeyTarget(
+          onActivate: expanded ? null : _key,
+          radius: 12,
+          focusNode: _focus,
+          onLit: (v) {
+            setState(() => _lit = v);
+            widget.onLit?.call(v);
+          },
+          child: cell,
+        ),
+      ),
     );
   }
 }

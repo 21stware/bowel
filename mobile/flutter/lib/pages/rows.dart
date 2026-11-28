@@ -28,7 +28,7 @@ Widget navRow(Look l, String a, String b, {String? sub, VoidCallback? onTap, Col
       ]),
     ),
   );
-  return onTap == null ? row : Tap(onTap: onTap, child: row);
+  return onTap == null ? row : Tap(onTap: onTap, bleed: 12, child: row);
 }
 
 Widget toggleRow(Look l, String a, bool on, VoidCallback onTap, {String? sub}) => hairBottom(

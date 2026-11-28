@@ -280,7 +280,7 @@ void main() {
     await _settle(tester);
     expect(app.x, 'hero');
     expect(FocusManager.instance.highlightMode, FocusHighlightMode.touch);
-    expect(find.byWidgetPredicate((w) => w is CustomPaint && w.foregroundPainter?.runtimeType.toString() == '_RingPainter'), findsNothing);
+    expect(find.byWidgetPredicate((w) => w is AnimatedScale && w.scale != 1), findsNothing);
 
     await tester.binding.handlePopRoute();
     await _settle(tester);
