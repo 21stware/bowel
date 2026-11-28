@@ -3,21 +3,55 @@ import 'package:flutter/widgets.dart';
 import '../app/i18n.dart';
 import '../app/state.dart';
 import '../ui/atoms.dart';
+import '../ui/focus.dart';
 import '../ui/skin.dart';
 import 'frame.dart';
 
 /// The scrim and panel of the sheet that's up. It's drawn inside the page
 /// area, because iOS's tab bar is a native view over all of Flutter.
-class SheetHost extends StatelessWidget {
+///
+/// A sheet is a level of its own for the D-pad: what's under it can't take
+/// focus, and when it goes, focus goes back to what opened it, even through
+/// a sheet that opened another.
+class SheetHost extends StatefulWidget {
   const SheetHost({super.key, required this.app});
   final AppState app;
 
   @override
+  State<SheetHost> createState() => _SheetHostState();
+}
+
+class _SheetHostState extends State<SheetHost> {
+  bool _up = false;
+  FocusNode? _opener;
+
+  void _track(bool up) {
+    if (up == _up) return;
+    _up = up;
+    if (up) {
+      final now = FocusManager.instance.primaryFocus;
+      _opener = now is FocusScopeNode ? null : now;
+      return;
+    }
+    final back = _opener;
+    _opener = null;
+    if (back == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (keyDriven && back.context != null && back.canRequestFocus) focusTo(back);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final app = widget.app;
     final build = app.sheet;
+    _track(build != null);
+    final now = build == null ? const ValueKey<Object>('none') : ValueKey<Object>(app.sheetId);
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 200),
-      child: build == null ? const SizedBox.shrink(key: ValueKey('none')) : _Panel(key: ValueKey(app.sheetId), app: app, child: Builder(builder: build)),
+      // a sheet on its way out is past pressing
+      transitionBuilder: (child, a) => FadeTransition(opacity: a, child: ExcludeFocus(excluding: child.key != now, child: child)),
+      child: build == null ? SizedBox.shrink(key: now) : _Panel(key: now, app: app, child: Builder(builder: build)),
     );
   }
 }
@@ -32,8 +66,10 @@ class _Panel extends StatelessWidget {
     final l = Skin.of(context);
     final f = Frame.of(context);
     final kb = MediaQuery.viewInsetsOf(context).bottom;
-    final bottom = f.nativeBar ? (kb > f.barInset ? kb + 6 : f.barReserve) : (kb > 0 ? kb + 6 : 8.0);
+    final safe = f.overscan;
+    final bottom = (f.nativeBar ? (kb > f.barInset ? kb + 6 : f.barReserve) : (kb > 0 ? kb + 6 : 8.0)) + (kb > 0 ? 0 : safe.bottom);
     return Stack(fit: StackFit.expand, children: [
+      // the scrim is for a finger; a remote's Back closes the sheet
       GestureDetector(onTap: app.closeSheet, child: const ColoredBox(color: Color(0x66000000))),
       Align(
         alignment: Alignment.bottomCenter,
@@ -43,13 +79,14 @@ class _Panel extends StatelessWidget {
           curve: easeCard,
           builder: (context, dy, child) => Transform.translate(offset: Offset(0, dy), child: child),
           child: Padding(
-            padding: EdgeInsets.fromLTRB(8, 40, 8, bottom),
+            padding: EdgeInsets.fromLTRB(8 + safe.left, 40 + safe.top, 8 + safe.right, bottom),
             child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: f.form == WindowForm.phone ? double.infinity : 520, maxHeight: (MediaQuery.sizeOf(context).height - f.top - bottom - 60) * .86),
+              constraints: BoxConstraints(maxWidth: f.form == WindowForm.phone ? double.infinity : 520, maxHeight: (MediaQuery.sizeOf(context).height - f.top - safe.top - bottom - 60) * .86),
               child: Container(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
                 decoration: BoxDecoration(color: l.card, borderRadius: l.br(18), border: Border.all(color: l.hair)),
-                child: child,
+                // focus starts on the option in use, where a sheet marks one
+                child: FocusLevel(initial: 'picked', child: child),
               ),
             ),
           ),
@@ -101,7 +138,7 @@ class _PickListState<T> extends State<_PickList<T>> {
       Flexible(
         child: ListView(shrinkWrap: true, padding: EdgeInsets.zero, keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, children: [
           for (final o in shown)
-            Tap(
+            FocusMark(o.value == widget.value ? 'picked' : '', child: Tap(
               onTap: () {
                 widget.app.closeSheet();
                 widget.onPick(o.value);
@@ -121,7 +158,7 @@ class _PickListState<T> extends State<_PickList<T>> {
                   if (o.value == widget.value) Ic('check', size: 18, color: l.ink),
                 ]),
               ),
-            ),
+            )),
         ]),
       ),
       if (widget.search) ...[const SizedBox(height: 8), SearchField(hint: tr('搜索', 'Search'), onChanged: (v) => setState(() => _q = v))],

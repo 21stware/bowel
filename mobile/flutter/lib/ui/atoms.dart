@@ -1,9 +1,12 @@
+import 'dart:async' show Timer;
+
 import 'package:flutter/material.dart' hide Chip;
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../app/i18n.dart';
 import '../app/sample.dart';
 import 'flags.dart';
+import 'focus.dart';
 import 'logo_path.dart';
 import 'skin.dart';
 import 'skin_data.dart';
@@ -99,9 +102,10 @@ class FlagDot extends StatelessWidget {
   }
 }
 
-/// Dims under the finger. Everything tappable goes through this.
+/// Dims under the finger. Everything tappable goes through this, and so it
+/// is also what a remote's D-pad lands on and OK presses.
 class Tap extends StatefulWidget {
-  const Tap({super.key, required this.onTap, required this.child, this.pressedColor, this.label});
+  const Tap({super.key, required this.onTap, required this.child, this.pressedColor, this.label, this.radius = 10, this.focusNode});
 
   final VoidCallback? onTap;
   final Widget child;
@@ -110,15 +114,36 @@ class Tap extends StatefulWidget {
   /// When set, the press tints this widget's background instead of dimming it.
   final Color? pressedColor;
 
+  /// The corners of the focus ring, to match the child's.
+  final double radius;
+  final FocusNode? focusNode;
+
   @override
   State<Tap> createState() => _TapState();
 }
 
 class _TapState extends State<Tap> {
   bool _down = false;
+  Timer? _up;
 
   void _set(bool v) {
     if (_down != v && mounted) setState(() => _down = v);
+  }
+
+  /// OK on a remote: the dim a finger gives, for a moment.
+  void _key() {
+    final f = widget.onTap;
+    if (f == null) return;
+    _set(true);
+    _up?.cancel();
+    _up = Timer(const Duration(milliseconds: 120), () => _set(false));
+    f();
+  }
+
+  @override
+  void dispose() {
+    _up?.cancel();
+    super.dispose();
   }
 
   @override
@@ -127,15 +152,20 @@ class _TapState extends State<Tap> {
     return Semantics(
       button: true,
       label: widget.label,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: widget.onTap == null ? null : (_) => _set(true),
-        onTapCancel: () => _set(false),
-        onTapUp: (_) => _set(false),
-        onTap: widget.onTap,
-        child: tinted
-            ? ColoredBox(color: _down ? widget.pressedColor! : const Color(0x00000000), child: widget.child)
-            : AnimatedOpacity(opacity: _down ? .55 : 1, duration: Duration(milliseconds: _down ? 40 : 160), child: widget.child),
+      child: KeyTarget(
+        onActivate: widget.onTap == null ? null : _key,
+        radius: widget.radius,
+        focusNode: widget.focusNode,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: widget.onTap == null ? null : (_) => _set(true),
+          onTapCancel: () => _set(false),
+          onTapUp: (_) => _set(false),
+          onTap: widget.onTap,
+          child: tinted
+              ? ColoredBox(color: _down ? widget.pressedColor! : const Color(0x00000000), child: widget.child)
+              : AnimatedOpacity(opacity: _down ? .55 : 1, duration: Duration(milliseconds: _down ? 40 : 160), child: widget.child),
+        ),
       ),
     );
   }
@@ -210,7 +240,11 @@ class Toggle extends StatelessWidget {
     return Semantics(
       toggled: on,
       label: label,
-      child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap, child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 44), child: Center(widthFactor: 1, child: body))),
+      child: KeyTarget(
+        onActivate: onTap,
+        radius: 17,
+        child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap, child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 44), child: Center(widthFactor: 1, child: body))),
+      ),
     );
   }
 }
@@ -235,6 +269,7 @@ class Seg<T> extends StatelessWidget {
           for (final (i, o) in options.indexed) ...[
             if (i > 0) const SizedBox(width: 2),
             Tap(
+              radius: 8,
               onTap: () => onChanged(o.$1),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 160),
@@ -273,6 +308,7 @@ class Chip extends StatelessWidget {
     final c = on ? l.paper : l.ink2;
     return Tap(
       onTap: onTap,
+      radius: 18,
       child: Container(
         constraints: const BoxConstraints(minHeight: 36),
         padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -314,6 +350,7 @@ class Btn extends StatelessWidget {
     };
     return Tap(
       onTap: onTap,
+      radius: 20,
       child: Container(
         width: expand ? double.infinity : null,
         constraints: BoxConstraints(minHeight: minH),
@@ -354,6 +391,7 @@ class IconBox extends StatelessWidget {
     return Tap(
       onTap: onTap,
       label: label,
+      radius: 12,
       child: Container(width: 44, height: 44, alignment: Alignment.center, decoration: BoxDecoration(color: on ? l.accent : l.paper2, borderRadius: l.br(12)), child: g),
     );
   }
@@ -613,7 +651,10 @@ class BareField extends StatefulWidget {
 
 class _BareFieldState extends State<BareField> {
   late final _own = TextEditingController();
-  final _focus = FocusNode();
+
+  /// A D-pad passes over the field rather than into it, which would bring up
+  /// the keyboard on the way: it stops on the field's box, and OK opens it.
+  final _focus = FocusNode(skipTraversal: true);
   TextEditingController get _c => widget.controller ?? _own;
 
   @override
@@ -646,30 +687,34 @@ class _BareFieldState extends State<BareField> {
     return Semantics(
       textField: true,
       label: widget.label ?? widget.hint,
-      child: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onTap: _focus.requestFocus,
-        child: Stack(alignment: widget.maxLines == 1 ? Alignment.centerLeft : Alignment.topLeft, children: [
-          if (_c.text.isEmpty) IgnorePointer(child: Line1(widget.hint, style.copyWith(color: l.mute, shadows: const []))),
-          // A TextField for the system's paste menu; links are never typed.
-          // Suggestions stay on except for secrets: on Android, turning them
-          // off marks the field as a visible password, and some keyboards
-          // then switch to their secure mode.
-          TextField(
-            controller: _c,
-            focusNode: _focus,
-            style: style,
-            decoration: const InputDecoration.collapsed(hintText: ''),
-            cursorColor: l.accent,
-            maxLines: widget.maxLines,
-            keyboardType: widget.keyboardType,
-            autocorrect: false,
-            enableSuggestions: widget.keyboardType != TextInputType.visiblePassword,
-            onChanged: widget.onChanged,
-            onSubmitted: widget.onSubmitted,
-            keyboardAppearance: l.isDark ? Brightness.dark : Brightness.light,
-          ),
-        ]),
+      child: KeyTarget(
+        onActivate: _focus.requestFocus,
+        radius: 8,
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: _focus.requestFocus,
+          child: Stack(alignment: widget.maxLines == 1 ? Alignment.centerLeft : Alignment.topLeft, children: [
+            if (_c.text.isEmpty) IgnorePointer(child: Line1(widget.hint, style.copyWith(color: l.mute, shadows: const []))),
+            // A TextField for the system's paste menu; links are never typed.
+            // Suggestions stay on except for secrets: on Android, turning them
+            // off marks the field as a visible password, and some keyboards
+            // then switch to their secure mode.
+            TextField(
+              controller: _c,
+              focusNode: _focus,
+              style: style,
+              decoration: const InputDecoration.collapsed(hintText: ''),
+              cursorColor: l.accent,
+              maxLines: widget.maxLines,
+              keyboardType: widget.keyboardType,
+              autocorrect: false,
+              enableSuggestions: widget.keyboardType != TextInputType.visiblePassword,
+              onChanged: widget.onChanged,
+              onSubmitted: widget.onSubmitted,
+              keyboardAppearance: l.isDark ? Brightness.dark : Brightness.light,
+            ),
+          ]),
+        ),
       ),
     );
   }
