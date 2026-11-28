@@ -9,6 +9,7 @@ import '../app/state.dart';
 import '../ui/atoms.dart';
 import '../ui/skin.dart';
 import 'frame.dart';
+import 'receive.dart';
 import 'sheet.dart';
 
 const _open = Duration(milliseconds: 300);
@@ -83,12 +84,15 @@ class _ProvidersPageState extends State<ProvidersPage> {
       square('scan', tr('扫描二维码', 'Scan QR code'), app.scanLink),
       const SizedBox(width: 8),
       square('more', tr('更多添加方式', 'More ways to add'), () => pickSheet<String>(app, tr('添加或更新', 'Add or update'), [
+            PickOption('phone', tr('从手机发送链接', 'Send a link from a phone'), sub: tr('手机扫码后粘贴，不用在这里输入', 'Paste it on a phone instead of typing it here')),
             PickOption('file', tr('选择 YAML 文件', 'Choose a YAML file')),
             PickOption('image', tr('从相册识别二维码', 'Read a QR code from Photos')),
             PickOption('paste', tr('粘贴剪贴板里的链接', 'Paste link from clipboard')),
             PickOption('all', tr('更新全部订阅', 'Update all subscriptions')),
           ], (v) {
             switch (v) {
+              case 'phone':
+                receiveSheet(app);
               case 'file':
                 app.addFile();
               case 'image':
@@ -153,7 +157,7 @@ void _share(AppState app, ProviderInfo p) async {
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(color: const Color(0xFFFFFFFF), borderRadius: l.br(12)),
-            child: SizedBox(width: 216, height: 216, child: CustomPaint(painter: _QR(rows))),
+            child: SizedBox(width: 216, height: 216, child: CustomPaint(painter: QRPainter(rows))),
           ),
         )
       else
@@ -166,25 +170,6 @@ void _share(AppState app, ProviderInfo p) async {
       }),
     ]);
   });
-}
-
-class _QR extends CustomPainter {
-  const _QR(this.rows);
-  final List<String> rows;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cell = size.width / rows.length;
-    final p = Paint()..color = const Color(0xFF000000);
-    for (final (y, row) in rows.indexed) {
-      for (var x = 0; x < row.length; x++) {
-        if (row.codeUnitAt(x) == 0x31) canvas.drawRect(Rect.fromLTWH(x * cell, y * cell, cell + .5, cell + .5), p);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_QR old) => !identical(old.rows, rows);
 }
 
 void _more(AppState app, ProviderInfo p) {

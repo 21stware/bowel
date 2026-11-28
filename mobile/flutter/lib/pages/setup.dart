@@ -8,6 +8,8 @@ import '../app/state.dart';
 import '../ui/atoms.dart';
 import '../ui/skin.dart';
 import 'frame.dart';
+import 'receive.dart';
+import 'sheet.dart';
 
 class SetupPage extends StatelessWidget {
   const SetupPage({super.key, required this.app});
@@ -43,7 +45,13 @@ class SetupPage extends StatelessWidget {
           child: BareField(hint: 'https://…  vmess://…  trojan://…', label: tr('订阅或节点链接', 'Subscription or node link'), controller: app.setupField, onChanged: (v) => app.setupLink = v, maxLines: null, keyboardType: TextInputType.multiline),
         ),
         const SizedBox(height: 10),
-        Row(children: [half(tr('扫描二维码', 'Scan QR code'), 'scan', app.scanLink), const SizedBox(width: 8), half(tr('选择文件', 'Choose file'), 'file', app.addFile)]),
+        LayoutBuilder(builder: (context, c) {
+          final two = [half(tr('扫描二维码', 'Scan QR code'), 'scan', app.scanLink), const SizedBox(width: 8), half(tr('选择文件', 'Choose file'), 'file', app.addFile)];
+          final phone = Btn(tr('从手机发送链接', 'Send a link from a phone'), expand: true, onTap: () => receiveSheet(app));
+          // One row where it's wide, as on a TV, whose screen is short.
+          if (c.maxWidth >= 600) return Row(children: [...two, const SizedBox(width: 8), Expanded(child: phone)]);
+          return Column(children: [Row(children: two), const SizedBox(height: 8), phone]);
+        }),
         if (app.setupError != null) ...[
           const SizedBox(height: 10),
           Text(app.setupError!, style: l.text(13.5, color: l.signalT, lh: 19)),
@@ -79,11 +87,22 @@ class SetupPage extends StatelessWidget {
         big(tr('先跳过', 'Skip for now'), BtnKind.plain, () => app.finishSetup(take: false)),
       ];
     }
-    return Padding(
-      padding: EdgeInsets.fromLTRB(20, f.top + 26, 20, bottom),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (kb == 0) ...const [LogoTile(size: 48), SizedBox(height: 20)],
-        ...body,
+    // The tabs, which hold the other sheets, aren't up yet: this page has
+    // its own, for the receive sheet, and Back closes it.
+    return PopScope(
+      canPop: app.sheet == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) app.closeSheet();
+      },
+      child: Stack(fit: StackFit.expand, children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(20, f.top + 26, 20, bottom),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (kb == 0) ...const [LogoTile(size: 48), SizedBox(height: 20)],
+            ...body,
+          ]),
+        ),
+        SheetHost(app: app),
       ]),
     );
   }
