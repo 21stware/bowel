@@ -80,6 +80,7 @@ The same pages are on the website, at https://bowel.dev/en/docs/ (Chinese: https
 - [Install and get started](https://raw.githubusercontent.com/21stware/bowel/main/docs/guide/install.md): installing on each system, adding a provider, turning on takeover, what each platform has
 - [Route groups and nodes](https://raw.githubusercontent.com/21stware/bowel/main/docs/guide/routes.md): the built-in groups, node strategies, test sites and why a node shows Denied, the download test, setting groups up without the window, rules and routing by app
 - [Takeover, TUN and the exit lock](https://raw.githubusercontent.com/21stware/bowel/main/docs/guide/takeover.md): system proxy or TUN, what TUN asks for on each system, what the exit lock holds
+- [Tailscale and Headscale](https://raw.githubusercontent.com/21stware/bowel/main/docs/guide/headscale.md): what stays off the proxy beside a tailnet, and Android's built-in Tailscale node on a self-hosted Headscale (control server, MagicDNS domain, auth key)
 - [Questions](https://raw.githubusercontent.com/21stware/bowel/main/docs/guide/faq.md): moving from another Clash client, protocols, data, the license
 
 ## Command line

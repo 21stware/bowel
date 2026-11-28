@@ -9,6 +9,7 @@ bowel 是 macOS、Windows、Linux 和 Android 上的 [mihomo](https://github.com
 - [安装与开始使用](install.zh-CN.md)：各系统的安装方法、添加提供商、打开接管，以及各平台有哪些功能
 - [路由组与节点](routes.zh-CN.md)：内置的路由组、手动或按速度选节点、测速站点、测下载、规则
 - [接管、TUN 与出口锁定](takeover.zh-CN.md)：系统代理和 TUN、各系统上 TUN 要的授权、锁定一个路由组的出口
+- [Tailscale 与 Headscale](headscale.zh-CN.md)：电脑上和 tailnet 一起用、Android 内置的 Tailscale 节点接自建的 Headscale
 - [常见问题](faq.zh-CN.md)：从别的 Clash 客户端换过来、支持的协议、数据、许可证
 
 ## 参考

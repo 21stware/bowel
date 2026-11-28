@@ -39,6 +39,7 @@ PAGES = [
     ("install", "docs/guide/install", "guide"),
     ("routes", "docs/guide/routes", "guide"),
     ("takeover", "docs/guide/takeover", "guide"),
+    ("headscale", "docs/guide/headscale", "guide"),
     ("faq", "docs/guide/faq", "guide"),
     ("cli", "docs/cli", "reference"),
     ("gateway", "docs/gateway", "reference"),
