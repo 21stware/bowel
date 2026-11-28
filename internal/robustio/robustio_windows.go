@@ -1,6 +1,6 @@
 //go:build windows
 
-package provider
+package robustio
 
 import (
 	"errors"
@@ -10,12 +10,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// On Windows a file can't be replaced or removed while another program has
-// it open, and the core opens a provider's file each time it loads it: a
-// rename onto the file fails with ERROR_ACCESS_DENIED, a remove with
-// ERROR_SHARING_VIOLATION, until the core lets go, which is soon. So both
-// are tried again for a while, as cmd/go's robustio does.
-const busyFor = 2 * time.Second
+// busyFor is how long a refused rename or remove is tried again.
+var busyFor = 2 * time.Second
 
 func whileBusy(f func() error) error {
 	end := time.Now().Add(busyFor)
@@ -29,11 +25,12 @@ func whileBusy(f func() error) error {
 	}
 }
 
-// replaceFile puts tmp in path's place.
-func replaceFile(tmp, path string) error {
+// Rename puts tmp in path's place.
+func Rename(tmp, path string) error {
 	return whileBusy(func() error { return os.Rename(tmp, path) })
 }
 
-func removeFile(path string) error {
+// Remove removes path.
+func Remove(path string) error {
 	return whileBusy(func() error { return os.Remove(path) })
 }
