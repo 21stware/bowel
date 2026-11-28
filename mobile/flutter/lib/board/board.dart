@@ -269,7 +269,7 @@ class _CellState extends State<_Cell> with TickerProviderStateMixin {
   /// A remote's focus is on this card.
   bool _lit = false;
   Timer? _up;
-  final _focus = FocusNode(debugLabel: 'cell');
+  final _focus = KeyNode(debugLabel: 'cell');
 
   Size _sizeFor(_Cell w, String kind) => kind == 'normal' ? w.normalBox.size : w.box.size;
 

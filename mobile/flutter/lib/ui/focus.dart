@@ -122,6 +122,18 @@ class _Lit extends InheritedWidget {
   bool updateShouldNotify(_Lit old) => old.lit != lit;
 }
 
+/// The node to hand a [KeyTarget] that something else focuses by hand: a
+/// card, a tab. On each rebuild Flutter's [Focus] writes the node's
+/// skipTraversal back into it as read through its ancestors, so a target
+/// rebuilt while its page is hidden (a card's speed ticking under another
+/// tab) would be passed over by the D-pad for good. This one never skips.
+class KeyNode extends FocusNode {
+  KeyNode({super.debugLabel});
+
+  @override
+  set skipTraversal(bool value) => super.skipTraversal = false;
+}
+
 /// Something OK presses. A finger still goes through the [child]'s own
 /// gesture detector; this only adds the focus, its look and the key.
 class KeyTarget extends StatefulWidget {
@@ -338,10 +350,10 @@ class FocusLevel extends StatefulWidget {
   final Object? entry;
 
   @override
-  State<FocusLevel> createState() => _FocusLevelState();
+  State<FocusLevel> createState() => FocusLevelState();
 }
 
-class _FocusLevelState extends State<FocusLevel> {
+class FocusLevelState extends State<FocusLevel> {
   final _node = FocusNode(debugLabel: 'level', skipTraversal: true, canRequestFocus: false);
   FocusNode? _from, _last;
 
@@ -352,13 +364,13 @@ class _FocusLevelState extends State<FocusLevel> {
   }
 
   @override
-  void didUpdateWidget(FocusLevel old) {
-    super.didUpdateWidget(old);
-    if (widget.active && !old.active) {
+  void didUpdateWidget(FocusLevel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) {
       _enter();
-    } else if (!widget.active && old.active) {
+    } else if (!widget.active && oldWidget.active) {
       _leave();
-    } else if (widget.active && widget.entry != old.entry) {
+    } else if (widget.active && widget.entry != oldWidget.entry) {
       _last = null;
       _enter(force: true);
     }
@@ -436,6 +448,16 @@ class _FocusLevelState extends State<FocusLevel> {
     final all = _targets;
     if (all.isEmpty) return null;
     return _marked() ?? ReadingOrderTraversalPolicy().sortDescendants(all, _node).first;
+  }
+
+  /// Focuses the level's marked target, else its first: where Down from the
+  /// tabs lands on a page. False when the level is shut or has none.
+  bool focusFirst() {
+    if (!mounted || !widget.active || widget.covered) return false;
+    final all = _targets;
+    if (all.isEmpty) return false;
+    focusTo(_marked() ?? ReadingOrderTraversalPolicy().sortDescendants(all, _node).first);
+    return true;
   }
 
   @override
