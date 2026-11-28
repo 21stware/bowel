@@ -1750,8 +1750,7 @@ class _SetSheetState extends State<_SetSheet> {
       ),
       const SizedBox(height: 10),
       Row(children: [
-        Btn(tr('选择文件', 'Choose file'), minH: 44, onTap: _busy ? null : _pickFile),
-        const SizedBox(width: 8),
+        if (Shell.instance.files) ...[Btn(tr('选择文件', 'Choose file'), minH: 44, onTap: _busy ? null : _pickFile), const SizedBox(width: 8)],
         Expanded(child: Opacity(opacity: _ready ? 1 : .4, child: Btn(tr('导入', 'Import'), kind: BtnKind.accent, expand: true, minH: 44, onTap: _ready ? _save : null))),
       ]),
     ]);

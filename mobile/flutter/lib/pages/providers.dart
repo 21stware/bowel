@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 
 import '../app/i18n.dart';
 import '../app/sample.dart';
+import '../app/shell.dart';
 import '../app/shown.dart';
 import '../app/state.dart';
 import '../ui/atoms.dart';
@@ -78,16 +79,20 @@ class _ProvidersPageState extends State<ProvidersPage> {
           label: label,
           child: Container(width: 46, height: 44, alignment: Alignment.center, decoration: BoxDecoration(color: l.paper2, borderRadius: l.br(11)), child: Ic(icon, color: l.ink2)),
         );
+    // Only what this device can do. On a TV sending from a phone is the way
+    // to add, so it sits in the bar, and the clipboard, which a TV hardly
+    // has, isn't offered.
+    final dev = Shell.instance;
     return Row(children: [
       Expanded(child: SearchField(key: const ValueKey('add'), controller: app.providerField, hint: tr('粘贴订阅链接或节点链接', 'Paste a subscription or node link'), label: tr('添加 Provider', 'Add Provider'), icon: false, onSubmitted: app.addProvider)),
-      const SizedBox(width: 8),
-      square('scan', tr('扫描二维码', 'Scan QR code'), app.scanLink),
+      if (dev.tv) ...[const SizedBox(width: 8), Btn(tr('从手机发送链接', 'Send a link from a phone'), kind: BtnKind.outline, minH: 44, padH: 13, fontSize: 13.5, onTap: () => receiveSheet(app))],
+      if (dev.camera) ...[const SizedBox(width: 8), square('scan', tr('扫描二维码', 'Scan QR code'), app.scanLink)],
       const SizedBox(width: 8),
       square('more', tr('更多添加方式', 'More ways to add'), () => pickSheet<String>(app, tr('添加或更新', 'Add or update'), [
-            PickOption('phone', tr('从手机发送链接', 'Send a link from a phone'), sub: tr('手机扫码后粘贴，不用在这里输入', 'Paste it on a phone instead of typing it here')),
-            PickOption('file', tr('选择 YAML 文件', 'Choose a YAML file')),
-            PickOption('image', tr('从相册识别二维码', 'Read a QR code from Photos')),
-            PickOption('paste', tr('粘贴剪贴板里的链接', 'Paste link from clipboard')),
+            if (!dev.tv) PickOption('phone', tr('从手机发送链接', 'Send a link from a phone'), sub: tr('手机扫码后粘贴，不用在这里输入', 'Paste it on a phone instead of typing it here')),
+            if (dev.files) PickOption('file', tr('选择 YAML 文件', 'Choose a YAML file')),
+            if (dev.images) PickOption('image', tr('从相册识别二维码', 'Read a QR code from Photos')),
+            if (!dev.tv) PickOption('paste', tr('粘贴剪贴板里的链接', 'Paste link from clipboard')),
             PickOption('all', tr('更新全部订阅', 'Update all subscriptions')),
           ], (v) {
             switch (v) {
